@@ -24,10 +24,10 @@ export function Sidebar() {
   const navItems = [
     { id: "chat", icon: Users, label: "Chat" },
     { id: "contacts", icon: Contact, label: "Base de Clientes" },
-    { id: "settings", icon: Settings, label: "Ajustes" },
   ];
 
   const decorativeItems = [
+    { id: "settings", icon: Settings, label: "Ajustes", isAvailable: true },
     { icon: Clock, label: "Histórico" },
     { icon: ClipboardCheck, label: "Tarefas" },
     { icon: Eye, label: "Monitorar" },
@@ -135,6 +135,32 @@ export function Sidebar() {
           {/* Decorative / Future Navigation Items */}
           {decorativeItems.map((item, index) => {
             const Icon = item.icon;
+            if (item.isAvailable) {
+              const isActive = activeView === item.id;
+              return (
+                <button
+                  key={index}
+                  onClick={() => setActiveView(item.id as "chat" | "contacts" | "settings")}
+                  aria-label={item.label}
+                  className={`relative grid h-11 w-11 place-items-center rounded-2xl transition-all duration-150 cursor-pointer group ${
+                    isActive
+                      ? "bg-primary-soft text-primary font-semibold"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                  title={item.label}
+                >
+                  {isActive && (
+                    <span className="absolute -left-6 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r bg-primary" />
+                  )}
+                  <Icon className="h-5 w-5" strokeWidth={isActive ? 2.25 : 1.75} />
+                  {/* Floating tooltip */}
+                  <span className="absolute left-14 scale-0 rounded bg-foreground px-2 py-1 text-xs text-background group-hover:scale-100 transition-all duration-100 whitespace-nowrap">
+                    {item.label}
+                  </span>
+                </button>
+              );
+            }
+
             return (
               <button
                 key={index}
