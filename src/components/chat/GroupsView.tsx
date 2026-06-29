@@ -18,7 +18,8 @@ import {
   UserCheck,
   Building2,
   Lock,
-  Edit
+  Edit,
+  ChevronDown
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -182,7 +183,7 @@ export function GroupsView() {
       </header>
 
       {/* Simulator Section */}
-      <div className="mb-6 rounded-2xl bg-gradient-to-r from-primary to-orange-500 p-5 text-white shadow-soft relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="mb-6 rounded-2xl bg-primary p-5 text-white shadow-soft relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="absolute right-0 top-0 h-32 w-32 translate-x-8 -translate-y-8 rounded-full bg-white/10 blur-xl" />
         <div className="relative flex items-center gap-3">
           <div className="grid h-12 w-12 place-items-center rounded-xl bg-white/20 text-white">
@@ -199,20 +200,25 @@ export function GroupsView() {
           <label className="text-xs font-extrabold uppercase tracking-wide whitespace-nowrap pl-1">
             Operador Ativo:
           </label>
-          <select
-            value={currentOperatorId}
-            onChange={(e) => impersonateOperator(e.target.value)}
-            className="bg-card text-foreground rounded-lg px-3 py-1.5 text-xs font-bold outline-none border border-transparent focus:border-white/30"
-          >
-            {operators.map((op) => {
-              const group = accessGroups.find(g => g.id === op.groupId);
-              return (
-                <option key={op.id} value={op.id} className="text-foreground font-semibold">
-                  {op.name} ({group?.name || "Sem Grupo"})
-                </option>
-              );
-            })}
-          </select>
+          <div className="relative flex items-center">
+            <select
+              value={currentOperatorId}
+              onChange={(e) => impersonateOperator(e.target.value)}
+              className="appearance-none bg-card text-foreground rounded-lg pl-3 pr-8 py-1.5 text-xs font-bold outline-none border border-transparent focus:border-white/30 cursor-pointer select-none"
+            >
+              {operators.map((op) => {
+                const group = accessGroups.find(g => g.id === op.groupId);
+                return (
+                  <option key={op.id} value={op.id} className="text-foreground font-semibold">
+                    {op.name} ({group?.name || "Sem Grupo"})
+                  </option>
+                );
+              })}
+            </select>
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-foreground/75">
+              <ChevronDown className="h-3 w-3" />
+            </span>
+          </div>
         </div>
       </div>
 
@@ -304,15 +310,20 @@ export function GroupsView() {
               <div className="space-y-1 flex flex-col justify-between">
                 <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">Grupo de Acesso</label>
                 <div className="flex gap-2">
-                  <select
-                    value={opForm.groupId}
-                    onChange={(e) => setOpForm({ ...opForm, groupId: e.target.value })}
-                    className="h-10 flex-1 rounded-xl bg-muted px-3 text-xs text-foreground outline-none border border-transparent focus:ring-1 focus:ring-primary"
-                  >
-                    {accessGroups.map(g => (
-                      <option key={g.id} value={g.id}>{g.name}</option>
-                    ))}
-                  </select>
+                  <div className="relative flex-1 flex items-center">
+                    <select
+                      value={opForm.groupId}
+                      onChange={(e) => setOpForm({ ...opForm, groupId: e.target.value })}
+                      className="appearance-none h-10 w-full rounded-xl bg-muted pl-3.5 pr-10 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent cursor-pointer select-none"
+                    >
+                      {accessGroups.map(g => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                      <ChevronDown className="h-4 w-4" />
+                    </span>
+                  </div>
                   <button
                     type="submit"
                     className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0"
