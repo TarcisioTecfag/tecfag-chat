@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import {
   Conversation,
   Channel,
@@ -101,6 +102,11 @@ type ChatContextType = {
   setBaileysConfig: React.Dispatch<React.SetStateAction<BaileysConfig>>;
   disconnectBaileys: () => void;
   connectBaileys: () => void;
+
+  // Authentication
+  isAuthenticated: boolean;
+  login: (email: string, passwordHash: string) => Promise<boolean>;
+  logout: () => void;
 };
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -197,11 +203,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [currentOperatorId, setCurrentOperatorId] = useState<string>("op-1");
   const [isClient, setIsClient] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
   // Restaurar dados do localStorage após a montagem do componente no cliente (evita Hydration Mismatch)
   useEffect(() => {
     setIsClient(true);
     if (typeof window !== "undefined") {
+      const savedAuth = localStorage.getItem("chat_is_authenticated");
+      if (savedAuth === "true") {
+        setIsAuthenticated(true);
+      }
+
       const savedTenant = localStorage.getItem("chat_tenant");
       if (savedTenant === "valem" || savedTenant === "tecfag") {
         setTenantState(savedTenant as any);
@@ -326,13 +338,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             id: currentOperatorId,
-            tenantId: targetOp.tenantId || tenant,
+            tenantId: (targetOp as any).tenantId || tenant,
             name: fields.name ?? targetOp.name,
             email: fields.email ?? targetOp.email,
             avatar: fields.avatar ?? targetOp.avatar,
             status: fields.status ?? targetOp.status,
             passwordHash: targetOp.passwordHash,
-            role: targetOp.role,
+            role: (targetOp as any).role,
             groupId: targetOp.groupId,
           }),
         });
@@ -575,14 +587,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentChat.channel === "whatsapp" &&
       !isInternalNote;
 
+    console.log("[SendMessage Frontend] Diagnóstico de envio:", {
+      tenant,
+      channel: currentChat.channel,
+      isInternalNote,
+      phone: currentChat.phone,
+      selectedChatId,
+      shouldSendReal,
+    });
+
     if (shouldSendReal && currentChat.phone) {
+      let targetPhone = currentChat.phone.replace(/\D/g, "");
+      // Adiciona o DDI 55 (Brasil) caso tenha sido salvo apenas com o DDD e número (10 ou 11 dígitos)
+      if (targetPhone.length === 10 || targetPhone.length === 11) {
+        targetPhone = `55${targetPhone}`;
+      }
+
       try {
         const response = await fetch(`${BACKEND_URL}/api/baileys/send`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tenantId: "valem",
-            phone: currentChat.phone,
+            phone: targetPhone,
             text,
             conversationId: selectedChatId,
           }),
@@ -959,6 +986,48 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  const login = async (email: string, passwordHash: string): Promise<boolean> => {
+    const matchedOp = operators.find(
+      (op) => op.email.toLowerCase() === email.toLowerCase() && op.passwordHash === passwordHash
+    );
+    if (matchedOp) {
+      setCurrentOperatorId(matchedOp.id);
+      setIsAuthenticated(true);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("chat_is_authenticated", "true");
+          localStorage.setItem("rbac_current_operator_id", matchedOp.id);
+          
+          // Sincronizar o tenant ativo com base no grupo de acesso do operador
+          const opGroup = accessGroups.find((g) => g.id === matchedOp.groupId);
+          if (opGroup) {
+            const firstAllowed = opGroup.allowedTenants[0];
+            if (firstAllowed) {
+              setTenantState(firstAllowed);
+              localStorage.setItem("chat_tenant", firstAllowed);
+              document.title = firstAllowed === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+            }
+          }
+        } catch (e) {
+          console.error("Erro ao salvar dados de autenticação:", e);
+        }
+      }
+      return true;
+    }
+    return false;
+  };
+
+  const logout = () => {
+    setIsAuthenticated(false);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("chat_is_authenticated");
+      } catch (e) {
+        console.error("Erro ao limpar dados de autenticação:", e);
+      }
+    }
+  };
+
   return (
     <ChatContext.Provider
       value={{
@@ -1010,6 +1079,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setBaileysConfig,
         disconnectBaileys,
         connectBaileys,
+
+        isAuthenticated,
+        login,
+        logout,
       }}
     >
       {children}

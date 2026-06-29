@@ -28,6 +28,13 @@ export const Route = createFileRoute("/api/baileys/send")({
           const body = await request.json();
           const { tenantId, phone, text, conversationId } = body;
 
+          console.log("[Baileys Send Route] Parâmetros recebidos no backend:", {
+            tenantId,
+            phone,
+            text,
+            conversationId,
+          });
+
           if (!tenantId || !phone || !text) {
             return new Response(JSON.stringify({ error: "tenantId, phone e text são obrigatórios" }), {
               status: 400,
