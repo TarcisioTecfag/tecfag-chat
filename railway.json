@@ -1,7 +1,7 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "npx drizzle-kit push && node .output/server/index.mjs",
+    "startCommand": "npx drizzle-kit push && npm run db:seed && node .output/server/index.mjs",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
