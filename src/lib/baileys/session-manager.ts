@@ -1,0 +1,338 @@
+import makeWASocket, { 
+  DisconnectReason, 
+  WASocket, 
+  initAuthCreds
+} from "@whiskeysockets/baileys";
+import pino from "pino";
+import { useDrizzleAuthState } from "./drizzle-auth";
+import { db } from "../../db";
+import { channelConfigs, contacts, conversations, messages } from "../../db/schema";
+import { eq } from "drizzle-orm";
+
+export type SessionStatus = "disconnected" | "qr_ready" | "connected";
+
+export type SessionEvent =
+  | { type: "qr"; qr: string }
+  | { type: "status"; status: SessionStatus; phone?: string }
+  | { type: "message"; message: any };
+
+export type SessionListener = (event: SessionEvent) => void;
+
+export class SessionManager {
+  private static instance: SessionManager;
+  private sessions = new Map<string, WASocket>();
+  private sessionStatuses = new Map<string, SessionStatus>();
+  private sessionQrs = new Map<string, string>();
+  private listeners = new Map<string, Set<SessionListener>>();
+
+  private constructor() {}
+
+  public static getInstance(): SessionManager {
+    if (!SessionManager.instance) {
+      SessionManager.instance = new SessionManager();
+    }
+    return SessionManager.instance;
+  }
+
+  public registerListener(tenantId: string, listener: SessionListener) {
+    if (!this.listeners.has(tenantId)) {
+      this.listeners.set(tenantId, new Set());
+    }
+    this.listeners.get(tenantId)!.add(listener);
+
+    // Enviar status atual imediatamente
+    const status = this.sessionStatuses.get(tenantId) || "disconnected";
+    listener({ type: "status", status, phone: undefined });
+    
+    // Se tiver QR code guardado, enviar imediatamente
+    const qr = this.sessionQrs.get(tenantId);
+    if (qr && status === "qr_ready") {
+      listener({ type: "qr", qr });
+    }
+  }
+
+  public unregisterListener(tenantId: string, listener: SessionListener) {
+    const tenantListeners = this.listeners.get(tenantId);
+    if (tenantListeners) {
+      tenantListeners.delete(listener);
+    }
+  }
+
+  private notify(tenantId: string, event: SessionEvent) {
+    const tenantListeners = this.listeners.get(tenantId);
+    if (tenantListeners) {
+      for (const listener of tenantListeners) {
+        try {
+          listener(event);
+        } catch (e) {
+          console.error(`Erro no listener do tenant ${tenantId}:`, e);
+        }
+      }
+    }
+  }
+
+  public getStatus(tenantId: string): SessionStatus {
+    return this.sessionStatuses.get(tenantId) || "disconnected";
+  }
+
+  public getQr(tenantId: string): string | undefined {
+    return this.sessionQrs.get(tenantId);
+  }
+
+  public async initSession(tenantId: string): Promise<WASocket> {
+    if (this.sessions.has(tenantId)) {
+      return this.sessions.get(tenantId)!;
+    }
+
+    console.log(`Iniciando sessão do Baileys para o tenant: ${tenantId}`);
+    this.sessionStatuses.set(tenantId, "disconnected");
+    this.notify(tenantId, { type: "status", status: "disconnected" });
+
+    // Criar logger silencioso para o Baileys
+    const logger = pino({ level: "info" });
+
+    // Obter estado de autenticação baseado no Drizzle
+    const { state, saveCreds } = await useDrizzleAuthState(tenantId);
+
+    // Inicializar o socket do Baileys
+    const sock = makeWASocket.default ? makeWASocket.default({
+      auth: state,
+      logger,
+      printQRInTerminal: true,
+    }) : (makeWASocket as any)({
+      auth: state,
+      logger,
+      printQRInTerminal: true,
+    });
+
+    this.sessions.set(tenantId, sock);
+
+    // Salvar credenciais quando atualizadas
+    sock.ev.on("creds.update", saveCreds);
+
+    // Tratar eventos de conexão
+    sock.ev.on("connection.update", async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      if (qr) {
+        console.log(`QR Code gerado para o tenant ${tenantId}`);
+        this.sessionStatuses.set(tenantId, "qr_ready");
+        this.sessionQrs.set(tenantId, qr);
+        this.notify(tenantId, { type: "status", status: "qr_ready" });
+        this.notify(tenantId, { type: "qr", qr });
+
+        // Salvar status no banco
+        try {
+          await db
+            .update(channelConfigs)
+            .set({ baileysSessionStatus: "qr_ready", updatedAt: new Date() })
+            .where(eq(channelConfigs.tenantId, tenantId));
+        } catch (e) {
+          console.error("Erro ao atualizar status do QR no DB:", e);
+        }
+      }
+
+      if (connection === "close") {
+        const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
+        console.log(`Conexão do tenant ${tenantId} fechada devido a:`, lastDisconnect?.error, `. Tentando reconectar: ${shouldReconnect}`);
+        
+        this.sessions.delete(tenantId);
+        this.sessionStatuses.set(tenantId, "disconnected");
+        this.sessionQrs.delete(tenantId);
+        this.notify(tenantId, { type: "status", status: "disconnected" });
+
+        // Salvar status no banco
+        try {
+          await db
+            .update(channelConfigs)
+            .set({ 
+              baileysSessionStatus: "disconnected", 
+              baileysPairedPhone: null,
+              updatedAt: new Date() 
+            })
+            .where(eq(channelConfigs.tenantId, tenantId));
+        } catch (e) {
+          console.error("Erro ao atualizar status de desconectado no DB:", e);
+        }
+
+        if (shouldReconnect) {
+          // Tentar reconectar em 5 segundos
+          setTimeout(() => this.initSession(tenantId), 5000);
+        }
+      } else if (connection === "open") {
+        console.log(`Conexão do tenant ${tenantId} estabelecida com sucesso!`);
+        const phone = sock.user?.id.split(":")[0];
+        
+        this.sessionStatuses.set(tenantId, "connected");
+        this.sessionQrs.delete(tenantId);
+        this.notify(tenantId, { type: "status", status: "connected", phone });
+
+        // Salvar status e telefone no banco
+        try {
+          await db
+            .update(channelConfigs)
+            .set({ 
+              baileysSessionStatus: "connected", 
+              baileysPairedPhone: phone,
+              updatedAt: new Date() 
+            })
+            .where(eq(channelConfigs.tenantId, tenantId));
+        } catch (e) {
+          console.error("Erro ao atualizar status de conectado no DB:", e);
+        }
+      }
+    });
+
+    // Tratar eventos de mensagens recebidas
+    sock.ev.on("messages.upsert", async (m) => {
+      if (m.type === "notify") {
+        for (const msg of m.messages) {
+          if (!msg.key.fromMe && msg.message) {
+            // Processar a mensagem recebida e salvar no banco
+            await this.handleIncomingMessage(tenantId, msg);
+          }
+        }
+      }
+    });
+
+    return sock;
+  }
+
+  public async disconnectSession(tenantId: string) {
+    const sock = this.sessions.get(tenantId);
+    if (sock) {
+      try {
+        await sock.logout();
+      } catch (e) {
+        console.error("Erro ao dar logout no socket:", e);
+      }
+      try {
+        sock.end(undefined);
+      } catch (e) {
+        console.error("Erro ao fechar conexão:", e);
+      }
+      this.sessions.delete(tenantId);
+    }
+
+    this.sessionStatuses.set(tenantId, "disconnected");
+    this.sessionQrs.delete(tenantId);
+    this.notify(tenantId, { type: "status", status: "disconnected" });
+
+    // Atualizar no banco e deletar chaves
+    try {
+      await db
+        .update(channelConfigs)
+        .set({ 
+          baileysSessionStatus: "disconnected", 
+          baileysPairedPhone: null,
+          baileysAuthKeys: null,
+          updatedAt: new Date() 
+        })
+        .where(eq(channelConfigs.tenantId, tenantId));
+    } catch (e) {
+      console.error("Erro ao limpar dados de sessão no DB:", e);
+    }
+  }
+
+  public getSession(tenantId: string): WASocket | undefined {
+    return this.sessions.get(tenantId);
+  }
+
+  private async handleIncomingMessage(tenantId: string, rawMsg: any) {
+    const jid = rawMsg.key.remoteJid;
+    if (!jid) return;
+    const phone = jid.split("@")[0];
+    const name = rawMsg.pushName || `Cliente (${phone})`;
+    
+    // Obter texto da mensagem
+    const text = rawMsg.message.conversation || 
+                 rawMsg.message.extendedTextMessage?.text || 
+                 "[Mídia/Outro]";
+
+    console.log(`Mensagem recebida do tenant ${tenantId} de ${name}: ${text}`);
+
+    try {
+      // 1. Garantir que o contato existe no banco
+      let contact = await db.query.contacts.findFirst({
+        where: (contactsTable, { eq: dEq, and: dAnd }) => 
+          dAnd(dEq(contactsTable.tenantId, tenantId), dEq(contactsTable.phone, phone))
+      });
+
+      const contactId = contact?.id || `c-${Date.now()}`;
+      if (!contact) {
+        // Criar contato se não existir
+        await db.insert(contacts).values({
+          id: contactId,
+          tenantId,
+          name,
+          phone,
+          mainChannel: "whatsapp",
+          tags: [],
+          createdAt: new Date(),
+        });
+      }
+
+      // 2. Garantir que a conversa existe no banco
+      let conversation = await db.query.conversations.findFirst({
+        where: (convsTable, { eq: dEq, and: dAnd }) => 
+          dAnd(dEq(convsTable.tenantId, tenantId), dEq(convsTable.contactId, contactId))
+      });
+
+      const convId = conversation?.id || `conv-${Date.now()}`;
+      const unreadCount = conversation ? conversation.unreadCount + 1 : 1;
+
+      if (!conversation) {
+        // Criar conversa
+        await db.insert(conversations).values({
+          id: convId,
+          tenantId,
+          contactId,
+          queueState: "fila",
+          unreadCount,
+          lastMessageText: text,
+          lastMessageTime: new Date(),
+          createdAt: new Date(),
+        });
+      } else {
+        // Atualizar conversa
+        await db
+          .update(conversations)
+          .set({
+            unreadCount,
+            lastMessageText: text,
+            lastMessageTime: new Date(),
+          })
+          .where(eq(conversations.id, convId));
+      }
+
+      // 3. Salvar a mensagem
+      const messageId = rawMsg.key.id || `msg-${Date.now()}`;
+      await db.insert(messages).values({
+        id: messageId,
+        tenantId,
+        conversationId: convId,
+        senderType: "client",
+        senderName: name,
+        content: text,
+        isInternalNote: false,
+        sentAt: new Date(),
+      });
+
+      // 4. Notificar a UI via evento
+      this.notify(tenantId, {
+        type: "message",
+        message: {
+          id: messageId,
+          conversationId: convId,
+          senderType: "client",
+          senderName: name,
+          content: text,
+          sentAt: new Date(),
+        }
+      });
+
+    } catch (e) {
+      console.error(`Erro ao salvar mensagem recebida do Baileys no DB:`, e);
+    }
+  }
+}

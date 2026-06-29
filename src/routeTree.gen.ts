@@ -10,33 +10,89 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiBaileysStatusRouteImport } from './routes/api/baileys/status'
+import { Route as ApiBaileysSendRouteImport } from './routes/api/baileys/send'
+import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
+import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBaileysStatusRoute = ApiBaileysStatusRouteImport.update({
+  id: '/api/baileys/status',
+  path: '/api/baileys/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBaileysSendRoute = ApiBaileysSendRouteImport.update({
+  id: '/api/baileys/send',
+  path: '/api/baileys/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBaileysDisconnectRoute = ApiBaileysDisconnectRouteImport.update({
+  id: '/api/baileys/disconnect',
+  path: '/api/baileys/disconnect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
+  id: '/api/baileys/connect',
+  path: '/api/baileys/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/baileys/connect': typeof ApiBaileysConnectRoute
+  '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
+  '/api/baileys/send': typeof ApiBaileysSendRoute
+  '/api/baileys/status': typeof ApiBaileysStatusRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/baileys/connect': typeof ApiBaileysConnectRoute
+  '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
+  '/api/baileys/send': typeof ApiBaileysSendRoute
+  '/api/baileys/status': typeof ApiBaileysStatusRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/baileys/connect': typeof ApiBaileysConnectRoute
+  '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
+  '/api/baileys/send': typeof ApiBaileysSendRoute
+  '/api/baileys/status': typeof ApiBaileysStatusRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/api/baileys/connect'
+    | '/api/baileys/disconnect'
+    | '/api/baileys/send'
+    | '/api/baileys/status'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/api/baileys/connect'
+    | '/api/baileys/disconnect'
+    | '/api/baileys/send'
+    | '/api/baileys/status'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/baileys/connect'
+    | '/api/baileys/disconnect'
+    | '/api/baileys/send'
+    | '/api/baileys/status'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
+  ApiBaileysDisconnectRoute: typeof ApiBaileysDisconnectRoute
+  ApiBaileysSendRoute: typeof ApiBaileysSendRoute
+  ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,12 +104,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/baileys/status': {
+      id: '/api/baileys/status'
+      path: '/api/baileys/status'
+      fullPath: '/api/baileys/status'
+      preLoaderRoute: typeof ApiBaileysStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/send': {
+      id: '/api/baileys/send'
+      path: '/api/baileys/send'
+      fullPath: '/api/baileys/send'
+      preLoaderRoute: typeof ApiBaileysSendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/disconnect': {
+      id: '/api/baileys/disconnect'
+      path: '/api/baileys/disconnect'
+      fullPath: '/api/baileys/disconnect'
+      preLoaderRoute: typeof ApiBaileysDisconnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/connect': {
+      id: '/api/baileys/connect'
+      path: '/api/baileys/connect'
+      fullPath: '/api/baileys/connect'
+      preLoaderRoute: typeof ApiBaileysConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiBaileysConnectRoute: ApiBaileysConnectRoute,
+  ApiBaileysDisconnectRoute: ApiBaileysDisconnectRoute,
+  ApiBaileysSendRoute: ApiBaileysSendRoute,
+  ApiBaileysStatusRoute: ApiBaileysStatusRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
