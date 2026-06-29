@@ -224,27 +224,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {}
       }
 
-      // Carregar operadores persistidos do banco de dados do Railway (com fallback do localStorage)
+      // 1. Carregar IMEDIATAMENTE do cache local (localStorage) para evitar piscadas (flash) de dados antigos
+      const savedOperators = localStorage.getItem("rbac_operators");
+      if (savedOperators) {
+        try {
+          setOperators(JSON.parse(savedOperators));
+        } catch (e) {}
+      }
+
+      // 2. Sincronizar em segundo plano com o banco de dados do Railway
       fetch(`${BACKEND_URL}/api/operators`)
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data) && data.length > 0) {
             setOperators(data);
-          } else {
-            const savedOperators = localStorage.getItem("rbac_operators");
-            if (savedOperators) {
-              setOperators(JSON.parse(savedOperators));
-            }
-          }
-        })
-        .catch(() => {
-          const savedOperators = localStorage.getItem("rbac_operators");
-          if (savedOperators) {
             try {
-              setOperators(JSON.parse(savedOperators));
+              localStorage.setItem("rbac_operators", JSON.stringify(data));
             } catch (e) {}
           }
-        });
+        })
+        .catch((err) => console.error("Erro ao sincronizar operadores do banco:", err));
 
       const savedOpId = localStorage.getItem("rbac_current_operator_id");
       if (savedOpId) {
