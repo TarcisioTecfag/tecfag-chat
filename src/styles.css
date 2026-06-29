@@ -83,6 +83,22 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+  button,
+  a,
+  input,
+  [role="button"],
+  [data-interactive] {
+    transition: background-color 150ms ease-out, color 150ms ease-out,
+      border-color 150ms ease-out, box-shadow 150ms ease-out,
+      opacity 150ms ease-out, transform 150ms ease-out;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 12px;
+  }
 }
 
 @utility shadow-soft {
@@ -92,9 +108,24 @@
   box-shadow: 0 10px 40px rgba(15, 23, 42, 0.06);
 }
 
+@utility interactive {
+  transition: background-color 150ms ease-out, color 150ms ease-out,
+    box-shadow 150ms ease-out, transform 150ms ease-out, opacity 150ms ease-out;
+}
+
+@utility fade-in {
+  animation: fadeIn 200ms ease-out both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @utility scrollbar-thin {
   scrollbar-width: thin;
   &::-webkit-scrollbar { width: 6px; }
   &::-webkit-scrollbar-thumb { background: #d6dbe1; border-radius: 999px; }
   &::-webkit-scrollbar-track { background: transparent; }
 }
+
