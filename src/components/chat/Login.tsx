@@ -61,16 +61,13 @@ export function Login() {
     >
       {/* PAINEL DA ESQUERDA: Espaço para Foto & Citação */}
       <div className="relative md:col-span-2 flex flex-col justify-between p-8 md:p-12 overflow-hidden min-h-[400px] md:min-h-screen bg-slate-950 text-white">
-        {/* Fundo escuro com padrão e gradiente, simulando o local para a foto */}
-        <div className="absolute inset-0 z-0 bg-cover bg-center opacity-45 mix-blend-overlay bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black" />
-        
-        {/* Placeholder Indicando Espaço Reservado para a Foto de Fundo */}
-        <div className="absolute inset-4 rounded-2xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center bg-white/[0.02] backdrop-blur-xs z-1 pointer-events-none">
-          <div className="flex flex-col items-center gap-2 opacity-30">
-            <Camera className="h-8 w-8 text-white" />
-            <span className="text-[10px] uppercase font-bold tracking-wider">Espaço reservado para foto de fundo</span>
-          </div>
-        </div>
+        {/* Fundo com a foto carregada */}
+        <div 
+          className="absolute inset-0 z-0 bg-cover bg-center transition-all duration-500" 
+          style={{ backgroundImage: "url('/bg_login.png')" }} 
+        />
+        {/* Camada de sobreposição escura (overlay) para garantir contraste do texto */}
+        <div className="absolute inset-0 z-0 bg-black/40" />
 
         {/* LOGO SUPERIOR */}
         <div className="relative z-10 flex items-center">
