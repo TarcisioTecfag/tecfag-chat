@@ -787,13 +787,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     eventSource.onerror = (err) => {
-      console.error("Erro na conexão SSE do Baileys:", err);
-      setBaileysConfig((prev) => ({
-        ...prev,
-        status: "disconnected",
-      }));
-      eventSource.close();
-      eventSourceRef.current = null;
+      console.error("Erro ou oscilação na conexão SSE do Baileys (o navegador tentará reconectar):", err);
     };
   };
 

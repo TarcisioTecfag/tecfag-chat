@@ -34,8 +34,10 @@ export const Route = createFileRoute("/api/baileys/status")({
         const sessionManager = SessionManager.getInstance();
         const status = sessionManager.getStatus(tenantId);
         const qr = sessionManager.getQr(tenantId);
+        const sock = sessionManager.getSession(tenantId);
+        const pairedPhone = sock?.user?.id ? sock.user.id.split(":")[0] : null;
 
-        return new Response(JSON.stringify({ status, qr }), {
+        return new Response(JSON.stringify({ status, qr, pairedPhone }), {
           headers: { 
             ...corsHeaders,
             "Content-Type": "application/json",
