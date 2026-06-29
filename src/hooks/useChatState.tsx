@@ -108,94 +108,156 @@ type ChatContextType = {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [tenant, setTenantState] = useState<"tecfag" | "valem">("tecfag");
-  const [activeQueue, setActiveQueue] = useState<QueueType>("meus");
+  const [tenant, setTenantState] = useState<"tecfag" | "valem">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chat_tenant");
+      if (saved === "valem" || saved === "tecfag") return saved;
+    }
+    return "tecfag";
+  });
+  const [activeQueue, setActiveQueue] = useState<QueueType>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chat_active_queue");
+      if (saved) return saved as QueueType;
+    }
+    return "meus";
+  });
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chat_active_view");
+      if (saved) return saved as any;
+    }
+    return "chat";
+  });
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
   // RBAC Setup
-  const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([
-    {
-      id: "group-admin",
-      name: "Administradores",
-      allowedTenants: ["tecfag", "valem"],
-      allowedChannels: ["whatsapp", "instagram", "messenger"],
-      canCreateUser: true,
-      canResetPassword: true,
-      canEditProfile: true,
-    },
-    {
-      id: "group-valem-comercial",
-      name: "Valem Comercial",
-      allowedTenants: ["valem"],
-      allowedChannels: ["whatsapp", "instagram", "messenger"],
-      canCreateUser: true,
-      canResetPassword: true,
-      canEditProfile: true,
-    },
-    {
-      id: "group-tecfag-vendedor",
-      name: "Tecfag Vendedores",
-      allowedTenants: ["tecfag"],
-      allowedChannels: ["whatsapp", "instagram", "messenger"],
-      canCreateUser: false,
-      canResetPassword: false,
-      canEditProfile: true,
-    },
-    {
-      id: "group-whats-only",
-      name: "Vendedores WhatsApp Only",
-      allowedTenants: ["tecfag", "valem"],
-      allowedChannels: ["whatsapp"],
-      canCreateUser: false,
-      canResetPassword: false,
-      canEditProfile: true,
-    },
-  ]);
+  const [accessGroups, setAccessGroups] = useState<AccessGroup[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("rbac_access_groups");
+      if (saved) return JSON.parse(saved);
+    }
+    return [
+      {
+        id: "group-admin",
+        name: "Administradores",
+        allowedTenants: ["tecfag", "valem"],
+        allowedChannels: ["whatsapp", "instagram", "messenger"],
+        canCreateUser: true,
+        canResetPassword: true,
+        canEditProfile: true,
+      },
+      {
+        id: "group-valem-comercial",
+        name: "Valem Comercial",
+        allowedTenants: ["valem"],
+        allowedChannels: ["whatsapp", "instagram", "messenger"],
+        canCreateUser: true,
+        canResetPassword: true,
+        canEditProfile: true,
+      },
+      {
+        id: "group-tecfag-vendedor",
+        name: "Tecfag Vendedores",
+        allowedTenants: ["tecfag"],
+        allowedChannels: ["whatsapp", "instagram", "messenger"],
+        canCreateUser: false,
+        canResetPassword: false,
+        canEditProfile: true,
+      },
+      {
+        id: "group-whats-only",
+        name: "Vendedores WhatsApp Only",
+        allowedTenants: ["tecfag", "valem"],
+        allowedChannels: ["whatsapp"],
+        canCreateUser: false,
+        canResetPassword: false,
+        canEditProfile: true,
+      },
+    ];
+  });
 
-  const [operators, setOperators] = useState<Operator[]>([
-    {
-      id: "op-1",
-      name: "Fagner F. (Admin)",
-      email: "fagner@tecfag.com.br",
-      avatar: "https://i.pravatar.cc/80?img=12",
-      status: "disponivel",
-      passwordHash: "123456",
-      groupId: "group-admin",
-    },
-    {
-      id: "op-2",
-      name: "Tarcísio (Valem)",
-      email: "tarcisio@valem.com.br",
-      avatar: "https://i.pravatar.cc/80?img=60",
-      status: "disponivel",
-      passwordHash: "123456",
-      groupId: "group-valem-comercial",
-    },
-    {
-      id: "op-3",
-      name: "Pedro (Tecfag)",
-      email: "pedro@tecfag.com.br",
-      avatar: "https://i.pravatar.cc/80?img=33",
-      status: "disponivel",
-      passwordHash: "123456",
-      groupId: "group-tecfag-vendedor",
-    },
-    {
-      id: "op-4",
-      name: "Julia (Whats Only)",
-      email: "julia@valem.com.br",
-      avatar: "https://i.pravatar.cc/80?img=47",
-      status: "disponivel",
-      passwordHash: "123456",
-      groupId: "group-whats-only",
-    },
-  ]);
+  const [operators, setOperators] = useState<Operator[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("rbac_operators");
+      if (saved) return JSON.parse(saved);
+    }
+    return [
+      {
+        id: "op-1",
+        name: "Fagner F. (Admin)",
+        email: "fagner@tecfag.com.br",
+        avatar: "https://i.pravatar.cc/80?img=12",
+        status: "disponivel",
+        passwordHash: "123456",
+        groupId: "group-admin",
+      },
+      {
+        id: "op-2",
+        name: "Tarcísio (Valem)",
+        email: "tarcisio@valem.com.br",
+        avatar: "https://i.pravatar.cc/80?img=60",
+        status: "disponivel",
+        passwordHash: "123456",
+        groupId: "group-valem-comercial",
+      },
+      {
+        id: "op-3",
+        name: "Pedro (Tecfag)",
+        email: "pedro@tecfag.com.br",
+        avatar: "https://i.pravatar.cc/80?img=33",
+        status: "disponivel",
+        passwordHash: "123456",
+        groupId: "group-tecfag-vendedor",
+      },
+      {
+        id: "op-4",
+        name: "Julia (Whats Only)",
+        email: "julia@valem.com.br",
+        avatar: "https://i.pravatar.cc/80?img=47",
+        status: "disponivel",
+        passwordHash: "123456",
+        groupId: "group-whats-only",
+      },
+    ];
+  });
 
-  const [currentOperatorId, setCurrentOperatorId] = useState<string>("op-1");
+  const [currentOperatorId, setCurrentOperatorId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("rbac_current_operator_id");
+      if (saved) return saved;
+    }
+    return "op-1";
+  });
+
+  // Persistir alterações de operadores e grupos de acesso no localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("rbac_operators", JSON.stringify(operators));
+    }
+  }, [operators]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("rbac_access_groups", JSON.stringify(accessGroups));
+    }
+  }, [accessGroups]);
+
+  // Persistir fila e tela ativa
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chat_active_queue", activeQueue);
+    }
+  }, [activeQueue]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chat_active_view", activeView);
+    }
+  }, [activeView]);
 
   const currentOperator = operators.find((op) => op.id === currentOperatorId) || operators[0];
   const currentGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || accessGroups[0];
@@ -230,6 +292,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targetOp = operators.find((op) => op.id === id);
     if (!targetOp) return;
     setCurrentOperatorId(id);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("rbac_current_operator_id", id);
+    }
   };
 
   // CRUD Operators
@@ -330,6 +395,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const firstAllowed = currentGroup.allowedTenants[0];
         if (firstAllowed) {
           setTenantState(firstAllowed);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("chat_tenant", firstAllowed);
+          }
           document.title = firstAllowed === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
         }
       }
@@ -341,11 +409,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return; // Tenant block
     }
     setTenantState(newTenant);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chat_tenant", newTenant);
+    }
     // Sync view reset
     setActiveView("chat");
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chat_active_view", "chat");
+    }
     // Change document title for visual cues
     document.title = newTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
   };
+
+  // Carregar conversas persistidas no banco (Railway) e mesclar com o mock local
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/chats?tenantId=${tenant}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const mockConvs = tenant === "tecfag" ? TECFAG_MOCK_CONVERSATIONS : VALEM_MOCK_CONVERSATIONS;
+          const merged = [...data];
+          mockConvs.forEach((mock) => {
+            if (!merged.some((c) => c.id === mock.id)) {
+              merged.push(mock);
+            }
+          });
+          setConversations(merged);
+        }
+      })
+      .catch((err) => console.error("Erro ao sincronizar conversas do banco:", err));
+  }, [tenant]);
 
   const rawConversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
   const conversations = rawConversations.filter((c) =>
