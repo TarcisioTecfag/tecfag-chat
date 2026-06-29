@@ -794,6 +794,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Buscar status inicial do Baileys e limpar SSE ao desmontar
   useEffect(() => {
     if (tenant === "valem") {
+      // Sempre abre o canal SSE para acordar a sessão e receber novas mensagens/status do Baileys
+      connectBaileys();
+
       fetch(`${BACKEND_URL}/api/baileys/status?tenantId=valem`)
         .then((res) => res.json())
         .then((data) => {
@@ -804,10 +807,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               pairedPhone: data.pairedPhone ? `+${data.pairedPhone}` : data.pairedPhone || "",
               qrCodeUrl: data.qr ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data.qr)}` : "",
             }));
-
-            if (data.status === "qr_ready" || data.status === "connecting" || data.status === "connected") {
-              connectBaileys();
-            }
           }
         })
         .catch((err) => console.error("Erro ao verificar status do Baileys:", err));
