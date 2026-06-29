@@ -6,6 +6,7 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { SharedFiles } from "@/components/chat/SharedFiles";
 import { SettingsView } from "@/components/chat/SettingsView";
 import { ContactsView } from "@/components/chat/ContactsView";
+import { GroupsView } from "@/components/chat/GroupsView";
 import { ProfileModal } from "@/components/chat/ProfileModal";
 import { useChat } from "@/hooks/useChatState";
 
@@ -45,6 +46,8 @@ function Index() {
           </>
         ) : activeView === "contacts" ? (
           <ContactsView />
+        ) : activeView === "groups" ? (
+          <GroupsView />
         ) : (
           <SettingsView />
         )}

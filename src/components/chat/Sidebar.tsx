@@ -11,10 +11,11 @@ import {
   ChevronDown,
   Building2,
   Contact,
+  Shield,
 } from "lucide-react";
 
 export function Sidebar() {
-  const { tenant, setTenant, activeView, setActiveView, operatorProfile, setIsProfileModalOpen } = useChat();
+  const { tenant, setTenant, activeView, setActiveView, operatorProfile, setIsProfileModalOpen, currentGroup } = useChat();
   const [showDropdown, setShowDropdown] = useState(false);
 
   const toggleTenant = () => {
@@ -28,6 +29,7 @@ export function Sidebar() {
 
   const decorativeItems = [
     { id: "settings", icon: Settings, label: "Ajustes", isAvailable: true },
+    { id: "groups", icon: Shield, label: "Grupo de Acesso", isAvailable: true },
     { icon: Clock, label: "Histórico" },
     { icon: ClipboardCheck, label: "Tarefas" },
     { icon: Eye, label: "Monitorar" },
@@ -40,66 +42,76 @@ export function Sidebar() {
         {/* Tenant Switcher Logo */}
         <div className="relative">
           <button
-            onClick={() => setShowDropdown(!showDropdown)}
-            className="group relative flex h-12 w-12 items-center justify-center rounded-2xl bg-card border border-border shadow-soft transition hover:border-primary cursor-pointer"
-            title="Alternar Empresa"
+            onClick={() => currentGroup && currentGroup.allowedTenants.length > 1 && setShowDropdown(!showDropdown)}
+            className={`group relative flex h-12 w-12 items-center justify-center rounded-2xl bg-card border border-border shadow-soft transition hover:border-primary ${
+              currentGroup && currentGroup.allowedTenants.length > 1 ? "cursor-pointer" : "cursor-default"
+            }`}
+            title={currentGroup && currentGroup.allowedTenants.length > 1 ? "Alternar Empresa" : `Empresa: ${tenant === "tecfag" ? "Tecfag" : "Valem"}`}
           >
             <img
               src={tenant === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg"}
               alt="Logo"
-              className="h-10 w-10 rounded-xl object-cover transition-transform group-hover:scale-105"
+              className={`h-10 w-10 rounded-xl object-cover transition-transform ${
+                currentGroup && currentGroup.allowedTenants.length > 1 ? "group-hover:scale-105" : ""
+              }`}
             />
-            <span className="absolute -bottom-1.5 right-0 grid h-4 w-4 place-items-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
-              <ChevronDown className="h-2.5 w-2.5" />
-            </span>
+            {currentGroup && currentGroup.allowedTenants.length > 1 && (
+              <span className="absolute -bottom-1.5 right-0 grid h-4 w-4 place-items-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                <ChevronDown className="h-2.5 w-2.5" />
+              </span>
+            )}
           </button>
 
           {/* Tenant Switcher Dropdown */}
-          {showDropdown && (
+          {showDropdown && currentGroup && currentGroup.allowedTenants.length > 1 && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
               <div className="absolute left-14 top-0 z-50 w-48 rounded-2xl bg-card p-2 border border-border shadow-card animate-in fade-in slide-in-from-left-2 duration-150">
                 <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Empresa Ativa
                 </div>
-                <button
-                  onClick={() => {
-                    setTenant("tecfag");
-                    setShowDropdown(false);
-                  }}
-                  className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition hover:bg-muted ${
-                    tenant === "tecfag" ? "text-primary bg-primary-soft/50" : "text-foreground"
-                  }`}
-                >
-                  <img
-                    src="/logo_tecfag.png"
-                    alt="TF"
-                    className="h-6 w-6 rounded-lg object-cover bg-white"
-                  />
-                  <div>
-                    <div>Tecfag Chat</div>
-                    <div className="text-[10px] font-normal text-muted-foreground">API Oficial Meta</div>
-                  </div>
-                </button>
-                <button
-                  onClick={() => {
-                    setTenant("valem");
-                    setShowDropdown(false);
-                  }}
-                  className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition hover:bg-muted ${
-                    tenant === "valem" ? "text-primary bg-primary-soft/50" : "text-foreground"
-                  }`}
-                >
-                  <img
-                    src="/logo_valem.jpg"
-                    alt="V"
-                    className="h-6 w-6 rounded-lg object-cover bg-white"
-                  />
-                  <div>
-                    <div>Valem Chat</div>
-                    <div className="text-[10px] font-normal text-muted-foreground">Baileys API</div>
-                  </div>
-                </button>
+                {currentGroup.allowedTenants.includes("tecfag") && (
+                  <button
+                    onClick={() => {
+                      setTenant("tecfag");
+                      setShowDropdown(false);
+                    }}
+                    className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition hover:bg-muted ${
+                      tenant === "tecfag" ? "text-primary bg-primary-soft/50" : "text-foreground"
+                    }`}
+                  >
+                    <img
+                      src="/logo_tecfag.png"
+                      alt="TF"
+                      className="h-6 w-6 rounded-lg object-cover bg-white"
+                    />
+                    <div>
+                      <div>Tecfag Chat</div>
+                      <div className="text-[10px] font-normal text-muted-foreground">API Oficial Meta</div>
+                    </div>
+                  </button>
+                )}
+                {currentGroup.allowedTenants.includes("valem") && (
+                  <button
+                    onClick={() => {
+                      setTenant("valem");
+                      setShowDropdown(false);
+                    }}
+                    className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition hover:bg-muted ${
+                      tenant === "valem" ? "text-primary bg-primary-soft/50" : "text-foreground"
+                    }`}
+                  >
+                    <img
+                      src="/logo_valem.jpg"
+                      alt="V"
+                      className="h-6 w-6 rounded-lg object-cover bg-white"
+                    />
+                    <div>
+                      <div>Valem Chat</div>
+                      <div className="text-[10px] font-normal text-muted-foreground">Baileys API</div>
+                    </div>
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -113,7 +125,7 @@ export function Sidebar() {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveView(item.id as "chat" | "contacts" | "settings")}
+                onClick={() => setActiveView(item.id as any)}
                 aria-label={item.label}
                 className={`relative grid h-11 w-11 place-items-center rounded-2xl transition-all duration-150 cursor-pointer group ${
                   isActive
@@ -140,7 +152,7 @@ export function Sidebar() {
               return (
                 <button
                   key={index}
-                  onClick={() => setActiveView(item.id as "chat" | "contacts" | "settings")}
+                  onClick={() => setActiveView(item.id as any)}
                   aria-label={item.label}
                   className={`relative grid h-11 w-11 place-items-center rounded-2xl transition-all duration-150 cursor-pointer group ${
                     isActive

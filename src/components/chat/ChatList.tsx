@@ -1,7 +1,7 @@
 import React from "react";
 import { useChat } from "@/hooks/useChatState";
 import { Search, MessageSquare, Phone, Instagram, Send, Star, User } from "lucide-react";
-import { Channel } from "@/lib/mockData";
+import { Channel, QueueType } from "@/lib/mockData";
 
 // Premium Inline SVGs for Channel Logos
 export function WhatsappLogo({ className = "h-4.5 w-4.5" }: { className?: string }) {
@@ -46,9 +46,16 @@ export function ChatList() {
     operatorProfile,
     updateOperatorProfile,
     setIsProfileModalOpen,
+    currentGroup,
   } = useChat();
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
+
+  React.useEffect(() => {
+    if (currentGroup && channelFilter !== "all" && !currentGroup.allowedChannels.includes(channelFilter)) {
+      setChannelFilter("all");
+    }
+  }, [currentGroup, channelFilter]);
 
   const queues = [
     { id: "meus", label: "Meus" },
@@ -174,39 +181,45 @@ export function ChatList() {
         >
           Todos
         </button>
-        <button
-          onClick={() => setChannelFilter("whatsapp")}
-          className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
-            channelFilter === "whatsapp"
-              ? "bg-emerald-500 text-white shadow-soft"
-              : "bg-muted text-emerald-600 hover:bg-emerald-50"
-          }`}
-          title="WhatsApp Only"
-        >
-          <WhatsappLogo className="h-4 w-4" />
-        </button>
-        <button
-          onClick={() => setChannelFilter("instagram")}
-          className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
-            channelFilter === "instagram"
-              ? "bg-gradient-to-tr from-yellow-500 to-purple-600 text-white shadow-soft"
-              : "bg-muted text-purple-600 hover:bg-purple-50"
-          }`}
-          title="Instagram Only"
-        >
-          <InstagramLogo className="h-4 w-4" />
-        </button>
-        <button
-          onClick={() => setChannelFilter("messenger")}
-          className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
-            channelFilter === "messenger"
-              ? "bg-blue-600 text-white shadow-soft"
-              : "bg-muted text-blue-600 hover:bg-blue-50"
-          }`}
-          title="Messenger Only"
-        >
-          <MessengerLogo className="h-4 w-4" />
-        </button>
+        {(!currentGroup || currentGroup.allowedChannels.includes("whatsapp")) && (
+          <button
+            onClick={() => setChannelFilter("whatsapp")}
+            className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
+              channelFilter === "whatsapp"
+                ? "bg-emerald-500 text-white shadow-soft"
+                : "bg-muted text-emerald-600 hover:bg-emerald-50"
+            }`}
+            title="WhatsApp Only"
+          >
+            <WhatsappLogo className="h-4 w-4" />
+          </button>
+        )}
+        {(!currentGroup || currentGroup.allowedChannels.includes("instagram")) && (
+          <button
+            onClick={() => setChannelFilter("instagram")}
+            className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
+              channelFilter === "instagram"
+                ? "bg-gradient-to-tr from-yellow-500 to-purple-600 text-white shadow-soft"
+                : "bg-muted text-purple-600 hover:bg-purple-50"
+            }`}
+            title="Instagram Only"
+          >
+            <InstagramLogo className="h-4 w-4" />
+          </button>
+        )}
+        {(!currentGroup || currentGroup.allowedChannels.includes("messenger")) && (
+          <button
+            onClick={() => setChannelFilter("messenger")}
+            className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
+              channelFilter === "messenger"
+                ? "bg-blue-600 text-white shadow-soft"
+                : "bg-muted text-blue-600 hover:bg-blue-50"
+            }`}
+            title="Messenger Only"
+          >
+            <MessengerLogo className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Queue Tabs */}
@@ -276,7 +289,7 @@ export function ChatList() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-1">
                     <span className="truncate text-xs font-bold text-foreground">{c.name}</span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{c.time || c.lastMessageTime}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{(c as any).time || c.lastMessageTime}</span>
                   </div>
                   <div className="flex items-center justify-between mt-0.5">
                     <p className="truncate text-[11px] text-muted-foreground pr-2">
