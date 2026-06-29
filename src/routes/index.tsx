@@ -17,7 +17,7 @@ export const Route = createFileRoute("/")({
 function Index() {
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto flex h-screen max-w-[1440px] gap-5 p-5">
+      <div className="flex h-screen w-full gap-5 p-5">
         <Sidebar />
         <ChatList />
         <ChatPanel />
