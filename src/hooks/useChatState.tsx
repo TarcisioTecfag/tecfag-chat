@@ -534,7 +534,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const captureChat = async (id: string) => {
-    const textLog = "Conversa capturada por Vendedor Humano.";
+    const textLog = `CONVERSA INICIADA POR ${operatorProfile.name.toUpperCase()}`;
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
