@@ -612,6 +612,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             phone: targetPhone,
             text,
             conversationId: selectedChatId,
+            senderName: operatorProfile.name,
           }),
         });
 
@@ -622,6 +623,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (err: any) {
         console.error("Falha ao enviar mensagem de WhatsApp pelo backend:", err);
         toast.error(`Erro ao enviar mensagem: ${err.message || "Conexão falhou"}`);
+      }
+    } else {
+      // Para mensagens internas, outras plataformas ou outros inquilinos (ex: Tecfag), persistir no banco de dados local
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/chats`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            conversationId: selectedChatId,
+            senderType: "agent",
+            senderName: isInternalNote ? "Vendedor" : operatorProfile.name,
+            content: text,
+            isInternalNote,
+          }),
+        });
+
+        if (!response.ok) {
+          console.error("Erro na resposta ao salvar mensagem local no banco");
+        }
+      } catch (err) {
+        console.error("Falha ao salvar mensagem local no banco:", err);
       }
     }
 

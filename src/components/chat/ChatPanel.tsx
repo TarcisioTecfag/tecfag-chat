@@ -313,7 +313,7 @@ export function ChatPanel() {
       <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4 scrollbar-thin">
         {activeChat.messages.length > 0 ? (
           activeChat.messages.map((m) => {
-            const isMe = m.author === "Você" || m.author === "Vendedor" || m.author === "Atendente Valem" || m.author === "Vendedor Humano";
+            const isMe = m.side === "out";
             const isSystem = m.author === "Sistema";
 
             if (isSystem) {

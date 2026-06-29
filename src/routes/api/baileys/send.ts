@@ -26,13 +26,14 @@ export const Route = createFileRoute("/api/baileys/send")({
 
         try {
           const body = await request.json();
-          const { tenantId, phone, text, conversationId } = body;
+          const { tenantId, phone, text, conversationId, senderName } = body;
 
           console.log("[Baileys Send Route] Parâmetros recebidos no backend:", {
             tenantId,
             phone,
             text,
             conversationId,
+            senderName,
           });
 
           if (!tenantId || !phone || !text) {
@@ -67,7 +68,7 @@ export const Route = createFileRoute("/api/baileys/send")({
               tenantId,
               conversationId,
               senderType: "agent",
-              senderName: "Operador",
+              senderName: senderName || "Operador",
               content: text,
               isInternalNote: false,
               sentAt: new Date(),

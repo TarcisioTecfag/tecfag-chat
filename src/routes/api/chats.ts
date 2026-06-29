@@ -11,7 +11,7 @@ export const Route = createFileRoute("/api/chats")({
           status: 204,
           headers: {
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
           },
         });
@@ -100,6 +100,56 @@ export const Route = createFileRoute("/api/chats")({
           });
         } catch (e: any) {
           console.error("Erro ao listar chats do banco:", e);
+          return new Response(JSON.stringify({ error: e.message }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      },
+      POST: async ({ request }) => {
+        const corsHeaders = {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        };
+
+        try {
+          const body = await request.json();
+          const { tenantId, conversationId, senderType, senderName, content, isInternalNote } = body;
+
+          if (!tenantId || !conversationId || !content) {
+            return new Response(JSON.stringify({ error: "tenantId, conversationId e content são obrigatórios" }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const messageId = `msg-${Date.now()}`;
+
+          await db.insert(messages).values({
+            id: messageId,
+            tenantId,
+            conversationId,
+            senderType: senderType || "agent",
+            senderName: senderName || "Operador",
+            content,
+            isInternalNote: !!isInternalNote,
+            sentAt: new Date(),
+          });
+
+          // Atualizar última mensagem na conversa
+          await db.update(conversations)
+            .set({
+              lastMessageText: content,
+              lastMessageTime: new Date(),
+            })
+            .where(eq(conversations.id, conversationId));
+
+          return new Response(JSON.stringify({ success: true, messageId }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } catch (e: any) {
+          console.error("Erro ao salvar mensagem no DB:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
