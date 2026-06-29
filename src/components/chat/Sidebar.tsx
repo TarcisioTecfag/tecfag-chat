@@ -24,10 +24,10 @@ export function Sidebar() {
   const navItems = [
     { id: "chat", icon: Users, label: "Chat" },
     { id: "contacts", icon: Contact, label: "Base de Clientes" },
+    { id: "settings", icon: Settings, label: "Ajustes" },
   ];
 
   const decorativeItems = [
-    { icon: Settings, label: "Ajustes" },
     { icon: Clock, label: "Histórico" },
     { icon: ClipboardCheck, label: "Tarefas" },
     { icon: Eye, label: "Monitorar" },
