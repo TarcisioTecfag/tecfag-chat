@@ -105,6 +105,8 @@ type ChatContextType = {
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [tenant, setTenantState] = useState<"tecfag" | "valem">("tecfag");
   const [activeQueue, setActiveQueue] = useState<QueueType>("meus");
@@ -222,12 +224,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {}
       }
 
-      const savedOperators = localStorage.getItem("rbac_operators");
-      if (savedOperators) {
-        try {
-          setOperators(JSON.parse(savedOperators));
-        } catch (e) {}
-      }
+      // Carregar operadores persistidos do banco de dados do Railway (com fallback do localStorage)
+      fetch(`${BACKEND_URL}/api/operators`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data) && data.length > 0) {
+            setOperators(data);
+          } else {
+            const savedOperators = localStorage.getItem("rbac_operators");
+            if (savedOperators) {
+              setOperators(JSON.parse(savedOperators));
+            }
+          }
+        })
+        .catch(() => {
+          const savedOperators = localStorage.getItem("rbac_operators");
+          if (savedOperators) {
+            try {
+              setOperators(JSON.parse(savedOperators));
+            } catch (e) {}
+          }
+        });
 
       const savedOpId = localStorage.getItem("rbac_current_operator_id");
       if (savedOpId) {
@@ -287,7 +304,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     status: currentOperator.status,
   };
 
-  const updateOperatorProfile = (fields: Partial<OperatorProfile>) => {
+  const updateOperatorProfile = async (fields: Partial<OperatorProfile>) => {
     setOperators((prev) =>
       prev.map((op) =>
         op.id === currentOperatorId
@@ -301,6 +318,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : op
       )
     );
+
+    const targetOp = operators.find((op) => op.id === currentOperatorId);
+    if (targetOp) {
+      try {
+        await fetch(`${BACKEND_URL}/api/operators`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: currentOperatorId,
+            tenantId: targetOp.tenantId || tenant,
+            name: fields.name ?? targetOp.name,
+            email: fields.email ?? targetOp.email,
+            avatar: fields.avatar ?? targetOp.avatar,
+            status: fields.status ?? targetOp.status,
+            passwordHash: targetOp.passwordHash,
+            role: targetOp.role,
+            groupId: targetOp.groupId,
+          }),
+        });
+      } catch (err) {
+        console.error("Erro ao sincronizar atualização de perfil de operador no DB:", err);
+      }
+    }
   };
 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -320,7 +360,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // CRUD Operators
-  const createOperator = (opData: Omit<Operator, "id" | "status" | "avatar">) => {
+  const createOperator = async (opData: Omit<Operator, "id" | "status" | "avatar">) => {
     const newOp: Operator = {
       ...opData,
       id: `op-${Date.now()}`,
@@ -328,23 +368,73 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       avatar: `https://i.pravatar.cc/80?img=${Math.floor(Math.random() * 70)}`,
     };
     setOperators((prev) => [...prev, newOp]);
+
+    try {
+      await fetch(`${BACKEND_URL}/api/operators`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newOp),
+      });
+    } catch (err) {
+      console.error("Erro ao criar operador no DB:", err);
+    }
   };
 
-  const updateOperator = (id: string, fields: Partial<Operator>) => {
+  const updateOperator = async (id: string, fields: Partial<Operator>) => {
     setOperators((prev) =>
       prev.map((op) => (op.id === id ? { ...op, ...fields } : op))
     );
+
+    const targetOp = operators.find((op) => op.id === id);
+    if (targetOp) {
+      try {
+        await fetch(`${BACKEND_URL}/api/operators`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...targetOp,
+            ...fields,
+          }),
+        });
+      } catch (err) {
+        console.error("Erro ao atualizar operador no DB:", err);
+      }
+    }
   };
 
-  const deleteOperator = (id: string) => {
+  const deleteOperator = async (id: string) => {
     if (id === currentOperatorId) return;
     setOperators((prev) => prev.filter((op) => op.id !== id));
+
+    try {
+      await fetch(`${BACKEND_URL}/api/operators?id=${id}`, {
+        method: "DELETE",
+      });
+    } catch (err) {
+      console.error("Erro ao deletar operador no DB:", err);
+    }
   };
 
-  const resetOperatorPassword = (id: string, newPasswordHash: string) => {
+  const resetOperatorPassword = async (id: string, newPasswordHash: string) => {
     setOperators((prev) =>
       prev.map((op) => (op.id === id ? { ...op, passwordHash: newPasswordHash } : op))
     );
+
+    const targetOp = operators.find((op) => op.id === id);
+    if (targetOp) {
+      try {
+        await fetch(`${BACKEND_URL}/api/operators`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...targetOp,
+            passwordHash: newPasswordHash,
+          }),
+        });
+      } catch (err) {
+        console.error("Erro ao redefinir senha de operador no DB:", err);
+      }
+    }
   };
 
   // CRUD Access Groups
@@ -383,7 +473,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     status: "connected",
   });
 
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const [baileysConfig, setBaileysConfig] = useState<BaileysConfig>({

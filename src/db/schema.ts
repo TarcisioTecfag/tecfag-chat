@@ -37,6 +37,9 @@ export const operators = pgTable("operators", {
   email: text("email").notNull(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").default("agent").notNull(), // 'admin' | 'agent'
+  avatar: text("avatar"), // Foto de perfil em Base64 compactada
+  status: text("status").default("disponivel").notNull(), // 'disponivel' | 'ocupado' | 'ausente'
+  groupId: text("group_id"), // Referência para grupo de acesso/RBAC
   isOnline: boolean("is_online").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -9,10 +9,10 @@
   },
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "drizzle-kit push || echo 'Ignorando push do Drizzle' && vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
-    "start": "node .output/server/index.mjs",
+    "start": "npm run db:seed && node .output/server/index.mjs",
     "db:seed": "tsx src/db/seed.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
