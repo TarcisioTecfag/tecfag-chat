@@ -485,8 +485,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const shouldSendReal =
       tenant === "valem" &&
       currentChat.channel === "whatsapp" &&
-      !isInternalNote &&
-      baileysConfig.status === "connected";
+      !isInternalNote;
 
     if (shouldSendReal && currentChat.phone) {
       try {
@@ -502,10 +501,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         if (!response.ok) {
-          throw new Error("Erro na resposta do envio de mensagem");
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || "Erro na resposta do envio de mensagem");
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Falha ao enviar mensagem de WhatsApp pelo backend:", err);
+        toast.error(`Erro ao enviar mensagem: ${err.message || "Conexão falhou"}`);
       }
     }
 
@@ -692,8 +693,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setBaileysConfig((prev) => ({
       ...prev,
-      status: "connecting",
-      qrCodeUrl: "",
+      status: prev.status === "connected" ? "connected" : "connecting",
+      qrCodeUrl: prev.status === "connected" ? "" : prev.qrCodeUrl,
     }));
 
     const eventSource = new EventSource(`${BACKEND_URL}/api/baileys/connect?tenantId=valem`);
