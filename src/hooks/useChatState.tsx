@@ -740,6 +740,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     unreadCount: message.senderType === "client" ? c.unreadCount + 1 : c.unreadCount,
                     messages: [...c.messages, incomingMsg],
                     phone: message.phone || c.phone,
+                    avatar: message.avatar || c.avatar,
                   };
                 }
                 return c;
@@ -756,7 +757,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const newConv: Conversation = {
                 id: message.conversationId,
                 name: message.senderName,
-                avatar: "",
+                avatar: message.avatar || "",
                 initials,
                 initialsBg,
                 phone: message.phone || "",

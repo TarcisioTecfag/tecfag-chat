@@ -351,6 +351,19 @@ export class SessionManager {
           dAnd(dEq(contactsTable.tenantId, tenantId), dEq(contactsTable.phone, phone))
       });
 
+      // Tentar obter a foto de perfil do contato do WhatsApp via Baileys se não tivermos ela salva ainda
+      let profilePicUrl = contact?.avatar || "";
+      if (!profilePicUrl) {
+        try {
+          const sock = this.sessions.get(tenantId);
+          if (sock && jid) {
+            profilePicUrl = await sock.profilePictureUrl(jid, "preview") || "";
+          }
+        } catch (e: any) {
+          // Trata silenciando se der erro (ex: privacidade)
+        }
+      }
+
       const contactId = contact?.id || `c-${Date.now()}`;
       if (!contact) {
         // Criar contato se não existir
@@ -360,9 +373,15 @@ export class SessionManager {
           name,
           phone,
           mainChannel: "whatsapp",
+          avatar: profilePicUrl || null,
           tags: [],
           createdAt: new Date(),
         });
+      } else if (profilePicUrl && profilePicUrl !== contact.avatar) {
+        // Se a foto foi obtida e é diferente, atualizar no banco
+        await db.update(contacts)
+          .set({ avatar: profilePicUrl })
+          .where(eq(contacts.id, contactId));
       }
 
       // 2. Garantir que a conversa existe no banco
@@ -420,6 +439,7 @@ export class SessionManager {
           senderName: name,
           content: text,
           phone: phone, // Enviar o telefone real extraído do JID para o frontend
+          avatar: profilePicUrl || null, // Enviar o avatar do contato no SSE
           sentAt: new Date(),
         }
       });

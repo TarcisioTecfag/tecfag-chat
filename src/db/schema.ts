@@ -49,6 +49,7 @@ export const contacts = pgTable("contacts", {
   phone: text("phone"),
   email: text("email"),
   cnpj: text("cnpj"),
+  avatar: text("avatar"), // URL da foto de perfil do contato
   tags: jsonb("tags").$type<string[]>().default([]).notNull(),
   mainChannel: text("main_channel").notNull(), // 'whatsapp' | 'instagram' | 'messenger'
   createdAt: timestamp("created_at").defaultNow().notNull(),
