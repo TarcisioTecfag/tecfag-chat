@@ -407,7 +407,11 @@ export class SessionManager {
       });
 
       const convId = conversation?.id || `conv-${Date.now()}`;
-      const unreadCount = conversation ? conversation.unreadCount + 1 : 1;
+      const isFromMe = !!rawMsg.key.fromMe;
+
+      // Se a mensagem veio do próprio operador/WhatsApp conectado (fromMe), zera as mensagens não lidas.
+      // Se veio do cliente, incrementa as não lidas.
+      const unreadCount = isFromMe ? 0 : (conversation ? conversation.unreadCount + 1 : 1);
 
       if (!conversation) {
         // Criar conversa
@@ -415,7 +419,7 @@ export class SessionManager {
           id: convId,
           tenantId,
           contactId,
-          queueState: "fila",
+          queueState: isFromMe ? "meus" : "fila", // Se iniciamos contato, move para a fila do operador
           unreadCount,
           lastMessageText: text,
           lastMessageTime: new Date(),
@@ -429,33 +433,38 @@ export class SessionManager {
             unreadCount,
             lastMessageText: text,
             lastMessageTime: new Date(),
+            // Se a conversa estava na fila de espera geral e o operador respondeu, move para a fila 'meus'
+            queueState: isFromMe && conversation.queueState === "fila" ? "meus" : conversation.queueState,
           })
           .where(eq(conversations.id, convId));
       }
+
+      const finalSenderType = isFromMe ? "agent" : "client";
+      const finalSenderName = isFromMe ? "Operador" : name;
 
       // 3. Salvar a mensagem
       await db.insert(messages).values({
         id: messageId,
         tenantId,
         conversationId: convId,
-        senderType: "client",
-        senderName: name,
+        senderType: finalSenderType,
+        senderName: finalSenderName,
         content: text,
         isInternalNote: false,
         sentAt: new Date(),
       });
 
-      // 4. Notificar a UI via evento
+      // 4. Notificar a UI via evento SSE
       this.notify(tenantId, {
         type: "message",
         message: {
           id: messageId,
           conversationId: convId,
-          senderType: "client",
-          senderName: name,
+          senderType: finalSenderType,
+          senderName: finalSenderName,
           content: text,
           phone: phone, // Enviar o telefone real extraído do JID para o frontend
-          avatar: profilePicUrl || null, // Enviar o avatar do contato no SSE
+          avatar: isFromMe ? null : (profilePicUrl || null), // O avatar no SSE é do contato se for do cliente
           sentAt: new Date(),
         }
       });
