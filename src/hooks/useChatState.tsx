@@ -4,8 +4,6 @@ import {
   Channel,
   QueueType,
   Message,
-  TECFAG_MOCK_CONVERSATIONS,
-  VALEM_MOCK_CONVERSATIONS,
 } from "@/lib/mockData";
 
 export type MetaConfig = {
@@ -349,8 +347,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Keep state for both tenants separately
-  const [tecfagConvs, setTecfagConvs] = useState<Conversation[]>(TECFAG_MOCK_CONVERSATIONS);
-  const [valemConvs, setValemConvs] = useState<Conversation[]>(VALEM_MOCK_CONVERSATIONS);
+  const [tecfagConvs, setTecfagConvs] = useState<Conversation[]>([]);
+  const [valemConvs, setValemConvs] = useState<Conversation[]>([]);
 
   // Configuration States
   const [metaConfig, setMetaConfig] = useState<MetaConfig>({
@@ -421,20 +419,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     document.title = newTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
   };
 
-  // Carregar conversas persistidas no banco (Railway) e mesclar com o mock local
+  // Carregar conversas persistidas no banco (Railway)
   useEffect(() => {
     fetch(`${BACKEND_URL}/api/chats?tenantId=${tenant}`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
-          const mockConvs = tenant === "tecfag" ? TECFAG_MOCK_CONVERSATIONS : VALEM_MOCK_CONVERSATIONS;
-          const merged = [...data];
-          mockConvs.forEach((mock) => {
-            if (!merged.some((c) => c.id === mock.id)) {
-              merged.push(mock);
-            }
-          });
-          setConversations(merged);
+          setConversations(data);
         }
       })
       .catch((err) => console.error("Erro ao sincronizar conversas do banco:", err));
