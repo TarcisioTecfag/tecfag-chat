@@ -717,6 +717,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             status: "qr_ready",
             qrCodeUrl: qrUrl,
           }));
+        } else if (data.type === "contact_avatar") {
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.phone === data.phone
+                ? { ...c, avatar: data.avatar }
+                : c
+            )
+          );
         } else if (data.type === "message") {
           const { message } = data;
           

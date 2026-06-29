@@ -351,37 +351,51 @@ export class SessionManager {
           dAnd(dEq(contactsTable.tenantId, tenantId), dEq(contactsTable.phone, phone))
       });
 
-      // Tentar obter a foto de perfil do contato do WhatsApp via Baileys se não tivermos ela salva ainda
-      let profilePicUrl = contact?.avatar || "";
-      if (!profilePicUrl) {
-        try {
-          const sock = this.sessions.get(tenantId);
-          if (sock && jid) {
-            profilePicUrl = await sock.profilePictureUrl(jid, "preview") || "";
-          }
-        } catch (e: any) {
-          // Trata silenciando se der erro (ex: privacidade)
-        }
-      }
-
       const contactId = contact?.id || `c-${Date.now()}`;
+      const profilePicUrl = contact?.avatar || "";
+
       if (!contact) {
-        // Criar contato se não existir
+        // Criar contato se não existir (inicialmente sem foto para velocidade máxima)
         await db.insert(contacts).values({
           id: contactId,
           tenantId,
           name,
           phone,
           mainChannel: "whatsapp",
-          avatar: profilePicUrl || null,
+          avatar: null,
           tags: [],
           createdAt: new Date(),
         });
-      } else if (profilePicUrl && profilePicUrl !== contact.avatar) {
-        // Se a foto foi obtida e é diferente, atualizar no banco
-        await db.update(contacts)
-          .set({ avatar: profilePicUrl })
-          .where(eq(contacts.id, contactId));
+      }
+
+      // Buscar foto de perfil em background (sem await para não atrasar o processamento de mensagens!)
+      if (jid && (!contact || !contact.avatar)) {
+        const sock = this.sessions.get(tenantId);
+        if (sock) {
+          sock.profilePictureUrl(jid, "preview")
+            .then((picUrl) => {
+              if (picUrl) {
+                db.update(contacts)
+                  .set({ avatar: picUrl })
+                  .where(eq(contacts.id, contactId))
+                  .then(() => {
+                    console.log(`[Baileys] Foto de perfil obtida em background para ${phone}`);
+                    // Envia um evento SSE de atualização de avatar
+                    this.notify(tenantId, {
+                      type: "contact_avatar",
+                      contactId: contactId,
+                      phone: phone,
+                      avatar: picUrl,
+                    });
+                  })
+                  .catch((err) => console.error("Erro ao salvar foto de perfil no DB:", err));
+              }
+            })
+            .catch((err) => {
+              // Silencia erros normais de privacidade/foto bloqueada
+              console.log(`[Baileys] Foto de perfil não disponível para ${phone}:`, err.message);
+            });
+        }
       }
 
       // 2. Garantir que a conversa existe no banco
