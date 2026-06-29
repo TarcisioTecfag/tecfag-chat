@@ -239,25 +239,41 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Persistir alterações apenas após o cliente estar pronto (evita sobrescrever dados com o padrão de render)
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
-      localStorage.setItem("rbac_operators", JSON.stringify(operators));
+      try {
+        localStorage.setItem("rbac_operators", JSON.stringify(operators));
+      } catch (e) {
+        console.error("Erro ao persistir rbac_operators no localStorage:", e);
+      }
     }
   }, [operators, isClient]);
 
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
-      localStorage.setItem("rbac_access_groups", JSON.stringify(accessGroups));
+      try {
+        localStorage.setItem("rbac_access_groups", JSON.stringify(accessGroups));
+      } catch (e) {
+        console.error("Erro ao persistir rbac_access_groups no localStorage:", e);
+      }
     }
   }, [accessGroups, isClient]);
 
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
-      localStorage.setItem("chat_active_queue", activeQueue);
+      try {
+        localStorage.setItem("chat_active_queue", activeQueue);
+      } catch (e) {
+        console.error("Erro ao persistir chat_active_queue no localStorage:", e);
+      }
     }
   }, [activeQueue, isClient]);
 
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
-      localStorage.setItem("chat_active_view", activeView);
+      try {
+        localStorage.setItem("chat_active_view", activeView);
+      } catch (e) {
+        console.error("Erro ao persistir chat_active_view no localStorage:", e);
+      }
     }
   }, [activeView, isClient]);
 
@@ -295,7 +311,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!targetOp) return;
     setCurrentOperatorId(id);
     if (typeof window !== "undefined") {
-      localStorage.setItem("rbac_current_operator_id", id);
+      try {
+        localStorage.setItem("rbac_current_operator_id", id);
+      } catch (e) {
+        console.error("Erro ao persistir rbac_current_operator_id no localStorage:", e);
+      }
     }
   };
 
@@ -398,7 +418,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (firstAllowed) {
           setTenantState(firstAllowed);
           if (typeof window !== "undefined") {
-            localStorage.setItem("chat_tenant", firstAllowed);
+            try {
+              localStorage.setItem("chat_tenant", firstAllowed);
+            } catch (e) {
+              console.error("Erro ao persistir chat_tenant no localStorage:", e);
+            }
           }
           document.title = firstAllowed === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
         }
@@ -412,12 +436,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setTenantState(newTenant);
     if (typeof window !== "undefined") {
-      localStorage.setItem("chat_tenant", newTenant);
+      try {
+        localStorage.setItem("chat_tenant", newTenant);
+      } catch (e) {
+        console.error("Erro ao persistir chat_tenant no localStorage:", e);
+      }
     }
     // Sync view reset
     setActiveView("chat");
     if (typeof window !== "undefined") {
-      localStorage.setItem("chat_active_view", "chat");
+      try {
+        localStorage.setItem("chat_active_view", "chat");
+      } catch (e) {
+        console.error("Erro ao persistir chat_active_view no localStorage:", e);
+      }
     }
     // Change document title for visual cues
     document.title = newTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";

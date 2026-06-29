@@ -41,7 +41,30 @@ export function ProfileModal() {
       const reader = new FileReader();
       reader.onloadend = () => {
         if (typeof reader.result === "string") {
-          setAvatar(reader.result);
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            
+            // Tamanho otimizado para avatar
+            const size = 120;
+            canvas.width = size;
+            canvas.height = size;
+            
+            if (ctx) {
+              // Redimensiona preenchendo o quadrado do avatar de forma proporcional
+              const minSize = Math.min(img.width, img.height);
+              const sx = (img.width - minSize) / 2;
+              const sy = (img.height - minSize) / 2;
+              
+              ctx.drawImage(img, sx, sy, minSize, minSize, 0, 0, size, size);
+              
+              // Exporta em JPEG de qualidade média para ocupar pouquíssimo espaço (cerca de 3-5KB)
+              const compressedBase64 = canvas.toDataURL("image/jpeg", 0.75);
+              setAvatar(compressedBase64);
+            }
+          };
+          img.src = reader.result;
         }
       };
       reader.readAsDataURL(file);
