@@ -987,6 +987,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, passwordHash: string): Promise<boolean> => {
+    console.log("[Login Debug] Tentativa de login para email:", email);
+    console.log("[Login Debug] Lista de emails de operadores cadastrados:", operators.map(o => o.email));
     const matchedOp = operators.find(
       (op) => op.email.toLowerCase() === email.toLowerCase() && op.passwordHash === passwordHash
     );
