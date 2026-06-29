@@ -13,8 +13,102 @@ import {
   ArrowRightLeft,
   ChevronDown,
   ChevronLeft,
+  FileText,
+  Download,
 } from "lucide-react";
 import { QUICK_RESPONSES } from "@/lib/mockData";
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+function renderMessageContent(text: string) {
+  if (text.startsWith("[MEDIA:")) {
+    const match = text.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
+    if (match) {
+      const [, type, messageId, extra] = match;
+      const mediaUrl = `${BACKEND_URL}/api/baileys/media?messageId=${messageId}`;
+
+      if (type === "image") {
+        return (
+          <div className="relative group max-w-sm rounded-xl overflow-hidden border border-border bg-black/5 hover:opacity-95 transition cursor-pointer">
+            <img 
+              src={mediaUrl} 
+              alt="Imagem" 
+              className="max-h-60 w-full object-contain"
+              onClick={() => window.open(mediaUrl, "_blank")}
+            />
+          </div>
+        );
+      }
+
+      if (type === "video") {
+        return (
+          <div className="relative max-w-sm rounded-xl overflow-hidden border border-border bg-black/5">
+            <video 
+              controls 
+              src={mediaUrl} 
+              className="max-h-60 w-full object-contain"
+            />
+          </div>
+        );
+      }
+
+      if (type === "audio") {
+        return (
+          <div className="flex items-center gap-2 py-1 min-w-[260px]">
+            <audio 
+              controls 
+              src={mediaUrl} 
+              className="w-full h-8"
+              preload="metadata"
+            />
+          </div>
+        );
+      }
+
+      if (type === "document") {
+        const fileName = extra || "documento";
+        return (
+          <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-muted/40 border border-border min-w-[240px] max-w-sm">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-red-100 text-red-600">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-bold text-foreground">{fileName}</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-medium">Documento</p>
+              </div>
+            </div>
+            <a 
+              href={mediaUrl} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              download={fileName}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-card border border-border text-foreground hover:bg-muted transition"
+              title="Baixar Documento"
+            >
+              <Download className="h-4 w-4" />
+            </a>
+          </div>
+        );
+      }
+
+      if (type === "sticker") {
+        return (
+          <div className="relative max-w-[120px] overflow-hidden">
+            <img 
+              src={mediaUrl} 
+              alt="Figurinha" 
+              className="h-28 w-28 object-contain"
+            />
+          </div>
+        );
+      }
+    }
+  }
+
+  // Fallback para texto plano
+  return <p className="whitespace-pre-wrap">{text}</p>;
+}
 
 export function ChatPanel() {
   const {
@@ -247,13 +341,21 @@ export function ChatPanel() {
               );
             }
 
+            const isSticker = m.text.startsWith("[MEDIA:sticker]");
+
             if (isMe) {
               return (
                 <div key={m.id} className="flex flex-col items-end">
                   <span className="mb-0.5 text-[10px] text-muted-foreground font-medium">{m.author}, {m.time}</span>
-                  <div className="max-w-[70%] rounded-2xl rounded-tr-md bg-bubble-out px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft">
-                    {m.text}
-                  </div>
+                  {isSticker ? (
+                    <div className="max-w-[70%] leading-relaxed">
+                      {renderMessageContent(m.text)}
+                    </div>
+                  ) : (
+                    <div className="max-w-[70%] rounded-2xl rounded-tr-md bg-bubble-out px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft">
+                      {renderMessageContent(m.text)}
+                    </div>
+                  )}
                 </div>
               );
             }
@@ -272,9 +374,15 @@ export function ChatPanel() {
                 )}
                 <div className="min-w-0 max-w-[70%]">
                   <span className="mb-0.5 block text-[10px] text-muted-foreground font-medium">{m.author}, {m.time}</span>
-                  <div className="inline-block rounded-2xl rounded-tl-md bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft">
-                    {m.text}
-                  </div>
+                  {isSticker ? (
+                    <div className="inline-block leading-relaxed">
+                      {renderMessageContent(m.text)}
+                    </div>
+                  ) : (
+                    <div className="inline-block rounded-2xl rounded-tl-md bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft">
+                      {renderMessageContent(m.text)}
+                    </div>
+                  )}
                 </div>
               </div>
             );

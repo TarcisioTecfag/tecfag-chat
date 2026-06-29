@@ -1,9 +1,12 @@
 import makeWASocket, { 
   DisconnectReason, 
   WASocket, 
-  initAuthCreds
+  initAuthCreds,
+  downloadMediaMessage
 } from "@whiskeysockets/baileys";
 import pino from "pino";
+import fs from "fs";
+import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
 import { db } from "../../db";
 import { channelConfigs, contacts, conversations, messages } from "../../db/schema";
@@ -240,7 +243,21 @@ export class SessionManager {
     if (!jid) return;
     const phone = jid.split("@")[0];
     const name = rawMsg.pushName || `Cliente (${phone})`;
-    
+    const messageId = rawMsg.key.id || `msg-${Date.now()}`;
+
+    // Criar a pasta media se não existir
+    const mediaDir = path.join(process.cwd(), "media");
+    if (!fs.existsSync(mediaDir)) {
+      fs.mkdirSync(mediaDir, { recursive: true });
+    }
+
+    const messageType = Object.keys(rawMsg.message || {})[0];
+    const isMedia = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"].includes(messageType) ||
+                    rawMsg.message?.viewOnceMessage?.message?.imageMessage ||
+                    rawMsg.message?.viewOnceMessage?.message?.videoMessage ||
+                    rawMsg.message?.viewOnceMessageV2?.message?.imageMessage ||
+                    rawMsg.message?.viewOnceMessageV2?.message?.videoMessage;
+
     // Obter texto representativo da mensagem (incluindo tratamento de mídias como áudio, imagem e vídeo)
     let text = "[Mídia/Outro]";
     if (rawMsg.message) {
@@ -255,13 +272,73 @@ export class SessionManager {
       } else if (rawMsg.message.audioMessage) {
         text = "🎵 Áudio/Mensagem de voz";
       } else if (rawMsg.message.documentMessage) {
-        text = `📄 Documento: ${rawMsg.message.documentMessage.title || "Arquivo"}`;
+        const docTitle = rawMsg.message.documentMessage.fileName || rawMsg.message.documentMessage.title || "Documento";
+        text = `📄 Documento: ${docTitle}`;
       } else if (rawMsg.message.stickerMessage) {
         text = "💟 Figurinha";
       } else if (rawMsg.message.viewOnceMessage?.message?.imageMessage || rawMsg.message.viewOnceMessageV2?.message?.imageMessage) {
         text = "📷 Foto (Visualização única)";
       } else if (rawMsg.message.viewOnceMessage?.message?.videoMessage || rawMsg.message.viewOnceMessageV2?.message?.videoMessage) {
         text = "🎥 Vídeo (Visualização única)";
+      }
+    }
+
+    // Se for mídia, tentar fazer o download físico
+    if (isMedia) {
+      try {
+        console.log(`Baixando mídia para a mensagem ${messageId}...`);
+        const sock = this.sessions.get(tenantId);
+        if (sock) {
+          const buffer = await downloadMediaMessage(
+            rawMsg,
+            "buffer",
+            {},
+            { 
+              logger: pino({ level: "silent" }), 
+              reuploadRequest: sock.updateMediaMessage 
+            }
+          );
+
+          if (buffer) {
+            // Salvar os bytes da mídia
+            fs.writeFileSync(path.join(mediaDir, messageId), buffer);
+
+            // Identificar mimetype e formatar tag de mídia
+            let mime = "application/octet-stream";
+            if (rawMsg.message.imageMessage) {
+              mime = rawMsg.message.imageMessage.mimetype || "image/jpeg";
+              text = `[MEDIA:image]${messageId}`;
+            } else if (rawMsg.message.videoMessage) {
+              mime = rawMsg.message.videoMessage.mimetype || "video/mp4";
+              text = `[MEDIA:video]${messageId}`;
+            } else if (rawMsg.message.audioMessage) {
+              mime = rawMsg.message.audioMessage.mimetype || "audio/ogg";
+              text = `[MEDIA:audio]${messageId}`;
+            } else if (rawMsg.message.documentMessage) {
+              mime = rawMsg.message.documentMessage.mimetype || "application/octet-stream";
+              const docTitle = rawMsg.message.documentMessage.fileName || rawMsg.message.documentMessage.title || "documento";
+              text = `[MEDIA:document]${messageId}:${docTitle}`;
+            } else if (rawMsg.message.stickerMessage) {
+              mime = rawMsg.message.stickerMessage.mimetype || "image/webp";
+              text = `[MEDIA:sticker]${messageId}`;
+            } else {
+              const viewOnceMsg = rawMsg.message.viewOnceMessage?.message || rawMsg.message.viewOnceMessageV2?.message;
+              if (viewOnceMsg?.imageMessage) {
+                mime = viewOnceMsg.imageMessage.mimetype || "image/jpeg";
+                text = `[MEDIA:image]${messageId}`;
+              } else if (viewOnceMsg?.videoMessage) {
+                mime = viewOnceMsg.videoMessage.mimetype || "video/mp4";
+                text = `[MEDIA:video]${messageId}`;
+              }
+            }
+
+            // Salvar arquivo de mimetype
+            fs.writeFileSync(path.join(mediaDir, `${messageId}.mime`), mime);
+            console.log(`Mídia ${messageId} salva com sucesso! Mime: ${mime}`);
+          }
+        }
+      } catch (err) {
+        console.error(`Erro ao processar download de mídia da mensagem ${messageId}:`, err);
       }
     }
 
@@ -322,7 +399,6 @@ export class SessionManager {
       }
 
       // 3. Salvar a mensagem
-      const messageId = rawMsg.key.id || `msg-${Date.now()}`;
       await db.insert(messages).values({
         id: messageId,
         tenantId,
