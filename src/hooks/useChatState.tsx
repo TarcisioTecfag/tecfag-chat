@@ -383,11 +383,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             status: data.status,
             pairedPhone: data.phone ? `+${data.phone}` : prev.pairedPhone,
           }));
-
-          if (data.status === "connected") {
-            eventSource.close();
-            eventSourceRef.current = null;
-          }
         } else if (data.type === "qr") {
           const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data.qr)}`;
           setBaileysConfig((prev) => ({
@@ -479,12 +474,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               qrCodeUrl: data.qr ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data.qr)}` : "",
             }));
 
-            if (data.status === "qr_ready" || data.status === "connecting") {
+            if (data.status === "qr_ready" || data.status === "connecting" || data.status === "connected") {
               connectBaileys();
             }
           }
         })
         .catch((err) => console.error("Erro ao verificar status do Baileys:", err));
+    } else {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
     }
   }, [tenant]);
 
