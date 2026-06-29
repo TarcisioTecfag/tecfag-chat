@@ -413,6 +413,16 @@ export class SessionManager {
       // Se veio do cliente, incrementa as não lidas.
       const unreadCount = isFromMe ? 0 : (conversation ? conversation.unreadCount + 1 : 1);
 
+      // Regra de reabertura automática de filas:
+      // - Se o cliente mandar mensagem e a conversa estava finalizada, reabre para a fila geral de espera
+      // - Se o operador mandar mensagem e a conversa estava na fila, captura para 'meus'
+      let targetQueue = conversation?.queueState || "fila";
+      if (!isFromMe && conversation?.queueState === "finalizados") {
+        targetQueue = "fila";
+      } else if (isFromMe && conversation?.queueState === "fila") {
+        targetQueue = "meus";
+      }
+
       if (!conversation) {
         // Criar conversa
         await db.insert(conversations).values({
@@ -433,8 +443,7 @@ export class SessionManager {
             unreadCount,
             lastMessageText: text,
             lastMessageTime: new Date(),
-            // Se a conversa estava na fila de espera geral e o operador respondeu, move para a fila 'meus'
-            queueState: isFromMe && conversation.queueState === "fila" ? "meus" : conversation.queueState,
+            queueState: targetQueue,
           })
           .where(eq(conversations.id, convId));
       }

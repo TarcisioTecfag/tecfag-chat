@@ -488,8 +488,17 @@ export function ChatPanel() {
           </div>
         </div>
       ) : (
-        <div className="px-5 pb-5 text-center text-xs text-muted-foreground italic py-3 border-t border-line">
-          Este atendimento foi encerrado. Mova-o de volta para "Meus Atendimentos" ou reative-o para enviar mensagens.
+        <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
+          <p className="text-xs text-muted-foreground italic">
+            Este atendimento foi encerrado. Reative-o para iniciar uma nova conversa com o cliente.
+          </p>
+          <button
+            onClick={() => captureChat(activeChat.id)}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-soft transition hover:opacity-90 active:scale-98 cursor-pointer"
+          >
+            <CheckCircle className="h-4 w-4" />
+            Reativar Atendimento
+          </button>
         </div>
       )}
     </section>
