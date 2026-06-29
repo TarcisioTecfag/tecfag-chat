@@ -8,6 +8,7 @@ export function ProfileModal() {
     updateOperatorProfile,
     isProfileModalOpen,
     setIsProfileModalOpen,
+    logout,
   } = useChat();
 
   if (!isProfileModalOpen) return null;
@@ -274,20 +275,32 @@ export function ProfileModal() {
           </div>
 
           {/* Footer Actions */}
-          <div className="pt-4 border-t border-line flex justify-end gap-3">
+          <div className="pt-4 border-t border-line flex items-center justify-between">
             <button
               type="button"
-              onClick={() => setIsProfileModalOpen(false)}
-              className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer"
+              onClick={() => {
+                logout();
+                setIsProfileModalOpen(false);
+              }}
+              className="text-xs font-extrabold text-red-500 hover:text-red-600 transition-colors cursor-pointer hover:underline bg-transparent border-0 px-1 py-1"
             >
-              Cancelar
+              Fazer Logout
             </button>
-            <button
-              type="submit"
-              className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
-            >
-              Salvar Alterações
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setIsProfileModalOpen(false)}
+                className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
+              >
+                Salvar Alterações
+              </button>
+            </div>
           </div>
         </form>
       </div>

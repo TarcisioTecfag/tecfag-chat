@@ -10,8 +10,12 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
+import { Route as ApiChatsRouteImport } from './routes/api/chats'
+import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiBaileysStatusRouteImport } from './routes/api/baileys/status'
 import { Route as ApiBaileysSendRouteImport } from './routes/api/baileys/send'
+import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
 import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
 import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
 
@@ -19,6 +23,21 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
+  id: '/api/operators',
+  path: '/api/operators',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatsRoute = ApiChatsRouteImport.update({
+  id: '/api/chats',
+  path: '/api/chats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatsUpdateQueueRoute = ApiChatsUpdateQueueRouteImport.update({
+  id: '/update-queue',
+  path: '/update-queue',
+  getParentRoute: () => ApiChatsRoute,
 } as any)
 const ApiBaileysStatusRoute = ApiBaileysStatusRouteImport.update({
   id: '/api/baileys/status',
@@ -28,6 +47,11 @@ const ApiBaileysStatusRoute = ApiBaileysStatusRouteImport.update({
 const ApiBaileysSendRoute = ApiBaileysSendRouteImport.update({
   id: '/api/baileys/send',
   path: '/api/baileys/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBaileysMediaRoute = ApiBaileysMediaRouteImport.update({
+  id: '/api/baileys/media',
+  path: '/api/baileys/media',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiBaileysDisconnectRoute = ApiBaileysDisconnectRouteImport.update({
@@ -43,54 +67,81 @@ const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/chats': typeof ApiChatsRouteWithChildren
+  '/api/operators': typeof ApiOperatorsRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
+  '/api/baileys/media': typeof ApiBaileysMediaRoute
   '/api/baileys/send': typeof ApiBaileysSendRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
+  '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/chats': typeof ApiChatsRouteWithChildren
+  '/api/operators': typeof ApiOperatorsRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
+  '/api/baileys/media': typeof ApiBaileysMediaRoute
   '/api/baileys/send': typeof ApiBaileysSendRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
+  '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/chats': typeof ApiChatsRouteWithChildren
+  '/api/operators': typeof ApiOperatorsRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
+  '/api/baileys/media': typeof ApiBaileysMediaRoute
   '/api/baileys/send': typeof ApiBaileysSendRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
+  '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/api/chats'
+    | '/api/operators'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
+    | '/api/baileys/media'
     | '/api/baileys/send'
     | '/api/baileys/status'
+    | '/api/chats/update-queue'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/api/chats'
+    | '/api/operators'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
+    | '/api/baileys/media'
     | '/api/baileys/send'
     | '/api/baileys/status'
+    | '/api/chats/update-queue'
   id:
     | '__root__'
     | '/'
+    | '/api/chats'
+    | '/api/operators'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
+    | '/api/baileys/media'
     | '/api/baileys/send'
     | '/api/baileys/status'
+    | '/api/chats/update-queue'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiChatsRoute: typeof ApiChatsRouteWithChildren
+  ApiOperatorsRoute: typeof ApiOperatorsRoute
   ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
   ApiBaileysDisconnectRoute: typeof ApiBaileysDisconnectRoute
+  ApiBaileysMediaRoute: typeof ApiBaileysMediaRoute
   ApiBaileysSendRoute: typeof ApiBaileysSendRoute
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
 }
@@ -104,6 +155,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/operators': {
+      id: '/api/operators'
+      path: '/api/operators'
+      fullPath: '/api/operators'
+      preLoaderRoute: typeof ApiOperatorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chats': {
+      id: '/api/chats'
+      path: '/api/chats'
+      fullPath: '/api/chats'
+      preLoaderRoute: typeof ApiChatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chats/update-queue': {
+      id: '/api/chats/update-queue'
+      path: '/update-queue'
+      fullPath: '/api/chats/update-queue'
+      preLoaderRoute: typeof ApiChatsUpdateQueueRouteImport
+      parentRoute: typeof ApiChatsRoute
+    }
     '/api/baileys/status': {
       id: '/api/baileys/status'
       path: '/api/baileys/status'
@@ -116,6 +188,13 @@ declare module '@tanstack/react-router' {
       path: '/api/baileys/send'
       fullPath: '/api/baileys/send'
       preLoaderRoute: typeof ApiBaileysSendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/media': {
+      id: '/api/baileys/media'
+      path: '/api/baileys/media'
+      fullPath: '/api/baileys/media'
+      preLoaderRoute: typeof ApiBaileysMediaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/baileys/disconnect': {
@@ -135,10 +214,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ApiChatsRouteChildren {
+  ApiChatsUpdateQueueRoute: typeof ApiChatsUpdateQueueRoute
+}
+
+const ApiChatsRouteChildren: ApiChatsRouteChildren = {
+  ApiChatsUpdateQueueRoute: ApiChatsUpdateQueueRoute,
+}
+
+const ApiChatsRouteWithChildren = ApiChatsRoute._addFileChildren(
+  ApiChatsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiChatsRoute: ApiChatsRouteWithChildren,
+  ApiOperatorsRoute: ApiOperatorsRoute,
   ApiBaileysConnectRoute: ApiBaileysConnectRoute,
   ApiBaileysDisconnectRoute: ApiBaileysDisconnectRoute,
+  ApiBaileysMediaRoute: ApiBaileysMediaRoute,
   ApiBaileysSendRoute: ApiBaileysSendRoute,
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,
 }

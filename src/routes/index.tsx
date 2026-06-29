@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { ChatList } from "@/components/chat/ChatList";
@@ -9,6 +9,7 @@ import { ContactsView } from "@/components/chat/ContactsView";
 import { GroupsView } from "@/components/chat/GroupsView";
 import { ProfileModal } from "@/components/chat/ProfileModal";
 import { useChat } from "@/hooks/useChatState";
+import { Login } from "@/components/chat/Login";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -21,7 +22,24 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { tenant, activeView, rightSidebarOpen } = useChat();
+  const { tenant, activeView, rightSidebarOpen, isAuthenticated } = useChat();
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-white" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
 
   // Dynamically switch brand CSS variables at root element based on chosen tenant
   const themeStyles = tenant === "tecfag"
