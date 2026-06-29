@@ -95,11 +95,8 @@ export class SessionManager {
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
 
     // Inicializar o socket do Baileys
-    const sock = makeWASocket.default ? makeWASocket.default({
-      auth: state,
-      logger,
-      printQRInTerminal: true,
-    }) : (makeWASocket as any)({
+    const makeSocketFn = (makeWASocket as any).default || makeWASocket;
+    const sock = makeSocketFn({
       auth: state,
       logger,
       printQRInTerminal: true,
@@ -111,7 +108,7 @@ export class SessionManager {
     sock.ev.on("creds.update", saveCreds);
 
     // Tratar eventos de conexão
-    sock.ev.on("connection.update", async (update) => {
+    sock.ev.on("connection.update", async (update: any) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
@@ -184,7 +181,7 @@ export class SessionManager {
     });
 
     // Tratar eventos de mensagens recebidas
-    sock.ev.on("messages.upsert", async (m) => {
+    sock.ev.on("messages.upsert", async (m: any) => {
       if (m.type === "notify") {
         for (const msg of m.messages) {
           if (!msg.key.fromMe && msg.message) {
@@ -244,10 +241,29 @@ export class SessionManager {
     const phone = jid.split("@")[0];
     const name = rawMsg.pushName || `Cliente (${phone})`;
     
-    // Obter texto da mensagem
-    const text = rawMsg.message.conversation || 
-                 rawMsg.message.extendedTextMessage?.text || 
-                 "[Mídia/Outro]";
+    // Obter texto representativo da mensagem (incluindo tratamento de mídias como áudio, imagem e vídeo)
+    let text = "[Mídia/Outro]";
+    if (rawMsg.message) {
+      if (rawMsg.message.conversation) {
+        text = rawMsg.message.conversation;
+      } else if (rawMsg.message.extendedTextMessage?.text) {
+        text = rawMsg.message.extendedTextMessage.text;
+      } else if (rawMsg.message.imageMessage) {
+        text = "📷 Foto";
+      } else if (rawMsg.message.videoMessage) {
+        text = "🎥 Vídeo";
+      } else if (rawMsg.message.audioMessage) {
+        text = "🎵 Áudio/Mensagem de voz";
+      } else if (rawMsg.message.documentMessage) {
+        text = `📄 Documento: ${rawMsg.message.documentMessage.title || "Arquivo"}`;
+      } else if (rawMsg.message.stickerMessage) {
+        text = "💟 Figurinha";
+      } else if (rawMsg.message.viewOnceMessage?.message?.imageMessage || rawMsg.message.viewOnceMessageV2?.message?.imageMessage) {
+        text = "📷 Foto (Visualização única)";
+      } else if (rawMsg.message.viewOnceMessage?.message?.videoMessage || rawMsg.message.viewOnceMessageV2?.message?.videoMessage) {
+        text = "🎥 Vídeo (Visualização única)";
+      }
+    }
 
     console.log(`Mensagem recebida do tenant ${tenantId} de ${name}: ${text}`);
 
@@ -327,6 +343,7 @@ export class SessionManager {
           senderType: "client",
           senderName: name,
           content: text,
+          phone: phone, // Enviar o telefone real extraído do JID para o frontend
           sentAt: new Date(),
         }
       });

@@ -29,6 +29,26 @@ export type OperatorProfile = {
   status: "disponivel" | "pausa" | "desconectado";
 };
 
+export type AccessGroup = {
+  id: string;
+  name: string;
+  allowedTenants: ("tecfag" | "valem")[];
+  allowedChannels: ("whatsapp" | "instagram" | "messenger")[];
+  canCreateUser: boolean;
+  canResetPassword: boolean;
+  canEditProfile: boolean;
+};
+
+export type Operator = {
+  id: string;
+  name: string;
+  email: string;
+  avatar: string;
+  status: "disponivel" | "pausa" | "desconectado";
+  passwordHash: string;
+  groupId: string;
+};
+
 type ChatContextType = {
   tenant: "tecfag" | "valem";
   setTenant: (tenant: "tecfag" | "valem") => void;
@@ -42,8 +62,8 @@ type ChatContextType = {
   setSearchQuery: (query: string) => void;
   channelFilter: Channel | "all";
   setChannelFilter: (filter: Channel | "all") => void;
-  activeView: "chat" | "contacts" | "settings";
-  setActiveView: (view: "chat" | "contacts" | "settings") => void;
+  activeView: "chat" | "contacts" | "settings" | "groups";
+  setActiveView: (view: "chat" | "contacts" | "settings" | "groups") => void;
   rightSidebarOpen: boolean;
   setRightSidebarOpen: (open: boolean) => void;
   
@@ -52,6 +72,20 @@ type ChatContextType = {
   updateOperatorProfile: (profile: Partial<OperatorProfile>) => void;
   isProfileModalOpen: boolean;
   setIsProfileModalOpen: (open: boolean) => void;
+
+  // RBAC State & Operations
+  operators: Operator[];
+  accessGroups: AccessGroup[];
+  currentOperatorId: string;
+  currentGroup: AccessGroup;
+  impersonateOperator: (id: string) => void;
+  createOperator: (operator: Omit<Operator, "id" | "status" | "avatar">) => void;
+  updateOperator: (id: string, fields: Partial<Operator>) => void;
+  deleteOperator: (id: string) => void;
+  resetOperatorPassword: (id: string, newPasswordHash: string) => void;
+  createAccessGroup: (group: Omit<AccessGroup, "id">) => void;
+  updateAccessGroup: (id: string, fields: Partial<AccessGroup>) => void;
+  deleteAccessGroup: (id: string) => void;
   
   // Actions
   sendMessage: (text: string, isInternalNote?: boolean) => void;
@@ -79,20 +113,174 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups">("chat");
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
-  // Operator Profile State
-  const [operatorProfile, setOperatorProfile] = useState<OperatorProfile>({
-    name: "Fagner F. (Vendedor)",
-    email: "fagner@tecfag.com.br",
-    avatar: "https://i.pravatar.cc/80?img=12",
-    status: "disponivel",
-  });
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  // RBAC Setup
+  const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([
+    {
+      id: "group-admin",
+      name: "Administradores",
+      allowedTenants: ["tecfag", "valem"],
+      allowedChannels: ["whatsapp", "instagram", "messenger"],
+      canCreateUser: true,
+      canResetPassword: true,
+      canEditProfile: true,
+    },
+    {
+      id: "group-valem-comercial",
+      name: "Valem Comercial",
+      allowedTenants: ["valem"],
+      allowedChannels: ["whatsapp", "instagram", "messenger"],
+      canCreateUser: true,
+      canResetPassword: true,
+      canEditProfile: true,
+    },
+    {
+      id: "group-tecfag-vendedor",
+      name: "Tecfag Vendedores",
+      allowedTenants: ["tecfag"],
+      allowedChannels: ["whatsapp", "instagram", "messenger"],
+      canCreateUser: false,
+      canResetPassword: false,
+      canEditProfile: true,
+    },
+    {
+      id: "group-whats-only",
+      name: "Vendedores WhatsApp Only",
+      allowedTenants: ["tecfag", "valem"],
+      allowedChannels: ["whatsapp"],
+      canCreateUser: false,
+      canResetPassword: false,
+      canEditProfile: true,
+    },
+  ]);
+
+  const [operators, setOperators] = useState<Operator[]>([
+    {
+      id: "op-1",
+      name: "Fagner F. (Admin)",
+      email: "fagner@tecfag.com.br",
+      avatar: "https://i.pravatar.cc/80?img=12",
+      status: "disponivel",
+      passwordHash: "123456",
+      groupId: "group-admin",
+    },
+    {
+      id: "op-2",
+      name: "Tarcísio (Valem)",
+      email: "tarcisio@valem.com.br",
+      avatar: "https://i.pravatar.cc/80?img=60",
+      status: "disponivel",
+      passwordHash: "123456",
+      groupId: "group-valem-comercial",
+    },
+    {
+      id: "op-3",
+      name: "Pedro (Tecfag)",
+      email: "pedro@tecfag.com.br",
+      avatar: "https://i.pravatar.cc/80?img=33",
+      status: "disponivel",
+      passwordHash: "123456",
+      groupId: "group-tecfag-vendedor",
+    },
+    {
+      id: "op-4",
+      name: "Julia (Whats Only)",
+      email: "julia@valem.com.br",
+      avatar: "https://i.pravatar.cc/80?img=47",
+      status: "disponivel",
+      passwordHash: "123456",
+      groupId: "group-whats-only",
+    },
+  ]);
+
+  const [currentOperatorId, setCurrentOperatorId] = useState<string>("op-1");
+
+  const currentOperator = operators.find((op) => op.id === currentOperatorId) || operators[0];
+  const currentGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || accessGroups[0];
+
+  const operatorProfile: OperatorProfile = {
+    name: currentOperator.name,
+    email: currentOperator.email,
+    avatar: currentOperator.avatar,
+    status: currentOperator.status,
+  };
 
   const updateOperatorProfile = (fields: Partial<OperatorProfile>) => {
-    setOperatorProfile((prev) => ({ ...prev, ...fields }));
+    setOperators((prev) =>
+      prev.map((op) =>
+        op.id === currentOperatorId
+          ? {
+              ...op,
+              name: fields.name ?? op.name,
+              email: fields.email ?? op.email,
+              avatar: fields.avatar ?? op.avatar,
+              status: fields.status ?? op.status,
+            }
+          : op
+      )
+    );
+  };
+
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Impersonation
+  const impersonateOperator = (id: string) => {
+    const targetOp = operators.find((op) => op.id === id);
+    if (!targetOp) return;
+    setCurrentOperatorId(id);
+  };
+
+  // CRUD Operators
+  const createOperator = (opData: Omit<Operator, "id" | "status" | "avatar">) => {
+    const newOp: Operator = {
+      ...opData,
+      id: `op-${Date.now()}`,
+      status: "disponivel",
+      avatar: `https://i.pravatar.cc/80?img=${Math.floor(Math.random() * 70)}`,
+    };
+    setOperators((prev) => [...prev, newOp]);
+  };
+
+  const updateOperator = (id: string, fields: Partial<Operator>) => {
+    setOperators((prev) =>
+      prev.map((op) => (op.id === id ? { ...op, ...fields } : op))
+    );
+  };
+
+  const deleteOperator = (id: string) => {
+    if (id === currentOperatorId) return;
+    setOperators((prev) => prev.filter((op) => op.id !== id));
+  };
+
+  const resetOperatorPassword = (id: string, newPasswordHash: string) => {
+    setOperators((prev) =>
+      prev.map((op) => (op.id === id ? { ...op, passwordHash: newPasswordHash } : op))
+    );
+  };
+
+  // CRUD Access Groups
+  const createAccessGroup = (groupData: Omit<AccessGroup, "id">) => {
+    const newGroup: AccessGroup = {
+      ...groupData,
+      id: `group-${Date.now()}`,
+    };
+    setAccessGroups((prev) => [...prev, newGroup]);
+  };
+
+  const updateAccessGroup = (id: string, fields: Partial<AccessGroup>) => {
+    setAccessGroups((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, ...fields } : g))
+    );
+  };
+
+  const deleteAccessGroup = (id: string) => {
+    if (id === "group-admin") return;
+    setAccessGroups((prev) => prev.filter((g) => g.id !== id));
+    setOperators((prev) =>
+      prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op))
+    );
   };
 
   // Keep state for both tenants separately
@@ -135,7 +323,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [activeQueue]);
 
+  // Re-verify tenant when operator or group changes
+  useEffect(() => {
+    if (currentGroup) {
+      if (!currentGroup.allowedTenants.includes(tenant)) {
+        const firstAllowed = currentGroup.allowedTenants[0];
+        if (firstAllowed) {
+          setTenantState(firstAllowed);
+          document.title = firstAllowed === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+        }
+      }
+    }
+  }, [currentOperatorId, currentGroup, tenant]);
+
   const setTenant = (newTenant: "tecfag" | "valem") => {
+    if (currentGroup && !currentGroup.allowedTenants.includes(newTenant)) {
+      return; // Tenant block
+    }
     setTenantState(newTenant);
     // Sync view reset
     setActiveView("chat");
@@ -143,7 +347,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     document.title = newTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
   };
 
-  const conversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
+  const rawConversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
+  const conversations = rawConversations.filter((c) =>
+    currentGroup.allowedChannels.includes(c.channel)
+  );
   const setConversations = tenant === "tecfag" ? setTecfagConvs : setValemConvs;
 
   const activeChat = conversations.find((c) => c.id === selectedChatId) || null;
@@ -412,12 +619,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     lastMessageTime: timeStr,
                     unreadCount: message.senderType === "client" ? c.unreadCount + 1 : c.unreadCount,
                     messages: [...c.messages, incomingMsg],
+                    phone: message.phone || c.phone,
                   };
                 }
                 return c;
               });
             } else {
-              const cleanPhone = message.senderName.replace(/\D/g, "");
               const initials = message.senderName
                 .split(" ")
                 .map((w: string) => w[0])
@@ -432,7 +639,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 avatar: "",
                 initials,
                 initialsBg,
-                phone: cleanPhone,
+                phone: message.phone || "",
                 tags: ["WhatsApp Inbound"],
                 channel: "whatsapp",
                 queue: "fila",
@@ -519,6 +726,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateOperatorProfile,
         isProfileModalOpen,
         setIsProfileModalOpen,
+
+        operators,
+        accessGroups,
+        currentOperatorId,
+        currentGroup,
+        impersonateOperator,
+        createOperator,
+        updateOperator,
+        deleteOperator,
+        resetOperatorPassword,
+        createAccessGroup,
+        updateAccessGroup,
+        deleteAccessGroup,
         
         sendMessage,
         captureChat,
