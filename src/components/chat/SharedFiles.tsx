@@ -33,7 +33,7 @@ const categories = [
 
 export function SharedFiles() {
   return (
-    <aside className="flex h-full w-[320px] shrink-0 flex-col rounded-3xl bg-card px-6 py-6 shadow-soft">
+    <aside className="flex h-full w-[280px] shrink-0 flex-col rounded-3xl bg-card px-5 py-6 shadow-soft">
       <div className="flex items-center gap-3">
         <button className="grid h-8 w-8 place-items-center rounded-full bg-muted text-muted-foreground hover:bg-border">
           <ChevronLeft className="h-4 w-4" />

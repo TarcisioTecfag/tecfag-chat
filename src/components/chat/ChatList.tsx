@@ -54,7 +54,7 @@ const conversations: Conv[] = [
 
 export function ChatList() {
   return (
-    <aside className="flex h-full w-[300px] shrink-0 flex-col rounded-3xl bg-card px-6 py-6 shadow-soft">
+    <aside className="flex h-full w-[260px] shrink-0 flex-col rounded-3xl bg-card px-5 py-6 shadow-soft">
       {/* Header */}
       <div className="flex items-center gap-3">
         <button className="grid h-8 w-8 place-items-center rounded-full bg-muted text-muted-foreground transition hover:bg-border">
