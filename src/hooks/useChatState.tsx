@@ -533,7 +533,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const captureChat = (id: string) => {
+  const captureChat = async (id: string) => {
+    const textLog = "Conversa capturada por Vendedor Humano.";
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
@@ -541,7 +542,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const systemMsg: Message = {
             id: `sys-${Date.now()}`,
             author: "Sistema",
-            text: `Conversa capturada por Vendedor Humano.`,
+            text: textLog,
             time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
             side: "out",
             isInternalNote: true,
@@ -557,16 +558,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     setActiveQueue("meus");
     setSelectedChatId(id);
+
+    try {
+      await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: id,
+          queueState: "meus",
+          systemMessageText: textLog,
+        }),
+      });
+    } catch (err) {
+      console.error("Erro ao persistir captura de chat no DB:", err);
+    }
   };
 
-  const transferChat = (id: string, department: string) => {
+  const transferChat = async (id: string, department: string) => {
+    const textLog = `Conversa transferida para o departamento: ${department}. Voltando para a Fila de Espera.`;
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
           const systemMsg: Message = {
             id: `sys-${Date.now()}`,
             author: "Sistema",
-            text: `Conversa transferida para o departamento: ${department}. Voltando para a Fila de Espera.`,
+            text: textLog,
             time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
             side: "out",
             isInternalNote: true,
@@ -582,16 +598,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     setActiveQueue("fila");
     setSelectedChatId(id);
+
+    try {
+      await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: id,
+          queueState: "fila",
+          systemMessageText: textLog,
+        }),
+      });
+    } catch (err) {
+      console.error("Erro ao persistir transferência de chat no DB:", err);
+    }
   };
 
-  const finishChat = (id: string) => {
+  const finishChat = async (id: string) => {
+    const textLog = "Conversa encerrada e movida para Finalizados.";
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
           const systemMsg: Message = {
             id: `sys-${Date.now()}`,
             author: "Sistema",
-            text: `Conversa encerrada e movida para Finalizados.`,
+            text: textLog,
             time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
             side: "out",
             isInternalNote: true,
@@ -607,6 +638,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     setActiveQueue("finalizados");
     setSelectedChatId(id);
+
+    try {
+      await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: id,
+          queueState: "finalizados",
+          systemMessageText: textLog,
+        }),
+      });
+    } catch (err) {
+      console.error("Erro ao persistir encerramento de chat no DB:", err);
+    }
   };
 
   const updateTags = (id: string, tags: string[]) => {

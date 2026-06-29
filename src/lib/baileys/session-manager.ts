@@ -372,7 +372,9 @@ export class SessionManager {
       if (jid && (!contact || !contact.avatar)) {
         const sock = this.sessions.get(tenantId);
         if (sock) {
+          // Tenta obter o preview. Se falhar (ex: bloqueios ou ausência do preview), tenta a imagem em alta resolução.
           sock.profilePictureUrl(jid, "preview")
+            .catch(() => sock.profilePictureUrl(jid, "image"))
             .then((picUrl) => {
               if (picUrl) {
                 db.update(contacts)

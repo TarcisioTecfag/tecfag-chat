@@ -66,7 +66,7 @@ export const Route = createFileRoute("/api/chats")({
             chatList.push({
               id: row.conversation.id,
               name: row.contact.name,
-              avatar: "",
+              avatar: row.contact.avatar || "",
               initials: initials || "C",
               initialsBg: "#a6d6f2",
               phone: row.contact.phone || "",
