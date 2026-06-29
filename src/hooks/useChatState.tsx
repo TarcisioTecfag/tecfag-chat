@@ -106,156 +106,160 @@ type ChatContextType = {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [tenant, setTenantState] = useState<"tecfag" | "valem">(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("chat_tenant");
-      if (saved === "valem" || saved === "tecfag") return saved;
-    }
-    return "tecfag";
-  });
-  const [activeQueue, setActiveQueue] = useState<QueueType>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("chat_active_queue");
-      if (saved) return saved as QueueType;
-    }
-    return "meus";
-  });
+  const [tenant, setTenantState] = useState<"tecfag" | "valem">("tecfag");
+  const [activeQueue, setActiveQueue] = useState<QueueType>("meus");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups">(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("chat_active_view");
-      if (saved) return saved as any;
-    }
-    return "chat";
-  });
+  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups">("chat");
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
   // RBAC Setup
-  const [accessGroups, setAccessGroups] = useState<AccessGroup[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("rbac_access_groups");
-      if (saved) return JSON.parse(saved);
-    }
-    return [
-      {
-        id: "group-admin",
-        name: "Administradores",
-        allowedTenants: ["tecfag", "valem"],
-        allowedChannels: ["whatsapp", "instagram", "messenger"],
-        canCreateUser: true,
-        canResetPassword: true,
-        canEditProfile: true,
-      },
-      {
-        id: "group-valem-comercial",
-        name: "Valem Comercial",
-        allowedTenants: ["valem"],
-        allowedChannels: ["whatsapp", "instagram", "messenger"],
-        canCreateUser: true,
-        canResetPassword: true,
-        canEditProfile: true,
-      },
-      {
-        id: "group-tecfag-vendedor",
-        name: "Tecfag Vendedores",
-        allowedTenants: ["tecfag"],
-        allowedChannels: ["whatsapp", "instagram", "messenger"],
-        canCreateUser: false,
-        canResetPassword: false,
-        canEditProfile: true,
-      },
-      {
-        id: "group-whats-only",
-        name: "Vendedores WhatsApp Only",
-        allowedTenants: ["tecfag", "valem"],
-        allowedChannels: ["whatsapp"],
-        canCreateUser: false,
-        canResetPassword: false,
-        canEditProfile: true,
-      },
-    ];
-  });
+  const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([
+    {
+      id: "group-admin",
+      name: "Administradores",
+      allowedTenants: ["tecfag", "valem"],
+      allowedChannels: ["whatsapp", "instagram", "messenger"],
+      canCreateUser: true,
+      canResetPassword: true,
+      canEditProfile: true,
+    },
+    {
+      id: "group-valem-comercial",
+      name: "Valem Comercial",
+      allowedTenants: ["valem"],
+      allowedChannels: ["whatsapp", "instagram", "messenger"],
+      canCreateUser: true,
+      canResetPassword: true,
+      canEditProfile: true,
+    },
+    {
+      id: "group-tecfag-vendedor",
+      name: "Tecfag Vendedores",
+      allowedTenants: ["tecfag"],
+      allowedChannels: ["whatsapp", "instagram", "messenger"],
+      canCreateUser: false,
+      canResetPassword: false,
+      canEditProfile: true,
+    },
+    {
+      id: "group-whats-only",
+      name: "Vendedores WhatsApp Only",
+      allowedTenants: ["tecfag", "valem"],
+      allowedChannels: ["whatsapp"],
+      canCreateUser: false,
+      canResetPassword: false,
+      canEditProfile: true,
+    },
+  ]);
 
-  const [operators, setOperators] = useState<Operator[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("rbac_operators");
-      if (saved) return JSON.parse(saved);
-    }
-    return [
-      {
-        id: "op-1",
-        name: "Fagner F. (Admin)",
-        email: "fagner@tecfag.com.br",
-        avatar: "https://i.pravatar.cc/80?img=12",
-        status: "disponivel",
-        passwordHash: "123456",
-        groupId: "group-admin",
-      },
-      {
-        id: "op-2",
-        name: "Tarcísio (Valem)",
-        email: "tarcisio@valem.com.br",
-        avatar: "https://i.pravatar.cc/80?img=60",
-        status: "disponivel",
-        passwordHash: "123456",
-        groupId: "group-valem-comercial",
-      },
-      {
-        id: "op-3",
-        name: "Pedro (Tecfag)",
-        email: "pedro@tecfag.com.br",
-        avatar: "https://i.pravatar.cc/80?img=33",
-        status: "disponivel",
-        passwordHash: "123456",
-        groupId: "group-tecfag-vendedor",
-      },
-      {
-        id: "op-4",
-        name: "Julia (Whats Only)",
-        email: "julia@valem.com.br",
-        avatar: "https://i.pravatar.cc/80?img=47",
-        status: "disponivel",
-        passwordHash: "123456",
-        groupId: "group-whats-only",
-      },
-    ];
-  });
+  const [operators, setOperators] = useState<Operator[]>([
+    {
+      id: "op-1",
+      name: "Fagner F. (Admin)",
+      email: "fagner@tecfag.com.br",
+      avatar: "https://i.pravatar.cc/80?img=12",
+      status: "disponivel",
+      passwordHash: "123456",
+      groupId: "group-admin",
+    },
+    {
+      id: "op-2",
+      name: "Tarcísio (Valem)",
+      email: "tarcisio@valem.com.br",
+      avatar: "https://i.pravatar.cc/80?img=60",
+      status: "disponivel",
+      passwordHash: "123456",
+      groupId: "group-valem-comercial",
+    },
+    {
+      id: "op-3",
+      name: "Pedro (Tecfag)",
+      email: "pedro@tecfag.com.br",
+      avatar: "https://i.pravatar.cc/80?img=33",
+      status: "disponivel",
+      passwordHash: "123456",
+      groupId: "group-tecfag-vendedor",
+    },
+    {
+      id: "op-4",
+      name: "Julia (Whats Only)",
+      email: "julia@valem.com.br",
+      avatar: "https://i.pravatar.cc/80?img=47",
+      status: "disponivel",
+      passwordHash: "123456",
+      groupId: "group-whats-only",
+    },
+  ]);
 
-  const [currentOperatorId, setCurrentOperatorId] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("rbac_current_operator_id");
-      if (saved) return saved;
-    }
-    return "op-1";
-  });
+  const [currentOperatorId, setCurrentOperatorId] = useState<string>("op-1");
+  const [isClient, setIsClient] = useState(false);
 
-  // Persistir alterações de operadores e grupos de acesso no localStorage
+  // Restaurar dados do localStorage após a montagem do componente no cliente (evita Hydration Mismatch)
   useEffect(() => {
+    setIsClient(true);
     if (typeof window !== "undefined") {
+      const savedTenant = localStorage.getItem("chat_tenant");
+      if (savedTenant === "valem" || savedTenant === "tecfag") {
+        setTenantState(savedTenant as any);
+      }
+
+      const savedQueue = localStorage.getItem("chat_active_queue");
+      if (savedQueue) {
+        setActiveQueue(savedQueue as QueueType);
+      }
+
+      const savedView = localStorage.getItem("chat_active_view");
+      if (savedView) {
+        setActiveView(savedView as any);
+      }
+
+      const savedGroups = localStorage.getItem("rbac_access_groups");
+      if (savedGroups) {
+        try {
+          setAccessGroups(JSON.parse(savedGroups));
+        } catch (e) {}
+      }
+
+      const savedOperators = localStorage.getItem("rbac_operators");
+      if (savedOperators) {
+        try {
+          setOperators(JSON.parse(savedOperators));
+        } catch (e) {}
+      }
+
+      const savedOpId = localStorage.getItem("rbac_current_operator_id");
+      if (savedOpId) {
+        setCurrentOperatorId(savedOpId);
+      }
+    }
+  }, []);
+
+  // Persistir alterações apenas após o cliente estar pronto (evita sobrescrever dados com o padrão de render)
+  useEffect(() => {
+    if (isClient && typeof window !== "undefined") {
       localStorage.setItem("rbac_operators", JSON.stringify(operators));
     }
-  }, [operators]);
+  }, [operators, isClient]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (isClient && typeof window !== "undefined") {
       localStorage.setItem("rbac_access_groups", JSON.stringify(accessGroups));
     }
-  }, [accessGroups]);
+  }, [accessGroups, isClient]);
 
-  // Persistir fila e tela ativa
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (isClient && typeof window !== "undefined") {
       localStorage.setItem("chat_active_queue", activeQueue);
     }
-  }, [activeQueue]);
+  }, [activeQueue, isClient]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (isClient && typeof window !== "undefined") {
       localStorage.setItem("chat_active_view", activeView);
     }
-  }, [activeView]);
+  }, [activeView, isClient]);
 
   const currentOperator = operators.find((op) => op.id === currentOperatorId) || operators[0];
   const currentGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || accessGroups[0];
