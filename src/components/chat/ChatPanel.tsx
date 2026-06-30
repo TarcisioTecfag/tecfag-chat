@@ -280,12 +280,12 @@ export function ChatPanel() {
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showTransferDropdown, setShowTransferDropdown] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [attachments, setAttachments] = React.useState<File[]>([]);
-  const [isDragging, setIsDragging] = React.useState(false);
-  const [msgSearch, setMsgSearch] = React.useState("");
-  const [showMsgSearch, setShowMsgSearch] = React.useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [msgSearch, setMsgSearch] = useState("");
+  const [showMsgSearch, setShowMsgSearch] = useState(false);
 
-  // ── Gravador de áudio ───────────────────────────────────────────
+  // ── Voice recorder state ────────────────────────────────────────────────────
   const [recordingState, setRecordingState] = React.useState<"idle" | "recording" | "preview">("idle");
   const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
@@ -294,6 +294,15 @@ export function ChatPanel() {
   const chunksRef = React.useRef<Blob[]>([]);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const inputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+
+  // ── Voice recorder logic ────────────────────────────────────────────────────
+  const fmtSec = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -301,17 +310,17 @@ export function ChatPanel() {
       chunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
-        const url  = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(blob);
         setAudioBlob(blob);
         setAudioUrl(url);
         setRecordingState("preview");
-        stream.getTracks().forEach((t) => t.stop());
       };
-      mr.start();
       mediaRecorderRef.current = mr;
       setRecordingSeconds(0);
       setRecordingState("recording");
+      mr.start();
       timerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
     } catch {
       alert("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
@@ -330,21 +339,6 @@ export function ChatPanel() {
     setRecordingSeconds(0);
     setRecordingState("idle");
   };
-
-  const sendRecording = () => {
-    if (!audioBlob) return;
-    const ext  = audioBlob.type.includes("ogg") ? "ogg" : "webm";
-    const file = new File([audioBlob], `audio-${Date.now()}.${ext}`, { type: audioBlob.type });
-    sendMessage("", false, [file]);
-    discardRecording();
-  };
-
-  const fmtSec = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
-  
-  const inputRef = useRef<HTMLInputElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const composerRef = useRef<HTMLDivElement>(null);
 
   // Auto scroll to bottom when messages change
   useEffect(() => {
@@ -434,10 +428,11 @@ export function ChatPanel() {
   }
 
   const handleSend = () => {
-    // Se houver áudio gravado em preview, envia o áudio (com texto opcional)
+    // Se houver áudio em preview, envia o áudio
     if (recordingState === "preview" && audioBlob) {
-      const ext  = audioBlob.type.includes("ogg") ? "ogg" : "webm";
-      const file = new File([audioBlob], `audio-${Date.now()}.${ext}`, { type: audioBlob.type });
+      const ext = audioBlob.type.includes("ogg") ? "ogg" : "webm";
+      const blob = new Blob([audioBlob], { type: audioBlob.type });
+      const file = Object.assign(blob, { name: `audio-${Date.now()}.${ext}`, lastModified: Date.now() }) as File;
       const extras = attachments.length > 0 ? [...attachments, file] : [file];
       sendMessage(text, false, extras);
       setText("");
@@ -800,7 +795,7 @@ export function ChatPanel() {
             </button>
           </div>
 
-          {/* Audio recording preview */}
+          {/* Audio preview panel */}
           {recordingState === "preview" && audioUrl && (
             <div className="flex items-center gap-3 mb-3 px-1 animate-in slide-in-from-bottom-2 duration-200">
               <div className="flex-1">
@@ -878,10 +873,9 @@ export function ChatPanel() {
               }}
             />
 
-            {/* ── Gravando: waveform inline ───────────────────────────────── */}
+            {/* Recording: inline waveform */}
             {recordingState === "recording" ? (
               <>
-                {/* Waveform bars usando cor do tenant (primary) */}
                 <div className="flex items-center gap-[3px] shrink-0">
                   {[0.5, 0.9, 0.65, 1, 0.7, 1.15, 0.55, 0.85, 0.6].map((h, i) => (
                     <div
@@ -895,13 +889,9 @@ export function ChatPanel() {
                     />
                   ))}
                 </div>
-
-                {/* Timer */}
                 <span className="text-sm font-bold text-primary tabular-nums flex-1">
                   {fmtSec(recordingSeconds)}
                 </span>
-
-                {/* Stop */}
                 <button
                   onClick={stopRecording}
                   className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer"
@@ -912,79 +902,74 @@ export function ChatPanel() {
               </>
             ) : (
               <>
-            <input
-              ref={inputRef}
-              placeholder={
-                msgMode === "internal"
-                  ? "Escreva uma nota interna (visível apenas para vendedores)..."
-                  : "Escreva sua mensagem... (digite '/' para respostas rápidas)"
-              }
-              value={text}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
-            />
-
-            {/* Quick Template Icon */}
-            <button
-              onClick={() => setShowQuickMenu(!showQuickMenu)}
-              className={`transition cursor-pointer ${
-                msgMode === "internal" ? "text-amber-500 hover:text-amber-700" : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Respostas Rápidas"
-            >
-              <Zap className="h-4.5 w-4.5" strokeWidth={2} />
-            </button>
-
-            {/* Emoji Picker Trigger */}
-            <div className="relative flex items-center">
-              <button
-                onClick={() => setShowEmojiPicker((v) => !v)}
-                className="text-muted-foreground hover:text-foreground cursor-pointer transition"
-                title="Emojis"
-              >
-                <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
-              </button>
-              {showEmojiPicker && (
-                <EmojiPicker
-                  onSelect={(emoji) => {
-                    setText((prev) => prev + emoji);
-                    inputRef.current?.focus();
-                  }}
-                  onClose={() => setShowEmojiPicker(false)}
+                <input
+                  ref={inputRef}
+                  placeholder={
+                    msgMode === "internal"
+                      ? "Escreva uma nota interna (visível apenas para vendedores)..."
+                      : "Escreva sua mensagem... (digite '/' para respostas rápidas)"
+                  }
+                  value={text}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
                 />
-              )}
-            </div>
-
-            {/* Attachment Button */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className={`cursor-pointer transition relative ${
-                attachments.length > 0
-                  ? "text-primary"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Anexar arquivo"
-            >
-              <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
-              {attachments.length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
-                  {attachments.length}
-                </span>
-              )}
-            </button>
-
-            {/* Mic / Send buttons */}
-            {recordingState === "idle" && (
-              <button
-                onClick={startRecording}
-                className="text-muted-foreground hover:text-primary transition cursor-pointer"
-                title="Gravar áudio"
-              >
-                <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
-              </button>
+                {/* Quick Template Icon */}
+                <button
+                  onClick={() => setShowQuickMenu(!showQuickMenu)}
+                  className={`transition cursor-pointer ${
+                    msgMode === "internal" ? "text-amber-500 hover:text-amber-700" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Respostas Rápidas"
+                >
+                  <Zap className="h-4.5 w-4.5" strokeWidth={2} />
+                </button>
+                {/* Emoji Picker Trigger */}
+                <div className="relative flex items-center">
+                  <button
+                    onClick={() => setShowEmojiPicker((v) => !v)}
+                    className="text-muted-foreground hover:text-foreground cursor-pointer transition"
+                    title="Emojis"
+                  >
+                    <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
+                  </button>
+                  {showEmojiPicker && (
+                    <EmojiPicker
+                      onSelect={(emoji) => {
+                        setText((prev) => prev + emoji);
+                        inputRef.current?.focus();
+                      }}
+                      onClose={() => setShowEmojiPicker(false)}
+                    />
+                  )}
+                </div>
+                {/* Attachment Button */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`cursor-pointer transition relative ${
+                    attachments.length > 0 ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Anexar arquivo"
+                >
+                  <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
+                  {attachments.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
+                      {attachments.length}
+                    </span>
+                  )}
+                </button>
+                {/* Mic button */}
+                <button
+                  onClick={startRecording}
+                  className="text-muted-foreground hover:text-primary transition cursor-pointer"
+                  title="Gravar áudio"
+                >
+                  <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
+                </button>
+              </>
             )}
 
+            {/* Send — always visible */}
             <button
               onClick={handleSend}
               className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 ${
@@ -993,9 +978,8 @@ export function ChatPanel() {
             >
               {msgMode === "internal" ? <Lock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
             </button>
-          </>
-          )}
           </div>
+        </div>
       ) : (
         <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
           <p className="text-xs text-muted-foreground italic">

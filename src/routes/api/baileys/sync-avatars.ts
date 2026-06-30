@@ -91,7 +91,7 @@ export const Route = createFileRoute("/api/baileys/sync-avatars")({
                 sessionManager.notifyPublic(tenantId, {
                   type: "contact_avatar",
                   contactId: contact.id,
-                  phone: contact.phone,
+                  phone: contact.phone ?? "",
                   avatar: picUrl,
                 });
 
