@@ -13,6 +13,7 @@ export type Message = {
 
 export type Conversation = {
   id: string;
+  contactId?: string;
   name: string;
   avatar: string;
   initials?: string;
@@ -20,6 +21,7 @@ export type Conversation = {
   phone?: string;
   email?: string;
   cnpj?: string;
+  cpf?: string;
   tags: string[];
   channel: Channel;
   queue: QueueType;

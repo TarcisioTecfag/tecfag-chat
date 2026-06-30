@@ -65,14 +65,18 @@ export const Route = createFileRoute("/api/chats")({
 
             chatList.push({
               id: row.conversation.id,
+              contactId: row.contact.id,
               name: row.contact.name,
               avatar: row.contact.avatar || "",
               initials: initials || "C",
               initialsBg: "#a6d6f2",
               phone: row.contact.phone || "",
+              email: row.contact.email || "",
+              cnpj: row.contact.cnpj || "",
+              cpf: row.contact.cpf || "",
               tags: row.contact.tags || [],
               channel: row.contact.mainChannel || "whatsapp",
-              queue: row.conversation.queueState || "fila", // 'meus' | 'fila' | 'bot' | 'finalizados'
+              queue: row.conversation.queueState || "fila",
               unreadCount: row.conversation.unreadCount || 0,
               lastMessageTime: new Date(row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
                 hour: "2-digit",

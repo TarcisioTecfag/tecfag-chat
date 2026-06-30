@@ -55,6 +55,7 @@ export const contacts = pgTable("contacts", {
   whatsappJid: text("whatsapp_jid"),
   email: text("email"),
   cnpj: text("cnpj"),
+  cpf: text("cpf"),
   avatar: text("avatar"), // URL da foto de perfil do contato
   tags: jsonb("tags").$type<string[]>().default([]).notNull(),
   mainChannel: text("main_channel").notNull(), // 'whatsapp' | 'instagram' | 'messenger'

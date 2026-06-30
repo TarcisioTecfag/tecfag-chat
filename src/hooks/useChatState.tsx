@@ -92,7 +92,7 @@ type ChatContextType = {
   transferChat: (id: string, department: string) => void;
   finishChat: (id: string) => void;
   updateTags: (id: string, tags: string[]) => void;
-  updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj">>) => void;
+  updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => void;
   createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => string;
   markAsRead: (id: string) => void;
   markAsUnread: (id: string) => void;
@@ -877,10 +877,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const updateClientInfo = (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj">>) => {
+  const updateClientInfo = (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => {
+    // 1. Atualiza estado local imediatamente (optimistic)
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...fields } : c))
     );
+    // 2. Persiste no banco via API usando o contactId armazenado na conversa
+    setConversations((prev) => {
+      const conv = prev.find((c) => c.id === id);
+      const contactId = (conv as any)?.contactId;
+      if (contactId) {
+        fetch(`/api/contacts/${contactId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(fields),
+        }).catch((e) => console.error("Erro ao persistir info do contato:", e));
+      }
+      return prev;
+    });
   };
 
   const createContact = (name: string, phone: string, email: string, cnpj: string, channel: Channel) => {

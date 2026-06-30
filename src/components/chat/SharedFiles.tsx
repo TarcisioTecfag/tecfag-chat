@@ -12,6 +12,7 @@ import {
   X,
   FileText,
   Building,
+  CreditCard,
   QrCode,
   RefreshCw,
   LogOut,
@@ -41,10 +42,11 @@ export function SharedFiles() {
   const [newTag, setNewTag] = useState("");
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = React.useState({
     phone: "",
     email: "",
     cnpj: "",
+    cpf: "",
   });
 
   if (!activeChat) {
@@ -80,6 +82,7 @@ export function SharedFiles() {
       phone: activeChat.phone || "",
       email: activeChat.email || "",
       cnpj: activeChat.cnpj || "",
+      cpf: (activeChat as any).cpf || "",
     });
     setIsEditingInfo(true);
   };
@@ -232,6 +235,15 @@ export function SharedFiles() {
                     className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                   />
                 </div>
+                <div className="space-y-0.5">
+                  <label className="text-[9px] font-bold text-muted-foreground">CPF</label>
+                  <input
+                    type="text"
+                    value={editForm.cpf}
+                    onChange={(e) => setEditForm({ ...editForm, cpf: e.target.value })}
+                    className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                  />
+                </div>
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -253,6 +265,10 @@ export function SharedFiles() {
                       </span>
                     )}
                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs text-foreground font-medium">{(activeChat as any).cpf || "Não informado"}</span>
                 </div>
               </div>
             )}
