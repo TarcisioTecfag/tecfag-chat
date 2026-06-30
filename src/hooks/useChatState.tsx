@@ -880,24 +880,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const updateClientInfo = (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => {
-    // 1. Atualiza estado local imediatamente (optimistic)
+  const updateClientInfo = async (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => {
+    // 1. Atualiza estado local imediatamente (optimistic update)
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...fields } : c))
     );
-    // 2. Persiste no banco via API usando o contactId armazenado na conversa
-    setConversations((prev) => {
-      const conv = prev.find((c) => c.id === id);
-      const contactId = (conv as any)?.contactId;
-      if (contactId) {
-        fetch(`/api/contacts/${contactId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(fields),
-        }).catch((e) => console.error("Erro ao persistir info do contato:", e));
+
+    // 2. Persiste no banco via API usando o contactId da conversa
+    const conv = rawConversations.find((c) => c.id === id);
+    const contactId = (conv as any)?.contactId as string | undefined;
+
+    if (!contactId) {
+      console.warn("[updateClientInfo] Sem contactId para conversa:", id);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fields),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[updateClientInfo] Erro ao persistir:", err);
+      } else {
+        console.log("[updateClientInfo] Contato atualizado com sucesso:", contactId);
       }
-      return prev;
-    });
+    } catch (e) {
+      console.error("[updateClientInfo] Falha na requisição:", e);
+    }
   };
 
   const createContact = (name: string, phone: string, email: string, cnpj: string, channel: Channel) => {
