@@ -433,12 +433,7 @@ export function ChatPanel() {
                     </div>
                   ) : (
                     <div
-                      className="max-w-[70%] rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-soft text-white"
-                      style={{
-                        background: tenant === "valem"
-                          ? "#1a9e95"
-                          : "#df3d3d",
-                      }}
+                      className="max-w-[70%] rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-soft bg-primary text-primary-foreground"
                     >
                       {renderMessageContent(m.text)}
                     </div>
@@ -625,7 +620,7 @@ export function ChatPanel() {
             </button>
 
             {/* Emoji Picker Trigger */}
-            <div className="relative">
+            <div className="relative flex items-center">
               <button
                 onClick={() => setShowEmojiPicker((v) => !v)}
                 className="text-muted-foreground hover:text-foreground cursor-pointer transition"
