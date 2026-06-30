@@ -120,6 +120,7 @@ export function ChatList() {
   });
 
   return (
+    <>
     <aside className="flex h-full w-[260px] shrink-0 flex-col rounded-3xl bg-card px-4 py-6 shadow-soft select-none border border-border">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -403,5 +404,6 @@ export function ChatList() {
         </div>
       );
     })()}
+    </>
   );
 }

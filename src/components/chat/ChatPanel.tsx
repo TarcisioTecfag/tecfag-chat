@@ -663,12 +663,12 @@ export function ChatPanel() {
               </div>
             );
           })
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center text-muted-foreground py-16">
-            <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
-            <p className="text-xs">Nenhuma mensagem encontrada.</p>
-          </div>
-          ) : null;
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center text-muted-foreground py-16">
+              <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
+              <p className="text-xs">Nenhuma mensagem encontrada.</p>
+            </div>
+          );
         })()}
         <div ref={messagesEndRef} />
       </div>
