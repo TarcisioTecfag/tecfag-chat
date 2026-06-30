@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
+import { EmojiPicker } from "./EmojiPicker";
 import {
   Smile,
   Paperclip,
@@ -15,6 +16,11 @@ import {
   ChevronLeft,
   FileText,
   Download,
+  X,
+  Image,
+  Film,
+  Music,
+  File,
 } from "lucide-react";
 import { QUICK_RESPONSES } from "@/lib/mockData";
 
@@ -119,15 +125,87 @@ export function ChatPanel() {
     finishChat,
     rightSidebarOpen,
     setRightSidebarOpen,
+    tenant,
   } = useChat();
 
   const [text, setText] = useState("");
   const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showTransferDropdown, setShowTransferDropdown] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+
+  // Auto scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [activeChat?.messages]);
+
+  // ── Drag & Drop ────────────────────────────────────────────────────────────
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!composerRef.current?.contains(e.relatedTarget as Node)) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) setAttachments((prev) => [...prev, ...files]);
+  }, []);
+
+  // ── Ctrl+V para colar arquivos da área de transferência ───────────────────
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const files = items
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter(Boolean) as File[];
+      if (files.length > 0) {
+        e.preventDefault();
+        setAttachments((prev) => [...prev, ...files]);
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, []);
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const getFileIcon = (file: File) => {
+    if (file.type.startsWith("image/")) return <Image className="h-4 w-4" />;
+    if (file.type.startsWith("video/")) return <Film className="h-4 w-4" />;
+    if (file.type.startsWith("audio/")) return <Music className="h-4 w-4" />;
+    return <File className="h-4 w-4" />;
+  };
+
+  const getFileColor = (file: File) => {
+    if (file.type.startsWith("image/")) return "bg-blue-100 text-blue-600";
+    if (file.type.startsWith("video/")) return "bg-purple-100 text-purple-600";
+    if (file.type.startsWith("audio/")) return "bg-green-100 text-green-600";
+    return "bg-red-100 text-red-600";
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  };
 
   // Auto scroll to bottom when messages change
   useEffect(() => {
@@ -151,10 +229,12 @@ export function ChatPanel() {
   }
 
   const handleSend = () => {
-    if (!text.trim()) return;
-    sendMessage(text, msgMode === "internal");
+    if (!text.trim() && attachments.length === 0) return;
+    sendMessage(text, msgMode === "internal", attachments.length > 0 ? attachments : undefined);
     setText("");
+    setAttachments([]);
     setShowQuickMenu(false);
+    setShowEmojiPicker(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -185,8 +265,8 @@ export function ChatPanel() {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative">
-      {/* Header */}
-      <header className="flex flex-wrap items-center justify-between px-6 py-4 border-b border-border bg-card rounded-t-3xl">
+      {/* Header — transparente para fundir com o fundo do painel */}
+      <header className="flex flex-wrap items-center justify-between px-6 py-4 border-b border-border/60 bg-transparent rounded-t-3xl">
         <div className="flex items-center gap-3">
           {/* Avatar & Channel Badge */}
           <div className="relative">
@@ -352,7 +432,14 @@ export function ChatPanel() {
                       {renderMessageContent(m.text)}
                     </div>
                   ) : (
-                    <div className="max-w-[70%] rounded-2xl rounded-tr-md bg-bubble-out px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft">
+                    <div
+                      className="max-w-[70%] rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-soft text-white"
+                      style={{
+                        background: tenant === "valem"
+                          ? "#1a9e95"
+                          : "#df3d3d",
+                      }}
+                    >
                       {renderMessageContent(m.text)}
                     </div>
                   )}
@@ -418,7 +505,21 @@ export function ChatPanel() {
 
       {/* Message Composer */}
       {activeChat.queue !== "finalizados" ? (
-        <div className="px-5 pb-5">
+        <div
+          ref={composerRef}
+          className="px-5 pb-5"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {/* Drag overlay */}
+          {isDragging && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-3xl bg-primary/10 border-2 border-dashed border-primary pointer-events-none">
+              <Paperclip className="h-10 w-10 text-primary mb-2 animate-bounce" />
+              <p className="text-sm font-bold text-primary">Solte os arquivos aqui</p>
+            </div>
+          )}
+
           {/* Double Mode Selector (Mensagem vs Nota) */}
           <div className="flex gap-2 pl-2 mb-1.5 text-[11px] font-bold">
             <button
@@ -439,13 +540,66 @@ export function ChatPanel() {
             </button>
           </div>
 
+          {/* Attachment Previews */}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2 px-1">
+              {attachments.map((file, i) => (
+                <div
+                  key={i}
+                  className="relative group flex items-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 max-w-[200px]"
+                >
+                  {/* Image preview thumbnail */}
+                  {file.type.startsWith("image/") ? (
+                    <div className="h-10 w-10 shrink-0 rounded-lg overflow-hidden bg-black/5">
+                      <img
+                        src={URL.createObjectURL(file)}
+                        alt={file.name}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className={`h-9 w-9 shrink-0 grid place-items-center rounded-lg ${getFileColor(file)}`}>
+                      {getFileIcon(file)}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px] font-semibold text-foreground max-w-[100px]">{file.name}</p>
+                    <p className="text-[10px] text-muted-foreground">{formatBytes(file.size)}</p>
+                  </div>
+                  <button
+                    onClick={() => removeAttachment(i)}
+                    className="absolute -top-1.5 -right-1.5 h-4.5 w-4.5 grid place-items-center rounded-full bg-destructive text-white opacity-0 group-hover:opacity-100 transition shadow-sm"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div
-            className={`flex items-center gap-3 rounded-2xl px-4 py-3 shadow-soft border transition-all duration-200 ${
+            className={`relative flex items-center gap-3 rounded-2xl px-4 py-3 shadow-soft border transition-all duration-200 ${
               msgMode === "internal"
                 ? "bg-amber-50/70 border-amber-200"
+                : isDragging
+                ? "border-primary bg-primary/5"
                 : "bg-card border-border"
             }`}
           >
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="*/*"
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length > 0) setAttachments((prev) => [...prev, ...files]);
+                e.target.value = "";
+              }}
+            />
+
             <input
               ref={inputRef}
               placeholder={
@@ -470,11 +624,42 @@ export function ChatPanel() {
               <Zap className="h-4.5 w-4.5" strokeWidth={2} />
             </button>
 
-            <button className="text-muted-foreground hover:text-foreground cursor-pointer">
-              <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
-            </button>
-            <button className="text-muted-foreground hover:text-foreground cursor-pointer">
+            {/* Emoji Picker Trigger */}
+            <div className="relative">
+              <button
+                onClick={() => setShowEmojiPicker((v) => !v)}
+                className="text-muted-foreground hover:text-foreground cursor-pointer transition"
+                title="Emojis"
+              >
+                <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
+              </button>
+              {showEmojiPicker && (
+                <EmojiPicker
+                  onSelect={(emoji) => {
+                    setText((prev) => prev + emoji);
+                    inputRef.current?.focus();
+                  }}
+                  onClose={() => setShowEmojiPicker(false)}
+                />
+              )}
+            </div>
+
+            {/* Attachment Button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className={`cursor-pointer transition relative ${
+                attachments.length > 0
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title="Anexar arquivo"
+            >
               <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
+              {attachments.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
+                  {attachments.length}
+                </span>
+              )}
             </button>
 
             <button

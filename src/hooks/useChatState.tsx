@@ -87,7 +87,7 @@ type ChatContextType = {
   deleteAccessGroup: (id: string) => void;
   
   // Actions
-  sendMessage: (text: string, isInternalNote?: boolean) => void;
+  sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[]) => void;
   captureChat: (id: string) => void;
   transferChat: (id: string, department: string) => void;
   finishChat: (id: string) => void;
@@ -576,7 +576,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const activeChat = conversations.find((c) => c.id === selectedChatId) || null;
 
   // Actions
-  const sendMessage = async (text: string, isInternalNote = false) => {
+  const sendMessage = async (text: string, isInternalNote = false, attachments?: File[]) => {
     if (!selectedChatId) return;
 
     const currentChat = conversations.find((c) => c.id === selectedChatId);
@@ -619,6 +619,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.error || "Erro na resposta do envio de mensagem");
+        }
+
+        // Enviar anexos após o texto, se existirem
+        if (attachments && attachments.length > 0) {
+          for (const file of attachments) {
+            try {
+              const formData = new FormData();
+              formData.append("tenantId", "valem");
+              formData.append("phone", targetPhone);
+              formData.append("conversationId", selectedChatId);
+              formData.append("senderName", operatorProfile.name);
+              formData.append("file", file);
+              await fetch(`${BACKEND_URL}/api/baileys/send-media`, {
+                method: "POST",
+                body: formData,
+              });
+            } catch (err) {
+              console.error("Falha ao enviar anexo:", err);
+            }
+          }
         }
       } catch (err: any) {
         console.error("Falha ao enviar mensagem de WhatsApp pelo backend:", err);
