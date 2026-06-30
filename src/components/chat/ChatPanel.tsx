@@ -434,6 +434,17 @@ export function ChatPanel() {
   }
 
   const handleSend = () => {
+    // Se houver áudio gravado em preview, envia o áudio (com texto opcional)
+    if (recordingState === "preview" && audioBlob) {
+      const ext  = audioBlob.type.includes("ogg") ? "ogg" : "webm";
+      const file = new File([audioBlob], `audio-${Date.now()}.${ext}`, { type: audioBlob.type });
+      const extras = attachments.length > 0 ? [...attachments, file] : [file];
+      sendMessage(text, false, extras);
+      setText("");
+      setAttachments([]);
+      discardRecording();
+      return;
+    }
     if (!text.trim() && attachments.length === 0) return;
     sendMessage(text, msgMode === "internal", attachments.length > 0 ? attachments : undefined);
     setText("");
@@ -802,13 +813,6 @@ export function ChatPanel() {
               >
                 <Trash2 className="h-4 w-4" />
               </button>
-              <button
-                onClick={sendRecording}
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer"
-                title="Enviar áudio"
-              >
-                <Send className="h-4 w-4" />
-              </button>
             </div>
           )}
 
@@ -851,7 +855,9 @@ export function ChatPanel() {
 
           <div
             className={`relative flex items-center gap-3 rounded-2xl px-4 py-3 shadow-soft border transition-all duration-200 ${
-              msgMode === "internal"
+              recordingState === "recording"
+                ? "border-primary/40 bg-primary/5"
+                : msgMode === "internal"
                 ? "bg-amber-50/70 border-amber-200"
                 : isDragging
                 ? "border-primary bg-primary/5"
@@ -872,6 +878,40 @@ export function ChatPanel() {
               }}
             />
 
+            {/* ── Gravando: waveform inline ───────────────────────────────── */}
+            {recordingState === "recording" ? (
+              <>
+                {/* Waveform bars usando cor do tenant (primary) */}
+                <div className="flex items-center gap-[3px] shrink-0">
+                  {[0.5, 0.9, 0.65, 1, 0.7, 1.15, 0.55, 0.85, 0.6].map((h, i) => (
+                    <div
+                      key={i}
+                      className="w-[3px] rounded-full bg-primary animate-pulse"
+                      style={{
+                        height: `${h * 18}px`,
+                        animationDelay: `${i * 75}ms`,
+                        animationDuration: `${550 + i * 65}ms`,
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Timer */}
+                <span className="text-sm font-bold text-primary tabular-nums flex-1">
+                  {fmtSec(recordingSeconds)}
+                </span>
+
+                {/* Stop */}
+                <button
+                  onClick={stopRecording}
+                  className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer"
+                  title="Parar gravação"
+                >
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                </button>
+              </>
+            ) : (
+              <>
             <input
               ref={inputRef}
               placeholder={
@@ -947,49 +987,15 @@ export function ChatPanel() {
 
             <button
               onClick={handleSend}
-              disabled={recordingState === "recording"}
-              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 disabled:opacity-30 ${
+              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 ${
                 msgMode === "internal" ? "bg-amber-500" : "bg-primary"
               }`}
             >
               {msgMode === "internal" ? <Lock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
             </button>
-          </div>
-
-          {/* ── Recording mode overlay ──────────────────────────────────────── */}
-          {recordingState === "recording" && (
-            <div className="absolute inset-0 flex items-center gap-4 rounded-2xl bg-card border border-red-300 px-5 shadow-soft z-10">
-              {/* Animated waveform */}
-              <div className="flex items-center gap-[3px]">
-                {[0.6, 1, 0.75, 1.2, 0.5, 0.9, 0.65, 1.1, 0.8].map((h, i) => (
-                  <div
-                    key={i}
-                    className="w-[3px] rounded-full bg-red-500 animate-pulse"
-                    style={{
-                      height: `${h * 20}px`,
-                      animationDelay: `${i * 80}ms`,
-                      animationDuration: `${600 + i * 60}ms`,
-                    }}
-                  />
-                ))}
-              </div>
-
-              {/* Timer */}
-              <span className="text-sm font-bold text-red-500 tabular-nums flex-1">
-                {fmtSec(recordingSeconds)}
-              </span>
-
-              {/* Stop */}
-              <button
-                onClick={stopRecording}
-                className="grid h-9 w-9 place-items-center rounded-xl bg-red-500 text-white hover:bg-red-600 transition shadow-soft cursor-pointer"
-                title="Parar gravação"
-              >
-                <Square className="h-4 w-4 fill-white" />
-              </button>
-            </div>
+          </>
           )}
-        </div>
+          </div>
       ) : (
         <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
           <p className="text-xs text-muted-foreground italic">
