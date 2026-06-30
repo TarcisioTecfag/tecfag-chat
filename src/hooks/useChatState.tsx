@@ -94,6 +94,9 @@ type ChatContextType = {
   updateTags: (id: string, tags: string[]) => void;
   updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj">>) => void;
   createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => string;
+  markAsRead: (id: string) => void;
+  markAsUnread: (id: string) => void;
+  pinChat: (id: string) => void;
   
   // Configurations
   metaConfig: MetaConfig;
@@ -683,7 +686,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (text.trim()) {
       messagesToAdd.push({
         id: `msg-${Date.now()}`,
-        author: isInternalNote ? "Vendedor" : "Você",
+        author: isInternalNote ? operatorProfile.name : "Você",
         text,
         time: now,
         side: "out",
@@ -853,6 +856,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateTags = (id: string, tags: string[]) => {
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, tags } : c))
+    );
+  };
+
+  const markAsRead = (id: string) => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
+    );
+  };
+
+  const markAsUnread = (id: string) => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, unreadCount: Math.max(c.unreadCount, 1) } : c))
+    );
+  };
+
+  const pinChat = (id: string) => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, pinned: !(c as any).pinned } : c))
     );
   };
 
@@ -1173,6 +1194,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateTags,
         updateClientInfo,
         createContact,
+        markAsRead,
+        markAsUnread,
+        pinChat,
         
         metaConfig,
         setMetaConfig,

@@ -21,6 +21,7 @@ import {
   Film,
   Music,
   File,
+  Search,
 } from "lucide-react";
 import { QUICK_RESPONSES } from "@/lib/mockData";
 
@@ -250,6 +251,15 @@ function renderMessageContent(text: string) {
   return <p className="whitespace-pre-wrap">{text}</p>;
 }
 
+/** Detecta se o texto contém apenas emojis (inclui modificadores e ZWJ sequences) */
+function isEmojiOnly(text: string): boolean {
+  const stripped = text.replace(/[\u200D\uFE0F\u20E3]/g, "").trim();
+  if (!stripped) return false;
+  // Regex que cobre emoji base + modificadores
+  const emojiRegex = /^(\p{Emoji_Presentation}|\p{Extended_Pictographic}|[\u{1F1E0}-\u{1F1FF}]|\u{1F3FB}-\u{1F3FF}|\u{1F466}-\u{1F469})+$/u;
+  return emojiRegex.test(stripped);
+}
+
 export function ChatPanel() {
   const {
     activeChat,
@@ -269,6 +279,8 @@ export function ChatPanel() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [msgSearch, setMsgSearch] = useState("");
+  const [showMsgSearch, setShowMsgSearch] = useState(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -467,6 +479,17 @@ export function ChatPanel() {
           )}
           {activeChat.queue === "meus" ? (
             <>
+              {/* Search button */}
+              <button
+                onClick={() => setShowMsgSearch((v) => !v)}
+                className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                  showMsgSearch ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+                title="Buscar mensagem"
+              >
+                <Search className="h-3.5 w-3.5" />
+              </button>
+
               {/* Transfer Menu */}
               <div className="relative">
                 <button
@@ -523,10 +546,40 @@ export function ChatPanel() {
         </div>
       </header>
 
+      {/* In-chat search bar */}
+      {showMsgSearch && (
+        <div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-6 py-2.5 animate-in slide-in-from-top-2 duration-150">
+          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <input
+            autoFocus
+            value={msgSearch}
+            onChange={(e) => setMsgSearch(e.target.value)}
+            placeholder="Buscar mensagem..."
+            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+          />
+          {msgSearch && (
+            <button onClick={() => setMsgSearch("")} className="text-muted-foreground hover:text-foreground transition">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            onClick={() => { setShowMsgSearch(false); setMsgSearch(""); }}
+            className="text-[10px] font-semibold text-muted-foreground hover:text-foreground transition ml-1"
+          >
+            Fechar
+          </button>
+        </div>
+      )}
       {/* Messages Window */}
       <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4 scrollbar-thin">
-        {activeChat.messages.length > 0 ? (
-          activeChat.messages.map((m) => {
+        {(() => {
+          const displayed = msgSearch.trim()
+            ? activeChat.messages.filter((m) =>
+                m.text.toLowerCase().includes(msgSearch.toLowerCase())
+              )
+            : activeChat.messages;
+          return displayed.length > 0 ? (
+            displayed.map((m) => {
             const isMe = m.side === "out";
             const isSystem = m.author === "Sistema";
 
@@ -541,15 +594,14 @@ export function ChatPanel() {
             }
 
             if (m.isInternalNote) {
-              // YELLOW ALERTS STYLE FOR INTERNAL NOTES (RD Conversas style)
               return (
                 <div key={m.id} className="flex flex-col items-center my-3 w-full">
-                  <div className="max-w-[85%] rounded-2xl bg-amber-50 border border-amber-200 px-5 py-3 shadow-soft text-left">
-                    <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-amber-700 uppercase mb-1">
-                      <Lock className="h-3 w-3" />
+                  <div className="max-w-[85%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-soft text-left">
+                    <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5" style={{ color: "hsl(var(--warning, 38 92% 40%))" }}>
+                      <Lock className="h-3 w-3 shrink-0" />
                       Anotação Interna — {m.author} às {m.time}
                     </div>
-                    <p className="text-xs text-amber-900 leading-relaxed font-medium">{m.text}</p>
+                    <p className="text-xs leading-relaxed font-medium text-amber-900">{m.text}</p>
                   </div>
                 </div>
               );
@@ -568,6 +620,10 @@ export function ChatPanel() {
                   ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
                     <div className="max-w-[70%]">
                       {renderMessageContent(m.text)}
+                    </div>
+                  ) : isEmojiOnly(m.text) ? (
+                    <div className="text-4xl leading-none select-none py-1">
+                      {m.text}
                     </div>
                   ) : (
                     <div
@@ -610,9 +666,10 @@ export function ChatPanel() {
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-muted-foreground py-16">
             <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
-            <p className="text-xs">Nenhuma mensagem registrada.</p>
+            <p className="text-xs">Nenhuma mensagem encontrada.</p>
           </div>
-        )}
+          ) : null;
+        })()}
         <div ref={messagesEndRef} />
       </div>
 

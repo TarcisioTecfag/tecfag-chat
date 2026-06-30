@@ -1,7 +1,30 @@
 import React from "react";
 import { useChat } from "@/hooks/useChatState";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User } from "lucide-react";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen } from "lucide-react";
 import { Channel, QueueType } from "@/lib/mockData";
+
+/** Converte conteúdo de mídia em label legível para o preview da lista */
+function formatLastMessage(text: string): { icon?: string; label: string } {
+  if (!text) return { label: "Sem mensagens" };
+  if (text.startsWith("[LOCAL_MEDIA:")) {
+    const type = text.slice("[LOCAL_MEDIA:".length).split(":")[0];
+    if (type === "image")    return { icon: "📷", label: "Imagem" };
+    if (type === "video")    return { icon: "🎥", label: "Vídeo" };
+    if (type === "audio")    return { icon: "🎵", label: "Áudio" };
+    // document — tenta extrair o nome do arquivo (último segmento)
+    const rest = text.slice("[LOCAL_MEDIA:document:".length);
+    const fileName = rest.split(":").pop() || "Documento";
+    return { icon: "📄", label: fileName };
+  }
+  if (text.startsWith("[MEDIA:")) {
+    if (text.includes(":image]"))    return { icon: "📷", label: "Imagem" };
+    if (text.includes(":video]"))    return { icon: "🎥", label: "Vídeo" };
+    if (text.includes(":audio]"))    return { icon: "🎵", label: "Áudio" };
+    if (text.includes(":sticker]")) return { icon: "🪄", label: "Figurinha" };
+    if (text.includes(":document]")) return { icon: "📄", label: "Documento" };
+  }
+  return { label: text };
+}
 
 // Premium Inline SVGs for Channel Logos
 export function WhatsappLogo({ className = "h-4.5 w-4.5" }: { className?: string }) {
@@ -47,9 +70,20 @@ export function ChatList() {
     updateOperatorProfile,
     setIsProfileModalOpen,
     currentGroup,
+    markAsRead,
+    markAsUnread,
+    pinChat,
   } = useChat();
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
+  const [contextMenu, setContextMenu] = React.useState<{ chatId: string; x: number; y: number } | null>(null);
+
+  // Fecha o context menu ao clicar em qualquer lugar
+  React.useEffect(() => {
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, []);
 
   React.useEffect(() => {
     if (currentGroup && channelFilter !== "all" && !currentGroup.allowedChannels.includes(channelFilter)) {
@@ -245,14 +279,27 @@ export function ChatList() {
       {/* Chat List */}
       <div className="mt-3 flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin">
         {filteredConvs.length > 0 ? (
-          filteredConvs.map((c) => {
+          filteredConvs
+            .sort((a, b) => ((b as any).pinned ? 1 : 0) - ((a as any).pinned ? 1 : 0))
+            .map((c) => {
             const isSelected = c.id === selectedChatId;
+            const lastMsg = c.messages[c.messages.length - 1];
+            const { icon: msgIcon, label: msgLabel } = formatLastMessage(lastMsg?.text || "");
             return (
-              <button
+              <div
                 key={c.id}
+                className="relative"
+                onContextMenu={(e) => {
+                  if (c.queue !== "meus") return;
+                  e.preventDefault();
+                  setContextMenu({ chatId: c.id, x: e.clientX, y: e.clientY });
+                }}
+              >
+              <button
                 onClick={() => {
                   setSelectedChatId(c.id);
                   setActiveView("chat");
+                  markAsRead(c.id);
                 }}
                 className={`flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition ${
                   isSelected ? "bg-muted" : "hover:bg-muted/50"
@@ -283,6 +330,13 @@ export function ChatList() {
                     {c.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
                     {c.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
                   </span>
+
+                  {/* Pin indicator */}
+                  {(c as any).pinned && (
+                    <span className="absolute -top-1 -left-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-primary text-primary-foreground">
+                      <Pin className="h-2 w-2" />
+                    </span>
+                  )}
                 </div>
 
                 {/* Info Text */}
@@ -292,13 +346,14 @@ export function ChatList() {
                     <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{(c as any).time || c.lastMessageTime}</span>
                   </div>
                   <div className="flex items-center justify-between mt-0.5">
-                    <p className="truncate text-[11px] text-muted-foreground pr-2">
-                      {c.messages[c.messages.length - 1]?.isInternalNote && (
-                        <span className="text-amber-500 font-semibold mr-1">[Nota]</span>
+                    <p className="truncate text-[11px] text-muted-foreground pr-2 flex items-center gap-1">
+                      {lastMsg?.isInternalNote && (
+                        <span className="text-amber-500 font-semibold">[Nota]</span>
                       )}
-                      {c.messages[c.messages.length - 1]?.text || "Sem mensagens"}
+                      {msgIcon && <span>{msgIcon}</span>}
+                      <span className="truncate">{msgLabel}</span>
                     </p>
-                    
+
                     {/* Unread Count Badge */}
                     {c.unreadCount > 0 && (
                       <span className="grid h-4.5 min-w-4.5 place-items-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
@@ -308,6 +363,7 @@ export function ChatList() {
                   </div>
                 </div>
               </button>
+              </div>
             );
           })
         ) : (
@@ -319,5 +375,33 @@ export function ChatList() {
         )}
       </div>
     </aside>
+
+    {/* Context Menu (right-click) */}
+    {contextMenu && (() => {
+      const chat = conversations.find((c) => c.id === contextMenu.chatId);
+      if (!chat) return null;
+      return (
+        <div
+          className="fixed z-[9999] min-w-[180px] rounded-xl bg-card border border-border shadow-card p-1 animate-in fade-in duration-100"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => { pinChat(chat.id); setContextMenu(null); }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
+          >
+            <Pin className="h-3.5 w-3.5 text-primary" />
+            {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
+          </button>
+          <button
+            onClick={() => { markAsUnread(chat.id); setContextMenu(null); }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
+          >
+            <BookOpen className="h-3.5 w-3.5 text-primary" />
+            Marcar como não lido
+          </button>
+        </div>
+      );
+    })()}
   );
 }
