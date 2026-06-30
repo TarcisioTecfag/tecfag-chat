@@ -19,7 +19,8 @@ export type SessionStatus = "disconnected" | "qr_ready" | "connected";
 export type SessionEvent =
   | { type: "qr"; qr: string }
   | { type: "status"; status: SessionStatus; phone?: string }
-  | { type: "message"; message: any };
+  | { type: "message"; message: any }
+  | { type: "contact_avatar"; contactId: string; phone: string; avatar: string };
 
 export type SessionListener = (event: SessionEvent) => void;
 
@@ -76,6 +77,11 @@ export class SessionManager {
         }
       }
     }
+  }
+
+  /** Expõe o notify para uso externo (ex: endpoints de sync) */
+  public notifyPublic(tenantId: string, event: SessionEvent) {
+    this.notify(tenantId, event);
   }
 
   public getStatus(tenantId: string): SessionStatus {

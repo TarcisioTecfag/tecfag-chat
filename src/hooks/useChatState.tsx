@@ -952,6 +952,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             status: data.status,
             pairedPhone: data.phone ? `+${data.phone}` : prev.pairedPhone,
           }));
+
+          // Ao conectar, sincroniza fotos de contatos sem avatar em background
+          if (data.status === "connected") {
+            fetch(`${BACKEND_URL}/api/baileys/sync-avatars`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tenantId: "valem" }),
+            })
+              .then((r) => r.json())
+              .then((result) =>
+                console.log(`[sync-avatars] ${result.updated} fotos sincronizadas, ${result.failed} sem foto`)
+              )
+              .catch(() => {}); // Silencioso
+          }
         } else if (data.type === "qr") {
           const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data.qr)}`;
           setBaileysConfig((prev) => ({
@@ -961,11 +975,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }));
         } else if (data.type === "contact_avatar") {
           setConversations((prev) =>
-            prev.map((c) =>
-              c.phone === data.phone
+            prev.map((c) => {
+              // Tenta match por contactId primeiro (mais preciso), depois phone
+              const matchById = data.contactId && c.id.includes(data.contactId);
+              const matchByPhone = c.phone && data.phone &&
+                c.phone.replace(/\D/g, "").endsWith(data.phone.replace(/\D/g, "").slice(-8));
+              return matchById || matchByPhone
                 ? { ...c, avatar: data.avatar }
-                : c
-            )
+                : c;
+            })
           );
         } else if (data.type === "message") {
           const { message } = data;
