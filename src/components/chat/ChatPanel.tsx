@@ -22,6 +22,9 @@ import {
   Music,
   File,
   Search,
+  Mic,
+  Square,
+  Trash2,
 } from "lucide-react";
 import { QUICK_RESPONSES } from "@/lib/mockData";
 
@@ -277,10 +280,66 @@ export function ChatPanel() {
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showTransferDropdown, setShowTransferDropdown] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [msgSearch, setMsgSearch] = useState("");
-  const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [attachments, setAttachments] = React.useState<File[]>([]);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [msgSearch, setMsgSearch] = React.useState("");
+  const [showMsgSearch, setShowMsgSearch] = React.useState(false);
+
+  // ── Gravador de áudio ───────────────────────────────────────────
+  const [recordingState, setRecordingState] = React.useState<"idle" | "recording" | "preview">("idle");
+  const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = React.useState(0);
+  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const chunksRef = React.useRef<Blob[]>([]);
+  const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        const url  = URL.createObjectURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(url);
+        setRecordingState("preview");
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setRecordingSeconds(0);
+      setRecordingState("recording");
+      timerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } catch {
+      alert("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  };
+
+  const discardRecording = () => {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingSeconds(0);
+    setRecordingState("idle");
+  };
+
+  const sendRecording = () => {
+    if (!audioBlob) return;
+    const ext  = audioBlob.type.includes("ogg") ? "ogg" : "webm";
+    const file = new File([audioBlob], `audio-${Date.now()}.${ext}`, { type: audioBlob.type });
+    sendMessage("", false, [file]);
+    discardRecording();
+  };
+
+  const fmtSec = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
   
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -730,6 +789,29 @@ export function ChatPanel() {
             </button>
           </div>
 
+          {/* Audio recording preview */}
+          {recordingState === "preview" && audioUrl && (
+            <div className="flex items-center gap-3 mb-3 px-1 animate-in slide-in-from-bottom-2 duration-200">
+              <div className="flex-1">
+                <AudioBubble src={audioUrl} fileName="Áudio gravado" />
+              </div>
+              <button
+                onClick={discardRecording}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-destructive hover:border-destructive transition cursor-pointer"
+                title="Descartar gravação"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+              <button
+                onClick={sendRecording}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer"
+                title="Enviar áudio"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           {/* Attachment Previews */}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2 px-1">
@@ -852,15 +934,61 @@ export function ChatPanel() {
               )}
             </button>
 
+            {/* Mic / Send buttons */}
+            {recordingState === "idle" && (
+              <button
+                onClick={startRecording}
+                className="text-muted-foreground hover:text-primary transition cursor-pointer"
+                title="Gravar áudio"
+              >
+                <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
+              </button>
+            )}
+
             <button
               onClick={handleSend}
-              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 ${
+              disabled={recordingState === "recording"}
+              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 disabled:opacity-30 ${
                 msgMode === "internal" ? "bg-amber-500" : "bg-primary"
               }`}
             >
               {msgMode === "internal" ? <Lock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
             </button>
           </div>
+
+          {/* ── Recording mode overlay ──────────────────────────────────────── */}
+          {recordingState === "recording" && (
+            <div className="absolute inset-0 flex items-center gap-4 rounded-2xl bg-card border border-red-300 px-5 shadow-soft z-10">
+              {/* Animated waveform */}
+              <div className="flex items-center gap-[3px]">
+                {[0.6, 1, 0.75, 1.2, 0.5, 0.9, 0.65, 1.1, 0.8].map((h, i) => (
+                  <div
+                    key={i}
+                    className="w-[3px] rounded-full bg-red-500 animate-pulse"
+                    style={{
+                      height: `${h * 20}px`,
+                      animationDelay: `${i * 80}ms`,
+                      animationDuration: `${600 + i * 60}ms`,
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Timer */}
+              <span className="text-sm font-bold text-red-500 tabular-nums flex-1">
+                {fmtSec(recordingSeconds)}
+              </span>
+
+              {/* Stop */}
+              <button
+                onClick={stopRecording}
+                className="grid h-9 w-9 place-items-center rounded-xl bg-red-500 text-white hover:bg-red-600 transition shadow-soft cursor-pointer"
+                title="Parar gravação"
+              >
+                <Square className="h-4 w-4 fill-white" />
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
