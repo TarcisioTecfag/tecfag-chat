@@ -604,24 +604,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        const response = await fetch(`${BACKEND_URL}/api/baileys/send`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tenantId: "valem",
-            phone: targetPhone,
-            text,
-            conversationId: selectedChatId,
-            senderName: operatorProfile.name,
-          }),
-        });
+        // Só envia texto se houver conteúdo
+        if (text.trim()) {
+          const response = await fetch(`${BACKEND_URL}/api/baileys/send`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tenantId: "valem",
+              phone: targetPhone,
+              text,
+              conversationId: selectedChatId,
+              senderName: operatorProfile.name,
+            }),
+          });
 
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error || "Erro na resposta do envio de mensagem");
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || "Erro na resposta do envio de mensagem");
+          }
         }
 
-        // Enviar anexos após o texto, se existirem
+        // Enviar anexos (independente de ter texto)
         if (attachments && attachments.length > 0) {
           for (const file of attachments) {
             try {
@@ -631,10 +634,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               formData.append("conversationId", selectedChatId);
               formData.append("senderName", operatorProfile.name);
               formData.append("file", file);
-              await fetch(`${BACKEND_URL}/api/baileys/send-media`, {
+              const mediaRes = await fetch(`${BACKEND_URL}/api/baileys/send-media`, {
                 method: "POST",
                 body: formData,
               });
+              if (!mediaRes.ok) {
+                const errData = await mediaRes.json().catch(() => ({}));
+                console.error("Falha ao enviar anexo:", errData.error);
+              }
             } catch (err) {
               console.error("Falha ao enviar anexo:", err);
             }

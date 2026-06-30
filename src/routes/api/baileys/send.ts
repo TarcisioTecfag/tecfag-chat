@@ -36,8 +36,15 @@ export const Route = createFileRoute("/api/baileys/send")({
             senderName,
           });
 
-          if (!tenantId || !phone || !text) {
-            return new Response(JSON.stringify({ error: "tenantId, phone e text são obrigatórios" }), {
+          if (!tenantId || !phone) {
+            return new Response(JSON.stringify({ error: "tenantId e phone são obrigatórios" }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          if (!text || !text.trim()) {
+            return new Response(JSON.stringify({ error: "text não pode ser vazio — use /api/baileys/send-media para enviar arquivos" }), {
               status: 400,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
