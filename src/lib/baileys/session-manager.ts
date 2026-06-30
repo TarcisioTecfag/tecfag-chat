@@ -2,8 +2,10 @@ import makeWASocket, {
   DisconnectReason, 
   WASocket, 
   initAuthCreds,
-  downloadMediaMessage
+  downloadMediaMessage,
+  proto
 } from "@whiskeysockets/baileys";
+import NodeCache from "node-cache";
 import pino from "pino";
 import fs from "fs";
 import path from "path";
@@ -27,6 +29,8 @@ export class SessionManager {
   private sessionStatuses = new Map<string, SessionStatus>();
   private sessionQrs = new Map<string, string>();
   private listeners = new Map<string, Set<SessionListener>>();
+  // Cache de mensagens para permitir retransmissão (obrigatório para evitar timeouts no sendMessage)
+  private msgRetryCounterCaches = new Map<string, NodeCache>();
 
   private constructor() {}
 
@@ -97,12 +101,32 @@ export class SessionManager {
     // Obter estado de autenticação baseado no Drizzle
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
 
+    // Cache de retry de mensagens — necessário para que o WA possa pedir retransmissão
+    const msgRetryCounterCache = new NodeCache({ stdTTL: 60, useClones: false });
+    this.msgRetryCounterCaches.set(tenantId, msgRetryCounterCache);
+
     // Inicializar o socket do Baileys
     const makeSocketFn = (makeWASocket as any).default || makeWASocket;
     const sock = makeSocketFn({
       auth: state,
       logger,
-      printQRInTerminal: true,
+      printQRInTerminal: false,
+      msgRetryCounterCache,
+      // Permite que o Baileys reenvie mensagens quando o WA pede retransmissão (retry)
+      getMessage: async (key: proto.IMessageKey) => {
+        // Tenta buscar a mensagem do banco para permitir reenvio
+        try {
+          const stored = await db.query.messages.findFirst({
+            where: (t, { eq: dEq }) => dEq(t.id, key.id ?? "")
+          });
+          if (stored?.content) {
+            return { conversation: stored.content } as proto.IMessage;
+          }
+        } catch (e) {
+          // silencia erros de lookup
+        }
+        return undefined;
+      },
     });
 
     this.sessions.set(tenantId, sock);
@@ -451,7 +475,8 @@ export class SessionManager {
       const finalSenderType = isFromMe ? "agent" : "client";
       const finalSenderName = isFromMe ? "Operador" : name;
 
-      // 3. Salvar a mensagem
+      // 3. Salvar a mensagem (onConflictDoNothing evita erro de chave duplicada
+      // quando o WA entrega a mesma mensagem mais de uma vez)
       await db.insert(messages).values({
         id: messageId,
         tenantId,
@@ -461,7 +486,7 @@ export class SessionManager {
         content: text,
         isInternalNote: false,
         sentAt: new Date(),
-      });
+      }).onConflictDoNothing();
 
       // 4. Notificar a UI via evento SSE
       this.notify(tenantId, {
