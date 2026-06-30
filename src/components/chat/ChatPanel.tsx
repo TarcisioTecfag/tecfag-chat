@@ -26,6 +26,133 @@ import { QUICK_RESPONSES } from "@/lib/mockData";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
+// ── Player de áudio customizado ────────────────────────────────────────────
+function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
+  const audioRef = React.useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = React.useState(false);
+  const [current, setCurrent] = React.useState(0);
+  const [duration, setDuration] = React.useState(0);
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); }
+    else { a.play(); setPlaying(true); }
+  };
+
+  const fmt = (s: number) => {
+    if (!isFinite(s)) return "0:00";
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  const pct = duration > 0 ? (current / duration) * 100 : 0;
+
+  return (
+    <div className="flex items-center gap-3 rounded-2xl bg-card border border-border shadow-soft px-4 py-3 min-w-[260px] max-w-xs">
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        onTimeUpdate={() => setCurrent(audioRef.current?.currentTime || 0)}
+        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onEnded={() => { setPlaying(false); setCurrent(0); }}
+      />
+      {/* Play / Pause */}
+      <button
+        onClick={toggle}
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft hover:opacity-90 transition"
+      >
+        {playing ? (
+          <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+            <rect x="6" y="4" width="4" height="16" rx="1" />
+            <rect x="14" y="4" width="4" height="16" rx="1" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        )}
+      </button>
+
+      <div className="flex flex-1 flex-col gap-1.5 min-w-0">
+        {/* Nome do arquivo */}
+        <p className="truncate text-[11px] font-semibold text-foreground leading-none">{fileName}</p>
+
+        {/* Barra de progresso */}
+        <div className="relative h-1.5 w-full rounded-full bg-muted overflow-hidden">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-primary transition-all duration-100"
+            style={{ width: `${pct}%` }}
+          />
+          <input
+            type="range"
+            min={0}
+            max={duration || 1}
+            step={0.1}
+            value={current}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setCurrent(v);
+              if (audioRef.current) audioRef.current.currentTime = v;
+            }}
+            className="absolute inset-0 w-full opacity-0 cursor-pointer h-full"
+          />
+        </div>
+
+        {/* Tempo */}
+        <div className="flex justify-between text-[10px] text-muted-foreground font-medium">
+          <span>{fmt(current)}</span>
+          <span>{fmt(duration)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Card de documento ──────────────────────────────────────────────────────
+function DocumentCard({ src, fileName }: { src: string; fileName: string }) {
+  const ext = fileName.split(".").pop()?.toLowerCase() || "";
+  const isExcel = ["xls", "xlsx", "csv"].includes(ext);
+  const isWord  = ["doc", "docx"].includes(ext);
+  const isPdf   = ext === "pdf";
+  const isPpt   = ["ppt", "pptx"].includes(ext);
+
+  const iconBg    = isPdf ? "bg-red-100 text-red-500"
+    : isExcel     ? "bg-emerald-100 text-emerald-600"
+    : isWord      ? "bg-blue-100 text-blue-600"
+    : isPpt       ? "bg-orange-100 text-orange-500"
+    :               "bg-muted text-muted-foreground";
+
+  const typeLabel = isPdf ? "PDF"
+    : isExcel     ? "Planilha"
+    : isWord      ? "Word"
+    : isPpt       ? "Apresentação"
+    :               "Documento";
+
+  return (
+    <div className="flex items-center gap-3 rounded-2xl bg-card border border-border shadow-soft px-4 py-3 min-w-[240px] max-w-xs">
+      <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${iconBg}`}>
+        <FileText className="h-5 w-5" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="truncate text-xs font-bold text-foreground">{fileName}</p>
+        <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wide mt-0.5">{typeLabel}</p>
+      </div>
+      <a
+        href={src}
+        download={fileName}
+        onClick={(e) => e.stopPropagation()}
+        title="Baixar"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition border border-primary/20"
+      >
+        <Download className="h-4 w-4" />
+      </a>
+    </div>
+  );
+}
+
 function renderMessageContent(text: string) {
   // ── Preview local de mídia enviada (objectURL temporário) ─────────────────
   if (text.startsWith("[LOCAL_MEDIA:")) {
@@ -58,43 +185,11 @@ function renderMessageContent(text: string) {
     }
 
     if (type === "audio") {
-      return (
-        <div className="min-w-[220px]">
-          <audio controls src={blobUrl} className="w-full h-9" preload="metadata" />
-        </div>
-      );
+      return <AudioBubble src={blobUrl} fileName={fileName} />;
     }
 
-    // document — detecta tipo pelo nome do arquivo
-    const ext = fileName.split(".").pop()?.toLowerCase() || "";
-    const isExcel = ["xls", "xlsx", "csv"].includes(ext);
-    const isWord = ["doc", "docx"].includes(ext);
-    const isPdf = ext === "pdf";
-    const iconBg = isPdf ? "bg-red-100 text-red-600" : isExcel ? "bg-green-100 text-green-600" : isWord ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-600";
-    const typeLabel = isPdf ? "PDF" : isExcel ? "Planilha" : isWord ? "Word" : "Documento";
-
-    return (
-      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/20 border border-white/30 min-w-[240px] max-w-sm">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${iconBg}`}>
-            <FileText className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-xs font-bold text-white max-w-[160px]">{fileName}</p>
-            <p className="text-[10px] text-white/70 uppercase font-medium">{typeLabel}</p>
-          </div>
-        </div>
-        <a
-          href={blobUrl}
-          download={fileName}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/20 border border-white/30 text-white hover:bg-white/30 transition"
-          title="Baixar"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Download className="h-4 w-4" />
-        </a>
-      </div>
-    );
+    // document
+    return <DocumentCard src={blobUrl} fileName={fileName} />;
   }
 
   if (text.startsWith("[MEDIA:")) {
@@ -129,43 +224,12 @@ function renderMessageContent(text: string) {
       }
 
       if (type === "audio") {
-        return (
-          <div className="flex items-center gap-2 py-1 min-w-[260px]">
-            <audio 
-              controls 
-              src={mediaUrl} 
-              className="w-full h-8"
-              preload="metadata"
-            />
-          </div>
-        );
+        return <AudioBubble src={mediaUrl} fileName="Áudio" />;
       }
 
       if (type === "document") {
         const fileName = extra || "documento";
-        return (
-          <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-muted/40 border border-border min-w-[240px] max-w-sm">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-red-100 text-red-600">
-                <FileText className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-xs font-bold text-foreground">{fileName}</p>
-                <p className="text-[10px] text-muted-foreground uppercase font-medium">Documento</p>
-              </div>
-            </div>
-            <a 
-              href={mediaUrl} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              download={fileName}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-card border border-border text-foreground hover:bg-muted transition"
-              title="Baixar Documento"
-            >
-              <Download className="h-4 w-4" />
-            </a>
-          </div>
-        );
+        return <DocumentCard src={mediaUrl} fileName={fileName} />;
       }
 
       if (type === "sticker") {
