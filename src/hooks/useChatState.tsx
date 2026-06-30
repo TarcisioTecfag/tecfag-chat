@@ -675,22 +675,53 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    const newMessage: Message = {
-      id: `msg-${Date.now()}`,
-      author: isInternalNote ? "Vendedor" : "Você",
-      text,
-      time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-      side: "out",
-      isInternalNote,
-    };
+    const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+    // Mensagem de texto (só adiciona se tiver conteúdo)
+    const messagesToAdd: Message[] = [];
+
+    if (text.trim()) {
+      messagesToAdd.push({
+        id: `msg-${Date.now()}`,
+        author: isInternalNote ? "Vendedor" : "Você",
+        text,
+        time: now,
+        side: "out",
+        isInternalNote,
+      });
+    }
+
+    // Mensagens de mídia — preview local com objectURL
+    if (attachments && attachments.length > 0) {
+      attachments.forEach((file, i) => {
+        const objectUrl = URL.createObjectURL(file);
+        const mime = file.type || "application/octet-stream";
+        const fileName = file.name || "arquivo";
+
+        let mediaType = "document";
+        if (mime.startsWith("image/")) mediaType = "image";
+        else if (mime.startsWith("video/")) mediaType = "video";
+        else if (mime.startsWith("audio/")) mediaType = "audio";
+
+        messagesToAdd.push({
+          id: `msg-media-${Date.now()}-${i}`,
+          author: "Você",
+          // Formato especial para preview local: [LOCAL_MEDIA:type:url:filename]
+          text: `[LOCAL_MEDIA:${mediaType}:${objectUrl}:${fileName}]`,
+          time: now,
+          side: "out",
+          isInternalNote: false,
+        });
+      });
+    }
 
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === selectedChatId) {
           return {
             ...c,
-            lastMessageTime: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-            messages: [...c.messages, newMessage],
+            lastMessageTime: now,
+            messages: [...c.messages, ...messagesToAdd],
           };
         }
         return c;

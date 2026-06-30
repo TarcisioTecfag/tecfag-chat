@@ -27,6 +27,76 @@ import { QUICK_RESPONSES } from "@/lib/mockData";
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 function renderMessageContent(text: string) {
+  // ── Preview local de mídia enviada (objectURL temporário) ─────────────────
+  if (text.startsWith("[LOCAL_MEDIA:")) {
+    // Formato: [LOCAL_MEDIA:type:blobUrl:filename]
+    // blobUrl pode conter ':', então capturamos filename do final
+    const rest = text.slice("[LOCAL_MEDIA:".length);
+    const typeEnd = rest.indexOf(":");
+    const type = rest.slice(0, typeEnd);
+    const afterType = rest.slice(typeEnd + 1);
+    // filename é tudo após o último ':'
+    const lastColon = afterType.lastIndexOf(":");
+    const blobUrl = afterType.slice(0, lastColon);
+    const fileName = afterType.slice(lastColon + 1);
+
+    if (type === "image") {
+      return (
+        <div className="relative group max-w-sm rounded-xl overflow-hidden cursor-pointer" onClick={() => window.open(blobUrl, "_blank")}>
+          <img src={blobUrl} alt={fileName} className="max-h-60 w-full object-contain rounded-xl" />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition rounded-xl" />
+        </div>
+      );
+    }
+
+    if (type === "video") {
+      return (
+        <div className="max-w-sm rounded-xl overflow-hidden">
+          <video controls src={blobUrl} className="max-h-60 w-full rounded-xl" />
+        </div>
+      );
+    }
+
+    if (type === "audio") {
+      return (
+        <div className="min-w-[220px]">
+          <audio controls src={blobUrl} className="w-full h-9" preload="metadata" />
+        </div>
+      );
+    }
+
+    // document — detecta tipo pelo nome do arquivo
+    const ext = fileName.split(".").pop()?.toLowerCase() || "";
+    const isExcel = ["xls", "xlsx", "csv"].includes(ext);
+    const isWord = ["doc", "docx"].includes(ext);
+    const isPdf = ext === "pdf";
+    const iconBg = isPdf ? "bg-red-100 text-red-600" : isExcel ? "bg-green-100 text-green-600" : isWord ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-600";
+    const typeLabel = isPdf ? "PDF" : isExcel ? "Planilha" : isWord ? "Word" : "Documento";
+
+    return (
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/20 border border-white/30 min-w-[240px] max-w-sm">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${iconBg}`}>
+            <FileText className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-bold text-white max-w-[160px]">{fileName}</p>
+            <p className="text-[10px] text-white/70 uppercase font-medium">{typeLabel}</p>
+          </div>
+        </div>
+        <a
+          href={blobUrl}
+          download={fileName}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/20 border border-white/30 text-white hover:bg-white/30 transition"
+          title="Baixar"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Download className="h-4 w-4" />
+        </a>
+      </div>
+    );
+  }
+
   if (text.startsWith("[MEDIA:")) {
     const match = text.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
     if (match) {
@@ -429,6 +499,10 @@ export function ChatPanel() {
                   <span className="mb-0.5 text-[10px] text-muted-foreground font-medium">{m.author}, {m.time}</span>
                   {isSticker ? (
                     <div className="max-w-[70%] leading-relaxed">
+                      {renderMessageContent(m.text)}
+                    </div>
+                  ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
+                    <div className="max-w-[70%]">
                       {renderMessageContent(m.text)}
                     </div>
                   ) : (
