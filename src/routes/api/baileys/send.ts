@@ -53,8 +53,38 @@ export const Route = createFileRoute("/api/baileys/send")({
             });
           }
 
-          const cleanPhone = phone.replace(/\D/g, "");
-          const jid = `${cleanPhone}@s.whatsapp.net`;
+          // Determinar o JID de destino: prioriza o whatsappJid salvo no contato
+          // (evita reconstrução frágil a partir do telefone)
+          let jid: string;
+          if (conversationId) {
+            try {
+              const conv = await db.query.conversations.findFirst({
+                where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+              });
+              if (conv?.contactId) {
+                const contact = await db.query.contacts.findFirst({
+                  where: (t, { eq: dEq }) => dEq(t.id, conv.contactId),
+                });
+                if (contact?.whatsappJid) {
+                  jid = contact.whatsappJid;
+                  console.log(`[Baileys Send] Usando JID salvo do contato: ${jid}`);
+                } else {
+                  const cleanPhone = phone.replace(/\D/g, "");
+                  jid = `${cleanPhone}@s.whatsapp.net`;
+                  console.log(`[Baileys Send] JID não salvo no contato, usando phone: ${jid}`);
+                }
+              } else {
+                const cleanPhone = phone.replace(/\D/g, "");
+                jid = `${cleanPhone}@s.whatsapp.net`;
+              }
+            } catch {
+              const cleanPhone = phone.replace(/\D/g, "");
+              jid = `${cleanPhone}@s.whatsapp.net`;
+            }
+          } else {
+            const cleanPhone = phone.replace(/\D/g, "");
+            jid = `${cleanPhone}@s.whatsapp.net`;
+          }
 
           // Enviar mensagem pelo Baileys
           const sentMsg = await sock.sendMessage(jid, { text });

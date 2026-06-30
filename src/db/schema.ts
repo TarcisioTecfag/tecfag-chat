@@ -50,6 +50,9 @@ export const contacts = pgTable("contacts", {
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
   phone: text("phone"),
+  // JID completo do WhatsApp (ex: '5514981468232@s.whatsapp.net').
+  // Usado para envio confiável — evita reconstrução frágil a partir do telefone.
+  whatsappJid: text("whatsapp_jid"),
   email: text("email"),
   cnpj: text("cnpj"),
   avatar: text("avatar"), // URL da foto de perfil do contato

@@ -370,9 +370,13 @@ export class SessionManager {
 
     try {
       // 1. Garantir que o contato existe no banco
+      // Busca PRIMEIRO pelo JID exato (mais confiável), depois pelo phone
       let contact = await db.query.contacts.findFirst({
-        where: (contactsTable, { eq: dEq, and: dAnd }) => 
-          dAnd(dEq(contactsTable.tenantId, tenantId), dEq(contactsTable.phone, phone))
+        where: (contactsTable, { eq: dEq, and: dAnd, or: dOr }) =>
+          dAnd(
+            dEq(contactsTable.tenantId, tenantId),
+            dOr(dEq(contactsTable.whatsappJid, jid), dEq(contactsTable.phone, phone))
+          )
       });
 
       const contactId = contact?.id || `c-${Date.now()}`;
@@ -385,11 +389,17 @@ export class SessionManager {
           tenantId,
           name,
           phone,
+          whatsappJid: jid, // Salva o JID real para envio confiável
           mainChannel: "whatsapp",
           avatar: null,
           tags: [],
           createdAt: new Date(),
         });
+      } else if (contact && !contact.whatsappJid) {
+        // Atualiza o JID em contatos já existentes que não o tinham
+        await db.update(contacts)
+          .set({ whatsappJid: jid })
+          .where(eq(contacts.id, contactId));
       }
 
       // Buscar foto de perfil em background (sem await para não atrasar o processamento de mensagens!)
