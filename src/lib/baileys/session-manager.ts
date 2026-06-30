@@ -412,31 +412,53 @@ export class SessionManager {
       if (jid && (!contact || !contact.avatar)) {
         const sock = this.sessions.get(tenantId);
         if (sock) {
-          // Tenta obter o preview. Se falhar (ex: bloqueios ou ausência do preview), tenta a imagem em alta resolução.
-          sock.profilePictureUrl(jid, "preview")
-            .catch(() => sock.profilePictureUrl(jid, "image"))
-            .then((picUrl) => {
-              if (picUrl) {
-                db.update(contacts)
-                  .set({ avatar: picUrl })
-                  .where(eq(contacts.id, contactId))
-                  .then(() => {
-                    console.log(`[Baileys] Foto de perfil obtida em background para ${phone}`);
-                    // Envia um evento SSE de atualização de avatar
-                    this.notify(tenantId, {
-                      type: "contact_avatar",
-                      contactId: contactId,
-                      phone: phone,
-                      avatar: picUrl,
-                    });
-                  })
-                  .catch((err) => console.error("Erro ao salvar foto de perfil no DB:", err));
-              }
-            })
-            .catch((err) => {
-              // Silencia erros normais de privacidade/foto bloqueada
-              console.log(`[Baileys] Foto de perfil não disponível para ${phone}:`, err.message);
-            });
+          // Monta lista de JIDs a tentar em ordem de preferência
+          const cleanPhone = phone.replace(/\D/g, "");
+          const jidsToTry: string[] = [
+            jid,                                          // JID real (pode ser @lid ou @s.whatsapp.net)
+            `${cleanPhone}@s.whatsapp.net`,               // phone direto
+          ];
+          // Se o phone não começa com 55, tenta com DDI
+          if (!cleanPhone.startsWith("55") && cleanPhone.length <= 11) {
+            jidsToTry.push(`55${cleanPhone}@s.whatsapp.net`);
+          }
+          // Se começa com 55, tenta sem o DDI também
+          if (cleanPhone.startsWith("55")) {
+            jidsToTry.push(`${cleanPhone.slice(2)}@s.whatsapp.net`);
+          }
+
+          const tryGetPic = async (): Promise<string | undefined> => {
+            for (const tryJid of jidsToTry) {
+              try {
+                const url = await sock.profilePictureUrl(tryJid, "preview")
+                  .catch(() => sock.profilePictureUrl(tryJid, "image"));
+                if (url) {
+                  console.log(`[Baileys] Foto obtida para ${phone} via JID: ${tryJid}`);
+                  return url;
+                }
+              } catch { /* tenta próximo */ }
+            }
+            return undefined;
+          };
+
+          tryGetPic().then((picUrl) => {
+            if (picUrl) {
+              db.update(contacts)
+                .set({ avatar: picUrl })
+                .where(eq(contacts.id, contactId))
+                .then(() => {
+                  this.notify(tenantId, {
+                    type: "contact_avatar",
+                    contactId: contactId,
+                    phone: phone,
+                    avatar: picUrl,
+                  });
+                })
+                .catch((err) => console.error("Erro ao salvar foto de perfil no DB:", err));
+            } else {
+              console.log(`[Baileys] Foto não disponível para ${phone} (todos os JIDs tentados)`);
+            }
+          }).catch(() => {});
         }
       }
 

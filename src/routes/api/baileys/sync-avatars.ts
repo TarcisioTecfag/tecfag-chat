@@ -53,18 +53,32 @@ export const Route = createFileRoute("/api/baileys/sync-avatars")({
 
           for (const contact of contactsWithoutAvatar) {
             const jid = contact.whatsappJid;
-            if (!jid) { failed++; continue; }
+            if (!jid && !contact.phone) { failed++; continue; }
+
+            const cleanPhone = (contact.phone || "").replace(/\D/g, "");
+            const jidsToTry: string[] = [];
+            if (jid) jidsToTry.push(jid);
+            if (cleanPhone) {
+              jidsToTry.push(`${cleanPhone}@s.whatsapp.net`);
+              if (!cleanPhone.startsWith("55") && cleanPhone.length <= 11)
+                jidsToTry.push(`55${cleanPhone}@s.whatsapp.net`);
+              if (cleanPhone.startsWith("55"))
+                jidsToTry.push(`${cleanPhone.slice(2)}@s.whatsapp.net`);
+            }
+
+            if (jidsToTry.length === 0) { failed++; continue; }
 
             try {
               let picUrl: string | undefined;
-              try {
-                picUrl = await sock.profilePictureUrl(jid, "preview");
-              } catch {
+              for (const tryJid of jidsToTry) {
                 try {
-                  picUrl = await sock.profilePictureUrl(jid, "image");
-                } catch {
-                  // Privacidade ou foto não configurada — normal
-                }
+                  picUrl = await sock.profilePictureUrl(tryJid, "preview")
+                    .catch(() => sock.profilePictureUrl(tryJid, "image"));
+                  if (picUrl) {
+                    console.log(`[sync-avatars] Foto obtida para ${contact.phone} via ${tryJid}`);
+                    break;
+                  }
+                } catch { /* próximo */ }
               }
 
               if (picUrl) {
