@@ -636,7 +636,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               formData.append("phone", targetPhone);
               formData.append("conversationId", selectedChatId);
               formData.append("senderName", operatorProfile.name);
-              formData.append("file", file);
+              // Usa 3 argumentos para garantir que o filename seja enviado
+              // mesmo quando `file` é um Blob puro (sem .name)
+              const safeName = (file as any).name || file.name || "audio.webm";
+              formData.append("file", file, safeName);
               const mediaRes = await fetch(`${BACKEND_URL}/api/baileys/send-media`, {
                 method: "POST",
                 body: formData,

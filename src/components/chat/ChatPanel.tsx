@@ -166,10 +166,10 @@ function renderMessageContent(text: string) {
     const typeEnd = rest.indexOf(":");
     const type = rest.slice(0, typeEnd);
     const afterType = rest.slice(typeEnd + 1);
-    // filename é tudo após o último ':'
+    // filename é tudo após o último ':', sem o ']' de fechamento
     const lastColon = afterType.lastIndexOf(":");
     const blobUrl = afterType.slice(0, lastColon);
-    const fileName = afterType.slice(lastColon + 1);
+    const fileName = afterType.slice(lastColon + 1).replace(/\]$/, "");
 
     if (type === "image") {
       return (
@@ -430,10 +430,15 @@ export function ChatPanel() {
   const handleSend = () => {
     // Se houver áudio em preview, envia o áudio
     if (recordingState === "preview" && audioBlob) {
-      const ext = audioBlob.type.includes("ogg") ? "ogg" : "webm";
-      const blob = new Blob([audioBlob], { type: audioBlob.type });
-      const file = Object.assign(blob, { name: `audio-${Date.now()}.${ext}`, lastModified: Date.now() }) as File;
-      const extras = attachments.length > 0 ? [...attachments, file] : [file];
+      const ext = audioBlob.type.includes("ogg") ? "ogg"
+        : audioBlob.type.includes("mp4") ? "mp4"
+        : "webm";
+      const mimeType = audioBlob.type || "audio/webm";
+      // Cria um File real para que o FormData envie o filename corretamente
+      const audioFile = new Blob([audioBlob], { type: mimeType }) as any;
+      audioFile.name = `audio-${Date.now()}.${ext}`;
+      audioFile.lastModified = Date.now();
+      const extras = attachments.length > 0 ? [...attachments, audioFile as File] : [audioFile as File];
       sendMessage(text, false, extras);
       setText("");
       setAttachments([]);

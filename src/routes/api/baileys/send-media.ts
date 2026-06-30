@@ -69,25 +69,45 @@ export const Route = createFileRoute("/api/baileys/send-media")({
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
 
+          // Determinar tipo de mensagem Baileys pelo MIME ou extensão do arquivo
+          const ext = fileName.split(".").pop()?.toLowerCase() || "";
+          const isAudio = mime.startsWith("audio/") || ["mp3","ogg","webm","m4a","aac","oga","opus","wav"].includes(ext);
+          const isImage = mime.startsWith("image/");
+          const isVideo = mime.startsWith("video/") && !isAudio;
+
+          // Normalizar MIME de áudio para o formato que o WhatsApp/Baileys aceita
+          let audioMime = mime;
+          if (isAudio) {
+            if (ext === "ogg" || ext === "oga" || mime.includes("ogg")) {
+              audioMime = "audio/ogg; codecs=opus";
+            } else if (ext === "webm" || mime.includes("webm")) {
+              audioMime = "audio/webm";
+            } else if (ext === "mp3" || mime.includes("mpeg")) {
+              audioMime = "audio/mpeg";
+            } else if (ext === "mp4" || ext === "m4a") {
+              audioMime = "audio/mp4";
+            }
+          }
+
           // Determinar tipo de mensagem Baileys pelo MIME
           let sentMsg: any;
-          if (mime.startsWith("image/")) {
+          if (isImage) {
             sentMsg = await sock.sendMessage(jid, {
               image: buffer,
               mimetype: mime,
               caption: "",
             });
-          } else if (mime.startsWith("video/")) {
+          } else if (isVideo) {
             sentMsg = await sock.sendMessage(jid, {
               video: buffer,
               mimetype: mime,
               caption: "",
             });
-          } else if (mime.startsWith("audio/")) {
+          } else if (isAudio) {
             sentMsg = await sock.sendMessage(jid, {
               audio: buffer,
-              mimetype: mime,
-              ptt: false,
+              mimetype: audioMime,
+              ptt: true, // true = mensagem de voz, false = arquivo de áudio
             });
           } else {
             // Qualquer outro tipo: PDF, Excel, Word, etc.
