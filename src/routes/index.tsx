@@ -30,6 +30,14 @@ function Index() {
     setIsMounted(true);
   }, []);
 
+  if (!isMounted) {
+    return null; // Retorna null no primeiro render para bater com o HTML vazio do servidor (ssr: false)
+  }
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
   // Estilos de tema dinâmicos para harmonia de cores
   const themeStyles = tenant === "tecfag"
     ? ({
@@ -42,34 +50,24 @@ function Index() {
       } as React.CSSProperties);
 
   return (
-    <div 
-      className={`min-h-screen transition-colors duration-300 ${!isMounted ? "bg-slate-950 flex items-center justify-center" : "bg-background"}`}
-      style={isMounted ? themeStyles : undefined}
-      suppressHydrationWarning
-    >
-      {!isMounted ? (
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-white" />
-      ) : !isAuthenticated ? (
-        <Login />
-      ) : (
-        <div className="flex h-screen w-full gap-5 p-5">
-          <Sidebar />
-          {activeView === "chat" && <ChatList />}
-          {activeView === "chat" ? (
-            <>
-              <ChatPanel />
-              {rightSidebarOpen && <SharedFiles />}
-            </>
-          ) : activeView === "contacts" ? (
-            <ContactsView />
-          ) : activeView === "groups" ? (
-            <GroupsView />
-          ) : (
-            <SettingsView />
-          )}
-        </div>
-      )}
-      {isMounted && <ProfileModal />}
+    <div className="min-h-screen bg-background transition-colors duration-300" style={themeStyles}>
+      <div className="flex h-screen w-full gap-5 p-5">
+        <Sidebar />
+        {activeView === "chat" && <ChatList />}
+        {activeView === "chat" ? (
+          <>
+            <ChatPanel />
+            {rightSidebarOpen && <SharedFiles />}
+          </>
+        ) : activeView === "contacts" ? (
+          <ContactsView />
+        ) : activeView === "groups" ? (
+          <GroupsView />
+        ) : (
+          <SettingsView />
+        )}
+      </div>
+      <ProfileModal />
     </div>
   );
 }
