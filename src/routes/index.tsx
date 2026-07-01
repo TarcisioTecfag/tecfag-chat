@@ -12,7 +12,6 @@ import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 
 export const Route = createFileRoute("/")({
-  ssr: false, // Disable SSR for the main app route to prevent hydration mismatch crashes
   head: () => ({
     meta: [
       { title: "Tec Chat / Valem Chat" },
