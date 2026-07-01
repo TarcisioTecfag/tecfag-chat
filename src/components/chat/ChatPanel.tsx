@@ -273,12 +273,20 @@ export function ChatPanel() {
     rightSidebarOpen,
     setRightSidebarOpen,
     tenant,
+    sectors,
+    operators,
   } = useChat();
 
   const [text, setText] = useState("");
   const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showTransferDropdown, setShowTransferDropdown] = useState(false);
+  const [selectedTransferSectorId, setSelectedTransferSectorId] = useState<string | null>(null);
+
+  const closeTransferDropdown = () => {
+    setShowTransferDropdown(false);
+    setSelectedTransferSectorId(null);
+  };
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -477,7 +485,7 @@ export function ChatPanel() {
     inputRef.current?.focus();
   };
 
-  const departments = ["Comercial Valem", "Comercial Tecfag", "Faturamento", "Suporte Técnico", "Financeiro"];
+
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative">
@@ -573,20 +581,94 @@ export function ChatPanel() {
 
                 {showTransferDropdown && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowTransferDropdown(false)} />
-                    <div className="absolute right-0 mt-1.5 z-50 w-48 rounded-xl bg-card p-1 border border-border shadow-card animate-in fade-in duration-100">
-                      {departments.map((dept) => (
-                        <button
-                          key={dept}
-                          onClick={() => {
-                            transferChat(activeChat.id, dept);
-                            setShowTransferDropdown(false);
-                          }}
-                          className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition"
-                        >
-                          {dept}
-                        </button>
-                      ))}
+                    <div className="fixed inset-0 z-40" onClick={closeTransferDropdown} />
+                    <div className="absolute right-0 mt-1.5 z-50 w-52 rounded-xl bg-card p-1 border border-border shadow-card animate-in fade-in duration-100">
+                      {!selectedTransferSectorId ? (
+                        <>
+                          <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-b border-line mb-1">
+                            Escolha o Setor
+                          </div>
+                          {sectors.map((sec) => (
+                            <button
+                              key={sec.id}
+                              onClick={() => {
+                                setSelectedTransferSectorId(sec.id);
+                              }}
+                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                            >
+                              <span>{sec.name}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">
+                                {sec.operatorIds.length} atendente(s)
+                              </span>
+                            </button>
+                          ))}
+                        </>
+                      ) : (
+                        (() => {
+                          const selectedSector = sectors.find(s => s.id === selectedTransferSectorId);
+                          const sectorOps = selectedSector 
+                            ? operators.filter(op => selectedSector.operatorIds.includes(op.id))
+                            : [];
+                          
+                          return (
+                            <>
+                              <button 
+                                onClick={() => setSelectedTransferSectorId(null)}
+                                className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-bold text-primary hover:bg-muted transition border-b border-line mb-1 cursor-pointer"
+                              >
+                                <ChevronLeft className="h-3.5 w-3.5" />
+                                Voltar para Setores
+                              </button>
+                              
+                              <div className="px-3 py-1 text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
+                                Atendentes em {selectedSector?.name}
+                              </div>
+                              
+                              {/* Option to transfer to any agent in sector (general queue) */}
+                              <button
+                                onClick={() => {
+                                  transferChat(activeChat.id, selectedSector?.name || "Sem Nome", null);
+                                  closeTransferDropdown();
+                                }}
+                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
+                              >
+                                <div className="h-5 w-5 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
+                                  F
+                                </div>
+                                <div className="flex flex-col">
+                                  <span>Fila Geral do Setor</span>
+                                  <span className="text-[9px] text-muted-foreground font-normal">Qualquer atendente</span>
+                                </div>
+                              </button>
+
+                              {sectorOps.length === 0 ? (
+                                <div className="px-3 py-2 text-xs text-muted-foreground italic">
+                                  Nenhum atendente neste setor
+                                </div>
+                              ) : (
+                                sectorOps.map((op) => (
+                                  <button
+                                    key={op.id}
+                                    onClick={() => {
+                                      transferChat(activeChat.id, selectedSector?.name || "Sem Nome", op.id);
+                                      closeTransferDropdown();
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                                  >
+                                    <img src={op.avatar} alt={op.name} className="h-5 w-5 rounded-full object-cover shrink-0" />
+                                    <div className="flex flex-col">
+                                      <span>{op.name}</span>
+                                      <span className="text-[9px] text-muted-foreground font-normal capitalize">
+                                        {op.status === "disponivel" ? "Disponível" : op.status === "pausa" ? "Em Pausa" : "Desconectado"}
+                                      </span>
+                                    </div>
+                                  </button>
+                                ))
+                              )}
+                            </>
+                          );
+                        })()
+                      )}
                     </div>
                   </>
                 )}

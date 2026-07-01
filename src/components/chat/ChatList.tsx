@@ -70,6 +70,7 @@ export function ChatList() {
     updateOperatorProfile,
     setIsProfileModalOpen,
     currentGroup,
+    currentOperatorId,
     markAsRead,
     markAsUnread,
     pinChat,
@@ -102,6 +103,9 @@ export function ChatList() {
   const filteredConvs = conversations.filter((c) => {
     // 1. Queue Filter
     if (c.queue !== activeQueue) return false;
+
+    // Se for a fila 'meus', apenas exibir se pertencer ao operador ativo
+    if (activeQueue === "meus" && c.operatorId !== currentOperatorId) return false;
 
     // 2. Channel Filter
     if (channelFilter !== "all" && c.channel !== channelFilter) return false;

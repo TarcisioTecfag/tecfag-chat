@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SessionManager } from "../../../lib/baileys/session-manager";
+import { SessionManager, resolveRealJid } from "../../../lib/baileys/session-manager";
 import { db } from "../../../db";
-import { messages, conversations, contacts } from "../../../db/schema";
+import { messages, conversations, contacts, mediaFiles } from "../../../db/schema";
 import { eq } from "drizzle-orm";
 
 const corsHeaders = {
@@ -44,24 +44,43 @@ export const Route = createFileRoute("/api/baileys/send-media")({
 
           // Resolver o JID pelo conversationId → contato
           let jid: string;
+          let contactId: string | undefined;
+
           if (conversationId) {
             try {
               const conv = await db.query.conversations.findFirst({
                 where: (t, { eq: dEq }) => dEq(t.id, conversationId),
               });
-              if (conv?.contactId) {
-                const contact = await db.query.contacts.findFirst({
-                  where: (t, { eq: dEq }) => dEq(t.id, conv.contactId),
-                });
-                jid = contact?.whatsappJid || `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
-              } else {
-                jid = `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
-              }
-            } catch {
-              jid = `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
-            }
+              contactId = conv?.contactId;
+            } catch {}
+          }
+
+          let contact: any;
+          if (contactId) {
+            contact = await db.query.contacts.findFirst({
+              where: (t, { eq: dEq }) => dEq(t.id, contactId!),
+            });
+          }
+
+          if (contact?.whatsappJid) {
+            jid = contact.whatsappJid;
+            console.log(`[Baileys SendMedia] Usando JID salvo do contato: ${jid}`);
           } else {
-            jid = `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
+            // Resolve o JID real via onWhatsApp e salva no banco de dados para envios futuros
+            const cleanPhone = phone.replace(/\D/g, "");
+            jid = await resolveRealJid(sock, cleanPhone);
+            console.log(`[Baileys SendMedia] JID resolvido via WhatsApp: ${jid}`);
+
+            if (contactId && jid) {
+              try {
+                await db.update(contacts)
+                  .set({ whatsappJid: jid })
+                  .where(eq(contacts.id, contactId));
+                console.log(`[Baileys SendMedia] JID ${jid} salvo no contato ${contactId}`);
+              } catch (err: any) {
+                console.error(`[Baileys SendMedia] Erro ao salvar JID no contato:`, err.message);
+              }
+            }
           }
 
           const mime = file.type || "application/octet-stream";
@@ -120,6 +139,15 @@ export const Route = createFileRoute("/api/baileys/send-media")({
 
           // Salvar no DB
           if (conversationId && sentMsg?.key.id) {
+            let mediaType = "document";
+            if (mime.startsWith("image/")) mediaType = "image";
+            else if (mime.startsWith("video/")) mediaType = "video";
+            else if (mime.startsWith("audio/")) mediaType = "audio";
+
+            const dbContent = mediaType === "document"
+              ? `[MEDIA:document]${sentMsg.key.id}:${fileName}`
+              : `[MEDIA:${mediaType}]${sentMsg.key.id}`;
+
             const displayContent = mime.startsWith("image/")
               ? "📷 Imagem"
               : mime.startsWith("video/")
@@ -134,7 +162,7 @@ export const Route = createFileRoute("/api/baileys/send-media")({
               conversationId,
               senderType: "agent",
               senderName: senderName || "Operador",
-              content: displayContent,
+              content: dbContent,
               isInternalNote: false,
               sentAt: new Date(),
             }).onConflictDoNothing();
@@ -142,6 +170,35 @@ export const Route = createFileRoute("/api/baileys/send-media")({
             await db.update(conversations)
               .set({ lastMessageText: displayContent, lastMessageTime: new Date() })
               .where(eq(conversations.id, conversationId));
+
+            // Persistir a mídia permanentemente no banco de dados (Base64)
+            try {
+              const base64Data = buffer.toString("base64");
+              await db.insert(mediaFiles).values({
+                id: sentMsg.key.id,
+                fileName: fileName || null,
+                mimeType: mime,
+                base64Data,
+                createdAt: new Date(),
+              }).onConflictDoNothing();
+              console.log(`Mídia enviada ${sentMsg.key.id} persistida no banco com sucesso!`);
+            } catch (dbErr) {
+              console.error(`Erro ao salvar mídia enviada no banco ${sentMsg.key.id}:`, dbErr);
+            }
+
+            // Salvar no cache local em disco
+            try {
+              const fs = await import("fs");
+              const path = await import("path");
+              const mediaDir = path.join(process.cwd(), "media");
+              if (!fs.existsSync(mediaDir)) {
+                fs.mkdirSync(mediaDir, { recursive: true });
+              }
+              fs.writeFileSync(path.join(mediaDir, sentMsg.key.id), buffer);
+              fs.writeFileSync(path.join(mediaDir, `${sentMsg.key.id}.mime`), mime);
+            } catch (fsErr) {
+              console.error("Erro ao salvar cache local de mídia enviada:", fsErr);
+            }
           }
 
           return new Response(

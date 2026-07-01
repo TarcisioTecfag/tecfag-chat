@@ -92,37 +92,105 @@ export function SharedFiles() {
     setIsEditingInfo(false);
   };
 
-  // Original File Categories
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Scan all messages of this client/chat to extract media files and links
+  const mediaMessages = activeChat.messages.filter((m) => m.text.startsWith("[MEDIA:"));
+  
+  const parsedMediaFiles = mediaMessages.map((m) => {
+    const match = m.text.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
+    if (!match) return null;
+    const [, type, messageId, extra] = match;
+    
+    // For visual display:
+    let displayName = "Arquivo";
+    if (type === "image") displayName = "Imagem";
+    else if (type === "sticker") displayName = "Figurinha";
+    else if (type === "video") displayName = "Vídeo";
+    else if (type === "audio") displayName = "Mensagem de voz";
+    else if (type === "document") displayName = extra || "Documento";
+
+    return {
+      id: m.id,
+      messageId,
+      type,
+      name: displayName,
+      time: m.time,
+      author: m.author,
+      url: `${BACKEND_URL}/api/baileys/media?messageId=${messageId}`,
+    };
+  }).filter(Boolean) as Array<{
+    id: string;
+    messageId: string;
+    type: string;
+    name: string;
+    time: string;
+    author: string;
+    url: string;
+  }>;
+
+  // Extract shared URLs/Links
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parsedLinks = activeChat.messages.flatMap((m) => {
+    const matches = m.text.match(urlRegex);
+    if (!matches) return [];
+    return matches.map((url, idx) => ({
+      id: `${m.id}-link-${idx}`,
+      url,
+      time: m.time,
+      author: m.author,
+    }));
+  });
+
+  const docsCount = parsedMediaFiles.filter((f) => f.type === "document").length;
+  const imagesCount = parsedMediaFiles.filter((f) => ["image", "sticker"].includes(f.type)).length;
+  const videosCount = parsedMediaFiles.filter((f) => f.type === "video").length;
+  const othersCount = parsedMediaFiles.filter((f) => f.type === "audio").length;
+
   const categories = [
     {
+      id: "docs",
       icon: FileText,
       label: "Documentos",
-      count: "126 arquivos, 193MB",
+      count: `${docsCount} ${docsCount === 1 ? "arquivo" : "arquivos"}`,
       color: "var(--icon-docs)",
       bg: "var(--icon-docs-bg)",
+      files: parsedMediaFiles.filter((f) => f.type === "document"),
     },
     {
+      id: "images",
       icon: ImageIcon,
       label: "Imagens",
-      count: "53 arquivos, 321MB",
+      count: `${imagesCount} ${imagesCount === 1 ? "arquivo" : "arquivos"}`,
       color: "var(--icon-photos)",
       bg: "var(--icon-photos-bg)",
+      files: parsedMediaFiles.filter((f) => ["image", "sticker"].includes(f.type)),
     },
     {
+      id: "videos",
       icon: Film,
       label: "Vídeos",
-      count: "3 arquivos, 210MB",
+      count: `${videosCount} ${videosCount === 1 ? "arquivo" : "arquivos"}`,
       color: "var(--icon-movies)",
       bg: "var(--icon-movies-bg)",
+      files: parsedMediaFiles.filter((f) => f.type === "video"),
     },
     {
+      id: "others",
       icon: Files,
       label: "Outros",
-      count: "49 arquivos, 194MB",
+      count: `${othersCount} ${othersCount === 1 ? "arquivo" : "arquivos"}`,
       color: "var(--icon-other)",
       bg: "var(--icon-other-bg)",
+      files: parsedMediaFiles.filter((f) => f.type === "audio"),
     },
   ];
+
+  const handleTabChange = (tab: "details" | "files" | "channel") => {
+    setActiveTab(tab);
+    setSelectedCategory(null);
+  };
 
   return (
     <aside className="flex h-full w-[280px] shrink-0 flex-col rounded-3xl bg-card px-4 py-5 shadow-soft border border-border select-none">
@@ -143,7 +211,7 @@ export function SharedFiles() {
       {/* Header Tabs (3 segments for Details, Shared Files and Channel Integration) */}
       <div className="flex rounded-xl bg-muted p-1">
         <button
-          onClick={() => setActiveTab("details")}
+          onClick={() => handleTabChange("details")}
           className={`flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition cursor-pointer ${
             activeTab === "details" ? "bg-card text-foreground shadow-soft" : "text-muted-foreground hover:text-foreground"
           }`}
@@ -151,7 +219,7 @@ export function SharedFiles() {
           📋 Dados
         </button>
         <button
-          onClick={() => setActiveTab("files")}
+          onClick={() => handleTabChange("files")}
           className={`flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition cursor-pointer ${
             activeTab === "files" ? "bg-card text-foreground shadow-soft" : "text-muted-foreground hover:text-foreground"
           }`}
@@ -159,7 +227,7 @@ export function SharedFiles() {
           📁 Arquivos
         </button>
         <button
-          onClick={() => setActiveTab("channel")}
+          onClick={() => handleTabChange("channel")}
           className={`flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition cursor-pointer ${
             activeTab === "channel" ? "bg-card text-foreground shadow-soft" : "text-muted-foreground hover:text-foreground"
           }`}
@@ -318,50 +386,169 @@ export function SharedFiles() {
           </div>
         </div>
       ) : activeTab === "files" ? (
-        /* TAB 2: ARQUIVOS COMPARTILHADOS (RESTORED OPTION) */
-        <div className="flex-1 flex flex-col overflow-y-auto pr-1 scrollbar-thin">
-          {/* Stat cards */}
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <div className="relative rounded-2xl bg-primary-soft/50 border border-primary/10 p-3">
-              <div className="text-[10px] font-bold text-foreground/70">Arquivos</div>
-              <div className="mt-4 flex items-end justify-between">
-                <Folder className="h-6 w-6 text-primary" fill="currentColor" strokeWidth={0} />
-                <span className="text-xl font-bold text-foreground">231</span>
-              </div>
+        /* TAB 2: ARQUIVOS COMPARTILHADOS (REAL IMPLEMENTATION) */
+        selectedCategory ? (
+          /* SUB-VISUALIZAÇÃO DE UMA CATEGORIA / LINKS */
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Header com botão voltar */}
+            <div className="flex items-center gap-2 mb-3">
+              <button
+                onClick={() => setSelectedCategory(null)}
+                className="flex items-center gap-1 text-[10px] font-bold text-primary hover:underline cursor-pointer bg-primary-soft px-2 py-1 rounded-lg animate-fade-in"
+              >
+                ← Voltar
+              </button>
+              <span className="text-xs font-bold text-foreground truncate">
+                {selectedCategory === "links"
+                  ? "Links Compartilhados"
+                  : categories.find((c) => c.id === selectedCategory)?.label || "Arquivos"}
+              </span>
             </div>
-            <div className="relative rounded-2xl bg-muted p-3 border border-border">
-              <div className="text-[10px] font-bold text-foreground/70">Links</div>
-              <div className="mt-4 flex items-end justify-between">
-                <Link2 className="h-6 w-6 text-muted-foreground" strokeWidth={2} />
-                <span className="text-xl font-bold text-foreground">45</span>
-              </div>
+
+            {/* Listagem */}
+            <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin space-y-2">
+              {selectedCategory === "links" ? (
+                /* LISTAGEM DE LINKS */
+                parsedLinks.length > 0 ? (
+                  parsedLinks.map((link) => (
+                    <div
+                      key={link.id}
+                      className="p-3 rounded-2xl bg-muted/40 border border-line hover:bg-muted/70 transition flex flex-col gap-1.5"
+                    >
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <Link2 className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-semibold text-primary break-all hover:underline"
+                        >
+                          {link.url}
+                        </a>
+                      </div>
+                      <div className="flex justify-between items-center text-[9px] text-muted-foreground font-medium pl-6">
+                        <span>{link.author}</span>
+                        <span>{link.time}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-xs text-muted-foreground italic">
+                    Nenhum link compartilhado
+                  </div>
+                )
+              ) : (
+                /* LISTAGEM DE ARQUIVOS */
+                (() => {
+                  const categoryObj = categories.find((c) => c.id === selectedCategory);
+                  const filesList = categoryObj?.files || [];
+                  return filesList.length > 0 ? (
+                    filesList.map((file) => (
+                      <div
+                        key={file.id}
+                        className="p-3 rounded-2xl bg-muted/40 border border-line hover:bg-muted/70 transition flex flex-col gap-2"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {selectedCategory === "images" ? (
+                            <img
+                              src={file.url}
+                              alt=""
+                              className="h-10 w-10 shrink-0 rounded-lg object-cover border border-border bg-black/5"
+                            />
+                          ) : (
+                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary-soft/50 text-primary border border-primary/10">
+                              {React.createElement(categoryObj?.icon || Folder, { className: "h-5 w-5" })}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold text-foreground truncate" title={file.name}>
+                              {file.name}
+                            </div>
+                            <div className="text-[9px] text-muted-foreground font-medium">
+                              Enviado por {file.author} às {file.time}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => window.open(file.url, "_blank")}
+                            className="px-2.5 py-1 text-[10px] font-bold text-primary bg-primary-soft hover:bg-primary-soft/80 rounded-lg transition cursor-pointer"
+                          >
+                            Visualizar
+                          </button>
+                          <a
+                            href={file.url}
+                            download={file.name}
+                            target="_blank"
+                            className="px-2.5 py-1 text-[10px] font-bold text-foreground bg-muted border border-border hover:bg-muted/80 rounded-lg transition cursor-pointer text-center"
+                          >
+                            Baixar
+                          </a>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-xs text-muted-foreground italic">
+                      Nenhum arquivo nesta categoria
+                    </div>
+                  );
+                })()
+              )}
             </div>
           </div>
+        ) : (
+          /* TAB 2: ARQUIVOS COMPARTILHADOS (LISTA GERAL DE CATEGORIAS) */
+          <div className="flex-1 flex flex-col overflow-y-auto pr-1 scrollbar-thin">
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="relative rounded-2xl bg-primary-soft/50 border border-primary/10 p-3">
+                <div className="text-[10px] font-bold text-foreground/70">Arquivos</div>
+                <div className="mt-4 flex items-end justify-between">
+                  <Folder className="h-6 w-6 text-primary" fill="currentColor" strokeWidth={0} />
+                  <span className="text-xl font-bold text-foreground">{parsedMediaFiles.length}</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedCategory("links")}
+                className="relative text-left rounded-2xl bg-muted p-3 border border-border hover:bg-muted/60 transition cursor-pointer"
+              >
+                <div className="text-[10px] font-bold text-foreground/70">Links</div>
+                <div className="mt-4 flex items-end justify-between">
+                  <Link2 className="h-6 w-6 text-muted-foreground" strokeWidth={2} />
+                  <span className="text-xl font-bold text-foreground">{parsedLinks.length}</span>
+                </div>
+              </button>
+            </div>
 
-          <h4 className="text-xs font-bold text-foreground mb-2 px-1">Tipos de arquivo</h4>
-          <ul className="space-y-1">
-            {categories.map((c) => {
-              const Icon = c.icon;
-              return (
-                <li key={c.label}>
-                  <button className="flex w-full items-center gap-3 rounded-2xl p-2 text-left transition hover:bg-muted/60 cursor-pointer">
-                    <div
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-xl"
-                      style={{ background: c.bg }}
+            <h4 className="text-xs font-bold text-foreground mb-2 px-1">Tipos de arquivo</h4>
+            <ul className="space-y-1">
+              {categories.map((c) => {
+                const Icon = c.icon;
+                return (
+                  <li key={c.label}>
+                    <button
+                      onClick={() => setSelectedCategory(c.id)}
+                      className="flex w-full items-center gap-3 rounded-2xl p-2 text-left transition hover:bg-muted/60 cursor-pointer"
                     >
-                      <Icon className="h-4.5 w-4.5" style={{ color: c.color }} strokeWidth={2} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-foreground">{c.label}</div>
-                      <div className="text-[10px] text-muted-foreground">{c.count}</div>
-                    </div>
-                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+                      <div
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-xl"
+                        style={{ background: c.bg }}
+                      >
+                        <Icon className="h-4.5 w-4.5" style={{ color: c.color }} strokeWidth={2} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-foreground">{c.label}</div>
+                        <div className="text-[10px] text-muted-foreground">{c.count}</div>
+                      </div>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )
       ) : (
         /* TAB 3: STATUS DO CANAL */
         <div className="flex-1 flex flex-col overflow-y-auto pr-1 scrollbar-thin space-y-4">

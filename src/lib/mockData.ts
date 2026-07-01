@@ -28,6 +28,7 @@ export type Conversation = {
   messages: Message[];
   lastMessageTime: string;
   unreadCount: number;
+  operatorId?: string | null;
 };
 
 export type QuickResponse = {
@@ -72,6 +73,7 @@ export const TECFAG_MOCK_CONVERSATIONS: Conversation[] = [
     queue: "meus",
     unreadCount: 0,
     lastMessageTime: "10:45",
+    operatorId: "op-1",
     messages: [
       {
         id: "t1-m1",
@@ -121,6 +123,7 @@ export const TECFAG_MOCK_CONVERSATIONS: Conversation[] = [
     queue: "meus",
     unreadCount: 0,
     lastMessageTime: "09:15",
+    operatorId: "op-1",
     messages: [
       {
         id: "t2-m1",
@@ -248,6 +251,7 @@ export const VALEM_MOCK_CONVERSATIONS: Conversation[] = [
     queue: "meus",
     unreadCount: 0,
     lastMessageTime: "10:52",
+    operatorId: "op-2",
     messages: [
       {
         id: "v1-m1",

@@ -77,6 +77,7 @@ export const Route = createFileRoute("/api/chats")({
               tags: row.contact.tags || [],
               channel: row.contact.mainChannel || "whatsapp",
               queue: row.conversation.queueState || "fila",
+              operatorId: row.conversation.operatorId || null,
               unreadCount: row.conversation.unreadCount || 0,
               lastMessageTime: new Date(row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
                 hour: "2-digit",

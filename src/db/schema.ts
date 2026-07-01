@@ -102,6 +102,15 @@ export const quickResponses = pgTable("quick_responses", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 8. ARQUIVOS E MÍDIAS PERSISTIDOS (Salvos em definitivo no banco) ───────
+export const mediaFiles = pgTable("media_files", {
+  id: text("id").primaryKey(), // o messageId da mídia
+  fileName: text("file_name"),
+  mimeType: text("mime_type").notNull(),
+  base64Data: text("base64_data").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -110,3 +119,4 @@ export type Contact = typeof contacts.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type QuickResponse = typeof quickResponses.$inferSelect;
+export type MediaFile = typeof mediaFiles.$inferSelect;

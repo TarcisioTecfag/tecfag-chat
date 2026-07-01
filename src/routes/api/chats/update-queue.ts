@@ -25,7 +25,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
 
         try {
           const body = await request.json();
-          const { conversationId, queueState, systemMessageText } = body;
+          const { conversationId, queueState, systemMessageText, operatorId } = body;
 
           if (!conversationId || !queueState) {
             return new Response(JSON.stringify({ error: "conversationId e queueState são obrigatórios" }), {
@@ -46,11 +46,12 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             });
           }
 
-          // 2. Atualizar o queueState no banco
+          // 2. Atualizar o queueState e operatorId no banco
           await db
             .update(conversations)
             .set({
               queueState,
+              operatorId: operatorId !== undefined ? operatorId : conv.operatorId,
               lastMessageText: systemMessageText || conv.lastMessageText,
               lastMessageTime: new Date(),
             })

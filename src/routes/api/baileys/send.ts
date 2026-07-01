@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SessionManager } from "../../../lib/baileys/session-manager";
+import { SessionManager, resolveRealJid } from "../../../lib/baileys/session-manager";
 import { db } from "../../../db";
-import { messages, conversations } from "../../../db/schema";
+import { messages, conversations, contacts } from "../../../db/schema";
 import { eq } from "drizzle-orm";
 
 export const Route = createFileRoute("/api/baileys/send")({
@@ -61,36 +61,44 @@ export const Route = createFileRoute("/api/baileys/send")({
           }
 
           // Determinar o JID de destino: prioriza o whatsappJid salvo no contato
-          // (evita reconstrução frágil a partir do telefone)
           let jid: string;
+          let contactId: string | undefined;
+
           if (conversationId) {
             try {
               const conv = await db.query.conversations.findFirst({
                 where: (t, { eq: dEq }) => dEq(t.id, conversationId),
               });
-              if (conv?.contactId) {
-                const contact = await db.query.contacts.findFirst({
-                  where: (t, { eq: dEq }) => dEq(t.id, conv.contactId),
-                });
-                if (contact?.whatsappJid) {
-                  jid = contact.whatsappJid;
-                  console.log(`[Baileys Send] Usando JID salvo do contato: ${jid}`);
-                } else {
-                  const cleanPhone = phone.replace(/\D/g, "");
-                  jid = `${cleanPhone}@s.whatsapp.net`;
-                  console.log(`[Baileys Send] JID não salvo no contato, usando phone: ${jid}`);
-                }
-              } else {
-                const cleanPhone = phone.replace(/\D/g, "");
-                jid = `${cleanPhone}@s.whatsapp.net`;
-              }
-            } catch {
-              const cleanPhone = phone.replace(/\D/g, "");
-              jid = `${cleanPhone}@s.whatsapp.net`;
-            }
+              contactId = conv?.contactId;
+            } catch {}
+          }
+
+          let contact: any;
+          if (contactId) {
+            contact = await db.query.contacts.findFirst({
+              where: (t, { eq: dEq }) => dEq(t.id, contactId!),
+            });
+          }
+
+          if (contact?.whatsappJid) {
+            jid = contact.whatsappJid;
+            console.log(`[Baileys Send] Usando JID salvo do contato: ${jid}`);
           } else {
+            // Resolve o JID real via onWhatsApp e salva no banco de dados para envios futuros
             const cleanPhone = phone.replace(/\D/g, "");
-            jid = `${cleanPhone}@s.whatsapp.net`;
+            jid = await resolveRealJid(sock, cleanPhone);
+            console.log(`[Baileys Send] JID resolvido via WhatsApp: ${jid}`);
+            
+            if (contactId && jid) {
+              try {
+                await db.update(contacts)
+                  .set({ whatsappJid: jid })
+                  .where(eq(contacts.id, contactId));
+                console.log(`[Baileys Send] JID ${jid} salvo no contato ${contactId}`);
+              } catch (err: any) {
+                console.error(`[Baileys Send] Erro ao salvar JID no contato:`, err.message);
+              }
+            }
           }
 
           // Enviar mensagem pelo Baileys

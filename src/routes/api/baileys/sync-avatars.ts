@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SessionManager } from "../../../lib/baileys/session-manager";
+import { SessionManager, resolveRealJid } from "../../../lib/baileys/session-manager";
 import { db } from "../../../db";
 import { contacts } from "../../../db/schema";
 import { eq, isNull, and } from "drizzle-orm";
@@ -52,23 +52,38 @@ export const Route = createFileRoute("/api/baileys/sync-avatars")({
           let failed = 0;
 
           for (const contact of contactsWithoutAvatar) {
-            const jid = contact.whatsappJid;
-            if (!jid && !contact.phone) { failed++; continue; }
-
-            const cleanPhone = (contact.phone || "").replace(/\D/g, "");
-            const jidsToTry: string[] = [];
-            if (jid) jidsToTry.push(jid);
-            if (cleanPhone) {
-              jidsToTry.push(`${cleanPhone}@s.whatsapp.net`);
-              if (!cleanPhone.startsWith("55") && cleanPhone.length <= 11)
-                jidsToTry.push(`55${cleanPhone}@s.whatsapp.net`);
-              if (cleanPhone.startsWith("55"))
-                jidsToTry.push(`${cleanPhone.slice(2)}@s.whatsapp.net`);
-            }
-
-            if (jidsToTry.length === 0) { failed++; continue; }
-
             try {
+              const jid = contact.whatsappJid;
+              if (!jid && !contact.phone) { failed++; continue; }
+
+              // Resolve o JID real usando onWhatsApp se não tivermos um JID confiável salvo
+              let resolvedJid = jid;
+              if (!resolvedJid && contact.phone) {
+                resolvedJid = await resolveRealJid(sock, contact.phone);
+                // Se conseguimos resolver o JID, vamos salvar no contato
+                if (resolvedJid) {
+                  await db
+                    .update(contacts)
+                    .set({ whatsappJid: resolvedJid })
+                    .where(eq(contacts.id, contact.id));
+                }
+              }
+
+              if (!resolvedJid) { failed++; continue; }
+
+              // Montamos a lista de JIDs a tentar
+              const cleanPhone = (contact.phone || "").replace(/\D/g, "");
+              const jidsToTry: string[] = [resolvedJid];
+              if (cleanPhone.startsWith("55")) {
+                const ddd = cleanPhone.slice(2, 4);
+                const rest = cleanPhone.slice(4);
+                if (rest.length === 9 && rest.startsWith("9")) {
+                  jidsToTry.push(`55${ddd}${rest.slice(1)}@s.whatsapp.net`);
+                } else if (rest.length === 8) {
+                  jidsToTry.push(`55${ddd}9${rest}@s.whatsapp.net`);
+                }
+              }
+
               let picUrl: string | undefined;
               for (const tryJid of jidsToTry) {
                 try {
@@ -103,7 +118,7 @@ export const Route = createFileRoute("/api/baileys/sync-avatars")({
               // Pequena pausa entre requisições para não disparar rate-limit do WhatsApp
               await new Promise((r) => setTimeout(r, 200));
             } catch (err: any) {
-              console.log(`[sync-avatars] Falha ao buscar foto de ${jid}:`, err.message);
+              console.log(`[sync-avatars] Falha ao processar contato ${contact.phone || contact.id}:`, err.message);
               failed++;
             }
           }

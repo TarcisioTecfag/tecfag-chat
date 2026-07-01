@@ -27,6 +27,7 @@ export function GroupsView() {
   const {
     operators,
     accessGroups,
+    sectors,
     currentOperatorId,
     currentGroup,
     impersonateOperator,
@@ -36,11 +37,14 @@ export function GroupsView() {
     resetOperatorPassword,
     createAccessGroup,
     updateAccessGroup,
-    deleteAccessGroup
+    deleteAccessGroup,
+    createSector,
+    updateSector,
+    deleteSector
   } = useChat();
 
   // Active sub-views / tabs
-  const [activeTab, setActiveTab] = useState<"users" | "groups">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors">("users");
 
   // Operator Form States
   const [showOpForm, setShowOpForm] = useState(false);
@@ -50,6 +54,20 @@ export function GroupsView() {
     password: "",
     groupId: accessGroups[0]?.id || ""
   });
+
+  // Sector Form States
+  const [showSectorForm, setShowSectorForm] = useState(false);
+  const [sectorFormName, setSectorFormName] = useState("");
+  const [selectedSectorId, setSelectedSectorId] = useState<string>("");
+
+  // Initialize selectedSectorId on load or default
+  React.useEffect(() => {
+    if (sectors.length > 0 && !selectedSectorId) {
+      setSelectedSectorId(sectors[0].id);
+    }
+  }, [sectors, selectedSectorId]);
+
+  const selectedSectorObj = sectors.find(s => s.id === selectedSectorId) || sectors[0];
 
   // Group Form States
   const [showGroupForm, setShowGroupForm] = useState(false);
@@ -136,6 +154,17 @@ export function GroupsView() {
     toast.success("Senha redefinida com sucesso!");
   };
 
+  const handleCreateSector = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sectorFormName) {
+      toast.error("Por favor, preencha o nome do setor.");
+      return;
+    }
+    createSector(sectorFormName);
+    setSectorFormName("");
+    setShowSectorForm(false);
+  };
+
   const toggleTenantSelection = (tenant: "tecfag" | "valem") => {
     setGroupForm(prev => {
       const alreadySelected = prev.allowedTenants.includes(tenant);
@@ -170,7 +199,7 @@ export function GroupsView() {
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-6 shadow-soft overflow-y-auto select-none">
       
       {/* 1. Header & Perms Simulation Banner */}
-      <header className="mb-6">
+      <header className="mb-6 shrink-0">
         <span className="text-xs font-bold uppercase tracking-wider text-primary">
           Segurança & Acessos
         </span>
@@ -183,7 +212,7 @@ export function GroupsView() {
       </header>
 
       {/* Simulator Section */}
-      <div className="mb-6 rounded-2xl bg-primary p-5 text-white shadow-soft relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="mb-6 rounded-2xl bg-primary p-5 text-white shadow-soft relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div className="absolute right-0 top-0 h-32 w-32 translate-x-8 -translate-y-8 rounded-full bg-white/10 blur-xl" />
         <div className="relative flex items-center gap-3">
           <div className="grid h-12 w-12 place-items-center rounded-xl bg-white/20 text-white">
@@ -223,7 +252,7 @@ export function GroupsView() {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-line mb-6 gap-6">
+      <div className="flex border-b border-line mb-6 gap-6 shrink-0">
         <button
           onClick={() => setActiveTab("users")}
           className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
@@ -247,6 +276,19 @@ export function GroupsView() {
             <FolderLock className="h-4 w-4" /> Grupos de Acesso
           </span>
           {activeTab === "groups" && (
+            <span className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary" />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab("sectors")}
+          className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
+            activeTab === "sectors" ? "text-primary font-black" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <Building2 className="h-4 w-4" /> Setores
+          </span>
+          {activeTab === "sectors" && (
             <span className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary" />
           )}
         </button>
@@ -474,7 +516,7 @@ export function GroupsView() {
             })}
           </div>
         </div>
-      ) : (
+      ) : activeTab === "groups" ? (
         /* ACCESS GROUPS TAB */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
@@ -846,6 +888,174 @@ export function GroupsView() {
               </div>
 
             </div>
+          </div>
+        </div>
+      ) : (
+        /* SECTORS TAB */
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* Left Column: Sectors List */}
+          <div className="lg:col-span-1 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-extrabold text-foreground">Setores Ativos</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Clique em um setor para gerenciar membros.</p>
+              </div>
+              <button
+                onClick={() => setShowSectorForm(!showSectorForm)}
+                className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer transition-transform duration-100 active:scale-95 animate-in fade-in"
+                title="Novo Setor"
+              >
+                {showSectorForm ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              </button>
+            </div>
+
+            {/* Create Sector Form */}
+            {showSectorForm && (
+              <form onSubmit={handleCreateSector} className="p-4 rounded-2xl bg-card border border-border shadow-soft space-y-4 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">Nome do Setor</label>
+                  <input
+                    type="text"
+                    required
+                    value={sectorFormName}
+                    onChange={(e) => setSectorFormName(e.target.value)}
+                    placeholder="Ex: Suporte Nível 2"
+                    className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
+                </div>
+                <div className="pt-2 border-t border-line flex justify-end gap-2">
+                  <button
+                    type="submit"
+                    className="h-8 rounded-lg bg-primary px-4 text-[10px] font-bold text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer"
+                  >
+                    Confirmar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSectorForm(false)}
+                    className="h-8 rounded-lg border border-border bg-card px-3 text-[10px] font-bold text-muted-foreground hover:bg-muted cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* List Sectors Items */}
+            <div className="space-y-2">
+              {sectors.map((s) => {
+                const isSelected = s.id === selectedSectorId;
+                
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setSelectedSectorId(s.id)}
+                    className={`w-full flex items-center justify-between rounded-xl p-3 text-left border transition-all cursor-pointer ${
+                      isSelected
+                        ? "bg-primary-soft/40 border-primary text-foreground font-bold"
+                        : "bg-card border-border hover:border-muted-foreground/20 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className={`grid h-8 w-8 place-items-center rounded-lg transition ${
+                        isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                      }`}>
+                        <Building2 className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-xs block text-foreground">{s.name}</span>
+                        <span className="text-[10px] text-muted-foreground">{s.operatorIds.length} operador(es)</span>
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSector(s.id);
+                        setSelectedSectorId(sectors.find(sec => sec.id !== s.id)?.id || "");
+                      }}
+                      className="h-7 w-7 grid place-items-center rounded hover:bg-red-50 text-red-500 transition cursor-pointer"
+                      title="Excluir Setor"
+                    >
+                      <Trash className="h-3.5 w-3.5" />
+                    </button>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right Column: Sector Members Details Panel */}
+          <div className="lg:col-span-2 rounded-2xl bg-card border border-border shadow-soft p-6 space-y-6">
+            {selectedSectorObj ? (
+              <>
+                <header className="border-b border-line pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-5 w-5 text-primary shrink-0" />
+                      <input
+                        type="text"
+                        value={selectedSectorObj.name}
+                        onChange={(e) => updateSector(selectedSectorObj.id, { name: e.target.value })}
+                        className="text-sm font-extrabold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-none px-1 py-0.5 transition w-full max-w-sm"
+                        title="Clique para editar o nome do setor"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Gerencie os atendentes associados a este setor de operação.</p>
+                  </div>
+                </header>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="h-4 w-4 text-primary" />
+                    <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Membros do Setor</h5>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Selecione quais operadores realizam atendimentos neste setor. Eles aparecerão no fluxo de transferência.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {operators.map((op) => {
+                      const isMember = selectedSectorObj.operatorIds.includes(op.id);
+                      const group = accessGroups.find(g => g.id === op.groupId);
+                      
+                      return (
+                        <label
+                          key={op.id}
+                          className={`flex items-center gap-3 rounded-xl border p-3 hover:bg-muted/30 transition cursor-pointer ${
+                            isMember ? "border-primary bg-primary-soft/5" : "border-border bg-card"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isMember}
+                            onChange={() => {
+                              const newOperatorIds = isMember
+                                ? selectedSectorObj.operatorIds.filter(id => id !== op.id)
+                                : [...selectedSectorObj.operatorIds, op.id];
+                              updateSector(selectedSectorObj.id, { operatorIds: newOperatorIds });
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
+                          />
+                          <img src={op.avatar} alt={op.name} className="h-8 w-8 rounded-full object-cover shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold block text-foreground truncate">{op.name}</span>
+                            <span className="text-[10px] text-muted-foreground block truncate">{group?.name || "Sem Grupo"}</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
+                <Building2 className="h-12 w-12 text-muted-foreground/30 mb-2" />
+                <p className="text-sm font-semibold">Nenhum setor selecionado</p>
+                <p className="text-xs">Crie ou selecione um setor no painel ao lado.</p>
+              </div>
+            )}
           </div>
         </div>
       )}

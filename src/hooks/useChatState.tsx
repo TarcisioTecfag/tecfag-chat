@@ -48,6 +48,12 @@ export type Operator = {
   groupId: string;
 };
 
+export type Sector = {
+  id: string;
+  name: string;
+  operatorIds: string[];
+};
+
 type ChatContextType = {
   tenant: "tecfag" | "valem";
   setTenant: (tenant: "tecfag" | "valem") => void;
@@ -75,6 +81,7 @@ type ChatContextType = {
   // RBAC State & Operations
   operators: Operator[];
   accessGroups: AccessGroup[];
+  sectors: Sector[];
   currentOperatorId: string;
   currentGroup: AccessGroup;
   impersonateOperator: (id: string) => void;
@@ -85,11 +92,14 @@ type ChatContextType = {
   createAccessGroup: (group: Omit<AccessGroup, "id">) => void;
   updateAccessGroup: (id: string, fields: Partial<AccessGroup>) => void;
   deleteAccessGroup: (id: string) => void;
+  createSector: (name: string) => void;
+  updateSector: (id: string, fields: Partial<Sector>) => void;
+  deleteSector: (id: string) => void;
   
   // Actions
   sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[]) => void;
   captureChat: (id: string) => void;
-  transferChat: (id: string, department: string) => void;
+  transferChat: (id: string, sectorName: string, targetOperatorId?: string | null) => void;
   finishChat: (id: string) => void;
   updateTags: (id: string, tags: string[]) => void;
   updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => void;
@@ -124,6 +134,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
   const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups">("chat");
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+
+  const [sectors, setSectors] = useState<Sector[]>([
+    { id: "sec-1", name: "Comercial Valem", operatorIds: ["op-2"] },
+    { id: "sec-2", name: "Comercial Tecfag", operatorIds: ["op-3"] },
+    { id: "sec-3", name: "Faturamento", operatorIds: ["op-1"] },
+    { id: "sec-4", name: "Suporte Técnico", operatorIds: ["op-1", "op-2"] },
+    { id: "sec-5", name: "Financeiro", operatorIds: ["op-1"] },
+  ]);
 
   // RBAC Setup
   const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([
@@ -239,6 +257,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {}
       }
 
+      const savedSectors = localStorage.getItem("rbac_sectors");
+      if (savedSectors) {
+        try {
+          setSectors(JSON.parse(savedSectors));
+        } catch (e) {}
+      }
+
       // 1. Carregar IMEDIATAMENTE do cache local (localStorage) para evitar piscadas (flash) de dados antigos
       const savedOperators = localStorage.getItem("rbac_operators");
       if (savedOperators) {
@@ -287,6 +312,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
   }, [accessGroups, isClient]);
+
+  useEffect(() => {
+    if (isClient && typeof window !== "undefined") {
+      try {
+        localStorage.setItem("rbac_sectors", JSON.stringify(sectors));
+      } catch (e) {
+        console.error("Erro ao persistir rbac_sectors no localStorage:", e);
+      }
+    }
+  }, [sectors, isClient]);
 
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
@@ -472,6 +507,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setOperators((prev) =>
       prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op))
     );
+  };
+
+  // CRUD Sectors
+  const createSector = (name: string) => {
+    const newSector: Sector = {
+      id: `sec-${Date.now()}`,
+      name,
+      operatorIds: [],
+    };
+    setSectors((prev) => [...prev, newSector]);
+    toast.success("Setor criado com sucesso!");
+  };
+
+  const updateSector = (id: string, fields: Partial<Sector>) => {
+    setSectors((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...fields } : s))
+    );
+  };
+
+  const deleteSector = (id: string) => {
+    setSectors((prev) => prev.filter((s) => s.id !== id));
+    toast.success("Setor excluído com sucesso!");
   };
 
   // Keep state for both tenants separately
@@ -776,8 +833,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const transferChat = async (id: string, department: string) => {
-    const textLog = `Conversa transferida para o departamento: ${department}. Voltando para a Fila de Espera.`;
+  const transferChat = async (id: string, sectorName: string, targetOperatorId?: string | null) => {
+    const targetOp = targetOperatorId ? operators.find(o => o.id === targetOperatorId) : null;
+    const targetQueueState = targetOp ? "meus" : "fila";
+    const opName = targetOp ? targetOp.name : "Qualquer atendente";
+    const textLog = `Conversa transferida para o setor: ${sectorName} (${opName}).`;
+    
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
@@ -791,14 +852,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
           return {
             ...c,
-            queue: "fila",
+            queue: targetQueueState,
+            operatorId: targetOperatorId || null,
             messages: [...c.messages, systemMsg],
           };
         }
         return c;
       })
     );
-    setActiveQueue("fila");
+    setActiveQueue(targetQueueState);
     setSelectedChatId(id);
 
     try {
@@ -807,7 +869,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: id,
-          queueState: "fila",
+          queueState: targetQueueState,
+          operatorId: targetOperatorId || null,
           systemMessageText: textLog,
         }),
       });
@@ -1205,6 +1268,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         operators,
         accessGroups,
+        sectors,
         currentOperatorId,
         currentGroup,
         impersonateOperator,
@@ -1215,6 +1279,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createAccessGroup,
         updateAccessGroup,
         deleteAccessGroup,
+        createSector,
+        updateSector,
+        deleteSector,
         
         sendMessage,
         captureChat,

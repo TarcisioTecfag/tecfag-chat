@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import fs from "fs";
 import path from "path";
+import { db } from "../../../db";
+import { mediaFiles } from "../../../db/schema";
+import { eq } from "drizzle-orm";
 
 export const Route = createFileRoute("/api/baileys/media")({
   server: {
@@ -36,38 +39,66 @@ export const Route = createFileRoute("/api/baileys/media")({
         const filePath = path.join(mediaDir, messageId);
         const mimePath = path.join(mediaDir, `${messageId}.mime`);
 
-        // Verificar se a mídia existe no disco
-        if (!fs.existsSync(filePath)) {
-          return new Response(JSON.stringify({ error: "Mídia não encontrada ou expirada" }), {
-            status: 404,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
+        let buffer: Buffer;
+        let contentType = "application/octet-stream";
 
-        try {
-          // Ler os bytes da mídia
-          const buffer = fs.readFileSync(filePath);
-
-          // Obter mimetype salvo
-          let contentType = "application/octet-stream";
-          if (fs.existsSync(mimePath)) {
-            contentType = fs.readFileSync(mimePath, "utf-8").trim();
+        if (fs.existsSync(filePath)) {
+          try {
+            buffer = fs.readFileSync(filePath);
+            if (fs.existsSync(mimePath)) {
+              contentType = fs.readFileSync(mimePath, "utf-8").trim();
+            }
+          } catch (e: any) {
+            console.error(`Erro ao ler do disco:`, e);
+            return new Response(JSON.stringify({ error: "Erro ao ler arquivo local" }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
           }
+        } else {
+          // Fallback para o banco de dados
+          try {
+            const mediaRecord = await db.query.mediaFiles.findFirst({
+              where: eq(mediaFiles.id, messageId),
+            });
 
-          return new Response(buffer, {
-            headers: {
-              ...corsHeaders,
-              "Content-Type": contentType,
-              "Cache-Control": "public, max-age=31536000",
-            },
-          });
-        } catch (e: any) {
-          console.error(`Erro ao ler arquivo de mídia ${messageId}:`, e);
-          return new Response(JSON.stringify({ error: e.message }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+            if (!mediaRecord) {
+              return new Response(JSON.stringify({ error: "Mídia não encontrada" }), {
+                status: 404,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+
+            buffer = Buffer.from(mediaRecord.base64Data, "base64");
+            contentType = mediaRecord.mimeType;
+
+            // Recriar o arquivo em disco localmente para servir como cache
+            try {
+              if (!fs.existsSync(mediaDir)) {
+                fs.mkdirSync(mediaDir, { recursive: true });
+              }
+              fs.writeFileSync(filePath, buffer);
+              fs.writeFileSync(mimePath, contentType);
+              console.log(`Mídia ${messageId} recuperada do banco e recriada em cache no disco.`);
+            } catch (cacheErr) {
+              console.error(`Erro ao gravar cache da mídia ${messageId}:`, cacheErr);
+            }
+          } catch (dbErr: any) {
+            console.error(`Erro ao consultar mídia no banco ${messageId}:`, dbErr);
+            return new Response(JSON.stringify({ error: "Erro ao consultar o banco de dados" }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
         }
+
+        return new Response(new Uint8Array(buffer), {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": contentType,
+            "Cache-Control": "public, max-age=31536000",
+          },
+        });
       },
     },
   },

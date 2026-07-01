@@ -11,7 +11,7 @@ import fs from "fs";
 import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
 import { db } from "../../db";
-import { channelConfigs, contacts, conversations, messages } from "../../db/schema";
+import { channelConfigs, contacts, conversations, messages, mediaFiles } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connected";
@@ -335,6 +335,7 @@ export class SessionManager {
 
             // Identificar mimetype e formatar tag de mídia
             let mime = "application/octet-stream";
+            let fileName: string | undefined = undefined;
             if (rawMsg.message.imageMessage) {
               mime = rawMsg.message.imageMessage.mimetype || "image/jpeg";
               text = `[MEDIA:image]${messageId}`;
@@ -346,8 +347,8 @@ export class SessionManager {
               text = `[MEDIA:audio]${messageId}`;
             } else if (rawMsg.message.documentMessage) {
               mime = rawMsg.message.documentMessage.mimetype || "application/octet-stream";
-              const docTitle = rawMsg.message.documentMessage.fileName || rawMsg.message.documentMessage.title || "documento";
-              text = `[MEDIA:document]${messageId}:${docTitle}`;
+              fileName = rawMsg.message.documentMessage.fileName || rawMsg.message.documentMessage.title || "documento";
+              text = `[MEDIA:document]${messageId}:${fileName}`;
             } else if (rawMsg.message.stickerMessage) {
               mime = rawMsg.message.stickerMessage.mimetype || "image/webp";
               text = `[MEDIA:sticker]${messageId}`;
@@ -362,9 +363,24 @@ export class SessionManager {
               }
             }
 
-            // Salvar arquivo de mimetype
+            // Salvar arquivo de mimetype no cache local
             fs.writeFileSync(path.join(mediaDir, `${messageId}.mime`), mime);
-            console.log(`Mídia ${messageId} salva com sucesso! Mime: ${mime}`);
+
+            // Persistir a mídia permanentemente no banco de dados (Base64)
+            try {
+              const base64Data = buffer.toString("base64");
+              await db.insert(mediaFiles).values({
+                id: messageId,
+                fileName: fileName || null,
+                mimeType: mime,
+                base64Data,
+                createdAt: new Date(),
+              }).onConflictDoNothing();
+              console.log(`Mídia ${messageId} persistida no banco com sucesso!`);
+            } catch (dbErr) {
+              console.error(`Erro ao salvar mídia no banco ${messageId}:`, dbErr);
+            }
+            console.log(`Mídia ${messageId} salva com sucesso no disco! Mime: ${mime}`);
           }
         }
       } catch (err) {
@@ -422,9 +438,17 @@ export class SessionManager {
           if (!cleanPhone.startsWith("55") && cleanPhone.length <= 11) {
             jidsToTry.push(`55${cleanPhone}@s.whatsapp.net`);
           }
-          // Se começa com 55, tenta sem o DDI também
+          // Se começa com 55 (Brasil), tenta a variação com ou sem o 9º dígito
           if (cleanPhone.startsWith("55")) {
-            jidsToTry.push(`${cleanPhone.slice(2)}@s.whatsapp.net`);
+            const ddd = cleanPhone.slice(2, 4);
+            const rest = cleanPhone.slice(4);
+            if (rest.length === 9 && rest.startsWith("9")) {
+              // 9-digit -> tenta também o de 8 dígitos
+              jidsToTry.push(`55${ddd}${rest.slice(1)}@s.whatsapp.net`);
+            } else if (rest.length === 8) {
+              // 8-digit -> tenta também o de 9 dígitos
+              jidsToTry.push(`55${ddd}9${rest}@s.whatsapp.net`);
+            }
           }
 
           const tryGetPic = async (): Promise<string | undefined> => {
@@ -545,4 +569,82 @@ export class SessionManager {
       console.error(`Erro ao salvar mensagem recebida do Baileys no DB:`, e);
     }
   }
+}
+
+/**
+ * Resolve o JID real registrado no WhatsApp para um dado telefone.
+ * Lida com o problema de 8 vs 9 dígitos no Brasil usando o método sock.onWhatsApp.
+ */
+export async function resolveRealJid(sock: any, phone: string, fallbackJid?: string): Promise<string> {
+  const cleanPhone = phone.replace(/\D/g, "");
+  if (!cleanPhone) return fallbackJid || `${phone}@s.whatsapp.net`;
+
+  const numbersToTry: string[] = [];
+
+  // Se já tiver um fallbackJid, tenta extrair o número
+  if (fallbackJid) {
+    const fallbackNum = fallbackJid.split("@")[0];
+    if (fallbackNum) numbersToTry.push(fallbackNum);
+  }
+
+  // Adiciona o telefone limpo
+  numbersToTry.push(cleanPhone);
+
+  // Tratamento específico para números do Brasil (DDI 55)
+  if (cleanPhone.startsWith("55")) {
+    const ddd = cleanPhone.slice(2, 4);
+    const rest = cleanPhone.slice(4);
+
+    if (rest.length === 9 && rest.startsWith("9")) {
+      // É formato de 9 dígitos. Tenta também o de 8 dígitos.
+      const eightDigit = `55${ddd}${rest.slice(1)}`;
+      numbersToTry.push(eightDigit);
+    } else if (rest.length === 8) {
+      // É formato de 8 dígitos. Tenta também o de 9 dígitos.
+      const nineDigit = `55${ddd}9${rest}`;
+      numbersToTry.push(nineDigit);
+    }
+  } else {
+    // Se não tem DDI 55, mas parece brasileiro (10 ou 11 dígitos)
+    if (cleanPhone.length === 11 && cleanPhone.startsWith("9")) {
+      const withDdi = `55${cleanPhone}`;
+      numbersToTry.push(withDdi);
+      const ddd = cleanPhone.slice(0, 2);
+      const rest = cleanPhone.slice(2);
+      const eightDigit = `55${ddd}${rest.slice(1)}`;
+      numbersToTry.push(eightDigit);
+    } else if (cleanPhone.length === 10) {
+      const withDdi = `55${cleanPhone}`;
+      numbersToTry.push(withDdi);
+      const ddd = cleanPhone.slice(0, 2);
+      const rest = cleanPhone.slice(2);
+      const nineDigit = `55${ddd}9${rest}`;
+      numbersToTry.push(nineDigit);
+    } else if (cleanPhone.length === 11) {
+      numbersToTry.push(`55${cleanPhone}`);
+    }
+  }
+
+  // Remove duplicados mantendo a ordem
+  const uniqueNumbers = Array.from(new Set(numbersToTry));
+
+  // Tenta consultar no WhatsApp qual número existe e obter seu JID correto
+  for (const num of uniqueNumbers) {
+    try {
+      const results = await sock.onWhatsApp(num);
+      if (results && results.length > 0) {
+        const res = results[0];
+        if (res && res.exists && res.jid) {
+          console.log(`[JID Resolver] JID real resolvido para ${phone}: ${res.jid}`);
+          return res.jid;
+        }
+      }
+    } catch (err: any) {
+      console.log(`[JID Resolver] Falha ao consultar onWhatsApp para ${num}:`, err.message);
+    }
+  }
+
+  // Se nada funcionou, retorna o fallback ou constrói o JID padrão
+  if (fallbackJid) return fallbackJid;
+  return cleanPhone.startsWith("55") ? `${cleanPhone}@s.whatsapp.net` : `55${cleanPhone}@s.whatsapp.net`;
 }
