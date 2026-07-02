@@ -272,8 +272,20 @@ export class SessionManager {
     const jid = rawMsg.key.remoteJid;
     if (!jid) return;
     
+    // Tenta obter o JID alternativo clássico com o número de telefone se o JID principal for do tipo @lid
+    let resolvedPhoneJid = jid;
+    if (jid.endsWith("@lid")) {
+      if (rawMsg.key?.remoteJidAlt && typeof rawMsg.key.remoteJidAlt === "string" && rawMsg.key.remoteJidAlt.endsWith("@s.whatsapp.net")) {
+        resolvedPhoneJid = rawMsg.key.remoteJidAlt;
+      } else if (rawMsg.pnJid && typeof rawMsg.pnJid === "string" && rawMsg.pnJid.endsWith("@s.whatsapp.net")) {
+        resolvedPhoneJid = rawMsg.pnJid;
+      } else if (rawMsg.senderPn && typeof rawMsg.senderPn === "string" && rawMsg.senderPn.endsWith("@s.whatsapp.net")) {
+        resolvedPhoneJid = rawMsg.senderPn;
+      }
+    }
+
     // Extrai o número de telefone limpo (removendo sufixos de grupo e multi-device)
-    let phone = jid.split("@")[0];
+    let phone = resolvedPhoneJid.split("@")[0];
     if (phone.includes("-")) {
       phone = phone.split("-")[0];
     }
