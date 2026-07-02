@@ -284,7 +284,7 @@ export function ChatPanel() {
 
   useEffect(() => {
     setReplyingTo(null);
-  }, [selectedChatId]);
+  }, [activeChat?.id]);
 
   const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
   const [showQuickMenu, setShowQuickMenu] = useState(false);
