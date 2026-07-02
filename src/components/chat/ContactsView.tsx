@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
+import { formatPhoneNumber } from "@/lib/utils";
 import {
   Search,
   Plus,
@@ -279,7 +280,7 @@ export function ContactsView() {
                     <td className="py-3.5 px-4 space-y-0.5">
                       <div className="flex items-center gap-1.5 text-muted-foreground">
                         <Phone className="h-3 w-3" />
-                        <span>{c.phone || "Não informado"}</span>
+                        <span>{formatPhoneNumber(c.phone)}</span>
                       </div>
                       {c.email && (
                         <div className="flex items-center gap-1.5 text-muted-foreground">

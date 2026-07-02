@@ -271,7 +271,16 @@ export class SessionManager {
   private async handleIncomingMessage(tenantId: string, rawMsg: any) {
     const jid = rawMsg.key.remoteJid;
     if (!jid) return;
-    const phone = jid.split("@")[0];
+    
+    // Extrai o número de telefone limpo (removendo sufixos de grupo e multi-device)
+    let phone = jid.split("@")[0];
+    if (phone.includes("-")) {
+      phone = phone.split("-")[0];
+    }
+    if (phone.includes(":")) {
+      phone = phone.split(":")[0];
+    }
+    
     const name = rawMsg.pushName || `Cliente (${phone})`;
     const messageId = rawMsg.key.id || `msg-${Date.now()}`;
 

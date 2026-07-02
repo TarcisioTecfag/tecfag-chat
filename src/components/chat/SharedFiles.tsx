@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
+import { formatPhoneNumber } from "@/lib/utils";
 import {
   User,
   Phone,
@@ -341,7 +342,7 @@ export function SharedFiles() {
               <div className="space-y-2.5">
                 <div className="flex items-center gap-2">
                   <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs text-foreground font-medium">{activeChat.phone || "Não informado"}</span>
+                  <span className="text-xs text-foreground font-medium">{formatPhoneNumber(activeChat.phone)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Mail className="h-3.5 w-3.5 text-muted-foreground" />
