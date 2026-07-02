@@ -41,6 +41,7 @@ export function SharedFiles() {
   const [activeTab, setActiveTab] = useState<"details" | "files" | "channel">("details");
   const [newTag, setNewTag] = useState("");
   const [isEditingInfo, setIsEditingInfo] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
   const [editForm, setEditForm] = React.useState({
     phone: "",
@@ -93,7 +94,6 @@ export function SharedFiles() {
   };
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Scan all messages of this client/chat to extract media files and links
   const mediaMessages = activeChat.messages.filter((m) => m.text.startsWith("[MEDIA:"));
