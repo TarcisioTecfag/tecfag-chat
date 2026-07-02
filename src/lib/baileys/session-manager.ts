@@ -342,20 +342,44 @@ export class SessionManager {
                              (qMsg.stickerMessage ? "💟 Figurinha" : null) ||
                              "Mensagem";
 
-      if (contextInfo.participant) {
-        const cleanParticipant = contextInfo.participant.split("@")[0].split(":")[0];
-        const cleanBot = sock?.user?.id.split("@")[0].split(":")[0];
-        if (cleanParticipant === cleanBot) {
+      // 1. Tentar buscar a mensagem no banco pelo ID para descobrir o autor real
+      let foundQuotedMsg = null;
+      if (quotedMessageId) {
+        try {
+          foundQuotedMsg = await db.query.messages.findFirst({
+            where: (t, { eq: dEq }) => dEq(t.id, quotedMessageId)
+          });
+        } catch (e) {
+          console.error("Erro ao buscar mensagem citada no DB:", e);
+        }
+      }
+
+      if (foundQuotedMsg) {
+        if (foundQuotedMsg.senderType === "agent") {
           quotedMessageSender = "Você";
         } else {
-          try {
-            const quotedContact = await db.query.contacts.findFirst({
-              where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.phone, cleanParticipant))
-            });
-            quotedMessageSender = quotedContact ? quotedContact.name : `+${cleanParticipant}`;
-          } catch {
-            quotedMessageSender = `+${cleanParticipant}`;
+          // É do cliente, usar o nome da conversa/contato salvo
+          quotedMessageSender = foundQuotedMsg.senderName || "Contato";
+        }
+      } else {
+        // Fallback: usar o participante do contextInfo
+        if (contextInfo.participant) {
+          const cleanParticipant = contextInfo.participant.split("@")[0].split(":")[0];
+          const cleanBot = sock?.user?.id ? sock.user.id.split("@")[0].split(":")[0] : null;
+          if (cleanBot && cleanParticipant === cleanBot) {
+            quotedMessageSender = "Você";
+          } else {
+            try {
+              const quotedContact = await db.query.contacts.findFirst({
+                where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.phone, cleanParticipant))
+              });
+              quotedMessageSender = quotedContact ? quotedContact.name : `+${cleanParticipant}`;
+            } catch {
+              quotedMessageSender = `+${cleanParticipant}`;
+            }
           }
+        } else {
+          quotedMessageSender = "Você"; // Se não especificado, geralmente é do bot
         }
       }
     }

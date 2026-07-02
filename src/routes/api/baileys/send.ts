@@ -103,6 +103,15 @@ export const Route = createFileRoute("/api/baileys/send")({
 
           // Enviar mensagem pelo Baileys (com suporte a citação/resposta)
           const options: any = {};
+          let cleanQuotedContent = quotedMessageContent || "";
+          if (cleanQuotedContent.startsWith("[MEDIA:") || cleanQuotedContent.startsWith("[LOCAL_MEDIA:")) {
+            if (cleanQuotedContent.includes("audio")) cleanQuotedContent = "🎵 Áudio";
+            else if (cleanQuotedContent.includes("image")) cleanQuotedContent = "📷 Foto";
+            else if (cleanQuotedContent.includes("video")) cleanQuotedContent = "🎥 Vídeo";
+            else if (cleanQuotedContent.includes("document")) cleanQuotedContent = "📄 Documento";
+            else if (cleanQuotedContent.includes("sticker")) cleanQuotedContent = "💟 Figurinha";
+          }
+
           if (quotedMessageId) {
             options.quoted = {
               key: {
@@ -114,7 +123,7 @@ export const Route = createFileRoute("/api/baileys/send")({
                   : jid,
               },
               message: {
-                conversation: quotedMessageContent || "",
+                conversation: cleanQuotedContent,
               },
             };
           }
@@ -135,7 +144,7 @@ export const Route = createFileRoute("/api/baileys/send")({
               isInternalNote: false,
               quotedMessageId: quotedMessageId || null,
               quotedMessageSender: quotedMessageSender || null,
-              quotedMessageContent: quotedMessageContent || null,
+              quotedMessageContent: cleanQuotedContent || null,
               sentAt: new Date(),
             });
 

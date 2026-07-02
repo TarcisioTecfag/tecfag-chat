@@ -264,6 +264,26 @@ function isEmojiOnly(text: string): boolean {
   return emojiRegex.test(stripped);
 }
 
+export function getFriendlyQuotedContent(content: string | null | undefined): string {
+  if (!content) return "";
+  if (content.startsWith("[MEDIA:audio]") || content.startsWith("[LOCAL_MEDIA:audio]")) {
+    return "🎵 Áudio";
+  }
+  if (content.startsWith("[MEDIA:image]") || content.startsWith("[LOCAL_MEDIA:image]")) {
+    return "📷 Foto";
+  }
+  if (content.startsWith("[MEDIA:video]") || content.startsWith("[LOCAL_MEDIA:video]")) {
+    return "🎥 Vídeo";
+  }
+  if (content.startsWith("[MEDIA:document]") || content.startsWith("[LOCAL_MEDIA:document]")) {
+    return "📄 Documento";
+  }
+  if (content.startsWith("[MEDIA:sticker]")) {
+    return "💟 Figurinha";
+  }
+  return content;
+}
+
 export function ChatPanel() {
   const {
     activeChat,
@@ -445,7 +465,7 @@ export function ChatPanel() {
 
   const handleSend = () => {
     const quoted = replyingTo
-      ? { id: replyingTo.id, sender: replyingTo.author, content: replyingTo.text }
+      ? { id: replyingTo.id, sender: replyingTo.author, content: getFriendlyQuotedContent(replyingTo.text) }
       : null;
 
     // Se houver áudio em preview, envia o áudio
@@ -806,7 +826,7 @@ export function ChatPanel() {
                         {m.quotedMessageContent && (
                           <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
                             <div className="font-bold mb-0.5">{m.quotedMessageSender || "Mensagem"}</div>
-                            <div className="truncate font-medium">{m.quotedMessageContent}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(m.quotedMessageContent)}</div>
                           </div>
                         )}
                         {renderMessageContent(m.text)}
@@ -841,7 +861,7 @@ export function ChatPanel() {
                         {m.quotedMessageContent && (
                           <div className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2 py-1 text-[10px] text-muted-foreground select-none max-w-full">
                             <div className="font-bold mb-0.5 text-primary">{m.quotedMessageSender || "Mensagem"}</div>
-                            <div className="truncate font-medium">{m.quotedMessageContent}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(m.quotedMessageContent)}</div>
                           </div>
                         )}
                         {renderMessageContent(m.text)}
@@ -987,7 +1007,7 @@ export function ChatPanel() {
                   Respondendo a {replyingTo.author}
                 </div>
                 <div className="truncate text-muted-foreground font-medium text-[11px]">
-                  {replyingTo.text}
+                  {getFriendlyQuotedContent(replyingTo.text)}
                 </div>
               </div>
               <button

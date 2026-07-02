@@ -134,6 +134,15 @@ export const Route = createFileRoute("/api/chats")({
 
           const messageId = `msg-${Date.now()}`;
 
+          let cleanQuotedContent = quotedMessageContent || "";
+          if (cleanQuotedContent.startsWith("[MEDIA:") || cleanQuotedContent.startsWith("[LOCAL_MEDIA:")) {
+            if (cleanQuotedContent.includes("audio")) cleanQuotedContent = "🎵 Áudio";
+            else if (cleanQuotedContent.includes("image")) cleanQuotedContent = "📷 Foto";
+            else if (cleanQuotedContent.includes("video")) cleanQuotedContent = "🎥 Vídeo";
+            else if (cleanQuotedContent.includes("document")) cleanQuotedContent = "📄 Documento";
+            else if (cleanQuotedContent.includes("sticker")) cleanQuotedContent = "💟 Figurinha";
+          }
+
           await db.insert(messages).values({
             id: messageId,
             tenantId,
@@ -144,7 +153,7 @@ export const Route = createFileRoute("/api/chats")({
             isInternalNote: !!isInternalNote,
             quotedMessageId: quotedMessageId || null,
             quotedMessageSender: quotedMessageSender || null,
-            quotedMessageContent: quotedMessageContent || null,
+            quotedMessageContent: cleanQuotedContent || null,
             sentAt: new Date(),
           });
 
