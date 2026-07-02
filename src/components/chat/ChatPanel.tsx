@@ -26,7 +26,7 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
-import { QUICK_RESPONSES } from "@/lib/mockData";
+
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -275,6 +275,7 @@ export function ChatPanel() {
     tenant,
     sectors,
     operators,
+    quickResponses,
   } = useChat();
 
   const [text, setText] = useState("");
@@ -831,9 +832,9 @@ export function ChatPanel() {
           <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-line">
             Respostas Rápidas
           </div>
-          {QUICK_RESPONSES.map((qr) => (
+          {quickResponses.map((qr) => (
             <button
-              key={qr.shortcut}
+              key={qr.id || qr.shortcut}
               onClick={() => selectQuickResponse(qr.text)}
               className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
             >

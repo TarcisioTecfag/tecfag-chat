@@ -96,6 +96,12 @@ type ChatContextType = {
   updateSector: (id: string, fields: Partial<Sector>) => void;
   deleteSector: (id: string) => void;
   
+  // Quick Responses State & Operations
+  quickResponses: QuickResponse[];
+  createQuickResponse: (qr: Omit<QuickResponse, "id">) => void;
+  updateQuickResponse: (id: string, fields: Partial<QuickResponse>) => void;
+  deleteQuickResponse: (id: string) => void;
+  
   // Actions
   sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[]) => void;
   captureChat: (id: string) => void;
@@ -115,7 +121,7 @@ type ChatContextType = {
   setBaileysConfig: React.Dispatch<React.SetStateAction<BaileysConfig>>;
   disconnectBaileys: () => void;
   connectBaileys: () => void;
-
+ 
   // Authentication
   isAuthenticated: boolean;
   login: (email: string, passwordHash: string) => Promise<boolean>;
@@ -135,53 +141,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups">("chat");
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
-  const [sectors, setSectors] = useState<Sector[]>([
-    { id: "sec-1", name: "Comercial Valem", operatorIds: ["op-2"] },
-    { id: "sec-2", name: "Comercial Tecfag", operatorIds: ["op-3"] },
-    { id: "sec-3", name: "Faturamento", operatorIds: ["op-1"] },
-    { id: "sec-4", name: "Suporte Técnico", operatorIds: ["op-1", "op-2"] },
-    { id: "sec-5", name: "Financeiro", operatorIds: ["op-1"] },
-  ]);
-
-  // RBAC Setup
-  const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([
-    {
-      id: "group-admin",
-      name: "Administradores",
-      allowedTenants: ["tecfag", "valem"],
-      allowedChannels: ["whatsapp", "instagram", "messenger"],
-      canCreateUser: true,
-      canResetPassword: true,
-      canEditProfile: true,
-    },
-    {
-      id: "group-valem-comercial",
-      name: "Valem Comercial",
-      allowedTenants: ["valem"],
-      allowedChannels: ["whatsapp", "instagram", "messenger"],
-      canCreateUser: true,
-      canResetPassword: true,
-      canEditProfile: true,
-    },
-    {
-      id: "group-tecfag-vendedor",
-      name: "Tecfag Vendedores",
-      allowedTenants: ["tecfag"],
-      allowedChannels: ["whatsapp", "instagram", "messenger"],
-      canCreateUser: false,
-      canResetPassword: false,
-      canEditProfile: true,
-    },
-    {
-      id: "group-whats-only",
-      name: "Vendedores WhatsApp Only",
-      allowedTenants: ["tecfag", "valem"],
-      allowedChannels: ["whatsapp"],
-      canCreateUser: false,
-      canResetPassword: false,
-      canEditProfile: true,
-    },
-  ]);
+  const [sectors, setSectors] = useState<Sector[]>([]);
+  const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([]);
+  const [quickResponses, setQuickResponses] = useState<QuickResponse[]>([]);;
 
   const [operators, setOperators] = useState<Operator[]>([
     {
@@ -250,21 +212,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveView(savedView as any);
       }
 
-      const savedGroups = localStorage.getItem("rbac_access_groups");
-      if (savedGroups) {
-        try {
-          setAccessGroups(JSON.parse(savedGroups));
-        } catch (e) {}
-      }
-
-      const savedSectors = localStorage.getItem("rbac_sectors");
-      if (savedSectors) {
-        try {
-          setSectors(JSON.parse(savedSectors));
-        } catch (e) {}
-      }
-
-      // 1. Carregar IMEDIATAMENTE do cache local (localStorage) para evitar piscadas (flash) de dados antigos
       const savedOperators = localStorage.getItem("rbac_operators");
       if (savedOperators) {
         try {
@@ -272,7 +219,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {}
       }
 
-      // 2. Sincronizar em segundo plano com o banco de dados do Railway
+      // Sincronizar operadores do banco
       fetch(`${BACKEND_URL}/api/operators`)
         .then((res) => res.json())
         .then((data) => {
@@ -292,6 +239,38 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  // Sincronizar grupos, setores e respostas rápidas do banco de dados quando o tenant mudar
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      fetch(`${BACKEND_URL}/api/groups?tenantId=${tenant}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setAccessGroups(data);
+          }
+        })
+        .catch((err) => console.error("Erro ao sincronizar grupos do banco:", err));
+
+      fetch(`${BACKEND_URL}/api/sectors?tenantId=${tenant}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setSectors(data);
+          }
+        })
+        .catch((err) => console.error("Erro ao sincronizar setores do banco:", err));
+
+      fetch(`${BACKEND_URL}/api/quick-responses?tenantId=${tenant}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setQuickResponses(data);
+          }
+        })
+        .catch((err) => console.error("Erro ao sincronizar respostas rápidas do banco:", err));
+    }
+  }, [tenant]);
+
   // Persistir alterações apenas após o cliente estar pronto (evita sobrescrever dados com o padrão de render)
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
@@ -302,26 +281,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
   }, [operators, isClient]);
-
-  useEffect(() => {
-    if (isClient && typeof window !== "undefined") {
-      try {
-        localStorage.setItem("rbac_access_groups", JSON.stringify(accessGroups));
-      } catch (e) {
-        console.error("Erro ao persistir rbac_access_groups no localStorage:", e);
-      }
-    }
-  }, [accessGroups, isClient]);
-
-  useEffect(() => {
-    if (isClient && typeof window !== "undefined") {
-      try {
-        localStorage.setItem("rbac_sectors", JSON.stringify(sectors));
-      } catch (e) {
-        console.error("Erro ao persistir rbac_sectors no localStorage:", e);
-      }
-    }
-  }, [sectors, isClient]);
 
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
@@ -343,8 +302,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [activeView, isClient]);
 
-  const currentOperator = operators.find((op) => op.id === currentOperatorId) || operators[0];
-  const currentGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || accessGroups[0];
+  const defaultAdminGroup: AccessGroup = {
+    id: "group-admin",
+    name: "Administradores",
+    allowedTenants: ["tecfag", "valem"],
+    allowedChannels: ["whatsapp", "instagram", "messenger"],
+    canCreateUser: true,
+    canResetPassword: true,
+    canEditProfile: true,
+  };
+
+  const defaultOperator: Operator = {
+    id: "op-1",
+    name: "Carregando...",
+    email: "",
+    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop",
+    status: "disponivel",
+    passwordHash: "123456",
+    groupId: "group-admin",
+  };
+
+  const currentOperator = operators.find((op) => op.id === currentOperatorId) || operators[0] || defaultOperator;
+  const currentGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || defaultAdminGroup;
 
   const operatorProfile: OperatorProfile = {
     name: currentOperator.name,
@@ -516,99 +495,183 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // CRUD Access Groups
-  const createAccessGroup = (groupData: Omit<AccessGroup, "id">) => {
+  const createAccessGroup = async (groupData: Omit<AccessGroup, "id">) => {
+    const id = `group-${Date.now()}`;
     const newGroup: AccessGroup = {
       ...groupData,
-      id: `group-${Date.now()}`,
+      id,
     };
-    setAccessGroups((prev) => {
-      const updated = [...prev, newGroup];
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_access_groups", JSON.stringify(updated));
-        } catch (e) {}
-      }
-      return updated;
-    });
-    toast.success("Grupo de acesso criado com sucesso!");
+    
+    // Update local state optimistically
+    setAccessGroups((prev) => [...prev, newGroup]);
+
+    try {
+      await fetch(`${BACKEND_URL}/api/groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newGroup, tenantId: tenant }),
+      });
+      toast.success("Grupo de acesso criado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao criar grupo de acesso no DB:", err);
+      toast.error("Erro ao salvar grupo de acesso.");
+    }
   };
 
-  const updateAccessGroup = (id: string, fields: Partial<AccessGroup>) => {
-    setAccessGroups((prev) => {
-      const updated = prev.map((g) => (g.id === id ? { ...g, ...fields } : g));
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_access_groups", JSON.stringify(updated));
-        } catch (e) {}
+  const updateAccessGroup = async (id: string, fields: Partial<AccessGroup>) => {
+    setAccessGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...fields } : g)));
+
+    const targetGroup = accessGroups.find((g) => g.id === id);
+    if (targetGroup) {
+      try {
+        await fetch(`${BACKEND_URL}/api/groups`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...targetGroup,
+            ...fields,
+            tenantId: tenant,
+          }),
+        });
+      } catch (err) {
+        console.error("Erro ao atualizar grupo de acesso no DB:", err);
       }
-      return updated;
-    });
+    }
   };
 
-  const deleteAccessGroup = (id: string) => {
+  const deleteAccessGroup = async (id: string) => {
     if (id === "group-admin") return;
-    setAccessGroups((prev) => {
-      const updated = prev.filter((g) => g.id !== id);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_access_groups", JSON.stringify(updated));
-        } catch (e) {}
-      }
-      return updated;
-    });
-    setOperators((prev) => {
-      const updated = prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op));
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_operators", JSON.stringify(updated));
-        } catch (e) {}
-      }
-      return updated;
-    });
+    
+    setAccessGroups((prev) => prev.filter((g) => g.id !== id));
+    setOperators((prev) => prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op)));
+
+    try {
+      await fetch(`${BACKEND_URL}/api/groups?id=${id}`, {
+        method: "DELETE",
+      });
+      toast.success("Grupo de acesso excluído com sucesso!");
+    } catch (err) {
+      console.error("Erro ao excluir grupo de acesso no DB:", err);
+      toast.error("Erro ao excluir grupo de acesso.");
+    }
   };
 
   // CRUD Sectors
-  const createSector = (name: string) => {
+  const createSector = async (name: string) => {
+    const id = `sec-${Date.now()}`;
     const newSector: Sector = {
-      id: `sec-${Date.now()}`,
+      id,
       name,
       operatorIds: [],
     };
-    setSectors((prev) => {
-      const updated = [...prev, newSector];
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_sectors", JSON.stringify(updated));
-        } catch (e) {}
-      }
-      return updated;
-    });
-    toast.success("Setor criado com sucesso!");
+
+    setSectors((prev) => [...prev, newSector]);
+
+    try {
+      await fetch(`${BACKEND_URL}/api/sectors`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newSector, tenantId: tenant }),
+      });
+      toast.success("Setor criado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao criar setor no DB:", err);
+      toast.error("Erro ao salvar setor.");
+    }
   };
 
-  const updateSector = (id: string, fields: Partial<Sector>) => {
-    setSectors((prev) => {
-      const updated = prev.map((s) => (s.id === id ? { ...s, ...fields } : s));
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_sectors", JSON.stringify(updated));
-        } catch (e) {}
+  const updateSector = async (id: string, fields: Partial<Sector>) => {
+    setSectors((prev) => prev.map((s) => (s.id === id ? { ...s, ...fields } : s)));
+
+    const targetSector = sectors.find((s) => s.id === id);
+    if (targetSector) {
+      try {
+        await fetch(`${BACKEND_URL}/api/sectors`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...targetSector,
+            ...fields,
+            tenantId: tenant,
+          }),
+        });
+      } catch (err) {
+        console.error("Erro ao atualizar setor no DB:", err);
       }
-      return updated;
-    });
+    }
   };
 
-  const deleteSector = (id: string) => {
-    setSectors((prev) => {
-      const updated = prev.filter((s) => s.id !== id);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_sectors", JSON.stringify(updated));
-        } catch (e) {}
+  const deleteSector = async (id: string) => {
+    setSectors((prev) => prev.filter((s) => s.id !== id));
+
+    try {
+      await fetch(`${BACKEND_URL}/api/sectors?id=${id}`, {
+        method: "DELETE",
+      });
+      toast.success("Setor excluído com sucesso!");
+    } catch (err) {
+      console.error("Erro ao excluir setor no DB:", err);
+      toast.error("Erro ao excluir setor.");
+    }
+  };
+
+  // CRUD Quick Responses
+  const createQuickResponse = async (qrData: Omit<QuickResponse, "id">) => {
+    const id = `qr-${Date.now()}`;
+    const newQr: QuickResponse = {
+      ...qrData,
+      id,
+      tenantId: tenant,
+    };
+
+    setQuickResponses((prev) => [...prev, newQr]);
+
+    try {
+      await fetch(`${BACKEND_URL}/api/quick-responses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newQr),
+      });
+      toast.success("Resposta rápida criada com sucesso!");
+    } catch (err) {
+      console.error("Erro ao criar resposta rápida no DB:", err);
+      toast.error("Erro ao salvar resposta rápida.");
+    }
+  };
+
+  const updateQuickResponse = async (id: string, fields: Partial<QuickResponse>) => {
+    setQuickResponses((prev) => prev.map((qr) => (qr.id === id ? { ...qr, ...fields } : qr)));
+
+    const targetQr = quickResponses.find((qr) => qr.id === id);
+    if (targetQr) {
+      try {
+        await fetch(`${BACKEND_URL}/api/quick-responses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...targetQr,
+            ...fields,
+            tenantId: tenant,
+          }),
+        });
+      } catch (err) {
+        console.error("Erro ao atualizar resposta rápida no DB:", err);
       }
-      return updated;
-    });
-    toast.success("Setor excluído com sucesso!");
+    }
+  };
+
+  const deleteQuickResponse = async (id: string) => {
+    setQuickResponses((prev) => prev.filter((qr) => qr.id !== id));
+
+    try {
+      await fetch(`${BACKEND_URL}/api/quick-responses?id=${id}`, {
+        method: "DELETE",
+      });
+      toast.success("Resposta rápida excluída com sucesso!");
+    } catch (err) {
+      console.error("Erro ao excluir resposta rápida no DB:", err);
+      toast.error("Erro ao excluir resposta rápida.");
+    }
   };
 
   // Keep state for both tenants separately
@@ -1058,7 +1121,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const createContact = (name: string, phone: string, email: string, cnpj: string, channel: Channel) => {
-    const newId = `${tenant}-contact-${Date.now()}`;
+    const conversationId = `conv-${Date.now()}`;
+    const contactId = `cont-${Date.now()}`;
     const initials = name
       .split(" ")
       .map((w) => w[0])
@@ -1069,7 +1133,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initialsBg = colors[Math.floor(Math.random() * colors.length)];
 
     const newConversation: Conversation = {
-      id: newId,
+      id: conversationId,
+      contactId,
       name,
       avatar: "",
       initials,
@@ -1096,8 +1161,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     setConversations((prev) => [newConversation, ...prev]);
-    setSelectedChatId(newId);
-    return newId;
+    setSelectedChatId(conversationId);
+
+    // Salvar no banco em segundo plano
+    fetch(`${BACKEND_URL}/api/contacts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantId: tenant,
+        name,
+        phone,
+        email,
+        cnpj,
+        channel,
+        operatorId: currentOperatorId,
+        queueState: "meus",
+        contactId,
+        conversationId,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          console.error("Erro ao salvar novo contato no banco");
+        }
+      })
+      .catch((err) => console.error("Erro ao salvar novo contato no banco:", err));
+
+    return conversationId;
   };
 
   const disconnectBaileys = async () => {
@@ -1349,9 +1439,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isProfileModalOpen,
         setIsProfileModalOpen,
 
-        operators,
-        accessGroups,
-        sectors,
+        operators: operators.filter((op) => op.tenantId === tenant),
+        accessGroups: accessGroups.filter((g) => g.tenantId === tenant),
+        sectors: sectors.filter((s) => s.tenantId === tenant),
         currentOperatorId,
         currentGroup,
         impersonateOperator,
@@ -1365,6 +1455,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createSector,
         updateSector,
         deleteSector,
+        
+        quickResponses: quickResponses.filter((qr) => qr.tenantId === tenant),
+        createQuickResponse,
+        updateQuickResponse,
+        deleteQuickResponse,
         
         sendMessage,
         captureChat,

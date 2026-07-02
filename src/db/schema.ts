@@ -29,6 +29,28 @@ export const channelConfigs = pgTable("channel_configs", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// ─── 2.5. GRUPOS DE ACESSO (RBAC) ───────────────────────────────────────────
+export const accessGroups = pgTable("access_groups", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  allowedTenants: jsonb("allowed_tenants").$type<string[]>().default([]).notNull(),
+  allowedChannels: jsonb("allowed_channels").$type<string[]>().default([]).notNull(),
+  canCreateUser: boolean("can_create_user").default(true).notNull(),
+  canResetPassword: boolean("can_reset_password").default(true).notNull(),
+  canEditProfile: boolean("can_edit_profile").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── 2.6. SETORES (Sectors) ─────────────────────────────────────────────────
+export const sectors = pgTable("sectors", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  operatorIds: jsonb("operator_ids").$type<string[]>().default([]).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── 3. OPERADORES / USUÁRIOS ──────────────────────────────────────────────
 export const operators = pgTable("operators", {
   id: text("id").primaryKey(),
@@ -39,7 +61,7 @@ export const operators = pgTable("operators", {
   role: text("role").default("agent").notNull(), // 'admin' | 'agent'
   avatar: text("avatar"), // Foto de perfil em Base64 compactada
   status: text("status").default("disponivel").notNull(), // 'disponivel' | 'ocupado' | 'ausente'
-  groupId: text("group_id"), // Referência para grupo de acesso/RBAC
+  groupId: text("group_id").references(() => accessGroups.id, { onDelete: "set null" }), // Referência para grupo de acesso/RBAC
   isOnline: boolean("is_online").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
