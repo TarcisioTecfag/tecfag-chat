@@ -12,12 +12,7 @@ import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Tec Chat / Valem Chat" },
-      { name: "description", content: "Plataforma de Comunicação Comercial Multi-tenant" },
-    ],
-  }),
+  ssr: false,
   component: Index,
 });
 
