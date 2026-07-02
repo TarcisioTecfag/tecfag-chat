@@ -225,6 +225,80 @@ export class SessionManager {
       }
     });
 
+    // Tratar eventos de contatos sincronizados ou atualizados (mapeia LIDs para telefones reais)
+    const handleContactsSync = async (contactsList: any[]) => {
+      console.log(`[Baileys Contacts] Sincronizando/Atualizando ${contactsList.length} contatos para o tenant ${tenantId}`);
+      for (const rawContact of contactsList) {
+        const jid = rawContact.id;
+        if (!jid) continue;
+
+        // Extrai o nome de exibição
+        const name = rawContact.name || rawContact.verifiedName || rawContact.notify || `Contato (${jid.split("@")[0]})`;
+        
+        // Verifica se há JID alternativo ou número de telefone explícito
+        let phoneJid = jid;
+        if (jid.endsWith("@lid")) {
+          if (rawContact.phoneNumber) {
+            phoneJid = `${rawContact.phoneNumber}@s.whatsapp.net`;
+          } else if (rawContact.pnJid) {
+            phoneJid = rawContact.pnJid;
+          } else if (rawContact.jidAlt) {
+            phoneJid = rawContact.jidAlt;
+          }
+        }
+
+        // Extrai o número limpo
+        let phone = phoneJid.split("@")[0];
+        if (phone.includes("-")) phone = phone.split("-")[0];
+        if (phone.includes(":")) phone = phone.split(":")[0];
+
+        try {
+          // Busca se o contato já existe no banco
+          let contact = await db.query.contacts.findFirst({
+            where: (contactsTable, { eq: dEq, and: dAnd }) =>
+              dAnd(
+                dEq(contactsTable.tenantId, tenantId),
+                dEq(contactsTable.whatsappJid, jid)
+              )
+          });
+
+          if (!contact) {
+            const contactId = `c-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+            await db.insert(contacts).values({
+              id: contactId,
+              tenantId,
+              name,
+              phone,
+              whatsappJid: jid,
+              mainChannel: "whatsapp",
+              avatar: rawContact.imgUrl || null,
+              tags: [],
+              createdAt: new Date(),
+            });
+          } else {
+            // Se já existe, atualiza as informações caso o telefone antes estivesse como LID e agora conseguimos resolver
+            const updates: any = {};
+            
+            // Atualiza telefone se o anterior era o LID e agora temos o telefone real
+            if (contact.phone !== phone && contact.phone.length >= 14 && phone.length < 14) {
+              updates.phone = phone;
+            }
+
+            if (Object.keys(updates).length > 0) {
+              await db.update(contacts)
+                .set(updates)
+                .where(eq(contacts.id, contact.id));
+            }
+          }
+        } catch (e: any) {
+          console.error(`[Baileys Contacts] Erro ao sincronizar contato ${jid}:`, e.message);
+        }
+      }
+    };
+
+    sock.ev.on("contacts.upsert", handleContactsSync);
+    sock.ev.on("contacts.update", handleContactsSync);
+
     return sock;
   }
 
