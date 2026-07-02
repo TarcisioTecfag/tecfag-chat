@@ -13,6 +13,13 @@ async function main() {
   const db = drizzle(client, { schema });
 
   try {
+    // Se o banco já possuir operadores, não rodar seeding para evitar recriação de registros deletados
+    const allOps = await db.select().from(operators).limit(1);
+    if (allOps.length > 0) {
+      console.log("🌱 Banco de dados já possui operadores. Pulando seeding.");
+      return;
+    }
+
     // 1. Criar Tenants
     console.log("Verificando tenants...");
     

@@ -20,18 +20,22 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
         try {
           const { contactId } = params as { contactId: string };
           const body = await request.json() as {
+            name?: string;
             phone?: string;
             email?: string;
             cnpj?: string;
             cpf?: string;
+            tags?: string[];
           };
 
           // Monta apenas os campos enviados
-          const updates: Record<string, unknown> = {};
+          const updates: Record<string, any> = {};
+          if ("name"  in body) updates.name  = body.name;
           if ("phone" in body) updates.phone = body.phone;
           if ("email" in body) updates.email = body.email;
           if ("cnpj"  in body) updates.cnpj  = body.cnpj;
           if ("cpf"   in body) updates.cpf   = body.cpf;
+          if ("tags"  in body) updates.tags  = body.tags;
 
           if (Object.keys(updates).length === 0) {
             return new Response(JSON.stringify({ error: "Nenhum campo para atualizar" }), {

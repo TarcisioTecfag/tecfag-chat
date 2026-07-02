@@ -366,6 +366,25 @@ export function ChatList() {
                       </span>
                     )}
                   </div>
+
+                  {/* Render tags below preview */}
+                  {c.tags && c.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {c.tags.slice(0, 3).map((tag, idx) => (
+                        <span 
+                          key={idx} 
+                          className="text-[9px] font-extrabold uppercase bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-md"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {c.tags.length > 3 && (
+                        <span className="text-[9px] font-bold text-muted-foreground px-1 py-0.5">
+                          +{c.tags.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </button>
               </div>

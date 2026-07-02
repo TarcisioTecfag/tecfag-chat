@@ -50,6 +50,7 @@ export function ContactsView() {
     phone: "",
     email: "",
     cnpj: "",
+    cpf: "",
     tagsInput: "",
   });
 
@@ -110,6 +111,7 @@ export function ContactsView() {
       phone: c.phone || "",
       email: c.email || "",
       cnpj: c.cnpj || "",
+      cpf: (c as any).cpf || "",
       tagsInput: c.tags.join(", "),
     });
   };
@@ -123,6 +125,7 @@ export function ContactsView() {
       phone: editForm.phone,
       email: editForm.email,
       cnpj: editForm.cnpj,
+      cpf: editForm.cpf,
     });
 
     // Parse and update tags
@@ -493,7 +496,7 @@ export function ContactsView() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
+                <div className="space-y-1 col-span-2">
                   <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
                   <input
                     type="text"
@@ -508,6 +511,15 @@ export function ContactsView() {
                     type="text"
                     value={editForm.cnpj}
                     onChange={(e) => setEditForm({ ...editForm, cnpj: e.target.value })}
+                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CPF</label>
+                  <input
+                    type="text"
+                    value={editForm.cpf}
+                    onChange={(e) => setEditForm({ ...editForm, cpf: e.target.value })}
                     className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
                   />
                 </div>

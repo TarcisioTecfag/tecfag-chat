@@ -23,6 +23,7 @@ import {
   Folder,
   Link2,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 
 export function SharedFiles() {
@@ -44,6 +45,7 @@ export function SharedFiles() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
   const [editForm, setEditForm] = React.useState({
+    name: "",
     phone: "",
     email: "",
     cnpj: "",
@@ -80,6 +82,7 @@ export function SharedFiles() {
   // Handle Client Info Edit
   const startEditing = () => {
     setEditForm({
+      name: activeChat.name || "",
       phone: activeChat.phone || "",
       email: activeChat.email || "",
       cnpj: activeChat.cnpj || "",
@@ -253,7 +256,28 @@ export function SharedFiles() {
                 {activeChat.initials || "U"}
               </div>
             )}
-            <h3 className="mt-3 text-base font-bold text-foreground">{activeChat.name}</h3>
+            {isEditingInfo ? (
+              <div className="mt-3 w-full max-w-[200px] text-left">
+                <label className="text-[9px] font-bold text-muted-foreground block text-center mb-0.5">Nome Completo</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border text-center"
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 mt-3 group">
+                <h3 className="text-base font-bold text-foreground">{activeChat.name}</h3>
+                <button
+                  onClick={startEditing}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground transition duration-150 cursor-pointer"
+                  title="Editar dados do contato"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             
             <div className="flex items-center gap-1.5 mt-1.5">
               <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1 bg-muted px-2.5 py-0.5 rounded-full">

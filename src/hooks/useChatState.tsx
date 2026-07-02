@@ -1074,10 +1074,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateTags = (id: string, tags: string[]) => {
+  const updateTags = async (id: string, tags: string[]) => {
+    // 1. Atualizar estado local imediatamente
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, tags } : c))
     );
+
+    // 2. Obter contactId e persistir no banco de dados via API
+    const conv = rawConversations.find((c) => c.id === id);
+    const contactId = (conv as any)?.contactId as string | undefined;
+
+    if (!contactId) {
+      console.warn("[updateTags] Sem contactId para conversa:", id);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[updateTags] Erro ao persistir tags:", err);
+      } else {
+        console.log("[updateTags] Tags persistidas com sucesso para o contato:", contactId);
+      }
+    } catch (e) {
+      console.error("[updateTags] Falha ao enviar requisição de tags:", e);
+    }
   };
 
   const markAsRead = (id: string) => {

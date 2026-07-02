@@ -523,8 +523,8 @@ export function ChatPanel() {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative">
-      {/* Header — transparente para fundir com o fundo do painel */}
-      <header className="flex flex-wrap items-center justify-between px-6 py-4 border-b border-border/60 bg-transparent rounded-t-3xl">
+      {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
+      <header className="flex flex-wrap items-center justify-between px-6 py-4 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10">
         <div className="flex items-center gap-3">
           {/* Avatar & Channel Badge */}
           <div className="relative">
