@@ -415,8 +415,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: `op-${Date.now()}`,
       status: "disponivel",
       avatar: `https://i.pravatar.cc/80?img=${Math.floor(Math.random() * 70)}`,
+      tenantId: tenant,
     };
-    setOperators((prev) => [...prev, newOp]);
+    setOperators((prev) => {
+      const updated = [...prev, newOp];
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_operators", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
 
     try {
       await fetch(`${BACKEND_URL}/api/operators`, {
@@ -430,9 +439,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateOperator = async (id: string, fields: Partial<Operator>) => {
-    setOperators((prev) =>
-      prev.map((op) => (op.id === id ? { ...op, ...fields } : op))
-    );
+    setOperators((prev) => {
+      const updated = prev.map((op) => (op.id === id ? { ...op, ...fields } : op));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_operators", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
 
     const targetOp = operators.find((op) => op.id === id);
     if (targetOp) {
@@ -453,7 +468,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteOperator = async (id: string) => {
     if (id === currentOperatorId) return;
-    setOperators((prev) => prev.filter((op) => op.id !== id));
+    setOperators((prev) => {
+      const updated = prev.filter((op) => op.id !== id);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_operators", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
 
     try {
       await fetch(`${BACKEND_URL}/api/operators?id=${id}`, {
@@ -465,9 +488,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetOperatorPassword = async (id: string, newPasswordHash: string) => {
-    setOperators((prev) =>
-      prev.map((op) => (op.id === id ? { ...op, passwordHash: newPasswordHash } : op))
-    );
+    setOperators((prev) => {
+      const updated = prev.map((op) => (op.id === id ? { ...op, passwordHash: newPasswordHash } : op));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_operators", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
 
     const targetOp = operators.find((op) => op.id === id);
     if (targetOp) {
@@ -492,21 +521,50 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...groupData,
       id: `group-${Date.now()}`,
     };
-    setAccessGroups((prev) => [...prev, newGroup]);
+    setAccessGroups((prev) => {
+      const updated = [...prev, newGroup];
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_access_groups", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
+    toast.success("Grupo de acesso criado com sucesso!");
   };
 
   const updateAccessGroup = (id: string, fields: Partial<AccessGroup>) => {
-    setAccessGroups((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, ...fields } : g))
-    );
+    setAccessGroups((prev) => {
+      const updated = prev.map((g) => (g.id === id ? { ...g, ...fields } : g));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_access_groups", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
   };
 
   const deleteAccessGroup = (id: string) => {
     if (id === "group-admin") return;
-    setAccessGroups((prev) => prev.filter((g) => g.id !== id));
-    setOperators((prev) =>
-      prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op))
-    );
+    setAccessGroups((prev) => {
+      const updated = prev.filter((g) => g.id !== id);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_access_groups", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
+    setOperators((prev) => {
+      const updated = prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_operators", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
   };
 
   // CRUD Sectors
@@ -516,18 +574,40 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name,
       operatorIds: [],
     };
-    setSectors((prev) => [...prev, newSector]);
+    setSectors((prev) => {
+      const updated = [...prev, newSector];
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_sectors", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
     toast.success("Setor criado com sucesso!");
   };
 
   const updateSector = (id: string, fields: Partial<Sector>) => {
-    setSectors((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, ...fields } : s))
-    );
+    setSectors((prev) => {
+      const updated = prev.map((s) => (s.id === id ? { ...s, ...fields } : s));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_sectors", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
   };
 
   const deleteSector = (id: string) => {
-    setSectors((prev) => prev.filter((s) => s.id !== id));
+    setSectors((prev) => {
+      const updated = prev.filter((s) => s.id !== id);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_sectors", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
     toast.success("Setor excluído com sucesso!");
   };
 
