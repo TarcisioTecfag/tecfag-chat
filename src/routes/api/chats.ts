@@ -93,6 +93,9 @@ export const Route = createFileRoute("/api/chats")({
                 }),
                 side: m.senderType === "client" ? "in" : "out",
                 isInternalNote: m.isInternalNote,
+                quotedMessageId: m.quotedMessageId,
+                quotedMessageSender: m.quotedMessageSender,
+                quotedMessageContent: m.quotedMessageContent,
               })),
             });
           }
@@ -120,7 +123,7 @@ export const Route = createFileRoute("/api/chats")({
 
         try {
           const body = await request.json();
-          const { tenantId, conversationId, senderType, senderName, content, isInternalNote } = body;
+          const { tenantId, conversationId, senderType, senderName, content, isInternalNote, quotedMessageId, quotedMessageSender, quotedMessageContent } = body;
 
           if (!tenantId || !conversationId || !content) {
             return new Response(JSON.stringify({ error: "tenantId, conversationId e content são obrigatórios" }), {
@@ -139,6 +142,9 @@ export const Route = createFileRoute("/api/chats")({
             senderName: senderName || "Operador",
             content,
             isInternalNote: !!isInternalNote,
+            quotedMessageId: quotedMessageId || null,
+            quotedMessageSender: quotedMessageSender || null,
+            quotedMessageContent: quotedMessageContent || null,
             sentAt: new Date(),
           });
 

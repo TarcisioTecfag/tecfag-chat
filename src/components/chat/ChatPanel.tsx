@@ -25,6 +25,7 @@ import {
   Mic,
   Square,
   Trash2,
+  CornerUpLeft,
 } from "lucide-react";
 
 
@@ -279,6 +280,12 @@ export function ChatPanel() {
   } = useChat();
 
   const [text, setText] = useState("");
+  const [replyingTo, setReplyingTo] = useState<any>(null);
+
+  useEffect(() => {
+    setReplyingTo(null);
+  }, [selectedChatId]);
+
   const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showTransferDropdown, setShowTransferDropdown] = useState(false);
@@ -437,6 +444,10 @@ export function ChatPanel() {
   }
 
   const handleSend = () => {
+    const quoted = replyingTo
+      ? { id: replyingTo.id, sender: replyingTo.author, content: replyingTo.text }
+      : null;
+
     // Se houver áudio em preview, envia o áudio
     if (recordingState === "preview" && audioBlob) {
       const ext = audioBlob.type.includes("ogg") ? "ogg"
@@ -448,16 +459,18 @@ export function ChatPanel() {
       audioFile.name = `audio-${Date.now()}.${ext}`;
       audioFile.lastModified = Date.now();
       const extras = attachments.length > 0 ? [...attachments, audioFile as File] : [audioFile as File];
-      sendMessage(text, false, extras);
+      sendMessage(text, false, extras, quoted);
       setText("");
       setAttachments([]);
+      setReplyingTo(null);
       discardRecording();
       return;
     }
     if (!text.trim() && attachments.length === 0) return;
-    sendMessage(text, msgMode === "internal", attachments.length > 0 ? attachments : undefined);
+    sendMessage(text, msgMode === "internal", attachments.length > 0 ? attachments : undefined, quoted);
     setText("");
     setAttachments([]);
+    setReplyingTo(null);
     setShowQuickMenu(false);
     setShowEmojiPicker(false);
   };
@@ -764,33 +777,48 @@ export function ChatPanel() {
 
             if (isMe) {
               return (
-                <div key={m.id} className="flex flex-col items-end">
-                  <span className="mb-0.5 text-[10px] text-muted-foreground font-medium">{m.author}, {m.time}</span>
-                  {isSticker ? (
-                    <div className="max-w-[70%] leading-relaxed">
-                      {renderMessageContent(m.text)}
-                    </div>
-                  ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
-                    <div className="max-w-[70%]">
-                      {renderMessageContent(m.text)}
-                    </div>
-                  ) : isEmojiOnly(m.text) ? (
-                    <div className="text-4xl leading-none select-none py-1">
-                      {m.text}
-                    </div>
-                  ) : (
-                    <div
-                      className="max-w-[70%] rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-soft bg-primary text-primary-foreground"
+                <div key={m.id} className="flex flex-col items-end group relative w-full">
+                  <span className="mb-0.5 text-[10px] text-muted-foreground font-medium mr-1">{m.author}, {m.time}</span>
+                  <div className="flex items-center gap-2 max-w-[80%] justify-end">
+                    <button
+                      onClick={() => setReplyingTo(m)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                      title="Responder"
                     >
-                      {renderMessageContent(m.text)}
-                    </div>
-                  )}
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+                    {isSticker ? (
+                      <div className="leading-relaxed">
+                        {renderMessageContent(m.text)}
+                      </div>
+                    ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
+                      <div>
+                        {renderMessageContent(m.text)}
+                      </div>
+                    ) : isEmojiOnly(m.text) ? (
+                      <div className="text-4xl leading-none select-none py-1">
+                        {m.text}
+                      </div>
+                    ) : (
+                      <div
+                        className="rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-soft bg-primary text-primary-foreground text-left"
+                      >
+                        {m.quotedMessageContent && (
+                          <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
+                            <div className="font-bold mb-0.5">{m.quotedMessageSender || "Mensagem"}</div>
+                            <div className="truncate font-medium">{m.quotedMessageContent}</div>
+                          </div>
+                        )}
+                        {renderMessageContent(m.text)}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             }
 
             return (
-              <div key={m.id} className="flex items-end gap-2.5">
+              <div key={m.id} className="flex items-end gap-2.5 group relative w-full">
                 {activeChat.avatar ? (
                   <img src={activeChat.avatar} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover border border-border" />
                 ) : (
@@ -801,17 +829,32 @@ export function ChatPanel() {
                     {activeChat.initials || "U"}
                   </div>
                 )}
-                <div className="min-w-0 max-w-[70%]">
+                <div className="min-w-0 max-w-[80%] flex-1">
                   <span className="mb-0.5 block text-[10px] text-muted-foreground font-medium">{m.author}, {m.time}</span>
-                  {isSticker ? (
-                    <div className="inline-block leading-relaxed">
-                      {renderMessageContent(m.text)}
-                    </div>
-                  ) : (
-                    <div className="inline-block rounded-2xl rounded-tl-md bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft">
-                      {renderMessageContent(m.text)}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isSticker ? (
+                      <div className="leading-relaxed">
+                        {renderMessageContent(m.text)}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl rounded-tl-md bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft text-left">
+                        {m.quotedMessageContent && (
+                          <div className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2 py-1 text-[10px] text-muted-foreground select-none max-w-full">
+                            <div className="font-bold mb-0.5 text-primary">{m.quotedMessageSender || "Mensagem"}</div>
+                            <div className="truncate font-medium">{m.quotedMessageContent}</div>
+                          </div>
+                        )}
+                        {renderMessageContent(m.text)}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setReplyingTo(m)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                      title="Responder"
+                    >
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -933,6 +976,27 @@ export function ChatPanel() {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Reply preview panel */}
+          {replyingTo && (
+            <div className="flex items-center justify-between gap-4 mb-2 rounded-xl bg-muted/60 border border-border px-4 py-2 text-xs leading-relaxed animate-in slide-in-from-bottom-2 duration-150 border-l-4 border-l-primary">
+              <div className="min-w-0">
+                <div className="font-bold text-primary mb-0.5">
+                  Respondendo a {replyingTo.author}
+                </div>
+                <div className="truncate text-muted-foreground font-medium text-[11px]">
+                  {replyingTo.text}
+                </div>
+              </div>
+              <button
+                onClick={() => setReplyingTo(null)}
+                className="p-1 rounded-full hover:bg-muted text-muted-foreground transition shrink-0 cursor-pointer"
+                title="Cancelar resposta"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           )}
 

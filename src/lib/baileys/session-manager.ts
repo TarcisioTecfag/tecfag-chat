@@ -313,11 +313,57 @@ export class SessionManager {
       }
     }
 
+    const sock = this.sessions.get(tenantId);
+
+    // Extrair informações de resposta (quoted/citar)
+    const contextInfo = rawMsg.message?.extendedTextMessage?.contextInfo ||
+                        rawMsg.message?.imageMessage?.contextInfo ||
+                        rawMsg.message?.videoMessage?.contextInfo ||
+                        rawMsg.message?.audioMessage?.contextInfo ||
+                        rawMsg.message?.documentMessage?.contextInfo ||
+                        rawMsg.message?.stickerMessage?.contextInfo;
+
+    let quotedMessageId: string | null = null;
+    let quotedMessageSender: string | null = null;
+    let quotedMessageContent: string | null = null;
+
+    if (contextInfo?.quotedMessage) {
+      quotedMessageId = contextInfo.stanzaId || null;
+      
+      const qMsg = contextInfo.quotedMessage;
+      quotedMessageContent = qMsg.conversation ||
+                             qMsg.extendedTextMessage?.text ||
+                             qMsg.imageMessage?.caption ||
+                             qMsg.videoMessage?.caption ||
+                             (qMsg.imageMessage ? "📷 Foto" : null) ||
+                             (qMsg.videoMessage ? "🎥 Vídeo" : null) ||
+                             (qMsg.audioMessage ? "🎵 Áudio/Mensagem de voz" : null) ||
+                             (qMsg.documentMessage ? "📄 Documento" : null) ||
+                             (qMsg.stickerMessage ? "💟 Figurinha" : null) ||
+                             "Mensagem";
+
+      if (contextInfo.participant) {
+        const cleanParticipant = contextInfo.participant.split("@")[0].split(":")[0];
+        const cleanBot = sock?.user?.id.split("@")[0].split(":")[0];
+        if (cleanParticipant === cleanBot) {
+          quotedMessageSender = "Você";
+        } else {
+          try {
+            const quotedContact = await db.query.contacts.findFirst({
+              where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.phone, cleanParticipant))
+            });
+            quotedMessageSender = quotedContact ? quotedContact.name : `+${cleanParticipant}`;
+          } catch {
+            quotedMessageSender = `+${cleanParticipant}`;
+          }
+        }
+      }
+    }
+
     // Se for mídia, tentar fazer o download físico
     if (isMedia) {
       try {
         console.log(`Baixando mídia para a mensagem ${messageId}...`);
-        const sock = this.sessions.get(tenantId);
         if (sock) {
           const buffer = await downloadMediaMessage(
             rawMsg,
@@ -547,6 +593,9 @@ export class SessionManager {
         senderName: finalSenderName,
         content: text,
         isInternalNote: false,
+        quotedMessageId,
+        quotedMessageSender,
+        quotedMessageContent,
         sentAt: new Date(),
       }).onConflictDoNothing();
 
@@ -562,6 +611,9 @@ export class SessionManager {
           phone: phone, // Enviar o telefone real extraído do JID para o frontend
           avatar: isFromMe ? null : (profilePicUrl || null), // O avatar no SSE é do contato se for do cliente
           sentAt: new Date(),
+          quotedMessageId,
+          quotedMessageSender,
+          quotedMessageContent,
         }
       });
 

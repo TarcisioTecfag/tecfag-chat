@@ -9,6 +9,9 @@ export type Message = {
   side: "in" | "out";
   isInternalNote?: boolean;
   avatar?: string;
+  quotedMessageId?: string | null;
+  quotedMessageSender?: string | null;
+  quotedMessageContent?: string | null;
 };
 
 export type Conversation = {

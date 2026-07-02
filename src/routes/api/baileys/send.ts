@@ -26,7 +26,7 @@ export const Route = createFileRoute("/api/baileys/send")({
 
         try {
           const body = await request.json();
-          const { tenantId, phone, text, conversationId, senderName } = body;
+          const { tenantId, phone, text, conversationId, senderName, quotedMessageId, quotedMessageSender, quotedMessageContent } = body;
 
           console.log("[Baileys Send Route] Parâmetros recebidos no backend:", {
             tenantId,
@@ -101,8 +101,25 @@ export const Route = createFileRoute("/api/baileys/send")({
             }
           }
 
-          // Enviar mensagem pelo Baileys
-          const sentMsg = await sock.sendMessage(jid, { text });
+          // Enviar mensagem pelo Baileys (com suporte a citação/resposta)
+          const options: any = {};
+          if (quotedMessageId) {
+            options.quoted = {
+              key: {
+                id: quotedMessageId,
+                remoteJid: jid,
+                fromMe: quotedMessageSender === "Você",
+                participant: quotedMessageSender === "Você"
+                  ? (sock.user?.id.split(":")[0] + "@s.whatsapp.net")
+                  : jid,
+              },
+              message: {
+                conversation: quotedMessageContent || "",
+              },
+            };
+          }
+
+          const sentMsg = await sock.sendMessage(jid, { text }, options);
 
           // Se temos conversationId, salvar no DB
           if (conversationId) {
@@ -116,6 +133,9 @@ export const Route = createFileRoute("/api/baileys/send")({
               senderName: senderName || "Operador",
               content: text,
               isInternalNote: false,
+              quotedMessageId: quotedMessageId || null,
+              quotedMessageSender: quotedMessageSender || null,
+              quotedMessageContent: quotedMessageContent || null,
               sentAt: new Date(),
             });
 

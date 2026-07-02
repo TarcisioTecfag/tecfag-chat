@@ -111,6 +111,10 @@ export const messages = pgTable("messages", {
   content: text("content").notNull(),
   isInternalNote: boolean("is_internal_note").default(false).notNull(), // TRUE renderiza como nota amarela
   
+  quotedMessageId: text("quoted_message_id"),
+  quotedMessageSender: text("quoted_message_sender"),
+  quotedMessageContent: text("quoted_message_content"),
+
   sentAt: timestamp("sent_at").defaultNow().notNull(),
 });
 

@@ -103,7 +103,7 @@ type ChatContextType = {
   deleteQuickResponse: (id: string) => void;
   
   // Actions
-  sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[]) => void;
+  sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null) => Promise<void>;
   captureChat: (id: string) => void;
   transferChat: (id: string, sectorName: string, targetOperatorId?: string | null) => void;
   finishChat: (id: string) => void;
@@ -779,7 +779,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const activeChat = conversations.find((c) => c.id === selectedChatId) || null;
 
   // Actions
-  const sendMessage = async (text: string, isInternalNote = false, attachments?: File[]) => {
+  const sendMessage = async (text: string, isInternalNote = false, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null) => {
     if (!selectedChatId) return;
 
     const currentChat = conversations.find((c) => c.id === selectedChatId);
@@ -797,6 +797,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       phone: currentChat.phone,
       selectedChatId,
       shouldSendReal,
+      quotedMessage,
     });
 
     if (shouldSendReal && currentChat.phone) {
@@ -818,6 +819,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               text,
               conversationId: selectedChatId,
               senderName: operatorProfile.name,
+              quotedMessageId: quotedMessage?.id || null,
+              quotedMessageSender: quotedMessage?.sender || null,
+              quotedMessageContent: quotedMessage?.content || null,
             }),
           });
 
@@ -870,6 +874,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             senderName: isInternalNote ? "Vendedor" : operatorProfile.name,
             content: text,
             isInternalNote,
+            quotedMessageId: quotedMessage?.id || null,
+            quotedMessageSender: quotedMessage?.sender || null,
+            quotedMessageContent: quotedMessage?.content || null,
           }),
         });
 
@@ -894,6 +901,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         time: now,
         side: "out",
         isInternalNote,
+        quotedMessageId: quotedMessage?.id || null,
+        quotedMessageSender: quotedMessage?.sender || null,
+        quotedMessageContent: quotedMessage?.content || null,
       });
     }
 
@@ -1283,6 +1293,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               text: message.content,
               time: timeStr,
               side: message.senderType === "client" ? "in" : "out",
+              quotedMessageId: message.quotedMessageId || null,
+              quotedMessageSender: message.quotedMessageSender || null,
+              quotedMessageContent: message.quotedMessageContent || null,
             };
 
             if (exists) {
