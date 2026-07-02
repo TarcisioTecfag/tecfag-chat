@@ -809,6 +809,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return {
             ...c,
             queue: "meus",
+            operatorId: currentOperatorId,
             messages: [...c.messages, systemMsg],
           };
         }
@@ -825,6 +826,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({
           conversationId: id,
           queueState: "meus",
+          operatorId: currentOperatorId,
           systemMessageText: textLog,
         }),
       });
@@ -998,6 +1000,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       tags: ["Novo Cadastro"],
       channel,
       queue: "meus",
+      operatorId: currentOperatorId,
       unreadCount: 0,
       lastMessageTime: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
       messages: [
