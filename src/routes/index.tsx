@@ -12,7 +12,7 @@ import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 
 export const Route = createFileRoute("/")({
-  ssr: false,
+  ssr: true,
   component: Index,
 });
 
