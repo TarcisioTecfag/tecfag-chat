@@ -10,6 +10,7 @@ import { GroupsView } from "@/components/chat/GroupsView";
 import { ProfileModal } from "@/components/chat/ProfileModal";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
+import { motion, AnimatePresence } from "framer-motion";
 
 export const Route = createFileRoute("/")({
   ssr: true,
@@ -17,7 +18,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { tenant, activeView, rightSidebarOpen, isAuthenticated } = useChat();
+  const { tenant, activeView, rightSidebarOpen, isAuthenticated, isProfileModalOpen } = useChat();
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -44,24 +45,78 @@ function Index() {
       } as React.CSSProperties);
 
   return (
-    <div className="min-h-screen bg-background transition-colors duration-300" style={themeStyles}>
-      <div className="flex h-screen w-full gap-5 p-5">
+    <div className="min-h-screen bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
+      <div className="flex h-screen w-full gap-5 p-5 overflow-hidden">
         <Sidebar />
-        {activeView === "chat" && <ChatList />}
-        {activeView === "chat" ? (
-          <>
-            <ChatPanel />
-            {rightSidebarOpen && <SharedFiles />}
-          </>
-        ) : activeView === "contacts" ? (
-          <ContactsView />
-        ) : activeView === "groups" ? (
-          <GroupsView />
-        ) : (
-          <SettingsView />
-        )}
+        <div className="flex flex-1 h-full overflow-hidden relative">
+          <AnimatePresence mode="wait">
+            {activeView === "chat" ? (
+              <motion.div
+                key="chat"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex flex-1 gap-5 h-full w-full overflow-hidden"
+              >
+                <ChatList />
+                <ChatPanel />
+                <AnimatePresence>
+                  {rightSidebarOpen && (
+                    <motion.div
+                      key="shared-files"
+                      initial={{ opacity: 0, x: 40, width: 0 }}
+                      animate={{ opacity: 1, x: 0, width: "auto" }}
+                      exit={{ opacity: 0, x: 40, width: 0 }}
+                      transition={{ type: "spring", damping: 25, stiffness: 180 }}
+                      className="h-full shrink-0 overflow-hidden"
+                    >
+                      <SharedFiles />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            ) : activeView === "contacts" ? (
+              <motion.div
+                key="contacts"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <ContactsView />
+              </motion.div>
+            ) : activeView === "groups" ? (
+              <motion.div
+                key="groups"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <GroupsView />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="settings"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <SettingsView />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
-      <ProfileModal />
+      <AnimatePresence>
+        {isProfileModalOpen && <ProfileModal />}
+      </AnimatePresence>
     </div>
   );
 }
+

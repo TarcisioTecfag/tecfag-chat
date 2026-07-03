@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
+import { motion } from "framer-motion";
 import {
   User,
   Phone,
@@ -217,38 +218,60 @@ export function SharedFiles() {
       </div>
 
       {/* Header Tabs (3 segments for Details, Shared Files and Channel Integration) */}
-      <div className="flex rounded-xl bg-muted p-1">
+      <div className="flex rounded-xl bg-muted p-1 relative">
         <button
           onClick={() => handleTabChange("details")}
-          className={`flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition cursor-pointer ${
+          className={`relative flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition-colors duration-200 cursor-pointer z-10 ${
             activeTab === "details"
-              ? "bg-card text-foreground shadow-soft"
+              ? "text-foreground"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
+          {activeTab === "details" && (
+            <motion.span
+              layoutId="activeSharedTabIndicator"
+              className="absolute inset-0 bg-card rounded-lg shadow-soft -z-10"
+              transition={{ type: "spring", stiffness: 350, damping: 28 }}
+            />
+          )}
           📋 Dados
         </button>
         <button
           onClick={() => handleTabChange("files")}
-          className={`flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition cursor-pointer ${
+          className={`relative flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition-colors duration-200 cursor-pointer z-10 ${
             activeTab === "files"
-              ? "bg-card text-foreground shadow-soft"
+              ? "text-foreground"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
+          {activeTab === "files" && (
+            <motion.span
+              layoutId="activeSharedTabIndicator"
+              className="absolute inset-0 bg-card rounded-lg shadow-soft -z-10"
+              transition={{ type: "spring", stiffness: 350, damping: 28 }}
+            />
+          )}
           📁 Arquivos
         </button>
         <button
           onClick={() => handleTabChange("channel")}
-          className={`flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition cursor-pointer ${
+          className={`relative flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition-colors duration-200 cursor-pointer z-10 ${
             activeTab === "channel"
-              ? "bg-card text-foreground shadow-soft"
+              ? "text-foreground"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
+          {activeTab === "channel" && (
+            <motion.span
+              layoutId="activeSharedTabIndicator"
+              className="absolute inset-0 bg-card rounded-lg shadow-soft -z-10"
+              transition={{ type: "spring", stiffness: 350, damping: 28 }}
+            />
+          )}
           🔗 Canal
         </button>
       </div>
+
 
       <div className="my-4 h-px bg-line" />
 

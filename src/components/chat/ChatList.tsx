@@ -2,6 +2,7 @@ import React from "react";
 import { useChat } from "@/hooks/useChatState";
 import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen } from "lucide-react";
 import { Channel, QueueType } from "@/lib/mockData";
+import { motion, AnimatePresence } from "framer-motion";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { icon?: string; label: string } {
@@ -262,171 +263,199 @@ export function ChatList() {
       </div>
 
       {/* Queue Tabs */}
-      <div className="mt-4 flex items-center gap-1 rounded-xl bg-muted p-1">
-        {queues.map((q) => (
-          <button
-            key={q.id}
-            onClick={() => {
-              setActiveQueue(q.id as QueueType);
-              setActiveView("chat");
-            }}
-            className={`flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition cursor-pointer ${
-              activeQueue === q.id
-                ? "bg-card text-foreground shadow-soft"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {q.label}
-          </button>
-        ))}
+      <div className="mt-4 flex items-center gap-1 rounded-xl bg-muted p-1 relative">
+        {queues.map((q) => {
+          const isActive = activeQueue === q.id;
+          return (
+            <button
+              key={q.id}
+              onClick={() => {
+                setActiveQueue(q.id as QueueType);
+                setActiveView("chat");
+              }}
+              className={`relative flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition-colors duration-200 cursor-pointer z-10 ${
+                isActive
+                  ? "text-foreground font-bold"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {isActive && (
+                <motion.span
+                  layoutId="activeQueueIndicator"
+                  className="absolute inset-0 bg-card rounded-lg shadow-soft -z-10"
+                  transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                />
+              )}
+              {q.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Chat List */}
       <div className="mt-3 flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin">
-        {filteredConvs.length > 0 ? (
-          filteredConvs
-            .sort((a, b) => ((b as any).pinned ? 1 : 0) - ((a as any).pinned ? 1 : 0))
-            .map((c) => {
-            const isSelected = c.id === selectedChatId;
-            const lastMsg = c.messages[c.messages.length - 1];
-            const { icon: msgIcon, label: msgLabel } = formatLastMessage(lastMsg?.text || "");
-            return (
-              <div
-                key={c.id}
-                className="relative"
-                onContextMenu={(e) => {
-                  if (c.queue !== "meus") return;
-                  e.preventDefault();
-                  setContextMenu({ chatId: c.id, x: e.clientX, y: e.clientY });
-                }}
-              >
-              <button
-                onClick={() => {
-                  setSelectedChatId(c.id);
-                  setActiveView("chat");
-                  markAsRead(c.id);
-                }}
-                className={`flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition ${
-                  isSelected ? "bg-muted" : "hover:bg-muted/50"
-                }`}
-              >
-                {/* Avatar with Channel Badge Overlay */}
-                <div className="relative shrink-0">
-                  {c.avatar ? (
-                    <img src={c.avatar} alt={c.name} className="h-10 w-10 rounded-full object-cover border border-border" />
-                  ) : (
-                    <div
-                      className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground"
-                      style={{ background: c.initialsBg || "#eee" }}
+        <AnimatePresence initial={false}>
+          {filteredConvs.length > 0 ? (
+            filteredConvs
+              .sort((a, b) => ((b as any).pinned ? 1 : 0) - ((a as any).pinned ? 1 : 0))
+              .map((c) => {
+                const isSelected = c.id === selectedChatId;
+                const lastMsg = c.messages[c.messages.length - 1];
+                const { icon: msgIcon, label: msgLabel } = formatLastMessage(lastMsg?.text || "");
+                return (
+                  <motion.div
+                    key={c.id}
+                    layout
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 28 }}
+                    className="relative"
+                    onContextMenu={(e) => {
+                      if (c.queue !== "meus") return;
+                      e.preventDefault();
+                      setContextMenu({ chatId: c.id, x: e.clientX, y: e.clientY });
+                    }}
+                  >
+                    <button
+                      onClick={() => {
+                        setSelectedChatId(c.id);
+                        setActiveView("chat");
+                        markAsRead(c.id);
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition-colors duration-150 ${
+                        isSelected ? "bg-muted" : "hover:bg-muted/50"
+                      }`}
                     >
-                      {c.initials || <User className="h-4 w-4 text-muted-foreground" />}
-                    </div>
-                  )}
+                      {/* Avatar with Channel Badge Overlay */}
+                      <div className="relative shrink-0">
+                        {c.avatar ? (
+                          <img src={c.avatar} alt={c.name} className="h-10 w-10 rounded-full object-cover border border-border" />
+                        ) : (
+                          <div
+                            className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground"
+                            style={{ background: c.initialsBg || "#eee" }}
+                          >
+                            {c.initials || <User className="h-4 w-4 text-muted-foreground" />}
+                          </div>
+                        )}
 
-                  {/* Channel Badge */}
-                  <span className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white shadow-soft ${
-                    c.channel === "whatsapp"
-                      ? "bg-emerald-500"
-                      : c.channel === "instagram"
-                      ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
-                      : "bg-blue-600"
-                  }`}>
-                    {c.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
-                    {c.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
-                    {c.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
-                  </span>
-
-                  {/* Pin indicator */}
-                  {(c as any).pinned && (
-                    <span className="absolute -top-1 -left-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-primary text-primary-foreground">
-                      <Pin className="h-2 w-2" />
-                    </span>
-                  )}
-                </div>
-
-                {/* Info Text */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="truncate text-xs font-bold text-foreground">{c.name}</span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{(c as any).time || c.lastMessageTime}</span>
-                  </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <p className="truncate text-[11px] text-muted-foreground pr-2 flex items-center gap-1">
-                      {lastMsg?.isInternalNote && (
-                        <span className="text-amber-500 font-semibold">[Nota]</span>
-                      )}
-                      {msgIcon && <span>{msgIcon}</span>}
-                      <span className="truncate">{msgLabel}</span>
-                    </p>
-
-                    {/* Unread Count Badge */}
-                    {c.unreadCount > 0 && (
-                      <span className="grid h-4.5 min-w-4.5 place-items-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
-                        {c.unreadCount}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Render tags below preview */}
-                  {c.tags && c.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {c.tags.slice(0, 3).map((tag, idx) => (
-                        <span 
-                          key={idx} 
-                          className="text-[9px] font-extrabold uppercase bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-md"
-                        >
-                          {tag}
+                        {/* Channel Badge */}
+                        <span className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white shadow-soft ${
+                          c.channel === "whatsapp"
+                            ? "bg-emerald-500"
+                            : c.channel === "instagram"
+                            ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
+                            : "bg-blue-600"
+                        }`}>
+                          {c.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
+                          {c.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
+                          {c.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
                         </span>
-                      ))}
-                      {c.tags.length > 3 && (
-                        <span className="text-[9px] font-bold text-muted-foreground px-1 py-0.5">
-                          +{c.tags.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </button>
-              </div>
-            );
-          })
-        ) : (
-          <div className="flex flex-col items-center justify-center text-center py-12 text-muted-foreground">
-            <MessageSquare className="h-8 w-8 text-muted-foreground/30 mb-2" strokeWidth={1.5} />
-            <p className="text-xs font-semibold">Nenhum atendimento</p>
-            <p className="text-[10px] mt-0.5 max-w-[180px]">Não há conversas nesta fila com os filtros aplicados.</p>
-          </div>
-        )}
+
+                        {/* Pin indicator */}
+                        {(c as any).pinned && (
+                          <span className="absolute -top-1 -left-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-primary text-primary-foreground">
+                            <Pin className="h-2 w-2" />
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Info Text */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="truncate text-xs font-bold text-foreground">{c.name}</span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{(c as any).time || c.lastMessageTime}</span>
+                        </div>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <p className="truncate text-[11px] text-muted-foreground pr-2 flex items-center gap-1">
+                            {lastMsg?.isInternalNote && (
+                              <span className="text-amber-500 font-semibold">[Nota]</span>
+                            )}
+                            {msgIcon && <span>{msgIcon}</span>}
+                            <span className="truncate">{msgLabel}</span>
+                          </p>
+
+                          {/* Unread Count Badge */}
+                          {c.unreadCount > 0 && (
+                            <span className="grid h-4.5 min-w-4.5 place-items-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
+                              {c.unreadCount}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Render tags below preview */}
+                        {c.tags && c.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {c.tags.slice(0, 3).map((tag, idx) => (
+                              <span 
+                                key={idx} 
+                                className="text-[9px] font-extrabold uppercase bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-md"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {c.tags.length > 3 && (
+                              <span className="text-[9px] font-bold text-muted-foreground px-1 py-0.5">
+                                +{c.tags.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  </motion.div>
+                );
+              })
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-col items-center justify-center text-center py-12 text-muted-foreground"
+            >
+              <MessageSquare className="h-8 w-8 text-muted-foreground/30 mb-2" strokeWidth={1.5} />
+              <p className="text-xs font-semibold">Nenhum atendimento</p>
+              <p className="text-[10px] mt-0.5 max-w-[180px]">Não há conversas nesta fila com os filtros aplicados.</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+
     </aside>
 
     {/* Context Menu (right-click) */}
-    {contextMenu && (() => {
-      const chat = conversations.find((c) => c.id === contextMenu.chatId);
-      if (!chat) return null;
-      return (
-        <div
-          className="fixed z-[9999] min-w-[180px] rounded-xl bg-card border border-border shadow-card p-1 animate-in fade-in duration-100"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            onClick={() => { pinChat(chat.id); setContextMenu(null); }}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
+    <AnimatePresence>
+      {contextMenu && (() => {
+        const chat = conversations.find((c) => c.id === contextMenu.chatId);
+        if (!chat) return null;
+        return (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.1 }}
+            className="fixed z-[9999] min-w-[180px] rounded-xl bg-card border border-border shadow-card p-1"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <Pin className="h-3.5 w-3.5 text-primary" />
-            {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
-          </button>
-          <button
-            onClick={() => { markAsUnread(chat.id); setContextMenu(null); }}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
-          >
-            <BookOpen className="h-3.5 w-3.5 text-primary" />
-            Marcar como não lido
-          </button>
-        </div>
-      );
-    })()}
+            <button
+              onClick={() => { pinChat(chat.id); setContextMenu(null); }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
+            >
+              <Pin className="h-3.5 w-3.5 text-primary" />
+              {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
+            </button>
+            <button
+              onClick={() => { markAsUnread(chat.id); setContextMenu(null); }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-primary" />
+              Marcar como não lido
+            </button>
+          </motion.div>
+        );
+      })()}
+    </AnimatePresence>
     </>
   );
 }

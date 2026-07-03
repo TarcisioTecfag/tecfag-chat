@@ -124,8 +124,23 @@
 
 @utility scrollbar-thin {
   scrollbar-width: thin;
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-thumb { background: #d6dbe1; border-radius: 999px; }
-  &::-webkit-scrollbar-track { background: transparent; }
+  scrollbar-color: color-mix(in srgb, var(--color-primary) 35%, transparent) transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--color-primary) 60%, transparent);
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
+
 

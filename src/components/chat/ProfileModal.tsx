@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { X, Check, ShieldAlert, Camera, Eye, EyeOff, Plus } from "lucide-react";
+import { motion } from "framer-motion";
 
 export function ProfileModal() {
   const {
@@ -10,8 +11,6 @@ export function ProfileModal() {
     setIsProfileModalOpen,
     logout,
   } = useChat();
-
-  if (!isProfileModalOpen) return null;
 
   // Local Form States
   const [name, setName] = useState(operatorProfile.name);
@@ -84,7 +83,12 @@ export function ProfileModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 select-none">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 select-none"
+    >
       {/* Hidden input for local upload */}
       <input
         type="file"
@@ -95,7 +99,13 @@ export function ProfileModal() {
       />
 
       {/* Modal Wrapper */}
-      <div className="w-full max-w-lg rounded-3xl bg-card border border-border shadow-card overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 15 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 15 }}
+        transition={{ type: "spring", damping: 25, stiffness: 280 }}
+        className="w-full max-w-lg rounded-3xl bg-card border border-border shadow-card overflow-hidden flex flex-col"
+      >
         {/* Header */}
         <header className="flex items-center justify-between border-b border-line px-6 py-4.5 bg-muted/20">
           <div className="flex items-center gap-2">
@@ -303,7 +313,7 @@ export function ProfileModal() {
             </div>
           </div>
         </form>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { Eye, EyeOff, Camera } from "lucide-react";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
 
 export function Login() {
   const { login } = useChat();
@@ -98,7 +99,12 @@ export function Login() {
 
       {/* PAINEL DA DIREITA: Formulário de Login */}
       <div className="md:col-span-3 flex items-center justify-center p-6 sm:p-12 md:p-20 bg-white">
-        <div className="w-full max-w-[420px] flex flex-col">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", damping: 25, stiffness: 220 }}
+          className="w-full max-w-[420px] flex flex-col"
+        >
           
           {/* Cabeçalho */}
           <div className="text-center md:text-left mb-8">
@@ -237,7 +243,7 @@ export function Login() {
             </p>
           </div>
 
-        </div>
+        </motion.div>
       </div>
     </div>
   );
