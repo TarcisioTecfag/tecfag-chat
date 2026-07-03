@@ -467,10 +467,11 @@ export function ChatPanel() {
   const [callStatus, setCallStatus] = React.useState<CallModalStatus>("idle");
   const [callDuration, setCallDuration] = React.useState(0);
   const [callRoomId, setCallRoomId] = React.useState<string | null>(null);
-  const callSocketRef = React.useRef<Socket | null>(null);
   const callPcRef = React.useRef<RTCPeerConnection | null>(null);
   const callStreamRef = React.useRef<MediaStream | null>(null);
   const callTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const callPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null); // polling interval
+  const callLastTsRef = React.useRef<number>(0); // último timestamp de sinal recebido
   const callRecorderRef = React.useRef<MediaRecorder | null>(null);
   const callChunksRef = React.useRef<Blob[]>([]);
   const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -498,12 +499,13 @@ export function ChatPanel() {
 
   const cleanupCall = useCallback(() => {
     if (callTimerRef.current) clearInterval(callTimerRef.current);
+    if (callPollRef.current) clearInterval(callPollRef.current);
     callStreamRef.current?.getTracks().forEach((t) => t.stop());
     callPcRef.current?.close();
-    callSocketRef.current?.disconnect();
     callPcRef.current = null;
-    callSocketRef.current = null;
+    callPollRef.current = null;
     callStreamRef.current = null;
+    callLastTsRef.current = 0;
   }, []);
 
   const handleStartCall = useCallback(async () => {
@@ -511,8 +513,8 @@ export function ChatPanel() {
     setCallStatus("waiting");
     setCallDuration(0);
     callChunksRef.current = [];
+    callLastTsRef.current = Date.now();
 
-    // Nome real do operador logado
     const operatorName = operatorProfile?.name || operators.find((op) => op.id === currentOperatorId)?.name || "Agente";
 
     try {
@@ -520,24 +522,12 @@ export function ChatPanel() {
       const res = await fetch(`${BACKEND_URL}/api/calls`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId: tenant,
-          conversationId: activeChat.id,
-          operatorId: currentOperatorId,
-          operatorName,
-        }),
+        body: JSON.stringify({ tenantId: tenant, conversationId: activeChat.id, operatorId: currentOperatorId, operatorName }),
       });
       const { roomId, callLink } = await res.json();
       setCallRoomId(roomId);
 
-      // 2. Encurtar link via TinyURL (gratuito, sem API key)
-      const shortLink = await fetch(
-        `https://tinyurl.com/api-create.php?url=${encodeURIComponent(callLink)}`
-      )
-        .then((r) => r.text())
-        .catch(() => callLink); // fallback para link original se TinyURL falhar
-
-      // 3. Enviar link pelo WhatsApp via Baileys (mensagem limpa, sem asteriscos excessivos)
+      // 2. Enviar link pelo WhatsApp
       await fetch(`${BACKEND_URL}/api/baileys/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -546,70 +536,92 @@ export function ChatPanel() {
           phone: activeChat.phone,
           conversationId: activeChat.id,
           senderName: operatorName,
-          text: `📞 ${operatorName} está te chamando!\n\nToque no link para atender pelo navegador:\n${shortLink}\n\n⏱️ Link expira em 10 minutos.`,
+          text: `📞 ${operatorName} está te ligando!\n\nToque no link para atender pelo navegador:\n${callLink}\n\n⏱️ Link expira em 10 minutos.`,
         }),
       });
 
-      // 4. Inserir nota interna no chat do agente com o link encurtado
+      // 3. Nota interna no chat
       await sendMessage(
-        `📞 *Ligação iniciada por ${operatorName}*\n\nLink enviado para ${activeChat.name}:\n${shortLink}`,
-        true // isInternalNote
+        `📞 *Ligação iniciada por ${operatorName}*\n\nLink enviado para ${activeChat.name}:\n${callLink}`,
+        true
       );
 
-      // 5. Solicitar microfone
+      // 4. Solicitar microfone
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       callStreamRef.current = stream;
 
-      // 6. Conectar Socket.io
-      const socket = socketIO("/", { path: "/socket.io/", transports: ["websocket", "polling"] });
-      callSocketRef.current = socket;
+      // 5. Criar RTCPeerConnection (aguardando cliente)
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      callPcRef.current = pc;
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      socket.on("connect", () => socket.emit("agent:join", roomId));
+      pc.ontrack = (e) => {
+        if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
+        try {
+          const ctx = new AudioContext();
+          const dest = ctx.createMediaStreamDestination();
+          ctx.createMediaStreamSource(stream).connect(dest);
+          ctx.createMediaStreamSource(e.streams[0]).connect(dest);
+          const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus" });
+          callRecorderRef.current = recorder;
+          recorder.ondataavailable = (ev) => { if (ev.data.size > 0) callChunksRef.current.push(ev.data); };
+          recorder.start(1000);
+        } catch {}
+      };
 
-      // 7. Quando cliente entrar — criar offer WebRTC
-      socket.on("client:ready", async () => {
-        setCallStatus("active");
-        callTimerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
+      // ICE candidates → enviar para o servidor via polling API
+      pc.onicecandidate = async (e) => {
+        if (!e.candidate) return;
+        await fetch(`${BACKEND_URL}/api/calls?action=signal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomId, role: "agent", type: "webrtc:ice", data: e.candidate }),
+        }).catch(() => {});
+      };
 
-        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-        callPcRef.current = pc;
-        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      // 6. Polling — verifica sinais do cliente a cada 600ms
+      callPollRef.current = setInterval(async () => {
+        try {
+          const r = await fetch(
+            `${BACKEND_URL}/api/calls?action=signal&roomId=${roomId}&after=${callLastTsRef.current}&role=agent`
+          );
+          if (!r.ok) return;
+          const { signals, status } = await r.json();
 
-        pc.ontrack = (e) => {
-          if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
-          // Gravar o mixed audio (agente + cliente)
-          try {
-            const ctx = new AudioContext();
-            const dest = ctx.createMediaStreamDestination();
-            ctx.createMediaStreamSource(stream).connect(dest);
-            ctx.createMediaStreamSource(e.streams[0]).connect(dest);
-            const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus" });
-            callRecorderRef.current = recorder;
-            recorder.ondataavailable = (ev) => { if (ev.data.size > 0) callChunksRef.current.push(ev.data); };
-            recorder.start(1000);
-          } catch {}
-        };
+          if (status === "ended") { handleEndCall(roomId, true); return; }
 
-        pc.onicecandidate = (e) => {
-          if (e.candidate) socket.emit("webrtc:ice", { roomId, candidate: e.candidate });
-        };
+          for (const sig of signals as Array<{ type: string; data: any; timestamp: number }>) {
+            callLastTsRef.current = Math.max(callLastTsRef.current, sig.timestamp);
 
-        socket.on("webrtc:answer", async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
-          await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        });
+            if (sig.type === "client:joined") {
+              // Cliente entrou → criar e enviar offer
+              setCallStatus("active");
+              callTimerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
 
-        socket.on("webrtc:ice", async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
-          try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
-        });
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              await fetch(`${BACKEND_URL}/api/calls?action=signal`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ roomId, role: "agent", type: "webrtc:offer", data: offer }),
+              });
+            }
 
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit("webrtc:offer", { roomId, offer });
-      });
+            if (sig.type === "webrtc:answer") {
+              await pc.setRemoteDescription(new RTCSessionDescription(sig.data));
+            }
 
-      socket.on("call:ended", () => handleEndCall(roomId, true));
-      socket.on("call:dropped", () => handleEndCall(roomId, true));
-      socket.on("error", () => { cleanupCall(); setCallStatus("error"); });
+            if (sig.type === "webrtc:ice") {
+              try { await pc.addIceCandidate(new RTCIceCandidate(sig.data)); } catch {}
+            }
+
+            if (sig.type === "call:ended") {
+              handleEndCall(roomId, true);
+              return;
+            }
+          }
+        } catch {}
+      }, 600);
 
     } catch (err) {
       console.error("[Call] Erro ao iniciar chamada:", err);
@@ -619,23 +631,26 @@ export function ChatPanel() {
   }, [activeChat, tenant, currentOperatorId, operators, operatorProfile, sendMessage, cleanupCall]);
 
   const handleEndCall = useCallback(async (roomId: string | null, fromRemote = false) => {
-    if (!fromRemote) callSocketRef.current?.emit("call:end", roomId);
+    // Sinalizar encerramento para o cliente (se não veio do remoto)
+    if (!fromRemote && roomId) {
+      await fetch(`${BACKEND_URL}/api/calls?action=signal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId, role: "agent", type: "call:ended", data: null }),
+      }).catch(() => {});
+    }
 
     // Parar gravação
     const recorder = callRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-    }
+    if (recorder && recorder.state !== "inactive") recorder.stop();
 
     const duration = callDuration;
     cleanupCall();
     setCallStatus("transcribing");
 
-    // Aguardar último chunk
     await new Promise((r) => setTimeout(r, 800));
 
-    const currentOp = operators.find((op) => op.id === currentOperatorId);
-    const operatorName = currentOp?.name ?? "Agente";
+    const operatorName = operatorProfile?.name || operators.find((op) => op.id === currentOperatorId)?.name || "Agente";
 
     const chunks = callChunksRef.current;
     if (chunks.length > 0 && roomId) {
@@ -660,7 +675,7 @@ export function ChatPanel() {
 
     setCallStatus("done");
     setTimeout(() => setCallStatus("idle"), 3000);
-  }, [callDuration, currentOperatorId, operators, cleanupCall]);
+  }, [callDuration, currentOperatorId, operators, operatorProfile, cleanupCall]);
 
   // ── Voice recorder state ────────────────────────────────────────────────────
   const [recordingState, setRecordingState] = React.useState<"idle" | "recording" | "preview">("idle");

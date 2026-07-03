@@ -1,40 +1,21 @@
 /**
  * /api/calls
- * REST endpoints para gerenciar sessões de chamada WebRTC
+ * REST endpoints para gerenciar sessões de chamada WebRTC via polling.
  *
- * POST   /api/calls              → Cria sala + registra no DB + retorna link
- * GET    /api/calls?roomId=xxx   → Estado atual da sala
- * POST   /api/calls/transcribe   → Recebe áudio, transcreve e insere nota no chat
+ * POST   /api/calls                    → Cria sala + registra no DB + retorna link
+ * GET    /api/calls?roomId=xxx         → Estado atual da sala
+ * GET    /api/calls?action=signal&...  → Polling de sinais WebRTC (offer/answer/ICE)
+ * POST   /api/calls?action=signal     → Envia sinal WebRTC
+ * POST   /api/calls?action=transcribe  → Recebe áudio, transcreve e insere nota no chat
+ * POST   /api/calls?action=end         → Encerra sala forçado
  */
 
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { callSessions, messages, conversations } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import { createRoom, getRoomStatus, initCallSignaling } from "../../lib/call-signaling";
+import { createRoom, getRoomStatus, addSignal, getSignals, endRoom } from "../../lib/call-signaling";
 import { transcribeAudio, formatCallNote } from "../../lib/call-transcriber";
-
-// ── Inicialização lazy do Socket.io ────────────────────────────────────────────────────
-// O Socket.io é acoplado ao servidor HTTP do processo Node.js atual.
-// Usamos globalThis para garantir que seja inicializado apenas uma vez.
-function ensureSocketIO() {
-  if ((globalThis as any).__socketIOInitialized) return;
-  try {
-    // Acessa o servidor HTTP nativo via globalThis (injetado pelo Nitro/Node.js)
-    const server = (globalThis as any).__nitroServer
-      ?? (globalThis as any).__server
-      ?? null;
-    if (server) {
-      initCallSignaling(server);
-      (globalThis as any).__socketIOInitialized = true;
-      console.log("[Calls] Socket.io inicializado com sucesso");
-    } else {
-      console.warn("[Calls] Servidor HTTP não disponível ainda para Socket.io");
-    }
-  } catch (e) {
-    console.error("[Calls] Erro ao inicializar Socket.io:", e);
-  }
-}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,17 +35,20 @@ export const Route = createFileRoute("/api/calls")({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
-      // ── GET /api/calls?roomId=xxx — Estado da sala ─────────────────────────
+      // ── GET /api/calls — Estado da sala OU polling de sinais ────────────────
       GET: async ({ request }) => {
         const url = new URL(request.url);
-        const roomId = url.searchParams.get("roomId");
+        const action = url.searchParams.get("action");
 
+        if (action === "signal") {
+          return handlePollSignals(url);
+        }
+
+        // GET sem action → estado da sala
+        const roomId = url.searchParams.get("roomId");
         if (!roomId) return json({ error: "roomId é obrigatório" }, 400);
 
-        // Consultar estado em memória (Socket.io)
         const roomInMemory = getRoomStatus(roomId);
-
-        // Consultar banco de dados
         const session = await db.query.callSessions.findFirst({
           where: (t, { eq: dEq }) => dEq(t.roomId, roomId),
         });
@@ -79,25 +63,58 @@ export const Route = createFileRoute("/api/calls")({
         });
       },
 
-      // ── POST /api/calls — Cria nova sala de chamada ────────────────────────
+      // ── POST /api/calls — Criar sala, sinalizar, transcrever, encerrar ───────
       POST: async ({ request }) => {
         const url = new URL(request.url);
         const action = url.searchParams.get("action");
 
-        // Roteamento interno por query param
-        if (action === "transcribe") {
-          return handleTranscribe(request);
-        }
-        if (action === "end") {
-          return handleEnd(request);
-        }
+        if (action === "signal")    return handleSendSignal(request);
+        if (action === "transcribe") return handleTranscribe(request);
+        if (action === "end")        return handleEnd(request);
 
-        // Criação de sala (default)
         return handleCreate(request);
       },
     },
   },
 });
+
+// ── Polling de sinais WebRTC ──────────────────────────────────────────────────
+// GET /api/calls?action=signal&roomId=xxx&after=timestamp&role=agent|client
+
+function handlePollSignals(url: URL): Response {
+  const roomId = url.searchParams.get("roomId");
+  const after  = parseInt(url.searchParams.get("after") ?? "0", 10);
+  const role   = (url.searchParams.get("role") ?? "client") as "agent" | "client";
+
+  if (!roomId) return json({ error: "roomId é obrigatório" }, 400);
+
+  const room = getRoomStatus(roomId);
+  if (!room) return json({ error: "Sala não encontrada ou expirada" }, 404);
+
+  const signals = getSignals(roomId, after, role);
+  return json({ signals, status: room.status });
+}
+
+// ── Enviar sinal WebRTC ───────────────────────────────────────────────────────
+// POST /api/calls?action=signal  body: { roomId, role, type, data }
+
+async function handleSendSignal(request: Request): Promise<Response> {
+  try {
+    const body = await request.json();
+    const { roomId, role, type, data } = body;
+
+    if (!roomId || !role || !type) {
+      return json({ error: "roomId, role e type são obrigatórios" }, 400);
+    }
+
+    const ok = addSignal(roomId, role as "agent" | "client", type, data);
+    if (!ok) return json({ error: "Sala não encontrada ou encerrada" }, 404);
+
+    return json({ success: true });
+  } catch (e: any) {
+    return json({ error: e.message }, 500);
+  }
+}
 
 // ── Criar sala ────────────────────────────────────────────────────────────────
 
@@ -110,14 +127,11 @@ async function handleCreate(request: Request): Promise<Response> {
       return json({ error: "tenantId, conversationId e operatorId são obrigatórios" }, 400);
     }
 
-    // Gerar ID único para a sala
     const roomId = `call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const sessionId = `cs-${Date.now()}`;
 
-    // Criar sala no signaling server (em memória)
     createRoom(roomId);
 
-    // Registrar sessão no banco
     await db.insert(callSessions).values({
       id: sessionId,
       tenantId,
@@ -156,33 +170,28 @@ async function handleTranscribe(request: Request): Promise<Response> {
 
     const duration = parseInt(durationStr ?? "0", 10);
 
-    // Buscar sessão no banco
     const session = await db.query.callSessions.findFirst({
       where: (t, { eq: dEq }) => dEq(t.roomId, roomId),
     });
 
     if (!session) return json({ error: "Sessão não encontrada" }, 404);
 
-    // Atualizar status da sessão como encerrada
     await db
       .update(callSessions)
       .set({ status: "ended", endedAt: new Date(), durationSeconds: duration })
       .where(eq(callSessions.roomId, roomId));
 
-    // ── Transcrição com Groq Whisper ──────────────────────────────────────────
     const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
     const transcription = await transcribeAudio(audioBuffer, audioFile.name || "recording.webm");
 
     let transcriptionMessageId: string | null = null;
 
     if (transcription) {
-      // Salvar transcrição na sessão
       await db
         .update(callSessions)
         .set({ transcription })
         .where(eq(callSessions.roomId, roomId));
 
-      // ── Inserir nota interna no chat ─────────────────────────────────────────
       const noteContent = formatCallNote(transcription, operatorName, duration);
       transcriptionMessageId = `call-note-${Date.now()}`;
 
@@ -197,13 +206,14 @@ async function handleTranscribe(request: Request): Promise<Response> {
         sentAt: new Date(),
       });
 
-      // Atualizar última mensagem da conversa
       await db
         .update(conversations)
-        .set({ lastMessageText: `📞 Ligação encerrada • ${Math.floor(duration / 60)}min`, lastMessageTime: new Date() })
+        .set({
+          lastMessageText: `📞 Ligação encerrada • ${Math.floor(duration / 60)}min`,
+          lastMessageTime: new Date(),
+        })
         .where(eq(conversations.id, session.conversationId));
 
-      // Salvar ID da nota na sessão
       await db
         .update(callSessions)
         .set({ transcriptionMessageId })
@@ -217,7 +227,7 @@ async function handleTranscribe(request: Request): Promise<Response> {
   }
 }
 
-// ── Encerrar sala forçado ─────────────────────────────────────────────────────
+// ── Encerrar sala ─────────────────────────────────────────────────────────────
 
 async function handleEnd(request: Request): Promise<Response> {
   try {
@@ -225,6 +235,8 @@ async function handleEnd(request: Request): Promise<Response> {
     const { roomId } = body;
 
     if (!roomId) return json({ error: "roomId é obrigatório" }, 400);
+
+    endRoom(roomId);
 
     await db
       .update(callSessions)
