@@ -18,6 +18,8 @@ import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
+import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
+import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
@@ -71,6 +73,16 @@ const ApiChatsRoute = ApiChatsRouteImport.update({
 const ApiCallsRoute = ApiCallsRouteImport.update({
   id: '/api/calls',
   path: '/api/calls',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoOverviewRoute = ApiGestaoOverviewRouteImport.update({
+  id: '/api/gestao/overview',
+  path: '/api/gestao/overview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoAlertsRoute = ApiGestaoAlertsRouteImport.update({
+  id: '/api/gestao/alerts',
+  path: '/api/gestao/alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiContactsContactIdRoute = ApiContactsContactIdRouteImport.update({
@@ -138,6 +150,8 @@ export interface FileRoutesByFullPath {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
+  '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -158,6 +172,8 @@ export interface FileRoutesByTo {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
+  '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -179,6 +195,8 @@ export interface FileRoutesById {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
+  '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -201,6 +219,8 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/gestao/alerts'
+    | '/api/gestao/overview'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -221,6 +241,8 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/gestao/alerts'
+    | '/api/gestao/overview'
   id:
     | '__root__'
     | '/'
@@ -241,6 +263,8 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/gestao/alerts'
+    | '/api/gestao/overview'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -260,6 +284,8 @@ export interface RootRouteChildren {
   ApiBaileysSendMediaRoute: typeof ApiBaileysSendMediaRoute
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
+  ApiGestaoAlertsRoute: typeof ApiGestaoAlertsRoute
+  ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -325,6 +351,20 @@ declare module '@tanstack/react-router' {
       path: '/api/calls'
       fullPath: '/api/calls'
       preLoaderRoute: typeof ApiCallsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/overview': {
+      id: '/api/gestao/overview'
+      path: '/api/gestao/overview'
+      fullPath: '/api/gestao/overview'
+      preLoaderRoute: typeof ApiGestaoOverviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/alerts': {
+      id: '/api/gestao/alerts'
+      path: '/api/gestao/alerts'
+      fullPath: '/api/gestao/alerts'
+      preLoaderRoute: typeof ApiGestaoAlertsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/contacts/$contactId': {
@@ -434,6 +474,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSendMediaRoute: ApiBaileysSendMediaRoute,
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
+  ApiGestaoAlertsRoute: ApiGestaoAlertsRoute,
+  ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

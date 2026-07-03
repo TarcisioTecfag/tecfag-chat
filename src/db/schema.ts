@@ -153,6 +153,101 @@ export const callSessions = pgTable("call_sessions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 9. LOGS DE TEMPO DE RESPOSTA (SLA Engine) ───────────────────────────────
+// Cada linha representa um ciclo: cliente enviou mensagem → agente respondeu.
+// Quando o agente ainda não respondeu, agentResponseAt e responseTimeSeconds ficam null.
+export const responseTimeLogs = pgTable("response_time_logs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+
+  clientMessageId: text("client_message_id").notNull(),       // ID da mensagem do cliente que abriu o ciclo
+  clientMessageAt: timestamp("client_message_at").notNull(),  // Quando o cliente enviou
+
+  agentResponseId: text("agent_response_id"),                 // ID da primeira resposta do agente (null = pendente)
+  agentResponseAt: timestamp("agent_response_at"),            // Quando o agente respondeu
+  responseTimeSeconds: integer("response_time_seconds"),      // Delta calculado em segundos
+
+  isOverdue: boolean("is_overdue").default(false).notNull(),  // TRUE quando passou do limite de SLA
+  overdueThresholdSeconds: integer("overdue_threshold_seconds").default(900).notNull(), // Limite em seg (default 15min)
+  overdueNotifiedAt: timestamp("overdue_notified_at"),        // Quando foi marcado como overdue
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── 10. AUDITORIAS DE CONVERSA POR I.A. ─────────────────────────────────────
+// Uma linha por conversa finalizada. A IA analisa a transcrição completa
+// e gera score, sentimento, flags de problema e insights acionáveis.
+export const aiConversationAudits = pgTable("ai_conversation_audits", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  contactName: text("contact_name"),          // Desnormalizado para exibição rápida sem joins
+
+  // ── Resultado estruturado da IA ──
+  performanceScore: integer("performance_score"),             // 0-100
+  clientSentiment: text("client_sentiment"),                  // 'satisfeito' | 'neutro' | 'frustrado'
+
+  // ── Flags booleanas de problema (indexáveis e filtráveis) ──
+  hadLongResponseGap: boolean("had_long_response_gap").default(false).notNull(),
+  hadMissedObjection: boolean("had_missed_objection").default(false).notNull(),
+  hadRudeLanguage: boolean("had_rude_language").default(false).notNull(),
+  hadNoFollowUp: boolean("had_no_follow_up").default(false).notNull(),
+
+  // ── Textos gerados pela IA ──
+  summary: text("summary"),                 // Resumo em 2-3 linhas do que aconteceu
+  strengths: text("strengths"),             // O que o vendedor fez bem (específico)
+  weaknesses: text("weaknesses"),           // O que o vendedor errou (com ref. à mensagem)
+  actionableInsight: text("actionable_insight"), // 1 frase direta para o gestor agir
+
+  rawAiResponse: jsonb("raw_ai_response"),  // JSON bruto para auditoria futura
+
+  // ── Controle de processamento ──
+  status: text("status").default("pending").notNull(), // 'pending' | 'processing' | 'done' | 'error'
+  errorMessage: text("error_message"),
+  auditedAt: timestamp("audited_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── 11. MÉTRICAS DIÁRIAS POR OPERADOR (Pré-calculadas) ──────────────────────
+// Atualizada após cada auditoria concluída. Permite que o dashboard carregue
+// instantaneamente sem queries pesadas de agregação em tempo real.
+export const operatorDailyMetrics = pgTable("operator_daily_metrics", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "cascade" }).notNull(),
+  operatorName: text("operator_name").notNull(),  // Desnormalizado para exibição rápida
+  date: text("date").notNull(),                   // Formato 'YYYY-MM-DD'
+
+  totalConversations: integer("total_conversations").default(0).notNull(),
+  avgResponseTimeSeconds: integer("avg_response_time_seconds"),   // Tempo médio de resposta do dia
+  maxResponseTimeSeconds: integer("max_response_time_seconds"),   // Pior caso do dia
+  overdueCount: integer("overdue_count").default(0).notNull(),    // Qtd de respostas atrasadas
+
+  avgPerformanceScore: integer("avg_performance_score"),          // Média dos scores da IA no dia
+  satisfiedCount: integer("satisfied_count").default(0).notNull(),
+  neutralCount: integer("neutral_count").default(0).notNull(),
+  frustratedCount: integer("frustrated_count").default(0).notNull(),
+
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── 12. RELATÓRIOS AUTOMÁTICOS GERADOS PELA I.A. ────────────────────────────
+// Relatórios diários e semanais em Markdown, prontos para exibição e copiar/colar.
+export const aiReports = pgTable("ai_reports", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  type: text("type").notNull(),           // 'daily' | 'weekly'
+  period: text("period").notNull(),       // 'YYYY-MM-DD' para daily, 'YYYY-WNN' para weekly
+
+  reportMarkdown: text("report_markdown").notNull(), // O relatório formatado em Markdown
+  reportData: jsonb("report_data"),                  // Dados brutos que alimentaram o relatório
+
+  generatedAt: timestamp("generated_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -162,4 +257,10 @@ export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type QuickResponse = typeof quickResponses.$inferSelect;
 export type MediaFile = typeof mediaFiles.$inferSelect;
+
+// ── Novos tipos do Gestor de I.A. ──
+export type ResponseTimeLog = typeof responseTimeLogs.$inferSelect;
+export type AiConversationAudit = typeof aiConversationAudits.$inferSelect;
+export type OperatorDailyMetrics = typeof operatorDailyMetrics.$inferSelect;
+export type AiReport = typeof aiReports.$inferSelect;
 export type CallSession = typeof callSessions.$inferSelect;

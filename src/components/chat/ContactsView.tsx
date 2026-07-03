@@ -519,11 +519,13 @@ export function ContactsView() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* MODAL: EDITAR CONTATO */}
+
       <AnimatePresence>
         {editingContact && (
           <motion.div

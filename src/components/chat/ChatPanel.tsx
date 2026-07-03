@@ -914,7 +914,13 @@ export function ChatPanel() {
   };
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative">
+    <motion.section
+      key={activeChat.id}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
+      className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative"
+    >
       {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
       <header className="flex flex-wrap items-center justify-between px-6 py-4 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10">
         <div className="flex items-center gap-3">
@@ -1705,8 +1711,11 @@ export function ChatPanel() {
                   className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
                 />
                 {/* Quick Template Icon */}
-                <button
+                <motion.button
                   onClick={() => setShowQuickMenu(!showQuickMenu)}
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.88 }}
+                  animate={{ rotate: showQuickMenu ? -15 : 0 }}
                   className={`transition cursor-pointer ${
                     msgMode === "internal"
                       ? "text-amber-500 hover:text-amber-700"
@@ -1715,16 +1724,19 @@ export function ChatPanel() {
                   title="Respostas Rápidas"
                 >
                   <Zap className="h-4.5 w-4.5" strokeWidth={2} />
-                </button>
+                </motion.button>
                 {/* Emoji Picker Trigger */}
                 <div className="relative flex items-center">
-                  <button
+                  <motion.button
                     onClick={() => setShowEmojiPicker((v) => !v)}
+                    whileHover={{ scale: 1.15 }}
+                    whileTap={{ scale: 0.88 }}
+                    animate={{ rotate: showEmojiPicker ? 15 : 0 }}
                     className="text-muted-foreground hover:text-foreground cursor-pointer transition"
                     title="Emojis"
                   >
                     <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
-                  </button>
+                  </motion.button>
                   <AnimatePresence>
                     {showEmojiPicker && (
                       <EmojiPicker
@@ -1739,8 +1751,10 @@ export function ChatPanel() {
 
                 </div>
                 {/* Attachment Button */}
-                <button
+                <motion.button
                   onClick={() => fileInputRef.current?.click()}
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.88 }}
                   className={`cursor-pointer transition relative ${
                     attachments.length > 0
                       ? "text-primary"
@@ -1754,27 +1768,31 @@ export function ChatPanel() {
                       {attachments.length}
                     </span>
                   )}
-                </button>
+                </motion.button>
                 {/* Mic button */}
-                <button
+                <motion.button
                   onClick={startRecording}
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.88 }}
                   className="text-muted-foreground hover:text-primary transition cursor-pointer"
                   title="Gravar áudio"
                 >
                   <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
-                </button>
+                </motion.button>
               </>
             )}
 
             {/* Send — always visible */}
-            <button
+            <motion.button
               onClick={handleSend}
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.94 }}
               className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 ${
                 msgMode === "internal" ? "bg-amber-500" : "bg-primary"
               }`}
             >
               {msgMode === "internal" ? <Lock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-            </button>
+            </motion.button>
           </div>
         </div>
       ) : (
@@ -1782,13 +1800,15 @@ export function ChatPanel() {
           <p className="text-xs text-muted-foreground italic">
             Este atendimento foi encerrado. Reative-o para iniciar uma nova conversa com o cliente.
           </p>
-          <button
+          <motion.button
             onClick={() => captureChat(activeChat.id)}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
             className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-soft transition hover:opacity-90 active:scale-98 cursor-pointer"
           >
             <CheckCircle className="h-4 w-4" />
             Reativar Atendimento
-          </button>
+          </motion.button>
         </div>
       )}
 
@@ -1841,6 +1861,7 @@ export function ChatPanel() {
           </div>
         </div>
       )}
-    </section>
+    </motion.section>
   );
 }
+

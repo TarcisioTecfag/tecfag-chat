@@ -171,30 +171,39 @@ export function ChatList() {
             {operatorProfile.status === "disponivel" ? "Disponível" : operatorProfile.status === "pausa" ? "Em Pausa" : "Desconectado"}
           </button>
           
-          {showStatusDropdown && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowStatusDropdown(false)} />
-              <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 w-32 rounded-xl bg-card p-1 border border-border shadow-card text-[11px] font-bold">
-                {(["disponivel", "pausa", "desconectado"] as const).map((st) => (
-                  <button
-                    key={st}
-                    onClick={() => {
-                      updateOperatorProfile({ status: st });
-                      setShowStatusDropdown(false);
-                    }}
-                    className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-muted ${
-                      operatorProfile.status === st ? "text-primary bg-primary-soft/50" : "text-muted-foreground"
-                    }`}
-                  >
-                    <span className={`h-2 w-2 rounded-full ${
-                      st === "disponivel" ? "bg-emerald-500" : st === "pausa" ? "bg-amber-500" : "bg-gray-400"
-                    }`} />
-                    <span className="capitalize">{st === "disponivel" ? "Disponível" : st === "pausa" ? "Em Pausa" : "Desconectado"}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+          <AnimatePresence>
+            {showStatusDropdown && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowStatusDropdown(false)} />
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -5 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                  transition={{ type: "spring", damping: 20, stiffness: 350 }}
+                  className="absolute top-6 left-1/2 -translate-x-1/2 z-50 w-32 rounded-xl bg-card p-1 border border-border shadow-card text-[11px] font-bold origin-top"
+                >
+                  {(["disponivel", "pausa", "desconectado"] as const).map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => {
+                        updateOperatorProfile({ status: st });
+                        setShowStatusDropdown(false);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-muted ${
+                        operatorProfile.status === st ? "text-primary bg-primary-soft/50" : "text-muted-foreground"
+                      }`}
+                    >
+                      <span className={`h-2 w-2 rounded-full ${
+                        st === "disponivel" ? "bg-emerald-500" : st === "pausa" ? "bg-amber-500" : "bg-gray-400"
+                      }`} />
+                      <span className="capitalize">{st === "disponivel" ? "Disponível" : st === "pausa" ? "Em Pausa" : "Desconectado"}</span>
+                    </button>
+                  ))}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
         </div>
       </div>
 

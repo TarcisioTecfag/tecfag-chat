@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { conversations, contacts, messages } from "../../db/schema";
-import { eq, desc, asc } from "drizzle-orm";
+import { conversations, contacts, messages, responseTimeLogs } from "../../db/schema";
+import { eq, desc, asc, isNull, and } from "drizzle-orm";
+import { SlaEngine } from "../../lib/sla-engine";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -164,6 +165,69 @@ export const Route = createFileRoute("/api/chats")({
               lastMessageTime: new Date(),
             })
             .where(eq(conversations.id, conversationId));
+
+          // ── SLA Engine: rastreamento de tempo de resposta ──────────────────
+          // Notas internas não entram no cálculo de SLA
+          if (!isInternalNote) {
+            const now = new Date();
+
+            if (senderType === "client") {
+              // Cliente enviou: abre um novo ciclo de SLA (pendente)
+              await db.insert(responseTimeLogs).values({
+                id: `sla-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                tenantId,
+                conversationId,
+                operatorId: null, // Ainda não sabemos qual operador vai responder
+                clientMessageId: messageId,
+                clientMessageAt: now,
+                overdueThresholdSeconds: 900, // 15 minutos (configurável futuramente)
+              });
+            } else if (senderType === "agent" || senderType === "bot") {
+              // Agente respondeu: fecha o ciclo de SLA mais recente pendente desta conversa
+              const openLog = await db
+                .select()
+                .from(responseTimeLogs)
+                .where(
+                  and(
+                    eq(responseTimeLogs.conversationId, conversationId),
+                    isNull(responseTimeLogs.agentResponseId)
+                  )
+                )
+                .orderBy(desc(responseTimeLogs.clientMessageAt))
+                .limit(1);
+
+              if (openLog.length > 0) {
+                const log = openLog[0];
+                const deltaSeconds = Math.floor(
+                  (now.getTime() - new Date(log.clientMessageAt).getTime()) / 1000
+                );
+                await db
+                  .update(responseTimeLogs)
+                  .set({
+                    agentResponseId: messageId,
+                    agentResponseAt: now,
+                    responseTimeSeconds: deltaSeconds,
+                  })
+                  .where(eq(responseTimeLogs.id, log.id));
+
+                // Atualiza métricas diárias do operador em tempo real
+                const convRow = await db
+                  .select({ operatorId: conversations.operatorId })
+                  .from(conversations)
+                  .where(eq(conversations.id, conversationId))
+                  .limit(1);
+
+                if (convRow[0]?.operatorId) {
+                  SlaEngine.getInstance().updateResponseMetrics(
+                    tenantId,
+                    convRow[0].operatorId,
+                    deltaSeconds
+                  ).catch((e) => console.error("[SlaEngine] Erro ao atualizar métricas:", e));
+                }
+              }
+            }
+          }
+          // ── Fim SLA Engine ─────────────────────────────────────────────────
 
           return new Response(JSON.stringify({ success: true, messageId }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
