@@ -1127,29 +1127,18 @@ export function ChatPanel() {
                 )}
               </div>
 
-              {/* Call Button */}
-              <button
-                onClick={() => handleStartCall()}
-                disabled={callStatus !== "idle"}
-                className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
-                  callStatus !== "idle"
-                    ? "bg-red-500/10 text-red-500 border-red-500/30 cursor-not-allowed"
-                    : "bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300"
-                }`}
-                title="Iniciar ligação com o cliente"
-              >
-                <Phone className="h-3.5 w-3.5" />
-              </button>
-
-              {/* Local Dial Call Button (VigosPhone/MicroSIP) */}
+              {/* Local Dial Button (VigosPhone/MicroSIP) */}
               <a
                 href={(() => {
                   if (!activeChat.phone) return "#";
-                  let cleaned = activeChat.phone.replace(/\D/g, "");
-                  if (cleaned.startsWith("55") && cleaned.length > 10) {
-                    cleaned = cleaned.substring(2);
-                  }
-                  return `tel:${cleaned}`;
+                  let n = activeChat.phone.replace(/\D/g, "");
+                  // Remove código do país Brasil (55)
+                  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
+                  // Remove zero de discagem de longa distância (ex: 014...)
+                  if (n.startsWith("0")) n = n.substring(1);
+                  // Se for DDD 14 (área local), remove o DDD para discagem direta
+                  if (n.startsWith("14")) n = n.substring(2);
+                  return `tel:${n}`;
                 })()}
                 className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
                 title="Discar via VigosPhone (Softphone Local)"
