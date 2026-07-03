@@ -584,11 +584,23 @@ export class SessionManager {
           tags: [],
           createdAt: new Date(),
         });
-      } else if (contact && !contact.whatsappJid) {
-        // Atualiza o JID em contatos já existentes que não o tinham
-        await db.update(contacts)
-          .set({ whatsappJid: jid })
-          .where(eq(contacts.id, contactId));
+      } else {
+        const updates: any = {};
+        if (!contact.whatsappJid) {
+          updates.whatsappJid = jid;
+        }
+
+        // Se o telefone salvo era o LID (que não foi resolvido) e agora conseguimos resolver o número real
+        const isResolved = !resolvedPhoneJid.endsWith("@lid");
+        if (contact.phone !== phone && isResolved) {
+          updates.phone = phone;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await db.update(contacts)
+            .set(updates)
+            .where(eq(contacts.id, contactId));
+        }
       }
 
       // Buscar foto de perfil em background (sem await para não atrasar o processamento de mensagens!)
