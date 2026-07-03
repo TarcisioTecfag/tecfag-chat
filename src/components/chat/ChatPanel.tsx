@@ -517,118 +517,134 @@ export function ChatPanel() {
 
     const operatorName = operatorProfile?.name || operators.find((op) => op.id === currentOperatorId)?.name || "Agente";
 
+    // ── 1. Criar sala via API (CRÍTICO — aborta se falhar) ─────────────────
+    let roomId: string;
+    let callLink: string;
     try {
-      // 1. Criar sala via API
       const res = await fetch(`${BACKEND_URL}/api/calls`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenantId: tenant, conversationId: activeChat.id, operatorId: currentOperatorId, operatorName }),
       });
-      const { roomId, callLink } = await res.json();
+      if (!res.ok) throw new Error(`API retornou ${res.status}`);
+      const data = await res.json();
+      roomId = data.roomId;
+      callLink = data.callLink;
       setCallRoomId(roomId);
+    } catch (err) {
+      console.error("[Call] Falha ao criar sala:", err);
+      setCallStatus("error");
+      return;
+    }
 
-      // 2. Enviar link pelo WhatsApp
-      await fetch(`${BACKEND_URL}/api/baileys/send`, {
+    // ── 2. Solicitar microfone (CRÍTICO — aborta se negado) ────────────────
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      callStreamRef.current = stream;
+    } catch (err) {
+      console.warn("[Call] Microfone negado:", err);
+      // Encerrar sala no servidor
+      fetch(`${BACKEND_URL}/api/calls?action=end`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId }),
+      }).catch(() => {});
+      setCallStatus("error");
+      return;
+    }
+
+    // ── 3. Enviar link pelo WhatsApp (não crítico) ─────────────────────────
+    fetch(`${BACKEND_URL}/api/baileys/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantId: tenant,
+        phone: activeChat.phone,
+        conversationId: activeChat.id,
+        senderName: operatorName,
+        text: `📞 ${operatorName} está te ligando!\n\nToque no link para atender pelo navegador:\n${callLink}\n\n⏱️ Link expira em 10 minutos.`,
+      }),
+    }).catch((e) => console.warn("[Call] WhatsApp send falhou:", e));
+
+    // ── 4. Nota interna no chat (não crítico) ──────────────────────────────
+    sendMessage(
+      `📞 *Ligação iniciada por ${operatorName}*\n\nLink enviado para ${activeChat.name}:\n${callLink}`,
+      true
+    ).catch((e) => console.warn("[Call] Nota interna falhou:", e));
+
+    // ── 5. Criar RTCPeerConnection ─────────────────────────────────────────
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    callPcRef.current = pc;
+    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+    pc.ontrack = (e) => {
+      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
+      try {
+        const ctx = new AudioContext();
+        const dest = ctx.createMediaStreamDestination();
+        ctx.createMediaStreamSource(stream).connect(dest);
+        ctx.createMediaStreamSource(e.streams[0]).connect(dest);
+        const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus" });
+        callRecorderRef.current = recorder;
+        recorder.ondataavailable = (ev) => { if (ev.data.size > 0) callChunksRef.current.push(ev.data); };
+        recorder.start(1000);
+      } catch {}
+    };
+
+    // ICE candidates → polling API
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) return;
+      fetch(`${BACKEND_URL}/api/calls?action=signal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId: tenant,
-          phone: activeChat.phone,
-          conversationId: activeChat.id,
-          senderName: operatorName,
-          text: `📞 ${operatorName} está te ligando!\n\nToque no link para atender pelo navegador:\n${callLink}\n\n⏱️ Link expira em 10 minutos.`,
-        }),
-      });
+        body: JSON.stringify({ roomId, role: "agent", type: "webrtc:ice", data: e.candidate }),
+      }).catch(() => {});
+    };
 
-      // 3. Nota interna no chat
-      await sendMessage(
-        `📞 *Ligação iniciada por ${operatorName}*\n\nLink enviado para ${activeChat.name}:\n${callLink}`,
-        true
-      );
+    // ── 6. Polling — verifica sinais do cliente a cada 600ms ───────────────
+    callPollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(
+          `${BACKEND_URL}/api/calls?action=signal&roomId=${roomId}&after=${callLastTsRef.current}&role=agent`
+        );
+        if (!r.ok) return;
+        const { signals, status } = await r.json();
 
-      // 4. Solicitar microfone
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      callStreamRef.current = stream;
+        if (status === "ended") { handleEndCall(roomId, true); return; }
 
-      // 5. Criar RTCPeerConnection (aguardando cliente)
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-      callPcRef.current = pc;
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        for (const sig of signals as Array<{ type: string; data: any; timestamp: number }>) {
+          callLastTsRef.current = Math.max(callLastTsRef.current, sig.timestamp);
 
-      pc.ontrack = (e) => {
-        if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
-        try {
-          const ctx = new AudioContext();
-          const dest = ctx.createMediaStreamDestination();
-          ctx.createMediaStreamSource(stream).connect(dest);
-          ctx.createMediaStreamSource(e.streams[0]).connect(dest);
-          const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus" });
-          callRecorderRef.current = recorder;
-          recorder.ondataavailable = (ev) => { if (ev.data.size > 0) callChunksRef.current.push(ev.data); };
-          recorder.start(1000);
-        } catch {}
-      };
-
-      // ICE candidates → enviar para o servidor via polling API
-      pc.onicecandidate = async (e) => {
-        if (!e.candidate) return;
-        await fetch(`${BACKEND_URL}/api/calls?action=signal`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roomId, role: "agent", type: "webrtc:ice", data: e.candidate }),
-        }).catch(() => {});
-      };
-
-      // 6. Polling — verifica sinais do cliente a cada 600ms
-      callPollRef.current = setInterval(async () => {
-        try {
-          const r = await fetch(
-            `${BACKEND_URL}/api/calls?action=signal&roomId=${roomId}&after=${callLastTsRef.current}&role=agent`
-          );
-          if (!r.ok) return;
-          const { signals, status } = await r.json();
-
-          if (status === "ended") { handleEndCall(roomId, true); return; }
-
-          for (const sig of signals as Array<{ type: string; data: any; timestamp: number }>) {
-            callLastTsRef.current = Math.max(callLastTsRef.current, sig.timestamp);
-
-            if (sig.type === "client:joined") {
-              // Cliente entrou → criar e enviar offer
-              setCallStatus("active");
-              callTimerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
-
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              await fetch(`${BACKEND_URL}/api/calls?action=signal`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ roomId, role: "agent", type: "webrtc:offer", data: offer }),
-              });
-            }
-
-            if (sig.type === "webrtc:answer") {
-              await pc.setRemoteDescription(new RTCSessionDescription(sig.data));
-            }
-
-            if (sig.type === "webrtc:ice") {
-              try { await pc.addIceCandidate(new RTCIceCandidate(sig.data)); } catch {}
-            }
-
-            if (sig.type === "call:ended") {
-              handleEndCall(roomId, true);
-              return;
-            }
+          if (sig.type === "client:joined") {
+            setCallStatus("active");
+            callTimerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            await fetch(`${BACKEND_URL}/api/calls?action=signal`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ roomId, role: "agent", type: "webrtc:offer", data: offer }),
+            });
           }
-        } catch {}
-      }, 600);
 
-    } catch (err) {
-      console.error("[Call] Erro ao iniciar chamada:", err);
-      cleanupCall();
-      setCallStatus("error");
-    }
+          if (sig.type === "webrtc:answer") {
+            await pc.setRemoteDescription(new RTCSessionDescription(sig.data));
+          }
+
+          if (sig.type === "webrtc:ice") {
+            try { await pc.addIceCandidate(new RTCIceCandidate(sig.data)); } catch {}
+          }
+
+          if (sig.type === "call:ended") {
+            handleEndCall(roomId, true);
+            return;
+          }
+        }
+      } catch {}
+    }, 600);
+
   }, [activeChat, tenant, currentOperatorId, operators, operatorProfile, sendMessage, cleanupCall]);
+
 
   const handleEndCall = useCallback(async (roomId: string | null, fromRemote = false) => {
     // Sinalizar encerramento para o cliente (se não veio do remoto)
@@ -1169,7 +1185,7 @@ export function ChatPanel() {
                 {callStatus === "active" && "Em chamada"}
                 {callStatus === "transcribing" && "Transcrevendo chamada..."}
                 {callStatus === "done" && "Transcrição inserida no chat ✓"}
-                {callStatus === "error" && "Erro ao conectar. Tente novamente."}
+                {callStatus === "error" && "Microfone bloqueado ou erro ao conectar."}
               </p>
             </div>
 
@@ -1197,6 +1213,27 @@ export function ChatPanel() {
                 <PhoneOff className="h-4 w-4" />
                 Encerrar chamada
               </button>
+            )}
+
+            {(callStatus === "error" || callStatus === "done") && (
+              <div className="flex gap-2 mt-2">
+                {callStatus === "error" && (
+                  <button
+                    onClick={handleStartCall}
+                    className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white hover:bg-primary/90 transition cursor-pointer"
+                  >
+                    <Phone className="h-4 w-4" />
+                    Tentar de novo
+                  </button>
+                )}
+                <button
+                  onClick={() => setCallStatus("idle")}
+                  className="flex items-center gap-2 rounded-xl bg-muted px-5 py-2.5 text-sm font-semibold text-foreground hover:bg-muted/80 transition cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                  Fechar
+                </button>
+              </div>
             )}
           </div>
         </div>
