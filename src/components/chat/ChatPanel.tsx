@@ -1127,16 +1127,13 @@ export function ChatPanel() {
                 )}
               </div>
 
-              {/* Local Dial Button (VigosPhone/MicroSIP) */}
+              {/* Local Dial Button (VigosPhone) — ao lado do Transferir */}
               <a
                 href={(() => {
                   if (!activeChat.phone) return "#";
                   let n = activeChat.phone.replace(/\D/g, "");
-                  // Remove código do país Brasil (55)
                   if (n.startsWith("55") && n.length > 10) n = n.substring(2);
-                  // Remove zero de discagem de longa distância (ex: 014...)
                   if (n.startsWith("0")) n = n.substring(1);
-                  // Se for DDD 14 (área local), remove o DDD para discagem direta
                   if (n.startsWith("14")) n = n.substring(2);
                   return `tel:${n}`;
                 })()}
