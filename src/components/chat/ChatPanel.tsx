@@ -1487,28 +1487,37 @@ export function ChatPanel() {
       </div>
 
       {/* Floating Quick Replies Menu */}
-      {showQuickMenu && (
-        <div className="absolute bottom-20 left-6 right-6 z-50 rounded-2xl bg-card p-2 border border-border shadow-card animate-in slide-in-from-bottom-2 duration-150 max-h-48 overflow-y-auto">
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-line">
-            Respostas Rápidas
-          </div>
-          {quickResponses.map((qr) => (
-            <button
-              key={qr.id || qr.shortcut}
-              onClick={() => selectQuickResponse(qr.text)}
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
-            >
-              <span className="text-xs font-bold text-primary font-mono">{qr.shortcut}</span>
-              <span className="truncate text-xs text-foreground/80 max-w-[280px] font-medium ml-2">
-                {qr.text}
-              </span>
-              <span className="text-[10px] text-muted-foreground italic shrink-0">
-                {qr.description}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+      <AnimatePresence>
+        {showQuickMenu && (
+          <motion.div
+            initial={{ opacity: 0, y: 15, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 15, scale: 0.98 }}
+            transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            className="absolute bottom-20 left-6 right-6 z-50 rounded-2xl bg-card p-2 border border-border shadow-card max-h-48 overflow-y-auto scrollbar-thin"
+          >
+            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-line">
+              Respostas Rápidas
+            </div>
+            {quickResponses.map((qr) => (
+              <button
+                key={qr.id || qr.shortcut}
+                onClick={() => selectQuickResponse(qr.text)}
+                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
+              >
+                <span className="text-xs font-bold text-primary font-mono">{qr.shortcut}</span>
+                <span className="truncate text-xs text-foreground/80 max-w-[280px] font-medium ml-2">
+                  {qr.text}
+                </span>
+                <span className="text-[10px] text-muted-foreground italic shrink-0">
+                  {qr.description}
+                </span>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
 
       {/* Message Composer */}
       {activeChat.queue !== "finalizados" ? (
@@ -1716,15 +1725,18 @@ export function ChatPanel() {
                   >
                     <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
                   </button>
-                  {showEmojiPicker && (
-                    <EmojiPicker
-                      onSelect={(emoji) => {
-                        setText((prev) => prev + emoji);
-                        inputRef.current?.focus();
-                      }}
-                      onClose={() => setShowEmojiPicker(false)}
-                    />
-                  )}
+                  <AnimatePresence>
+                    {showEmojiPicker && (
+                      <EmojiPicker
+                        onSelect={(emoji) => {
+                          setText((prev) => prev + emoji);
+                          inputRef.current?.focus();
+                        }}
+                        onClose={() => setShowEmojiPicker(false)}
+                      />
+                    )}
+                  </AnimatePresence>
+
                 </div>
                 {/* Attachment Button */}
                 <button

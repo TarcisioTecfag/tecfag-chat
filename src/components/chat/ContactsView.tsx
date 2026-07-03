@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   Plus,
@@ -394,9 +395,21 @@ export function ContactsView() {
       </div>
 
       {/* MODAL: NOVO CONTATO */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-3xl bg-card p-6 border border-border shadow-card animate-in fade-in zoom-in-95 duration-150">
+      <AnimatePresence>
+        {showAddModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", damping: 25, stiffness: 280 }}
+              className="w-full max-w-md rounded-3xl bg-card p-6 border border-border shadow-card flex flex-col"
+            >
             <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
               <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">
                 <UserPlus className="h-5 w-5 text-primary" />
@@ -511,9 +524,21 @@ export function ContactsView() {
       )}
 
       {/* MODAL: EDITAR CONTATO */}
-      {editingContact && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-3xl bg-card p-6 border border-border shadow-card animate-in fade-in zoom-in-95 duration-150">
+      <AnimatePresence>
+        {editingContact && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", damping: 25, stiffness: 280 }}
+              className="w-full max-w-md rounded-3xl bg-card p-6 border border-border shadow-card flex flex-col"
+            >
             <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
               <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">
                 <Edit2 className="h-4.5 w-4.5 text-primary" />
@@ -618,9 +643,11 @@ export function ContactsView() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </section>
+
   );
 }

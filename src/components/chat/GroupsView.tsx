@@ -22,6 +22,7 @@ import {
   ChevronDown
 } from "lucide-react";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 
 export function GroupsView() {
   const {
@@ -196,7 +197,7 @@ export function GroupsView() {
   };
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-6 shadow-soft overflow-y-auto select-none">
+    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-6 shadow-soft overflow-y-auto scrollbar-thin select-none">
       
       {/* 1. Header & Perms Simulation Banner */}
       <header className="mb-6 shrink-0">
@@ -252,7 +253,7 @@ export function GroupsView() {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-line mb-6 gap-6 shrink-0">
+      <div className="flex border-b border-line mb-6 gap-6 shrink-0 relative">
         <button
           onClick={() => setActiveTab("users")}
           className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
@@ -263,7 +264,11 @@ export function GroupsView() {
             <Users className="h-4 w-4" /> Operadores & Usuários
           </span>
           {activeTab === "users" && (
-            <span className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary" />
+            <motion.span
+              layoutId="activeGroupsTabIndicator"
+              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            />
           )}
         </button>
         <button
@@ -276,7 +281,11 @@ export function GroupsView() {
             <FolderLock className="h-4 w-4" /> Grupos de Acesso
           </span>
           {activeTab === "groups" && (
-            <span className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary" />
+            <motion.span
+              layoutId="activeGroupsTabIndicator"
+              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            />
           )}
         </button>
         <button
@@ -289,10 +298,15 @@ export function GroupsView() {
             <Building2 className="h-4 w-4" /> Setores
           </span>
           {activeTab === "sectors" && (
-            <span className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary" />
+            <motion.span
+              layoutId="activeGroupsTabIndicator"
+              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            />
           )}
         </button>
       </div>
+
 
       {/* Tab Contents */}
       {activeTab === "users" ? (

@@ -71,7 +71,7 @@ export function SettingsView() {
   };
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-8 shadow-soft overflow-y-auto">
+    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-8 shadow-soft overflow-y-auto scrollbar-thin">
       <div className={tenant === "tecfag" ? "max-w-3xl" : "max-w-6xl w-full"}>
         <header className="mb-8">
           <span className="text-xs font-semibold uppercase tracking-wider text-primary">

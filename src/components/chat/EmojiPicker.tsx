@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Search } from "lucide-react";
+import { motion } from "framer-motion";
 
 const EMOJI_CATEGORIES = [
   {
@@ -66,9 +67,13 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
     : EMOJI_CATEGORIES[activeCategory].emojis;
 
   return (
-    <div
+    <motion.div
       ref={pickerRef}
-      className="absolute bottom-full left-0 mb-2 z-50 w-80 rounded-2xl bg-card border border-border shadow-card animate-in slide-in-from-bottom-2 duration-150 overflow-hidden"
+      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+      transition={{ type: "spring", damping: 20, stiffness: 300 }}
+      className="absolute bottom-full left-0 mb-2 z-50 w-80 rounded-2xl bg-card border border-border shadow-card overflow-hidden"
     >
       {/* Search */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
@@ -101,7 +106,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
       )}
 
       {/* Emoji Grid */}
-      <div className="grid grid-cols-9 gap-0.5 p-2 max-h-52 overflow-y-auto">
+      <div className="grid grid-cols-9 gap-0.5 p-2 max-h-52 overflow-y-auto scrollbar-thin">
         {filtered.map((emoji, i) => (
           <button
             key={i}
@@ -117,6 +122,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
+
   );
 }
