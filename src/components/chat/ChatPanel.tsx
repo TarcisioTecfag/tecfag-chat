@@ -26,8 +26,8 @@ import {
   Square,
   Trash2,
   CornerUpLeft,
+  Play,
 } from "lucide-react";
-
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -41,8 +41,13 @@ function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
   const toggle = () => {
     const a = audioRef.current;
     if (!a) return;
-    if (playing) { a.pause(); setPlaying(false); }
-    else { a.play(); setPlaying(true); }
+    if (playing) {
+      a.pause();
+      setPlaying(false);
+    } else {
+      a.play();
+      setPlaying(true);
+    }
   };
 
   const fmt = (s: number) => {
@@ -62,7 +67,10 @@ function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
         preload="metadata"
         onTimeUpdate={() => setCurrent(audioRef.current?.currentTime || 0)}
         onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
-        onEnded={() => { setPlaying(false); setCurrent(0); }}
+        onEnded={() => {
+          setPlaying(false);
+          setCurrent(0);
+        }}
       />
       {/* Play / Pause */}
       <button
@@ -83,7 +91,9 @@ function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
 
       <div className="flex flex-1 flex-col gap-1.5 min-w-0">
         {/* Nome do arquivo */}
-        <p className="truncate text-[11px] font-semibold text-foreground leading-none">{fileName}</p>
+        <p className="truncate text-[11px] font-semibold text-foreground leading-none">
+          {fileName}
+        </p>
 
         {/* Barra de progresso */}
         <div className="relative h-1.5 w-full rounded-full bg-muted overflow-hidden">
@@ -120,21 +130,29 @@ function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
 function DocumentCard({ src, fileName }: { src: string; fileName: string }) {
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
   const isExcel = ["xls", "xlsx", "csv"].includes(ext);
-  const isWord  = ["doc", "docx"].includes(ext);
-  const isPdf   = ext === "pdf";
-  const isPpt   = ["ppt", "pptx"].includes(ext);
+  const isWord = ["doc", "docx"].includes(ext);
+  const isPdf = ext === "pdf";
+  const isPpt = ["ppt", "pptx"].includes(ext);
 
-  const iconBg    = isPdf ? "bg-red-100 text-red-500"
-    : isExcel     ? "bg-emerald-100 text-emerald-600"
-    : isWord      ? "bg-blue-100 text-blue-600"
-    : isPpt       ? "bg-orange-100 text-orange-500"
-    :               "bg-muted text-muted-foreground";
+  const iconBg = isPdf
+    ? "bg-red-100 text-red-500"
+    : isExcel
+      ? "bg-emerald-100 text-emerald-600"
+      : isWord
+        ? "bg-blue-100 text-blue-600"
+        : isPpt
+          ? "bg-orange-100 text-orange-500"
+          : "bg-muted text-muted-foreground";
 
-  const typeLabel = isPdf ? "PDF"
-    : isExcel     ? "Planilha"
-    : isWord      ? "Word"
-    : isPpt       ? "Apresentação"
-    :               "Documento";
+  const typeLabel = isPdf
+    ? "PDF"
+    : isExcel
+      ? "Planilha"
+      : isWord
+        ? "Word"
+        : isPpt
+          ? "Apresentação"
+          : "Documento";
 
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-card border border-border shadow-soft px-4 py-3 min-w-[240px] max-w-xs">
@@ -143,7 +161,9 @@ function DocumentCard({ src, fileName }: { src: string; fileName: string }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="truncate text-xs font-bold text-foreground">{fileName}</p>
-        <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wide mt-0.5">{typeLabel}</p>
+        <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wide mt-0.5">
+          {typeLabel}
+        </p>
       </div>
       <a
         href={src}
@@ -158,7 +178,69 @@ function DocumentCard({ src, fileName }: { src: string; fileName: string }) {
   );
 }
 
-function renderMessageContent(text: string) {
+function renderTextWithLinks(text: string, isMe?: boolean, isInternalNote?: boolean) {
+  if (!text) return "";
+
+  // Regular expression to match URLs starting with http://, https://, or www.
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+  const parts = text.split(urlRegex);
+  if (parts.length === 1) {
+    return text;
+  }
+
+  return parts.map((part, index) => {
+    const isUrl = part.match(/^https?:\/\//i) || part.match(/^www\./i);
+    if (isUrl) {
+      let url = part;
+      let trailing = "";
+
+      const commonTrailing = url.match(/[.,?!;:()]+$/);
+      if (commonTrailing) {
+        const count = commonTrailing[0].length;
+        url = url.slice(0, -count);
+        trailing = commonTrailing[0];
+      }
+
+      let href = url;
+      if (url.toLowerCase().startsWith("www.")) {
+        href = `https://${url}`;
+      }
+
+      let linkClass = "underline font-semibold break-all transition-all";
+      if (isMe) {
+        linkClass += " text-white hover:text-white/80 decoration-white/70";
+      } else if (isInternalNote) {
+        linkClass += " text-amber-800 hover:text-amber-950 decoration-amber-800/70";
+      } else {
+        linkClass += " text-primary hover:opacity-85 decoration-primary/70";
+      }
+
+      return (
+        <span key={index}>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClass}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {url}
+          </a>
+          {trailing}
+        </span>
+      );
+    }
+
+    return part;
+  });
+}
+
+function renderMessageContent(
+  text: string,
+  onMediaClick?: (type: "image" | "video", url: string) => void,
+  isMe?: boolean,
+) {
   // ── Preview local de mídia enviada (objectURL temporário) ─────────────────
   if (text.startsWith("[LOCAL_MEDIA:")) {
     // Formato: [LOCAL_MEDIA:type:blobUrl:filename]
@@ -174,7 +256,16 @@ function renderMessageContent(text: string) {
 
     if (type === "image") {
       return (
-        <div className="relative group max-w-sm rounded-xl overflow-hidden cursor-pointer" onClick={() => window.open(blobUrl, "_blank")}>
+        <div
+          className="relative group max-w-sm rounded-xl overflow-hidden cursor-pointer"
+          onClick={() => {
+            if (onMediaClick) {
+              onMediaClick("image", blobUrl);
+            } else {
+              window.open(blobUrl, "_blank");
+            }
+          }}
+        >
           <img src={blobUrl} alt={fileName} className="max-h-60 w-full object-contain rounded-xl" />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition rounded-xl" />
         </div>
@@ -183,8 +274,23 @@ function renderMessageContent(text: string) {
 
     if (type === "video") {
       return (
-        <div className="max-w-sm rounded-xl overflow-hidden">
-          <video controls src={blobUrl} className="max-h-60 w-full rounded-xl" />
+        <div
+          className="relative group max-w-sm rounded-xl overflow-hidden cursor-pointer bg-black/5 flex items-center justify-center border border-border"
+          onClick={() => {
+            if (onMediaClick) {
+              onMediaClick("video", blobUrl);
+            }
+          }}
+        >
+          <video
+            src={blobUrl}
+            className="max-h-60 w-full object-contain rounded-xl pointer-events-none"
+          />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/25 transition">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-105">
+              <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
+            </div>
+          </div>
         </div>
       );
     }
@@ -205,25 +311,37 @@ function renderMessageContent(text: string) {
 
       if (type === "image") {
         return (
-          <div className="relative group max-w-sm rounded-xl overflow-hidden border border-border bg-black/5 hover:opacity-95 transition cursor-pointer">
-            <img 
-              src={mediaUrl} 
-              alt="Imagem" 
-              className="max-h-60 w-full object-contain"
-              onClick={() => window.open(mediaUrl, "_blank")}
-            />
+          <div
+            className="relative group max-w-sm rounded-xl overflow-hidden border border-border bg-black/5 hover:opacity-95 transition cursor-pointer"
+            onClick={() => {
+              if (onMediaClick) {
+                onMediaClick("image", mediaUrl);
+              } else {
+                window.open(mediaUrl, "_blank");
+              }
+            }}
+          >
+            <img src={mediaUrl} alt="Imagem" className="max-h-60 w-full object-contain" />
           </div>
         );
       }
 
       if (type === "video") {
         return (
-          <div className="relative max-w-sm rounded-xl overflow-hidden border border-border bg-black/5">
-            <video 
-              controls 
-              src={mediaUrl} 
-              className="max-h-60 w-full object-contain"
-            />
+          <div
+            className="relative group max-w-sm rounded-xl overflow-hidden border border-border bg-black/5 cursor-pointer flex items-center justify-center"
+            onClick={() => {
+              if (onMediaClick) {
+                onMediaClick("video", mediaUrl);
+              }
+            }}
+          >
+            <video src={mediaUrl} className="max-h-60 w-full object-contain pointer-events-none" />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/25 transition">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-105">
+                <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
+              </div>
+            </div>
           </div>
         );
       }
@@ -240,11 +358,7 @@ function renderMessageContent(text: string) {
       if (type === "sticker") {
         return (
           <div className="relative max-w-[120px] overflow-hidden">
-            <img 
-              src={mediaUrl} 
-              alt="Figurinha" 
-              className="h-28 w-28 object-contain"
-            />
+            <img src={mediaUrl} alt="Figurinha" className="h-28 w-28 object-contain" />
           </div>
         );
       }
@@ -252,7 +366,7 @@ function renderMessageContent(text: string) {
   }
 
   // Fallback para texto plano
-  return <p className="whitespace-pre-wrap">{text}</p>;
+  return <p className="whitespace-pre-wrap">{renderTextWithLinks(text, isMe)}</p>;
 }
 
 /** Detecta se o texto contém apenas emojis (inclui modificadores e ZWJ sequences) */
@@ -260,7 +374,8 @@ function isEmojiOnly(text: string): boolean {
   const stripped = text.replace(/[\u200D\uFE0F\u20E3]/g, "").trim();
   if (!stripped) return false;
   // Regex que cobre emoji base + modificadores
-  const emojiRegex = /^(\p{Emoji_Presentation}|\p{Extended_Pictographic}|[\u{1F1E0}-\u{1F1FF}]|\u{1F3FB}-\u{1F3FF}|\u{1F466}-\u{1F469})+$/u;
+  const emojiRegex =
+    /^(\p{Emoji_Presentation}|\p{Extended_Pictographic}|[\u{1F1E0}-\u{1F1FF}]|\u{1F3FB}-\u{1F3FF}|\u{1F466}-\u{1F469})+$/u;
   return emojiRegex.test(stripped);
 }
 
@@ -320,9 +435,32 @@ export function ChatPanel() {
   const [isDragging, setIsDragging] = useState(false);
   const [msgSearch, setMsgSearch] = useState("");
   const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [activeMedia, setActiveMedia] = useState<{ type: "image" | "video"; url: string } | null>(
+    null,
+  );
+
+  const handleMediaClick = useCallback((type: "image" | "video", url: string) => {
+    setActiveMedia({ type, url });
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setActiveMedia(null);
+      }
+    };
+    if (activeMedia) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeMedia]);
 
   // ── Voice recorder state ────────────────────────────────────────────────────
-  const [recordingState, setRecordingState] = React.useState<"idle" | "recording" | "preview">("idle");
+  const [recordingState, setRecordingState] = React.useState<"idle" | "recording" | "preview">(
+    "idle",
+  );
   const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   const [recordingSeconds, setRecordingSeconds] = React.useState(0);
@@ -337,14 +475,18 @@ export function ChatPanel() {
 
   // ── Voice recorder logic ────────────────────────────────────────────────────
   const fmtSec = (s: number) =>
-    `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
+    `${Math.floor(s / 60)
+      .toString()
+      .padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream);
       chunksRef.current = [];
-      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
       mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
@@ -365,7 +507,10 @@ export function ChatPanel() {
 
   const stopRecording = () => {
     mediaRecorderRef.current?.stop();
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
   };
 
   const discardRecording = () => {
@@ -456,7 +601,8 @@ export function ChatPanel() {
           </div>
           <h3 className="text-lg font-bold text-foreground">Nenhum Atendimento Ativo</h3>
           <p className="text-sm mt-2">
-            Selecione uma conversa na barra lateral esquerda ou capture uma da Fila de Espera para iniciar o atendimento.
+            Selecione uma conversa na barra lateral esquerda ou capture uma da Fila de Espera para
+            iniciar o atendimento.
           </p>
         </div>
       </section>
@@ -465,20 +611,27 @@ export function ChatPanel() {
 
   const handleSend = () => {
     const quoted = replyingTo
-      ? { id: replyingTo.id, sender: replyingTo.author, content: getFriendlyQuotedContent(replyingTo.text) }
+      ? {
+          id: replyingTo.id,
+          sender: replyingTo.author,
+          content: getFriendlyQuotedContent(replyingTo.text),
+        }
       : null;
 
     // Se houver áudio em preview, envia o áudio
     if (recordingState === "preview" && audioBlob) {
-      const ext = audioBlob.type.includes("ogg") ? "ogg"
-        : audioBlob.type.includes("mp4") ? "mp4"
-        : "webm";
+      const ext = audioBlob.type.includes("ogg")
+        ? "ogg"
+        : audioBlob.type.includes("mp4")
+          ? "mp4"
+          : "webm";
       const mimeType = audioBlob.type || "audio/webm";
       // Cria um File real para que o FormData envie o filename corretamente
       const audioFile = new Blob([audioBlob], { type: mimeType }) as any;
       audioFile.name = `audio-${Date.now()}.${ext}`;
       audioFile.lastModified = Date.now();
-      const extras = attachments.length > 0 ? [...attachments, audioFile as File] : [audioFile as File];
+      const extras =
+        attachments.length > 0 ? [...attachments, audioFile as File] : [audioFile as File];
       sendMessage(text, false, extras, quoted);
       setText("");
       setAttachments([]);
@@ -487,7 +640,12 @@ export function ChatPanel() {
       return;
     }
     if (!text.trim() && attachments.length === 0) return;
-    sendMessage(text, msgMode === "internal", attachments.length > 0 ? attachments : undefined, quoted);
+    sendMessage(
+      text,
+      msgMode === "internal",
+      attachments.length > 0 ? attachments : undefined,
+      quoted,
+    );
     setText("");
     setAttachments([]);
     setReplyingTo(null);
@@ -504,7 +662,7 @@ export function ChatPanel() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setText(val);
-    
+
     // Show quick replies menu if text starts with "/"
     if (val.startsWith("/")) {
       setShowQuickMenu(true);
@@ -519,8 +677,6 @@ export function ChatPanel() {
     inputRef.current?.focus();
   };
 
-
-
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative">
       {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
@@ -529,7 +685,11 @@ export function ChatPanel() {
           {/* Avatar & Channel Badge */}
           <div className="relative">
             {activeChat.avatar ? (
-              <img src={activeChat.avatar} alt={activeChat.name} className="h-10 w-10 rounded-full object-cover" />
+              <img
+                src={activeChat.avatar}
+                alt={activeChat.name}
+                className="h-10 w-10 rounded-full object-cover"
+              />
             ) : (
               <div
                 className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground"
@@ -538,13 +698,15 @@ export function ChatPanel() {
                 {activeChat.initials || "U"}
               </div>
             )}
-            <span className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white ${
-              activeChat.channel === "whatsapp"
-                ? "bg-emerald-500"
-                : activeChat.channel === "instagram"
-                ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
-                : "bg-blue-600"
-            }`}>
+            <span
+              className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white ${
+                activeChat.channel === "whatsapp"
+                  ? "bg-emerald-500"
+                  : activeChat.channel === "instagram"
+                    ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
+                    : "bg-blue-600"
+              }`}
+            >
               {activeChat.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
               {activeChat.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
               {activeChat.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
@@ -595,7 +757,9 @@ export function ChatPanel() {
               <button
                 onClick={() => setShowMsgSearch((v) => !v)}
                 className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
-                  showMsgSearch ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                  showMsgSearch
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
                 title="Buscar mensagem"
               >
@@ -639,29 +803,35 @@ export function ChatPanel() {
                         </>
                       ) : (
                         (() => {
-                          const selectedSector = sectors.find(s => s.id === selectedTransferSectorId);
-                          const sectorOps = selectedSector 
-                            ? operators.filter(op => selectedSector.operatorIds.includes(op.id))
+                          const selectedSector = sectors.find(
+                            (s) => s.id === selectedTransferSectorId,
+                          );
+                          const sectorOps = selectedSector
+                            ? operators.filter((op) => selectedSector.operatorIds.includes(op.id))
                             : [];
-                          
+
                           return (
                             <>
-                              <button 
+                              <button
                                 onClick={() => setSelectedTransferSectorId(null)}
                                 className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-bold text-primary hover:bg-muted transition border-b border-line mb-1 cursor-pointer"
                               >
                                 <ChevronLeft className="h-3.5 w-3.5" />
                                 Voltar para Setores
                               </button>
-                              
+
                               <div className="px-3 py-1 text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
                                 Atendentes em {selectedSector?.name}
                               </div>
-                              
+
                               {/* Option to transfer to any agent in sector (general queue) */}
                               <button
                                 onClick={() => {
-                                  transferChat(activeChat.id, selectedSector?.name || "Sem Nome", null);
+                                  transferChat(
+                                    activeChat.id,
+                                    selectedSector?.name || "Sem Nome",
+                                    null,
+                                  );
                                   closeTransferDropdown();
                                 }}
                                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
@@ -671,7 +841,9 @@ export function ChatPanel() {
                                 </div>
                                 <div className="flex flex-col">
                                   <span>Fila Geral do Setor</span>
-                                  <span className="text-[9px] text-muted-foreground font-normal">Qualquer atendente</span>
+                                  <span className="text-[9px] text-muted-foreground font-normal">
+                                    Qualquer atendente
+                                  </span>
                                 </div>
                               </button>
 
@@ -684,16 +856,28 @@ export function ChatPanel() {
                                   <button
                                     key={op.id}
                                     onClick={() => {
-                                      transferChat(activeChat.id, selectedSector?.name || "Sem Nome", op.id);
+                                      transferChat(
+                                        activeChat.id,
+                                        selectedSector?.name || "Sem Nome",
+                                        op.id,
+                                      );
                                       closeTransferDropdown();
                                     }}
                                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
                                   >
-                                    <img src={op.avatar} alt={op.name} className="h-5 w-5 rounded-full object-cover shrink-0" />
+                                    <img
+                                      src={op.avatar}
+                                      alt={op.name}
+                                      className="h-5 w-5 rounded-full object-cover shrink-0"
+                                    />
                                     <div className="flex flex-col">
                                       <span>{op.name}</span>
                                       <span className="text-[9px] text-muted-foreground font-normal capitalize">
-                                        {op.status === "disponivel" ? "Disponível" : op.status === "pausa" ? "Em Pausa" : "Desconectado"}
+                                        {op.status === "disponivel"
+                                          ? "Disponível"
+                                          : op.status === "pausa"
+                                            ? "Em Pausa"
+                                            : "Desconectado"}
                                       </span>
                                     </div>
                                   </button>
@@ -744,12 +928,18 @@ export function ChatPanel() {
             className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
           />
           {msgSearch && (
-            <button onClick={() => setMsgSearch("")} className="text-muted-foreground hover:text-foreground transition">
+            <button
+              onClick={() => setMsgSearch("")}
+              className="text-muted-foreground hover:text-foreground transition"
+            >
               <X className="h-3.5 w-3.5" />
             </button>
           )}
           <button
-            onClick={() => { setShowMsgSearch(false); setMsgSearch(""); }}
+            onClick={() => {
+              setShowMsgSearch(false);
+              setMsgSearch("");
+            }}
             className="text-[10px] font-semibold text-muted-foreground hover:text-foreground transition ml-1"
           >
             Fechar
@@ -761,124 +951,139 @@ export function ChatPanel() {
         {(() => {
           const displayed = msgSearch.trim()
             ? activeChat.messages.filter((m) =>
-                m.text.toLowerCase().includes(msgSearch.toLowerCase())
+                m.text.toLowerCase().includes(msgSearch.toLowerCase()),
               )
             : activeChat.messages;
           return displayed.length > 0 ? (
             displayed.map((m) => {
-            const isMe = m.side === "out";
-            const isSystem = m.author === "Sistema";
+              const isMe = m.side === "out";
+              const isSystem = m.author === "Sistema";
 
-            if (isSystem) {
-              return (
-                <div key={m.id} className="flex justify-center my-2">
-                  <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase border border-border">
-                    {m.text} — {m.time}
-                  </span>
-                </div>
-              );
-            }
-
-            if (m.isInternalNote) {
-              return (
-                <div key={m.id} className="flex flex-col items-center my-3 w-full">
-                  <div className="max-w-[85%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-soft text-left">
-                    <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5" style={{ color: "hsl(var(--warning, 38 92% 40%))" }}>
-                      <Lock className="h-3 w-3 shrink-0" />
-                      Anotação Interna — {m.author} às {m.time}
-                    </div>
-                    <p className="text-xs leading-relaxed font-medium text-amber-900">{m.text}</p>
+              if (isSystem) {
+                return (
+                  <div key={m.id} className="flex justify-center my-2">
+                    <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase border border-border">
+                      {renderTextWithLinks(m.text)} — {m.time}
+                    </span>
                   </div>
-                </div>
-              );
-            }
+                );
+              }
 
-            const isSticker = m.text.startsWith("[MEDIA:sticker]");
-
-            if (isMe) {
-              return (
-                <div key={m.id} className="flex flex-col items-end group relative w-full">
-                  <span className="mb-0.5 text-[10px] text-muted-foreground font-medium mr-1">{m.author}, {m.time}</span>
-                  <div className="flex items-center gap-2 max-w-[80%] justify-end">
-                    <button
-                      onClick={() => setReplyingTo(m)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
-                      title="Responder"
-                    >
-                      <CornerUpLeft className="h-3.5 w-3.5" />
-                    </button>
-                    {isSticker ? (
-                      <div className="leading-relaxed">
-                        {renderMessageContent(m.text)}
-                      </div>
-                    ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
-                      <div>
-                        {renderMessageContent(m.text)}
-                      </div>
-                    ) : isEmojiOnly(m.text) ? (
-                      <div className="text-4xl leading-none select-none py-1">
-                        {m.text}
-                      </div>
-                    ) : (
+              if (m.isInternalNote) {
+                return (
+                  <div key={m.id} className="flex flex-col items-center my-3 w-full">
+                    <div className="max-w-[85%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-soft text-left">
                       <div
-                        className="rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-soft bg-primary text-primary-foreground text-left"
+                        className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5"
+                        style={{ color: "hsl(var(--warning, 38 92% 40%))" }}
                       >
-                        {m.quotedMessageContent && (
-                          <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
-                            <div className="font-bold mb-0.5">{m.quotedMessageSender || "Mensagem"}</div>
-                            <div className="truncate font-medium">{getFriendlyQuotedContent(m.quotedMessageContent)}</div>
-                          </div>
-                        )}
-                        {renderMessageContent(m.text)}
+                        <Lock className="h-3 w-3 shrink-0" />
+                        Anotação Interna — {m.author} às {m.time}
                       </div>
-                    )}
+                      <p className="text-xs leading-relaxed font-medium text-amber-900">
+                        {renderTextWithLinks(m.text, false, true)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+
+              const isSticker = m.text.startsWith("[MEDIA:sticker]");
+
+              if (isMe) {
+                return (
+                  <div key={m.id} className="flex flex-col items-end group relative w-full">
+                    <span className="mb-0.5 text-[10px] text-muted-foreground font-medium mr-1">
+                      {m.author}, {m.time}
+                    </span>
+                    <div className="flex items-center gap-2 max-w-[80%] justify-end">
+                      <button
+                        onClick={() => setReplyingTo(m)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                        title="Responder"
+                      >
+                        <CornerUpLeft className="h-3.5 w-3.5" />
+                      </button>
+                      {isSticker ? (
+                        <div className="leading-relaxed">
+                          {renderMessageContent(m.text, handleMediaClick, true)}
+                        </div>
+                      ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
+                        <div>{renderMessageContent(m.text, handleMediaClick, true)}</div>
+                      ) : isEmojiOnly(m.text) ? (
+                        <div className="text-4xl leading-none select-none py-1">{m.text}</div>
+                      ) : (
+                        <div className="rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-soft bg-primary text-primary-foreground text-left">
+                          {m.quotedMessageContent && (
+                            <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
+                              <div className="font-bold mb-0.5">
+                                {m.quotedMessageSender || "Mensagem"}
+                              </div>
+                              <div className="truncate font-medium">
+                                {getFriendlyQuotedContent(m.quotedMessageContent)}
+                              </div>
+                            </div>
+                          )}
+                          {renderMessageContent(m.text, handleMediaClick, true)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={m.id} className="flex items-end gap-2.5 group relative w-full">
+                  {activeChat.avatar ? (
+                    <img
+                      src={activeChat.avatar}
+                      alt=""
+                      className="h-7 w-7 shrink-0 rounded-full object-cover border border-border"
+                    />
+                  ) : (
+                    <div
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-foreground"
+                      style={{ background: activeChat.initialsBg || "#eee" }}
+                    >
+                      {activeChat.initials || "U"}
+                    </div>
+                  )}
+                  <div className="min-w-0 max-w-[80%] flex-1">
+                    <span className="mb-0.5 block text-[10px] text-muted-foreground font-medium">
+                      {m.author}, {m.time}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {isSticker ? (
+                        <div className="leading-relaxed">
+                          {renderMessageContent(m.text, handleMediaClick, false)}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl rounded-tl-md bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft text-left">
+                          {m.quotedMessageContent && (
+                            <div className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2 py-1 text-[10px] text-muted-foreground select-none max-w-full">
+                              <div className="font-bold mb-0.5 text-primary">
+                                {m.quotedMessageSender || "Mensagem"}
+                              </div>
+                              <div className="truncate font-medium">
+                                {getFriendlyQuotedContent(m.quotedMessageContent)}
+                              </div>
+                            </div>
+                          )}
+                          {renderMessageContent(m.text, handleMediaClick, false)}
+                        </div>
+                      )}
+                      <button
+                        onClick={() => setReplyingTo(m)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                        title="Responder"
+                      >
+                        <CornerUpLeft className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
-            }
-
-            return (
-              <div key={m.id} className="flex items-end gap-2.5 group relative w-full">
-                {activeChat.avatar ? (
-                  <img src={activeChat.avatar} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover border border-border" />
-                ) : (
-                  <div
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-foreground"
-                    style={{ background: activeChat.initialsBg || "#eee" }}
-                  >
-                    {activeChat.initials || "U"}
-                  </div>
-                )}
-                <div className="min-w-0 max-w-[80%] flex-1">
-                  <span className="mb-0.5 block text-[10px] text-muted-foreground font-medium">{m.author}, {m.time}</span>
-                  <div className="flex items-center gap-2">
-                    {isSticker ? (
-                      <div className="leading-relaxed">
-                        {renderMessageContent(m.text)}
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl rounded-tl-md bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft text-left">
-                        {m.quotedMessageContent && (
-                          <div className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2 py-1 text-[10px] text-muted-foreground select-none max-w-full">
-                            <div className="font-bold mb-0.5 text-primary">{m.quotedMessageSender || "Mensagem"}</div>
-                            <div className="truncate font-medium">{getFriendlyQuotedContent(m.quotedMessageContent)}</div>
-                          </div>
-                        )}
-                        {renderMessageContent(m.text)}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => setReplyingTo(m)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
-                      title="Responder"
-                    >
-                      <CornerUpLeft className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })
+            })
           ) : (
             <div className="flex h-full flex-col items-center justify-center text-muted-foreground py-16">
               <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
@@ -902,8 +1107,12 @@ export function ChatPanel() {
               className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
             >
               <span className="text-xs font-bold text-primary font-mono">{qr.shortcut}</span>
-              <span className="truncate text-xs text-foreground/80 max-w-[280px] font-medium ml-2">{qr.text}</span>
-              <span className="text-[10px] text-muted-foreground italic shrink-0">{qr.description}</span>
+              <span className="truncate text-xs text-foreground/80 max-w-[280px] font-medium ml-2">
+                {qr.text}
+              </span>
+              <span className="text-[10px] text-muted-foreground italic shrink-0">
+                {qr.description}
+              </span>
             </button>
           ))}
         </div>
@@ -931,7 +1140,9 @@ export function ChatPanel() {
             <button
               onClick={() => setMsgMode("client")}
               className={`pb-1 border-b-2 px-1 transition ${
-                msgMode === "client" ? "border-primary text-primary" : "border-transparent text-muted-foreground"
+                msgMode === "client"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground"
               }`}
             >
               Enviar Mensagem
@@ -939,7 +1150,9 @@ export function ChatPanel() {
             <button
               onClick={() => setMsgMode("internal")}
               className={`pb-1 border-b-2 px-1 transition ${
-                msgMode === "internal" ? "border-amber-500 text-amber-600" : "border-transparent text-muted-foreground"
+                msgMode === "internal"
+                  ? "border-amber-500 text-amber-600"
+                  : "border-transparent text-muted-foreground"
               }`}
             >
               Nota Interna
@@ -980,12 +1193,16 @@ export function ChatPanel() {
                       />
                     </div>
                   ) : (
-                    <div className={`h-9 w-9 shrink-0 grid place-items-center rounded-lg ${getFileColor(file)}`}>
+                    <div
+                      className={`h-9 w-9 shrink-0 grid place-items-center rounded-lg ${getFileColor(file)}`}
+                    >
                       {getFileIcon(file)}
                     </div>
                   )}
                   <div className="min-w-0">
-                    <p className="truncate text-[11px] font-semibold text-foreground max-w-[100px]">{file.name}</p>
+                    <p className="truncate text-[11px] font-semibold text-foreground max-w-[100px]">
+                      {file.name}
+                    </p>
                     <p className="text-[10px] text-muted-foreground">{formatBytes(file.size)}</p>
                   </div>
                   <button
@@ -1025,10 +1242,10 @@ export function ChatPanel() {
               recordingState === "recording"
                 ? "border-primary/40 bg-primary/5"
                 : msgMode === "internal"
-                ? "bg-amber-50/70 border-amber-200"
-                : isDragging
-                ? "border-primary bg-primary/5"
-                : "bg-card border-border"
+                  ? "bg-amber-50/70 border-amber-200"
+                  : isDragging
+                    ? "border-primary bg-primary/5"
+                    : "bg-card border-border"
             }`}
           >
             {/* Hidden file input */}
@@ -1090,7 +1307,9 @@ export function ChatPanel() {
                 <button
                   onClick={() => setShowQuickMenu(!showQuickMenu)}
                   className={`transition cursor-pointer ${
-                    msgMode === "internal" ? "text-amber-500 hover:text-amber-700" : "text-muted-foreground hover:text-foreground"
+                    msgMode === "internal"
+                      ? "text-amber-500 hover:text-amber-700"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                   title="Respostas Rápidas"
                 >
@@ -1119,7 +1338,9 @@ export function ChatPanel() {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className={`cursor-pointer transition relative ${
-                    attachments.length > 0 ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                    attachments.length > 0
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                   title="Anexar arquivo"
                 >
@@ -1164,6 +1385,56 @@ export function ChatPanel() {
             <CheckCircle className="h-4 w-4" />
             Reativar Atendimento
           </button>
+        </div>
+      )}
+
+      {activeMedia && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xs transition-all duration-200 animate-in fade-in"
+          onClick={() => setActiveMedia(null)}
+        >
+          {/* Close button */}
+          <button
+            className="absolute top-4 right-4 z-50 p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer hover:scale-105 active:scale-95"
+            onClick={() => setActiveMedia(null)}
+            title="Fechar"
+          >
+            <X className="h-6 w-6" />
+          </button>
+
+          {/* Media container */}
+          <div
+            className="relative max-w-[90vw] max-h-[85vh] flex flex-col items-center justify-center animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {activeMedia.type === "image" ? (
+              <img
+                src={activeMedia.url}
+                alt="Visualização"
+                className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl select-none"
+              />
+            ) : (
+              <video
+                src={activeMedia.url}
+                controls
+                autoPlay
+                className="max-w-full max-h-[80vh] rounded-xl shadow-2xl"
+              />
+            )}
+
+            {/* Download Button */}
+            <div className="mt-4 flex justify-center">
+              <a
+                href={activeMedia.url}
+                download
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/10 backdrop-blur-xs transition-all hover:scale-102 active:scale-98 cursor-pointer shadow-soft"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Download className="h-4 w-4" />
+                Baixar Mídia
+              </a>
+            </div>
+          </div>
         </div>
       )}
     </section>

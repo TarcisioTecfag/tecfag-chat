@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
-import { formatPhoneNumber } from "@/lib/utils";
+import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
 import {
   Search,
   Plus,
@@ -87,7 +87,7 @@ export function ContactsView() {
       addForm.phone,
       addForm.email,
       addForm.cnpj,
-      addForm.channel
+      addForm.channel,
     );
 
     // Reset Form & Close
@@ -99,7 +99,7 @@ export function ContactsView() {
       channel: "whatsapp",
     });
     setShowAddModal(false);
-    
+
     // Redirect straight to chat panel to write
     setSelectedChatId(newId);
     setActiveView("chat");
@@ -111,8 +111,8 @@ export function ContactsView() {
       name: c.name,
       phone: c.phone || "",
       email: c.email || "",
-      cnpj: c.cnpj || "",
-      cpf: (c as any).cpf || "",
+      cnpj: maskCNPJ(c.cnpj || ""),
+      cpf: maskCPF((c as any).cpf || ""),
       tagsInput: c.tags.join(", "),
     });
   };
@@ -168,7 +168,10 @@ export function ContactsView() {
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6 bg-card p-4 rounded-2xl border border-border shadow-soft">
         {/* Search */}
         <div className="relative w-full sm:w-80">
-          <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
+          <Search
+            className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            strokeWidth={2}
+          />
           <input
             placeholder="Filtrar por nome, CNPJ, tag, telefone..."
             value={search}
@@ -240,12 +243,19 @@ export function ContactsView() {
             <tbody className="divide-y divide-line">
               {filteredContacts.length > 0 ? (
                 filteredContacts.map((c) => (
-                  <tr key={c.id} className="hover:bg-muted/10 transition text-xs font-semibold text-foreground/90">
+                  <tr
+                    key={c.id}
+                    className="hover:bg-muted/10 transition text-xs font-semibold text-foreground/90"
+                  >
                     {/* Name/Avatar */}
                     <td className="py-3.5 px-6">
                       <div className="flex items-center gap-3">
                         {c.avatar ? (
-                          <img src={c.avatar} alt="" className="h-9 w-9 rounded-full object-cover border border-border" />
+                          <img
+                            src={c.avatar}
+                            alt=""
+                            className="h-9 w-9 rounded-full object-cover border border-border"
+                          />
                         ) : (
                           <div
                             className="grid h-9 w-9 place-items-center rounded-full text-xs font-bold text-foreground"
@@ -256,23 +266,39 @@ export function ContactsView() {
                         )}
                         <div>
                           <span className="block font-bold text-foreground">{c.name}</span>
-                          <span className="text-[10px] text-muted-foreground font-medium">Cadastrado</span>
+                          <span className="text-[10px] text-muted-foreground font-medium">
+                            Cadastrado
+                          </span>
                         </div>
                       </div>
                     </td>
 
                     {/* Channel */}
                     <td className="py-3.5 px-4">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-white shadow-soft ${
-                        c.channel === "whatsapp"
-                          ? "bg-emerald-500"
-                          : c.channel === "instagram"
-                          ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
-                          : "bg-blue-600"
-                      }`}>
-                        {c.channel === "whatsapp" && <><WhatsappLogo className="h-3 w-3" /> WhatsApp</>}
-                        {c.channel === "instagram" && <><InstagramLogo className="h-3 w-3" /> Instagram</>}
-                        {c.channel === "messenger" && <><MessengerLogo className="h-3 w-3" /> Messenger</>}
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-white shadow-soft ${
+                          c.channel === "whatsapp"
+                            ? "bg-emerald-500"
+                            : c.channel === "instagram"
+                              ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
+                              : "bg-blue-600"
+                        }`}
+                      >
+                        {c.channel === "whatsapp" && (
+                          <>
+                            <WhatsappLogo className="h-3 w-3" /> WhatsApp
+                          </>
+                        )}
+                        {c.channel === "instagram" && (
+                          <>
+                            <InstagramLogo className="h-3 w-3" /> Instagram
+                          </>
+                        )}
+                        {c.channel === "messenger" && (
+                          <>
+                            <MessengerLogo className="h-3 w-3" /> Messenger
+                          </>
+                        )}
                       </span>
                     </td>
 
@@ -296,7 +322,7 @@ export function ContactsView() {
                         <div>
                           <div className="flex items-center gap-1 text-foreground font-mono">
                             <Building className="h-3 w-3 text-muted-foreground" />
-                            {c.cnpj}
+                            {formatCNPJ(c.cnpj)}
                           </div>
                           <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-100 mt-0.5 inline-block">
                             Validado
@@ -319,7 +345,9 @@ export function ContactsView() {
                           </span>
                         ))}
                         {c.tags.length === 0 && (
-                          <span className="text-muted-foreground italic font-medium text-[10px]">Sem tags</span>
+                          <span className="text-muted-foreground italic font-medium text-[10px]">
+                            Sem tags
+                          </span>
                         )}
                       </div>
                     </td>
@@ -349,9 +377,14 @@ export function ContactsView() {
               ) : (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-muted-foreground">
-                    <User className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" strokeWidth={1.5} />
+                    <User
+                      className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2"
+                      strokeWidth={1.5}
+                    />
                     <p className="text-sm font-semibold">Nenhum contato encontrado</p>
-                    <p className="text-xs mt-0.5">Tente ajustar seus termos de pesquisa ou crie um novo contato.</p>
+                    <p className="text-xs mt-0.5">
+                      Tente ajustar seus termos de pesquisa ou crie um novo contato.
+                    </p>
                   </td>
                 </tr>
               )}
@@ -379,7 +412,9 @@ export function ContactsView() {
 
             <form onSubmit={handleCreateContact} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Completo</label>
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  Nome Completo
+                </label>
                 <input
                   type="text"
                   required
@@ -392,7 +427,9 @@ export function ContactsView() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                    Telefone
+                  </label>
                   <input
                     type="text"
                     placeholder="Ex: (81) 99876-5432"
@@ -402,19 +439,23 @@ export function ContactsView() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CNPJ</label>
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                    CNPJ
+                  </label>
                   <input
                     type="text"
                     placeholder="Ex: 12.345.678/0001-90"
                     value={addForm.cnpj}
-                    onChange={(e) => setAddForm({ ...addForm, cnpj: e.target.value })}
+                    onChange={(e) => setAddForm({ ...addForm, cnpj: maskCNPJ(e.target.value) })}
                     className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  E-mail
+                </label>
                 <input
                   type="email"
                   placeholder="Ex: joao@empresa.com"
@@ -425,7 +466,9 @@ export function ContactsView() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Canal Principal de Envio</label>
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  Canal Principal de Envio
+                </label>
                 <div className="flex gap-2">
                   {(["whatsapp", "instagram", "messenger"] as Channel[]).map((ch) => (
                     <button
@@ -486,7 +529,9 @@ export function ContactsView() {
 
             <form onSubmit={handleSaveEdit} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Completo</label>
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  Nome Completo
+                </label>
                 <input
                   type="text"
                   required
@@ -498,7 +543,9 @@ export function ContactsView() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1 col-span-2">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                    Telefone
+                  </label>
                   <input
                     type="text"
                     value={editForm.phone}
@@ -507,27 +554,33 @@ export function ContactsView() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CNPJ</label>
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                    CNPJ
+                  </label>
                   <input
                     type="text"
                     value={editForm.cnpj}
-                    onChange={(e) => setEditForm({ ...editForm, cnpj: e.target.value })}
+                    onChange={(e) => setEditForm({ ...editForm, cnpj: maskCNPJ(e.target.value) })}
                     className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CPF</label>
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                    CPF
+                  </label>
                   <input
                     type="text"
                     value={editForm.cpf}
-                    onChange={(e) => setEditForm({ ...editForm, cpf: e.target.value })}
+                    onChange={(e) => setEditForm({ ...editForm, cpf: maskCPF(e.target.value) })}
                     className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  E-mail
+                </label>
                 <input
                   type="email"
                   value={editForm.email}
@@ -537,7 +590,9 @@ export function ContactsView() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Tags (Separadas por vírgula)</label>
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  Tags (Separadas por vírgula)
+                </label>
                 <input
                   type="text"
                   placeholder="Ex: Prioridade, Máquinas, Pós-Venda"

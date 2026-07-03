@@ -247,6 +247,8 @@ export class SessionManager {
           }
         }
 
+        const isResolved = !phoneJid.endsWith("@lid");
+
         // Extrai o número limpo
         let phone = phoneJid.split("@")[0];
         if (phone.includes("-")) phone = phone.split("-")[0];
@@ -279,8 +281,8 @@ export class SessionManager {
             // Se já existe, atualiza as informações caso o telefone antes estivesse como LID e agora conseguimos resolver
             const updates: any = {};
             
-            // Atualiza telefone se o anterior era o LID e agora temos o telefone real
-            if (contact.phone !== phone && contact.phone.length >= 14 && phone.length < 14) {
+            // Atualiza telefone se o anterior era diferente e agora temos o telefone real resolved
+            if (contact.phone !== phone && isResolved) {
               updates.phone = phone;
             }
 
