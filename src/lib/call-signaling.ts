@@ -2,10 +2,9 @@
  * call-signaling.ts
  * Gerencia as salas WebRTC e faz relay de mensagens de signaling
  * (SDP offer/answer e ICE candidates) via Socket.io
+ *
+ * Import dinâmico de socket.io para evitar bundling no preset Cloudflare.
  */
-
-import type { Server as HttpServer } from "http";
-import { Server as SocketServer, type Socket } from "socket.io";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -18,127 +17,104 @@ interface Room {
   timeoutHandle: ReturnType<typeof setTimeout> | null;
 }
 
-// ─── Estado global das salas ─────────────────────────────────────────────────
+// ─── Estado Global das Salas ─────────────────────────────────────────────────
 
 const rooms = new Map<string, Room>();
+const ROOM_TTL = 10 * 60 * 1000; // 10 minutos
 
-// Sala expira em 10 minutos sem conexão completa
-const ROOM_TTL_MS = 10 * 60 * 1000;
+// ─── Inicialização do Socket.io (import dinâmico/lazy) ───────────────────────
 
-// ─── Singleton do servidor Socket.io ─────────────────────────────────────────
+let ioInstance: any = null;
 
-let io: SocketServer | null = null;
+export async function initCallSignaling(httpServer: any): Promise<void> {
+  if (ioInstance) return; // já inicializado
 
-export function getIO(): SocketServer | null {
-  return io;
-}
+  // Import dinâmico — não será avaliado no parse do Cloudflare Worker
+  const { Server: SocketServer } = await import("socket.io");
 
-// ─── Inicialização ────────────────────────────────────────────────────────────
-
-export function initCallSignaling(httpServer: HttpServer): SocketServer {
-  if (io) return io;
-
-  io = new SocketServer(httpServer, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"],
-    },
+  ioInstance = new SocketServer(httpServer, {
+    cors: { origin: "*", methods: ["GET", "POST"] },
     transports: ["websocket", "polling"],
     path: "/socket.io/",
   });
 
-  io.on("connection", (socket: Socket) => {
-    console.log(`[Calls] Socket conectado: ${socket.id}`);
+  ioInstance.on("connection", (socket: any) => {
+    console.log(`[Socket.io] Conectado: ${socket.id}`);
 
-    // ── Agente entra na sala (quem inicia a chamada) ──────────────────────────
     socket.on("agent:join", (roomId: string) => {
       const room = rooms.get(roomId);
-      if (!room) {
+      if (!room || room.status === "ended") {
         socket.emit("error", { message: "Sala não encontrada ou expirada." });
         return;
       }
-      if (room.status === "ended") {
-        socket.emit("error", { message: "Esta chamada já foi encerrada." });
-        return;
-      }
-
       room.agentSocketId = socket.id;
       socket.join(roomId);
       socket.emit("room:joined", { role: "agent", status: room.status });
-      console.log(`[Calls] Agente ${socket.id} entrou na sala ${roomId}`);
+      console.log(`[Socket.io] Agente entrou na sala: ${roomId}`);
     });
 
-    // ── Cliente entra na sala (pelo link do WhatsApp) ─────────────────────────
     socket.on("client:join", (roomId: string) => {
       const room = rooms.get(roomId);
-      if (!room) {
+      if (!room || room.status === "ended") {
         socket.emit("error", { message: "Link inválido ou expirado." });
         return;
       }
-      if (room.status === "ended") {
-        socket.emit("error", { message: "Esta chamada já foi encerrada." });
-        return;
-      }
-
       room.clientSocketId = socket.id;
       room.status = "active";
       socket.join(roomId);
 
-      // Cancela o timeout de expiração — cliente entrou
+      // Cancelar timeout de expiração
       if (room.timeoutHandle) {
         clearTimeout(room.timeoutHandle);
         room.timeoutHandle = null;
       }
 
-      // Notifica o agente que o cliente entrou (para iniciar o offer WebRTC)
+      // Avisar o agente que o cliente está pronto
       socket.to(roomId).emit("client:ready");
       socket.emit("room:joined", { role: "client", status: "active" });
-      console.log(`[Calls] Cliente ${socket.id} entrou na sala ${roomId}`);
+      console.log(`[Socket.io] Cliente entrou na sala: ${roomId}`);
     });
 
-    // ── Relay de SDP Offer (Agente → Cliente) ────────────────────────────────
+    // ─── WebRTC Relay ───────────────────────────────────────────────────────
+
     socket.on("webrtc:offer", ({ roomId, offer }: { roomId: string; offer: RTCSessionDescriptionInit }) => {
       socket.to(roomId).emit("webrtc:offer", { offer });
     });
 
-    // ── Relay de SDP Answer (Cliente → Agente) ───────────────────────────────
     socket.on("webrtc:answer", ({ roomId, answer }: { roomId: string; answer: RTCSessionDescriptionInit }) => {
       socket.to(roomId).emit("webrtc:answer", { answer });
     });
 
-    // ── Relay de ICE Candidates (ambos os lados) ─────────────────────────────
     socket.on("webrtc:ice", ({ roomId, candidate }: { roomId: string; candidate: RTCIceCandidateInit }) => {
       socket.to(roomId).emit("webrtc:ice", { candidate });
     });
 
-    // ── Encerrar chamada ─────────────────────────────────────────────────────
+    // ─── Encerramento ───────────────────────────────────────────────────────
+
     socket.on("call:end", (roomId: string) => {
-      endRoom(roomId, io!);
+      endRoom(roomId);
     });
 
-    // ── Desconexão ────────────────────────────────────────────────────────────
     socket.on("disconnect", () => {
-      console.log(`[Calls] Socket desconectado: ${socket.id}`);
-      // Procura em qual sala este socket estava
       for (const [roomId, room] of rooms.entries()) {
         if (room.agentSocketId === socket.id || room.clientSocketId === socket.id) {
           if (room.status === "active") {
-            // Avisa o outro lado que a chamada caiu
-            io?.to(roomId).emit("call:dropped", { disconnectedRole: room.agentSocketId === socket.id ? "agent" : "client" });
+            ioInstance?.to(roomId).emit("call:dropped", {
+              disconnectedRole: room.agentSocketId === socket.id ? "agent" : "client",
+            });
           }
-          endRoom(roomId, io!);
+          endRoom(roomId);
           break;
         }
       }
     });
   });
 
-  return io;
+  console.log("[Socket.io] Signaling server inicializado.");
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Funções utilitárias de sala ──────────────────────────────────────────────
 
-/** Cria uma nova sala WebRTC e agenda expiração */
 export function createRoom(roomId: string): Room {
   const room: Room = {
     roomId,
@@ -149,30 +125,31 @@ export function createRoom(roomId: string): Room {
     timeoutHandle: setTimeout(() => {
       const r = rooms.get(roomId);
       if (r && r.status === "waiting") {
-        console.log(`[Calls] Sala ${roomId} expirou sem cliente entrar.`);
-        endRoom(roomId, io!);
+        console.log(`[Calls] Sala ${roomId} expirou sem cliente`);
+        endRoom(roomId);
       }
-    }, ROOM_TTL_MS),
+    }, ROOM_TTL),
   };
-
   rooms.set(roomId, room);
   console.log(`[Calls] Sala criada: ${roomId}`);
   return room;
 }
 
-/** Verifica se uma sala existe e está ativa */
 export function getRoomStatus(roomId: string): Room | null {
   return rooms.get(roomId) ?? null;
 }
 
-/** Encerra uma sala e notifica todos os participantes */
-function endRoom(roomId: string, ioServer: SocketServer): void {
+function endRoom(roomId: string) {
   const room = rooms.get(roomId);
   if (!room) return;
 
   if (room.timeoutHandle) clearTimeout(room.timeoutHandle);
   room.status = "ended";
-  ioServer.to(roomId).emit("call:ended");
+
+  if (ioInstance) {
+    ioInstance.to(roomId).emit("call:ended");
+  }
+
   rooms.delete(roomId);
-  console.log(`[Calls] Sala ${roomId} encerrada.`);
+  console.log(`[Calls] Sala encerrada: ${roomId}`);
 }

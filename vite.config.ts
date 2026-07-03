@@ -12,4 +12,11 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  nitro: {
+    // Externalizar socket.io e groq-sdk do bundle do servidor
+    // Eles usam APIs Node.js nativas e não podem ser bundlados no Cloudflare Worker
+    externals: {
+      external: ["socket.io", "groq-sdk"],
+    },
+  },
 });

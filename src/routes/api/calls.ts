@@ -9,10 +9,32 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { callSessions, messages, conversations, contacts, operators } from "../../db/schema";
+import { callSessions, messages, conversations } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import { createRoom, getRoomStatus } from "../../lib/call-signaling";
+import { createRoom, getRoomStatus, initCallSignaling } from "../../lib/call-signaling";
 import { transcribeAudio, formatCallNote } from "../../lib/call-transcriber";
+
+// ── Inicialização lazy do Socket.io ────────────────────────────────────────────────────
+// O Socket.io é acoplado ao servidor HTTP do processo Node.js atual.
+// Usamos globalThis para garantir que seja inicializado apenas uma vez.
+function ensureSocketIO() {
+  if ((globalThis as any).__socketIOInitialized) return;
+  try {
+    // Acessa o servidor HTTP nativo via globalThis (injetado pelo Nitro/Node.js)
+    const server = (globalThis as any).__nitroServer
+      ?? (globalThis as any).__server
+      ?? null;
+    if (server) {
+      initCallSignaling(server);
+      (globalThis as any).__socketIOInitialized = true;
+      console.log("[Calls] Socket.io inicializado com sucesso");
+    } else {
+      console.warn("[Calls] Servidor HTTP não disponível ainda para Socket.io");
+    }
+  } catch (e) {
+    console.error("[Calls] Erro ao inicializar Socket.io:", e);
+  }
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

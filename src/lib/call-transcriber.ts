@@ -2,13 +2,9 @@
  * call-transcriber.ts
  * Envia áudio gravado para a API Groq Whisper e retorna transcrição em PT-BR.
  * Modelo: whisper-large-v3 (gratuito: 2.000 req/dia)
+ *
+ * Import dinâmico de groq-sdk para evitar bundling no preset Cloudflare.
  */
-
-import Groq from "groq-sdk";
-
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
 
 /**
  * Transcreve um buffer de áudio usando Groq Whisper.
@@ -22,6 +18,10 @@ export async function transcribeAudio(
 ): Promise<string | null> {
   try {
     console.log(`[Transcriber] Iniciando transcrição — ${(audioBuffer.length / 1024).toFixed(0)} KB`);
+
+    // Import dinâmico — não será avaliado no parse do Cloudflare Worker
+    const Groq = (await import("groq-sdk")).default;
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
     // Groq aceita File-like objects — converter Buffer para Uint8Array
     const audioFile = new File([new Uint8Array(audioBuffer)], filename, {
