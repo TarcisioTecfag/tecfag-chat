@@ -441,6 +441,7 @@ export function ChatPanel() {
   const [isDragging, setIsDragging] = useState(false);
   const [msgSearch, setMsgSearch] = useState("");
   const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
   const [activeMedia, setActiveMedia] = useState<{ type: "image" | "video"; url: string } | null>(
     null,
   );
@@ -1273,149 +1274,214 @@ export function ChatPanel() {
         </div>
       )}
       {/* Messages Window */}
-      <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
         {(() => {
           const displayed = msgSearch.trim()
             ? activeChat.messages.filter((m) =>
                 m.text.toLowerCase().includes(msgSearch.toLowerCase()),
               )
             : activeChat.messages;
-          return displayed.length > 0 ? (
-            displayed.map((m) => {
-              const isMe = m.side === "out";
-              const isSystem = m.author === "Sistema";
 
-              if (isSystem) {
-                return (
-                  <div key={m.id} className="flex justify-center my-2">
-                    <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase border border-border">
-                      {renderTextWithLinks(m.text)} — {m.time}
-                    </span>
-                  </div>
-                );
-              }
+          if (displayed.length === 0) {
+            return (
+              <div className="flex h-full flex-col items-center justify-center text-muted-foreground py-16">
+                <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
+                <p className="text-xs">Nenhuma mensagem encontrada.</p>
+              </div>
+            );
+          }
 
-              if (m.isInternalNote) {
-                return (
-                  <div key={m.id} className="flex flex-col items-center my-3 w-full">
-                    <div className="max-w-[85%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-soft text-left">
-                      <div
-                        className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5"
-                        style={{ color: "hsl(var(--warning, 38 92% 40%))" }}
-                      >
-                        <Lock className="h-3 w-3 shrink-0" />
-                        Anotação Interna — {m.author} às {m.time}
-                      </div>
-                      <p className="text-xs leading-relaxed font-medium text-amber-900">
-                        {renderTextWithLinks(m.text, false, true)}
-                      </p>
-                    </div>
-                  </div>
-                );
-              }
+          // Parse "HH:MM" → minutos desde meia-noite
+          const toMin = (t: string) => {
+            const [h, m] = (t || "0:0").split(":").map(Number);
+            return (h || 0) * 60 + (m || 0);
+          };
 
-              const isSticker = m.text.startsWith("[MEDIA:sticker]");
+          // Decide se duas mensagens adjacentes pertencem ao mesmo grupo visual
+          const canLink = (
+            a: (typeof displayed)[0],
+            b: (typeof displayed)[0],
+          ) =>
+            a.side === b.side &&
+            a.author === b.author &&
+            a.author !== "Sistema" &&
+            !a.isInternalNote &&
+            !b.isInternalNote &&
+            !b.quotedMessageContent &&
+            Math.abs(toMin(a.time) - toMin(b.time)) <= 3;
 
-              if (isMe) {
-                return (
-                  <div key={m.id} className="flex flex-col items-end group relative w-full">
-                    <span className="mb-0.5 text-[10px] text-muted-foreground font-medium mr-1">
-                      {m.author}, {m.time}
-                    </span>
-                    <div className="flex items-center gap-2 max-w-[80%] justify-end">
-                      <button
-                        onClick={() => setReplyingTo(m)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
-                        title="Responder"
-                      >
-                        <CornerUpLeft className="h-3.5 w-3.5" />
-                      </button>
-                      {isSticker ? (
-                        <div className="leading-relaxed">
-                          {renderMessageContent(m.text, handleMediaClick, true)}
-                        </div>
-                      ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
-                        <div>{renderMessageContent(m.text, handleMediaClick, true)}</div>
-                      ) : isEmojiOnly(m.text) ? (
-                        <div className="text-4xl leading-none select-none py-1">{m.text}</div>
-                      ) : (
-                        <div className="rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-soft bg-primary text-primary-foreground text-left">
-                          {m.quotedMessageContent && (
-                            <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
-                              <div className="font-bold mb-0.5">
-                                {m.quotedMessageSender || "Mensagem"}
-                              </div>
-                              <div className="truncate font-medium">
-                                {getFriendlyQuotedContent(m.quotedMessageContent)}
-                              </div>
-                            </div>
-                          )}
-                          {renderMessageContent(m.text, handleMediaClick, true)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              }
+          return displayed.map((m, i) => {
+            const prev = i > 0 ? displayed[i - 1] : null;
+            const next = i < displayed.length - 1 ? displayed[i + 1] : null;
+            const prevLinked = prev ? canLink(prev, m) : false;
+            const nextLinked = next ? canLink(m, next) : false;
 
+            const isFirst = !prevLinked;  // primeira do grupo
+            const isLast  = !nextLinked;  // última do grupo
+            const isMe     = m.side === "out";
+            const isSystem = m.author === "Sistema";
+            const isExpanded = expandedMsgId === m.id;
+
+            // Espaçamento: 3px dentro do grupo, 12px entre grupos
+            const gap = prevLinked ? "mt-[3px]" : i > 0 ? "mt-3" : "";
+
+            // ── Mensagens de sistema ──────────────────────────────────────
+            if (isSystem) {
               return (
-                <div key={m.id} className="flex items-end gap-2.5 group relative w-full">
-                  {activeChat.avatar ? (
+                <div key={m.id} className={`flex justify-center ${gap} my-2`}>
+                  <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase border border-border">
+                    {renderTextWithLinks(m.text)} — {m.time}
+                  </span>
+                </div>
+              );
+            }
+
+            // ── Notas internas ────────────────────────────────────────────
+            if (m.isInternalNote) {
+              return (
+                <div key={m.id} className={`flex flex-col items-center ${gap} w-full`}>
+                  <div className="max-w-[85%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-soft text-left">
+                    <div
+                      className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5"
+                      style={{ color: "hsl(var(--warning, 38 92% 40%))" }}
+                    >
+                      <Lock className="h-3 w-3 shrink-0" />
+                      Anotação Interna — {m.author} às {m.time}
+                    </div>
+                    <p className="text-xs leading-relaxed font-medium text-amber-900">
+                      {renderTextWithLinks(m.text, false, true)}
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
+            const isSticker = m.text.startsWith("[MEDIA:sticker]");
+
+            // Border-radius por posição no grupo (estilo WhatsApp)
+            const outR =
+              isFirst && isLast  ? "rounded-2xl"
+              : isFirst           ? "rounded-2xl rounded-br-[5px]"
+              : isLast            ? "rounded-2xl rounded-tr-[5px]"
+              :                    "rounded-lg   rounded-r-[5px]";
+
+            const inR =
+              isFirst && isLast  ? "rounded-2xl"
+              : isFirst           ? "rounded-2xl rounded-bl-[5px]"
+              : isLast            ? "rounded-2xl rounded-tl-[5px]"
+              :                    "rounded-lg   rounded-l-[5px]";
+
+            // Handler de clique no balão (ignora cliques em links/botões filhos)
+            const onBubbleClick = (e: React.MouseEvent) => {
+              if ((e.target as HTMLElement).closest("a, button")) return;
+              setExpandedMsgId(isExpanded ? null : m.id);
+            };
+
+            // ── Enviadas (eu) ─────────────────────────────────────────────
+            if (isMe) {
+              return (
+                <div key={m.id} className={`flex flex-col items-end group relative w-full ${gap}`}>
+                  <div className="flex items-center gap-2 max-w-[80%] justify-end">
+                    <button
+                      onClick={() => setReplyingTo(m)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                      title="Responder"
+                    >
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+                    {isSticker ? (
+                      <div className="leading-relaxed">
+                        {renderMessageContent(m.text, handleMediaClick, true)}
+                      </div>
+                    ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
+                      <div>{renderMessageContent(m.text, handleMediaClick, true)}</div>
+                    ) : isEmojiOnly(m.text) ? (
+                      <div className="text-4xl leading-none select-none py-1">{m.text}</div>
+                    ) : (
+                      <div
+                        onClick={onBubbleClick}
+                        className={`${outR} px-4 py-2.5 text-xs leading-relaxed shadow-soft bg-primary text-primary-foreground text-left cursor-pointer`}
+                      >
+                        {m.quotedMessageContent && (
+                          <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
+                            <div className="font-bold mb-0.5">{m.quotedMessageSender || "Mensagem"}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(m.quotedMessageContent)}</div>
+                          </div>
+                        )}
+                        {renderMessageContent(m.text, handleMediaClick, true)}
+                      </div>
+                    )}
+                  </div>
+                  {/* Metadados — revelados com clique */}
+                  {isExpanded && (
+                    <span className="mr-1 mt-1 text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+                      {m.author} · {m.time}
+                    </span>
+                  )}
+                </div>
+              );
+            }
+
+            // ── Recebidas ─────────────────────────────────────────────────
+            return (
+              <div key={m.id} className={`flex items-end gap-2 group relative w-full ${gap}`}>
+                {/* Avatar — só na última mensagem do grupo */}
+                {isLast ? (
+                  activeChat.avatar ? (
                     <img
                       src={activeChat.avatar}
                       alt=""
-                      className="h-7 w-7 shrink-0 rounded-full object-cover border border-border"
+                      className="h-7 w-7 shrink-0 rounded-full object-cover border border-border self-end"
                     />
                   ) : (
                     <div
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-foreground"
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-foreground self-end"
                       style={{ background: activeChat.initialsBg || "#eee" }}
                     >
                       {activeChat.initials || "U"}
                     </div>
-                  )}
-                  <div className="min-w-0 max-w-[80%] flex-1">
-                    <span className="mb-0.5 block text-[10px] text-muted-foreground font-medium">
-                      {m.author}, {m.time}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {isSticker ? (
-                        <div className="leading-relaxed">
-                          {renderMessageContent(m.text, handleMediaClick, false)}
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl rounded-tl-md bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft text-left">
-                          {m.quotedMessageContent && (
-                            <div className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2 py-1 text-[10px] text-muted-foreground select-none max-w-full">
-                              <div className="font-bold mb-0.5 text-primary">
-                                {m.quotedMessageSender || "Mensagem"}
-                              </div>
-                              <div className="truncate font-medium">
-                                {getFriendlyQuotedContent(m.quotedMessageContent)}
-                              </div>
-                            </div>
-                          )}
-                          {renderMessageContent(m.text, handleMediaClick, false)}
-                        </div>
-                      )}
-                      <button
-                        onClick={() => setReplyingTo(m)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
-                        title="Responder"
+                  )
+                ) : (
+                  <div className="w-7 shrink-0" />  {/* espaçador para manter alinhamento */}
+                )}
+                <div className="min-w-0 max-w-[80%] flex-1">
+                  <div className="flex items-center gap-2">
+                    {isSticker ? (
+                      <div className="leading-relaxed">
+                        {renderMessageContent(m.text, handleMediaClick, false)}
+                      </div>
+                    ) : (
+                      <div
+                        onClick={onBubbleClick}
+                        className={`${inR} bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft text-left cursor-pointer`}
                       >
-                        <CornerUpLeft className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                        {m.quotedMessageContent && (
+                          <div className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2 py-1 text-[10px] text-muted-foreground select-none max-w-full">
+                            <div className="font-bold mb-0.5 text-primary">{m.quotedMessageSender || "Mensagem"}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(m.quotedMessageContent)}</div>
+                          </div>
+                        )}
+                        {renderMessageContent(m.text, handleMediaClick, false)}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setReplyingTo(m)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                      title="Responder"
+                    >
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
                   </div>
+                  {/* Metadados — revelados com clique */}
+                  {isExpanded && (
+                    <span className="ml-1 mt-1 block text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+                      {m.author} · {m.time}
+                    </span>
+                  )}
                 </div>
-              );
-            })
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center text-muted-foreground py-16">
-              <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
-              <p className="text-xs">Nenhuma mensagem encontrada.</p>
-            </div>
-          );
+              </div>
+            );
+          });
         })()}
         <div ref={messagesEndRef} />
       </div>
