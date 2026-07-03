@@ -137,6 +137,22 @@ export const mediaFiles = pgTable("media_files", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 9. SESSÕES DE CHAMADA (Ligações WebRTC) ─────────────────────────────────
+export const callSessions = pgTable("call_sessions", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  roomId: text("room_id").notNull().unique(),          // UUID único da sala WebRTC
+  status: text("status").default("waiting").notNull(), // 'waiting' | 'active' | 'ended' | 'missed'
+  startedAt: timestamp("started_at"),                  // Quando o cliente entrou
+  endedAt: timestamp("ended_at"),                      // Quando a chamada encerrou
+  durationSeconds: integer("duration_seconds"),         // Duração total em segundos
+  transcription: text("transcription"),                // Texto da transcrição (Groq Whisper)
+  transcriptionMessageId: text("transcription_message_id"), // ID da nota interna gerada no chat
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -146,3 +162,4 @@ export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type QuickResponse = typeof quickResponses.$inferSelect;
 export type MediaFile = typeof mediaFiles.$inferSelect;
+export type CallSession = typeof callSessions.$inferSelect;

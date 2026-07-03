@@ -27,7 +27,10 @@ import {
   Trash2,
   CornerUpLeft,
   Play,
+  Phone,
+  PhoneOff,
 } from "lucide-react";
+import { io as socketIO, type Socket } from "socket.io-client";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -412,6 +415,7 @@ export function ChatPanel() {
     sectors,
     operators,
     quickResponses,
+    currentOperatorId,
   } = useChat();
 
   const [text, setText] = useState("");
@@ -457,10 +461,196 @@ export function ChatPanel() {
     };
   }, [activeMedia]);
 
+  // ── Call (WebRTC) state ────────────────────────────────────────────────────
+  type CallModalStatus = "idle" | "waiting" | "active" | "transcribing" | "done" | "error";
+  const [callStatus, setCallStatus] = React.useState<CallModalStatus>("idle");
+  const [callDuration, setCallDuration] = React.useState(0);
+  const [callRoomId, setCallRoomId] = React.useState<string | null>(null);
+  const callSocketRef = React.useRef<Socket | null>(null);
+  const callPcRef = React.useRef<RTCPeerConnection | null>(null);
+  const callStreamRef = React.useRef<MediaStream | null>(null);
+  const callTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const callRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const callChunksRef = React.useRef<Blob[]>([]);
+  const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  const ICE_SERVERS: RTCIceServer[] = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: `turn:${import.meta.env.VITE_METERED_DOMAIN ?? "tecfagchat.metered.live"}:80`,
+      username: "openrelayproject",
+      credential: import.meta.env.VITE_METERED_SECRET ?? "",
+    },
+    {
+      urls: `turns:${import.meta.env.VITE_METERED_DOMAIN ?? "tecfagchat.metered.live"}:443`,
+      username: "openrelayproject",
+      credential: import.meta.env.VITE_METERED_SECRET ?? "",
+    },
+  ];
+
+  const fmtCallDuration = (s: number) => {
+    const m = Math.floor(s / 60).toString().padStart(2, "0");
+    const sec = (s % 60).toString().padStart(2, "0");
+    return `${m}:${sec}`;
+  };
+
+  const cleanupCall = useCallback(() => {
+    if (callTimerRef.current) clearInterval(callTimerRef.current);
+    callStreamRef.current?.getTracks().forEach((t) => t.stop());
+    callPcRef.current?.close();
+    callSocketRef.current?.disconnect();
+    callPcRef.current = null;
+    callSocketRef.current = null;
+    callStreamRef.current = null;
+  }, []);
+
+  const handleStartCall = useCallback(async () => {
+    if (!activeChat) return;
+    setCallStatus("waiting");
+    setCallDuration(0);
+    callChunksRef.current = [];
+
+    // Determinar nome do operador atual
+    const currentOp = operators.find((op) => op.id === currentOperatorId);
+    const operatorName = currentOp?.name ?? "Agente";
+
+    try {
+      // 1. Criar sala via API
+      const res = await fetch(`${BACKEND_URL}/api/calls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: tenant,
+          conversationId: activeChat.id,
+          operatorId: currentOperatorId,
+          operatorName,
+        }),
+      });
+      const { roomId, callLink } = await res.json();
+      setCallRoomId(roomId);
+
+      // 2. Enviar link pelo WhatsApp via Baileys
+      await fetch(`${BACKEND_URL}/api/baileys/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: tenant,
+          phone: activeChat.phone,
+          conversationId: activeChat.id,
+          senderName: "Sistema",
+          text: `📞 *${operatorName}* está te ligando!\n\nToque no link abaixo para atender pelo navegador — não precisa instalar nada:\n\n🔗 ${callLink}\n\n_Este link expira em 10 minutos._`,
+        }),
+      });
+
+      // 3. Solicitar microfone
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      callStreamRef.current = stream;
+
+      // 4. Conectar Socket.io
+      const socket = socketIO("/", { path: "/socket.io/", transports: ["websocket", "polling"] });
+      callSocketRef.current = socket;
+
+      socket.on("connect", () => socket.emit("agent:join", roomId));
+
+      // 5. Quando cliente entrar — criar offer WebRTC
+      socket.on("client:ready", async () => {
+        setCallStatus("active");
+        callTimerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
+
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        callPcRef.current = pc;
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+        pc.ontrack = (e) => {
+          if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
+          // Gravar o mixed audio (agente + cliente)
+          try {
+            const ctx = new AudioContext();
+            const dest = ctx.createMediaStreamDestination();
+            ctx.createMediaStreamSource(stream).connect(dest);
+            ctx.createMediaStreamSource(e.streams[0]).connect(dest);
+            const recorder = new MediaRecorder(dest.stream, { mimeType: "audio/webm;codecs=opus" });
+            callRecorderRef.current = recorder;
+            recorder.ondataavailable = (ev) => { if (ev.data.size > 0) callChunksRef.current.push(ev.data); };
+            recorder.start(1000);
+          } catch {}
+        };
+
+        pc.onicecandidate = (e) => {
+          if (e.candidate) socket.emit("webrtc:ice", { roomId, candidate: e.candidate });
+        };
+
+        socket.on("webrtc:answer", async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        });
+
+        socket.on("webrtc:ice", async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
+          try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+        });
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("webrtc:offer", { roomId, offer });
+      });
+
+      socket.on("call:ended", () => handleEndCall(roomId, true));
+      socket.on("call:dropped", () => handleEndCall(roomId, true));
+      socket.on("error", () => { cleanupCall(); setCallStatus("error"); });
+
+    } catch (err) {
+      console.error("[Call] Erro ao iniciar chamada:", err);
+      cleanupCall();
+      setCallStatus("error");
+    }
+  }, [activeChat, tenant, currentOperatorId, operators, cleanupCall]);
+
+  const handleEndCall = useCallback(async (roomId: string | null, fromRemote = false) => {
+    if (!fromRemote) callSocketRef.current?.emit("call:end", roomId);
+
+    // Parar gravação
+    const recorder = callRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+
+    const duration = callDuration;
+    cleanupCall();
+    setCallStatus("transcribing");
+
+    // Aguardar último chunk
+    await new Promise((r) => setTimeout(r, 800));
+
+    const currentOp = operators.find((op) => op.id === currentOperatorId);
+    const operatorName = currentOp?.name ?? "Agente";
+
+    const chunks = callChunksRef.current;
+    if (chunks.length > 0 && roomId) {
+      try {
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        const formData = new FormData();
+        formData.append("audio", blob, "recording.webm");
+        formData.append("roomId", roomId);
+        formData.append("duration", String(duration));
+        formData.append("operatorName", operatorName);
+        await fetch(`${BACKEND_URL}/api/calls?action=transcribe`, { method: "POST", body: formData });
+      } catch (e) {
+        console.error("[Call] Erro ao transcrever:", e);
+      }
+    } else if (roomId) {
+      await fetch(`${BACKEND_URL}/api/calls?action=end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId }),
+      });
+    }
+
+    setCallStatus("done");
+    setTimeout(() => setCallStatus("idle"), 3000);
+  }, [callDuration, currentOperatorId, operators, cleanupCall]);
+
   // ── Voice recorder state ────────────────────────────────────────────────────
-  const [recordingState, setRecordingState] = React.useState<"idle" | "recording" | "preview">(
-    "idle",
-  );
+  const [recordingState, setRecordingState] = React.useState<"idle" | "recording" | "preview">("idle");
   const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   const [recordingSeconds, setRecordingSeconds] = React.useState(0);
@@ -892,6 +1082,20 @@ export function ChatPanel() {
                 )}
               </div>
 
+              {/* Call Button */}
+              <button
+                onClick={() => handleStartCall()}
+                disabled={callStatus !== "idle"}
+                className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                  callStatus !== "idle"
+                    ? "bg-red-500/10 text-red-500 border-red-500/30 cursor-not-allowed"
+                    : "bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300"
+                }`}
+                title="Iniciar ligação com o cliente"
+              >
+                <Phone className="h-3.5 w-3.5" />
+              </button>
+
               {/* Finish Chat */}
               <button
                 onClick={() => finishChat(activeChat.id)}
@@ -915,6 +1119,60 @@ export function ChatPanel() {
           )}
         </div>
       </header>
+
+      {/* ── Call Modal Overlay ─────────────────────────────────────────────── */}
+      <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: "none" }} />
+      {callStatus !== "idle" && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center rounded-3xl bg-black/80 backdrop-blur-md">
+          <div className="flex flex-col items-center gap-4 rounded-2xl bg-card border border-border p-8 shadow-2xl w-80 text-center">
+            {/* Avatar */}
+            <div className="h-16 w-16 rounded-full bg-primary/10 border-2 border-primary/30 grid place-items-center text-2xl">
+              {activeChat?.avatar ? (
+                <img src={activeChat.avatar} alt={activeChat.name} className="h-full w-full rounded-full object-cover" />
+              ) : (
+                <span>{activeChat?.initials ?? "?"}</span>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-base font-bold text-foreground">{activeChat?.name}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {callStatus === "waiting" && "Aguardando cliente atender..."}
+                {callStatus === "active" && "Em chamada"}
+                {callStatus === "transcribing" && "Transcrevendo chamada..."}
+                {callStatus === "done" && "Transcrição inserida no chat ✓"}
+                {callStatus === "error" && "Erro ao conectar. Tente novamente."}
+              </p>
+            </div>
+
+            {callStatus === "active" && (
+              <>
+                <div className="text-4xl font-mono font-bold text-primary tabular-nums">
+                  {fmtCallDuration(callDuration)}
+                </div>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-500">
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                  Gravando
+                </span>
+              </>
+            )}
+
+            {(callStatus === "waiting" || callStatus === "transcribing") && (
+              <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            )}
+
+            {(callStatus === "waiting" || callStatus === "active") && (
+              <button
+                onClick={() => handleEndCall(callRoomId)}
+                className="flex items-center gap-2 rounded-xl bg-red-500 px-6 py-3 text-sm font-bold text-white hover:bg-red-600 transition cursor-pointer mt-2"
+              >
+                <PhoneOff className="h-4 w-4" />
+                Encerrar chamada
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* In-chat search bar */}
       {showMsgSearch && (

@@ -10,12 +10,14 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
 import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
 import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
+import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
@@ -29,6 +31,11 @@ import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/conn
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CallRoomIdRoute = CallRoomIdRouteImport.update({
+  id: '/call/$roomId',
+  path: '/call/$roomId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSectorsRoute = ApiSectorsRouteImport.update({
@@ -59,6 +66,11 @@ const ApiContactsRoute = ApiContactsRouteImport.update({
 const ApiChatsRoute = ApiChatsRouteImport.update({
   id: '/api/chats',
   path: '/api/chats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCallsRoute = ApiCallsRouteImport.update({
+  id: '/api/calls',
+  path: '/api/calls',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiContactsContactIdRoute = ApiContactsContactIdRouteImport.update({
@@ -109,12 +121,14 @@ const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/groups': typeof ApiGroupsRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -127,12 +141,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/groups': typeof ApiGroupsRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -146,12 +162,14 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/groups': typeof ApiGroupsRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -166,12 +184,14 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
     | '/api/groups'
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/call/$roomId'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -184,12 +204,14 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
     | '/api/groups'
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/call/$roomId'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -202,12 +224,14 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
     | '/api/groups'
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/call/$roomId'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -221,12 +245,14 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiCallsRoute: typeof ApiCallsRoute
   ApiChatsRoute: typeof ApiChatsRouteWithChildren
   ApiContactsRoute: typeof ApiContactsRouteWithChildren
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiOperatorsRoute: typeof ApiOperatorsRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
   ApiSectorsRoute: typeof ApiSectorsRoute
+  CallRoomIdRoute: typeof CallRoomIdRoute
   ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
   ApiBaileysDisconnectRoute: typeof ApiBaileysDisconnectRoute
   ApiBaileysMediaRoute: typeof ApiBaileysMediaRoute
@@ -243,6 +269,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/call/$roomId': {
+      id: '/call/$roomId'
+      path: '/call/$roomId'
+      fullPath: '/call/$roomId'
+      preLoaderRoute: typeof CallRoomIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/sectors': {
@@ -285,6 +318,13 @@ declare module '@tanstack/react-router' {
       path: '/api/chats'
       fullPath: '/api/chats'
       preLoaderRoute: typeof ApiChatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/calls': {
+      id: '/api/calls'
+      path: '/api/calls'
+      fullPath: '/api/calls'
+      preLoaderRoute: typeof ApiCallsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/contacts/$contactId': {
@@ -379,12 +419,14 @@ const ApiContactsRouteWithChildren = ApiContactsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiCallsRoute: ApiCallsRoute,
   ApiChatsRoute: ApiChatsRouteWithChildren,
   ApiContactsRoute: ApiContactsRouteWithChildren,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiOperatorsRoute: ApiOperatorsRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
   ApiSectorsRoute: ApiSectorsRoute,
+  CallRoomIdRoute: CallRoomIdRoute,
   ApiBaileysConnectRoute: ApiBaileysConnectRoute,
   ApiBaileysDisconnectRoute: ApiBaileysDisconnectRoute,
   ApiBaileysMediaRoute: ApiBaileysMediaRoute,
