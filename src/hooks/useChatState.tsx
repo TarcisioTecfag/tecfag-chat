@@ -5,6 +5,7 @@ import {
   Channel,
   QueueType,
   Message,
+  QuickResponse,
 } from "@/lib/mockData";
 
 export type MetaConfig = {
@@ -36,6 +37,7 @@ export type AccessGroup = {
   canCreateUser: boolean;
   canResetPassword: boolean;
   canEditProfile: boolean;
+  tenantId?: "tecfag" | "valem";
 };
 
 export type Operator = {
@@ -46,12 +48,14 @@ export type Operator = {
   status: "disponivel" | "pausa" | "desconectado";
   passwordHash: string;
   groupId: string;
+  tenantId?: "tecfag" | "valem";
 };
 
 export type Sector = {
   id: string;
   name: string;
   operatorIds: string[];
+  tenantId?: "tecfag" | "valem";
 };
 
 type ChatContextType = {

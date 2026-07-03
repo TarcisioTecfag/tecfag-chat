@@ -18,5 +18,5 @@ export default defineConfig({
     externals: {
       external: ["socket.io", "groq-sdk"],
     },
-  },
+  } as any,
 });

@@ -444,7 +444,7 @@ export class SessionManager {
       if (quotedMessageId) {
         try {
           foundQuotedMsg = await db.query.messages.findFirst({
-            where: (t, { eq: dEq }) => dEq(t.id, quotedMessageId)
+            where: (t, { eq: dEq }) => dEq(t.id, quotedMessageId as string)
           });
         } catch (e) {
           console.error("Erro ao buscar mensagem citada no DB:", e);

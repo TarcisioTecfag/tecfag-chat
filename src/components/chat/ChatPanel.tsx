@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Smile,
   Paperclip,

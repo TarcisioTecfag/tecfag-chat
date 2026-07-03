@@ -35,9 +35,12 @@ export type Conversation = {
 };
 
 export type QuickResponse = {
+  id?: string;
+  tenantId?: string;
   shortcut: string;
   text: string;
   description: string;
+  createdAt?: string | Date;
 };
 
 export const QUICK_RESPONSES: QuickResponse[] = [
