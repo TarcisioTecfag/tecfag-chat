@@ -1001,6 +1001,22 @@ export function ChatPanel() {
                 <Search className="h-3.5 w-3.5" />
               </button>
 
+              {/* Local Dial Button (VigosPhone) */}
+              <a
+                href={(() => {
+                  if (!activeChat.phone) return "#";
+                  let n = activeChat.phone.replace(/\D/g, "");
+                  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
+                  if (n.startsWith("0")) n = n.substring(1);
+                  if (n.startsWith("14")) n = n.substring(2);
+                  return `tel:${n}`;
+                })()}
+                className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
+                title="Discar via VigosPhone (Softphone Local)"
+              >
+                <PhoneCall className="h-3.5 w-3.5" />
+              </a>
+
               {/* Transfer Menu */}
               <div className="relative">
                 <button
@@ -1126,22 +1142,6 @@ export function ChatPanel() {
                   </>
                 )}
               </div>
-
-              {/* Local Dial Button (VigosPhone) — ao lado do Transferir */}
-              <a
-                href={(() => {
-                  if (!activeChat.phone) return "#";
-                  let n = activeChat.phone.replace(/\D/g, "");
-                  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
-                  if (n.startsWith("0")) n = n.substring(1);
-                  if (n.startsWith("14")) n = n.substring(2);
-                  return `tel:${n}`;
-                })()}
-                className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
-                title="Discar via VigosPhone (Softphone Local)"
-              >
-                <PhoneCall className="h-3.5 w-3.5" />
-              </a>
 
               {/* Finish Chat */}
               <button
