@@ -416,6 +416,7 @@ export function ChatPanel() {
     operators,
     quickResponses,
     currentOperatorId,
+    operatorProfile,
   } = useChat();
 
   const [text, setText] = useState("");
@@ -511,9 +512,8 @@ export function ChatPanel() {
     setCallDuration(0);
     callChunksRef.current = [];
 
-    // Determinar nome do operador atual
-    const currentOp = operators.find((op) => op.id === currentOperatorId);
-    const operatorName = currentOp?.name ?? "Agente";
+    // Nome real do operador logado
+    const operatorName = operatorProfile?.name || operators.find((op) => op.id === currentOperatorId)?.name || "Agente";
 
     try {
       // 1. Criar sala via API
@@ -530,7 +530,14 @@ export function ChatPanel() {
       const { roomId, callLink } = await res.json();
       setCallRoomId(roomId);
 
-      // 2. Enviar link pelo WhatsApp via Baileys
+      // 2. Encurtar link via TinyURL (gratuito, sem API key)
+      const shortLink = await fetch(
+        `https://tinyurl.com/api-create.php?url=${encodeURIComponent(callLink)}`
+      )
+        .then((r) => r.text())
+        .catch(() => callLink); // fallback para link original se TinyURL falhar
+
+      // 3. Enviar link pelo WhatsApp via Baileys (mensagem limpa, sem asteriscos excessivos)
       await fetch(`${BACKEND_URL}/api/baileys/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -538,22 +545,28 @@ export function ChatPanel() {
           tenantId: tenant,
           phone: activeChat.phone,
           conversationId: activeChat.id,
-          senderName: "Sistema",
-          text: `📞 *${operatorName}* está te ligando!\n\nToque no link abaixo para atender pelo navegador — não precisa instalar nada:\n\n🔗 ${callLink}\n\n_Este link expira em 10 minutos._`,
+          senderName: operatorName,
+          text: `📞 ${operatorName} está te chamando!\n\nToque no link para atender pelo navegador:\n${shortLink}\n\n⏱️ Link expira em 10 minutos.`,
         }),
       });
 
-      // 3. Solicitar microfone
+      // 4. Inserir nota interna no chat do agente com o link encurtado
+      await sendMessage(
+        `📞 *Ligação iniciada por ${operatorName}*\n\nLink enviado para ${activeChat.name}:\n${shortLink}`,
+        true // isInternalNote
+      );
+
+      // 5. Solicitar microfone
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       callStreamRef.current = stream;
 
-      // 4. Conectar Socket.io
+      // 6. Conectar Socket.io
       const socket = socketIO("/", { path: "/socket.io/", transports: ["websocket", "polling"] });
       callSocketRef.current = socket;
 
       socket.on("connect", () => socket.emit("agent:join", roomId));
 
-      // 5. Quando cliente entrar — criar offer WebRTC
+      // 7. Quando cliente entrar — criar offer WebRTC
       socket.on("client:ready", async () => {
         setCallStatus("active");
         callTimerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
@@ -603,7 +616,7 @@ export function ChatPanel() {
       cleanupCall();
       setCallStatus("error");
     }
-  }, [activeChat, tenant, currentOperatorId, operators, cleanupCall]);
+  }, [activeChat, tenant, currentOperatorId, operators, operatorProfile, sendMessage, cleanupCall]);
 
   const handleEndCall = useCallback(async (roomId: string | null, fromRemote = false) => {
     if (!fromRemote) callSocketRef.current?.emit("call:end", roomId);
