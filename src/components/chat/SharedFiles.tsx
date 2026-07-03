@@ -284,11 +284,11 @@ export function SharedFiles() {
                 />
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 mt-3 group">
+              <div className="relative w-full flex justify-center items-center mt-3 group px-8">
                 <h3 className="text-base font-bold text-foreground">{activeChat.name}</h3>
                 <button
                   onClick={startEditing}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground transition duration-150 cursor-pointer"
+                  className="absolute right-6 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground transition duration-150 cursor-pointer"
                   title="Editar dados do contato"
                 >
                   <Pencil className="h-3.5 w-3.5" />
