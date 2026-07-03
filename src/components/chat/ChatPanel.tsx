@@ -29,6 +29,7 @@ import {
   Play,
   Phone,
   PhoneOff,
+  PhoneCall,
 } from "lucide-react";
 import { io as socketIO, type Socket } from "socket.io-client";
 
@@ -1139,6 +1140,22 @@ export function ChatPanel() {
               >
                 <Phone className="h-3.5 w-3.5" />
               </button>
+
+              {/* Local Dial Call Button (VigosPhone/MicroSIP) */}
+              <a
+                href={(() => {
+                  if (!activeChat.phone) return "#";
+                  let cleaned = activeChat.phone.replace(/\D/g, "");
+                  if (cleaned.startsWith("55") && cleaned.length > 10) {
+                    cleaned = cleaned.substring(2);
+                  }
+                  return `tel:${cleaned}`;
+                })()}
+                className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
+                title="Discar via VigosPhone (Softphone Local)"
+              >
+                <PhoneCall className="h-3.5 w-3.5" />
+              </a>
 
               {/* Finish Chat */}
               <button
