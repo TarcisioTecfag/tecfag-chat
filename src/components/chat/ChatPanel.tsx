@@ -1442,7 +1442,7 @@ export function ChatPanel() {
                     </div>
                   )
                 ) : (
-                  <div className="w-7 shrink-0" />  {/* espaçador para manter alinhamento */}
+                  <div className="w-7 shrink-0" />
                 )}
                 <div className="min-w-0 max-w-[80%] flex-1">
                   <div className="flex items-center gap-2">
