@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
 import { 
   Shield, 
@@ -19,7 +19,8 @@ import {
   Building2,
   Lock,
   Edit,
-  ChevronDown
+  ChevronDown,
+  Camera
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -55,6 +56,50 @@ export function GroupsView() {
     password: "",
     groupId: accessGroups[0]?.id || ""
   });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedOpIdForAvatar, setSelectedOpIdForAvatar] = useState<string | null>(null);
+
+  const handleAvatarClick = (opId: string) => {
+    setSelectedOpIdForAvatar(opId);
+    setTimeout(() => {
+      fileInputRef.current?.click();
+    }, 50);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && selectedOpIdForAvatar) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === "string") {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            
+            const size = 120;
+            canvas.width = size;
+            canvas.height = size;
+            
+            if (ctx) {
+              const minSize = Math.min(img.width, img.height);
+              const sx = (img.width - minSize) / 2;
+              const sy = (img.height - minSize) / 2;
+              
+              ctx.drawImage(img, sx, sy, minSize, minSize, 0, 0, size, size);
+              const compressedBase64 = canvas.toDataURL("image/jpeg", 0.75);
+              
+              updateOperator(selectedOpIdForAvatar, { avatar: compressedBase64 });
+              toast.success("Foto de perfil atualizada!");
+            }
+          };
+          img.src = reader.result;
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Sector Form States
   const [showSectorForm, setShowSectorForm] = useState(false);
@@ -198,6 +243,13 @@ export function GroupsView() {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-6 shadow-soft overflow-y-auto scrollbar-thin select-none">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        className="hidden"
+      />
       
       {/* 1. Header & Perms Simulation Banner */}
       <header className="mb-6 shrink-0">
@@ -454,11 +506,20 @@ export function GroupsView() {
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <img
-                      src={op.avatar}
-                      alt={op.name}
-                      className="h-12 w-12 rounded-full object-cover border border-border shadow-xs"
-                    />
+                    <div 
+                      onClick={() => handleAvatarClick(op.id)} 
+                      className="relative group cursor-pointer h-12 w-12 shrink-0 rounded-full overflow-hidden border border-border shadow-xs"
+                      title="Alterar Foto do Operador"
+                    >
+                      <img
+                        src={op.avatar || "https://i.pravatar.cc/80"}
+                        alt={op.name}
+                        className="h-full w-full object-cover border-0"
+                      />
+                      <div className="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Camera className="h-4 w-4 text-white animate-in zoom-in-75 duration-100" />
+                      </div>
+                    </div>
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-sm text-foreground">{op.name}</span>
