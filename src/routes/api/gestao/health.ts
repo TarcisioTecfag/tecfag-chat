@@ -129,6 +129,33 @@ export const Route = createFileRoute("/api/gestao/health")({
               result.autoCreateResult = `✗ Erro ao criar tabelas: ${createErr.message}`;
             }
           }
+          // 4. Testa a query exata que está falhando em overview.ts
+          try {
+            await client`select count(*) from conversations where tenant_id = 'valem' limit 1`;
+            result.queryTest = { conversations: "✓ OK" };
+          } catch (qe: any) {
+            result.queryTest = {
+              conversations: "✗ FALHOU",
+              message: qe.message,
+              code: qe.code,
+              detail: qe.detail,
+              severity: qe.severity,
+              routine: qe.routine,
+            };
+          }
+
+          // 5. Lista as colunas da tabela conversations
+          try {
+            const cols = await client`
+              SELECT column_name, data_type
+              FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'conversations'
+              ORDER BY ordinal_position
+            `;
+            result.conversationsColumns = cols.map((c: any) => `${c.column_name}: ${c.data_type}`);
+          } catch (ce: any) {
+            result.conversationsColumns = `Erro: ${ce.message}`;
+          }
         } catch (e: any) {
           result.db.error = {
             message: e.message,
@@ -146,6 +173,7 @@ export const Route = createFileRoute("/api/gestao/health")({
           status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+
       },
     },
   },

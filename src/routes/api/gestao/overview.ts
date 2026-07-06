@@ -180,12 +180,30 @@ export const Route = createFileRoute("/api/gestao/overview")({
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
+          const isRelationMissing2 = e?.message?.includes("does not exist");
+          if (isRelationMissing2) {
+            return new Response(JSON.stringify({
+              today: new Date().toISOString().split("T")[0],
+              activeConversations: 0, overdueAlerts: 0,
+              avgResponseTimeSeconds: null, avgResponseTimeFormatted: "–",
+              teamPerformanceScore: null, operators: [],
+            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
           console.error("[gestao/overview] Erro:", e);
           return new Response(JSON.stringify({
             error: e.message,
             pgCode: e.code,
             detail: e.detail,
             hint: e.hint,
+            // Drizzle envolve o erro original em e.cause:
+            cause: e.cause ? {
+              message: e.cause?.message,
+              code: e.cause?.code,
+              detail: e.cause?.detail,
+              severity: e.cause?.severity,
+              routine: e.cause?.routine,
+            } : null,
+            allKeys: Object.getOwnPropertyNames(e),
           }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
