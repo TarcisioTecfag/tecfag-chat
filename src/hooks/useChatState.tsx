@@ -71,8 +71,8 @@ type ChatContextType = {
   setSearchQuery: (query: string) => void;
   channelFilter: Channel | "all";
   setChannelFilter: (filter: Channel | "all") => void;
-  activeView: "chat" | "contacts" | "settings" | "groups" | "monitor";
-  setActiveView: (view: "chat" | "contacts" | "settings" | "groups" | "monitor") => void;
+  activeView: "chat" | "contacts" | "settings" | "groups" | "monitor" | "analytics";
+  setActiveView: (view: "chat" | "contacts" | "settings" | "groups" | "monitor" | "analytics") => void;
   rightSidebarOpen: boolean;
   setRightSidebarOpen: (open: boolean) => void;
   
@@ -142,7 +142,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups" | "monitor">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups" | "monitor" | "analytics">("chat");
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
   const [sectors, setSectors] = useState<Sector[]>([]);
@@ -998,6 +998,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const opName = targetOp ? targetOp.name : "Qualquer atendente";
     const textLog = `Conversa transferida para o setor: ${sectorName} (${opName}).`;
     
+    const targetSector = sectors.find(s => s.name === sectorName);
+    const sectorId = targetSector ? targetSector.id : null;
+
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
@@ -1013,6 +1016,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...c,
             queue: targetQueueState,
             operatorId: targetOperatorId || null,
+            sectorId: sectorId,
+            sectorName: sectorName,
             messages: [...c.messages, systemMsg],
           };
         }
@@ -1030,6 +1035,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           conversationId: id,
           queueState: targetQueueState,
           operatorId: targetOperatorId || null,
+          sectorId: sectorId,
           systemMessageText: textLog,
         }),
       });

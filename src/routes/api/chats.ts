@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { conversations, contacts, messages, responseTimeLogs } from "../../db/schema";
+import { conversations, contacts, messages, responseTimeLogs, sectors } from "../../db/schema";
 import { eq, desc, asc, isNull, and } from "drizzle-orm";
 import { SlaEngine } from "../../lib/sla-engine";
 
@@ -40,9 +40,11 @@ export const Route = createFileRoute("/api/chats")({
             .select({
               conversation: conversations,
               contact: contacts,
+              sectorName: sectors.name,
             })
             .from(conversations)
             .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+            .leftJoin(sectors, eq(conversations.sectorId, sectors.id))
             .where(eq(conversations.tenantId, tenantId))
             .orderBy(desc(conversations.lastMessageTime));
 
@@ -79,6 +81,8 @@ export const Route = createFileRoute("/api/chats")({
               channel: row.contact.mainChannel || "whatsapp",
               queue: row.conversation.queueState || "fila",
               operatorId: row.conversation.operatorId || null,
+              sectorId: row.conversation.sectorId || null,
+              sectorName: row.sectorName || null,
               unreadCount: row.conversation.unreadCount || 0,
               lastMessageTime: new Date(row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
                 hour: "2-digit",

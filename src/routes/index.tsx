@@ -9,6 +9,7 @@ import { ContactsView } from "@/components/chat/ContactsView";
 import { GroupsView } from "@/components/chat/GroupsView";
 import { ProfileModal } from "@/components/chat/ProfileModal";
 import { MonitorView } from "@/components/chat/MonitorView";
+import { AnalyticsView } from "@/components/chat/AnalyticsView";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { motion, AnimatePresence } from "framer-motion";
@@ -109,6 +110,17 @@ function Index() {
                 className="flex-1 h-full overflow-hidden"
               >
                 <MonitorView />
+              </motion.div>
+            ) : activeView === "analytics" ? (
+              <motion.div
+                key="analytics"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <AnalyticsView />
               </motion.div>
             ) : (
               <motion.div

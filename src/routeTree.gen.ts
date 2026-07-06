@@ -18,6 +18,8 @@ import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
+import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
+import { Route as ApiGestaoReportsRouteImport } from './routes/api/gestao/reports'
 import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
 import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
 import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
@@ -75,6 +77,16 @@ const ApiChatsRoute = ApiChatsRouteImport.update({
 const ApiCallsRoute = ApiCallsRouteImport.update({
   id: '/api/calls',
   path: '/api/calls',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsReportsRoute = ApiSettingsReportsRouteImport.update({
+  id: '/api/settings/reports',
+  path: '/api/settings/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoReportsRoute = ApiGestaoReportsRouteImport.update({
+  id: '/api/gestao/reports',
+  path: '/api/gestao/reports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGestaoOverviewRoute = ApiGestaoOverviewRouteImport.update({
@@ -166,6 +178,8 @@ export interface FileRoutesByFullPath {
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
+  '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/settings/reports': typeof ApiSettingsReportsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -190,6 +204,8 @@ export interface FileRoutesByTo {
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
+  '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/settings/reports': typeof ApiSettingsReportsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -215,6 +231,8 @@ export interface FileRoutesById {
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
+  '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/settings/reports': typeof ApiSettingsReportsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -241,6 +259,8 @@ export interface FileRouteTypes {
     | '/api/gestao/audits'
     | '/api/gestao/health'
     | '/api/gestao/overview'
+    | '/api/gestao/reports'
+    | '/api/settings/reports'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -265,6 +285,8 @@ export interface FileRouteTypes {
     | '/api/gestao/audits'
     | '/api/gestao/health'
     | '/api/gestao/overview'
+    | '/api/gestao/reports'
+    | '/api/settings/reports'
   id:
     | '__root__'
     | '/'
@@ -289,6 +311,8 @@ export interface FileRouteTypes {
     | '/api/gestao/audits'
     | '/api/gestao/health'
     | '/api/gestao/overview'
+    | '/api/gestao/reports'
+    | '/api/settings/reports'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -312,6 +336,8 @@ export interface RootRouteChildren {
   ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
   ApiGestaoHealthRoute: typeof ApiGestaoHealthRoute
   ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
+  ApiGestaoReportsRoute: typeof ApiGestaoReportsRoute
+  ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -377,6 +403,20 @@ declare module '@tanstack/react-router' {
       path: '/api/calls'
       fullPath: '/api/calls'
       preLoaderRoute: typeof ApiCallsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings/reports': {
+      id: '/api/settings/reports'
+      path: '/api/settings/reports'
+      fullPath: '/api/settings/reports'
+      preLoaderRoute: typeof ApiSettingsReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/reports': {
+      id: '/api/gestao/reports'
+      path: '/api/gestao/reports'
+      fullPath: '/api/gestao/reports'
+      preLoaderRoute: typeof ApiGestaoReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/gestao/overview': {
@@ -518,7 +558,19 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
   ApiGestaoHealthRoute: ApiGestaoHealthRoute,
   ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
+  ApiGestaoReportsRoute: ApiGestaoReportsRoute,
+  ApiSettingsReportsRoute: ApiSettingsReportsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

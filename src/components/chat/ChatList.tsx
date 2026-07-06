@@ -394,9 +394,22 @@ export function ChatList() {
                         </div>
 
                         {/* Render tags below preview */}
-                        {c.tags && c.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            {c.tags.slice(0, 3).map((tag, idx) => (
+                        {((c.tags && c.tags.length > 0) || c.sectorName) && (
+                          <div className="flex flex-wrap gap-1 mt-1.5 items-center">
+                            {c.sectorName && (
+                              <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md border ${
+                                c.sectorName === "Comercial"
+                                  ? "bg-purple-50 text-purple-600 border-purple-100"
+                                  : c.sectorName === "Suporte"
+                                  ? "bg-blue-50 text-blue-600 border-blue-100"
+                                  : c.sectorName === "Financeiro"
+                                  ? "bg-amber-50 text-amber-600 border-amber-100"
+                                  : "bg-gray-50 text-gray-600 border-gray-100"
+                              }`}>
+                                {c.sectorName}
+                              </span>
+                            )}
+                            {c.tags && c.tags.slice(0, 2).map((tag, idx) => (
                               <span 
                                 key={idx} 
                                 className="text-[9px] font-extrabold uppercase bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-md"
@@ -404,9 +417,9 @@ export function ChatList() {
                                 {tag}
                               </span>
                             ))}
-                            {c.tags.length > 3 && (
+                            {c.tags && c.tags.length > 2 && (
                               <span className="text-[9px] font-bold text-muted-foreground px-1 py-0.5">
-                                +{c.tags.length - 3}
+                                +{c.tags.length - 2}
                               </span>
                             )}
                           </div>

@@ -26,6 +26,21 @@ export const channelConfigs = pgTable("channel_configs", {
   baileysPairedPhone: text("baileys_paired_phone"),
   baileysAuthKeys: jsonb("baileys_auth_keys"), // Guarda o JSON de autenticação gerado pelo Baileys
   
+  // Configurações de Relatórios Automáticos
+  reportDailyWhatsapp: boolean("report_daily_whatsapp").default(false).notNull(),
+  reportDailyEmail: boolean("report_daily_email").default(false).notNull(),
+  reportWeeklyWhatsapp: boolean("report_weekly_whatsapp").default(false).notNull(),
+  reportWeeklyEmail: boolean("report_weekly_email").default(false).notNull(),
+  reportWhatsappNumbers: text("report_whatsapp_numbers"),
+  reportEmailAddresses: text("report_email_addresses"),
+
+  // Configurações de E-mail SMTP
+  smtpHost: text("smtp_host"),
+  smtpPort: integer("smtp_port"),
+  smtpUser: text("smtp_user"),
+  smtpPass: text("smtp_pass"),
+  smtpFrom: text("smtp_from"),
+
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -90,6 +105,7 @@ export const conversations = pgTable("conversations", {
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   contactId: text("contact_id").references(() => contacts.id, { onDelete: "cascade" }).notNull(),
   operatorId: text("operator_id").references(() => operators.id), // Null indica que está na fila ou bot
+  sectorId: text("sector_id").references(() => sectors.id, { onDelete: "set null" }), // Novo campo para vincular diretamente o setor à conversa
   
   queueState: text("queue_state").default("fila").notNull(), // 'meus' | 'fila' | 'automacao' | 'finalizados'
   unreadCount: integer("unread_count").default(0).notNull(),

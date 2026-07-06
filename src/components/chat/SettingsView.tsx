@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useChat } from "@/hooks/useChatState";
-import { Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save } from "lucide-react";
+import { Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save, Mail, FileText } from "lucide-react";
 
 export function SettingsView() {
   const {
@@ -15,6 +15,75 @@ export function SettingsView() {
   const [metaForm, setMetaForm] = useState({ ...metaConfig });
   const [isSaved, setIsSaved] = useState(false);
 
+  // Estados de Relatórios e SMTP
+  const [reportForm, setReportForm] = useState({
+    reportDailyWhatsapp: false,
+    reportDailyEmail: false,
+    reportWeeklyWhatsapp: false,
+    reportWeeklyEmail: false,
+    reportWhatsappNumbers: "",
+    reportEmailAddresses: "",
+    smtpHost: "",
+    smtpPort: "",
+    smtpUser: "",
+    smtpPass: "",
+    smtpFrom: "",
+  });
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [isReportSaved, setIsReportSaved] = useState(false);
+
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+  useEffect(() => {
+    const loadReports = async () => {
+      setLoadingReports(true);
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/settings/reports?tenantId=${tenant}`);
+        if (res.ok) {
+          const data = await res.json();
+          setReportForm({
+            reportDailyWhatsapp: !!data.reportDailyWhatsapp,
+            reportDailyEmail: !!data.reportDailyEmail,
+            reportWeeklyWhatsapp: !!data.reportWeeklyWhatsapp,
+            reportWeeklyEmail: !!data.reportWeeklyEmail,
+            reportWhatsappNumbers: data.reportWhatsappNumbers || "",
+            reportEmailAddresses: data.reportEmailAddresses || "",
+            smtpHost: data.smtpHost || "",
+            smtpPort: data.smtpPort ? String(data.smtpPort) : "",
+            smtpUser: data.smtpUser || "",
+            smtpPass: data.smtpPass || "",
+            smtpFrom: data.smtpFrom || "",
+          });
+        }
+      } catch (e) {
+        console.error("Erro ao carregar configurações de relatório:", e);
+      } finally {
+        setLoadingReports(false);
+      }
+    };
+    loadReports();
+  }, [tenant]);
+
+  const handleReportSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: tenant,
+          ...reportForm,
+        }),
+      });
+      if (res.ok) {
+        setIsReportSaved(true);
+        setTimeout(() => setIsReportSaved(false), 3000);
+      }
+    } catch (e) {
+      console.error("Erro ao salvar relatórios:", e);
+    }
+  };
+
   // Estados do Diagnóstico de Envio
   const [testPhone, setTestPhone] = useState("");
   const [testMessage, setTestMessage] = useState("Teste de conexão bem-sucedido! Valem Chat funcionando de forma perfeita.");
@@ -22,8 +91,6 @@ export function SettingsView() {
     type: "idle",
     message: "",
   });
-
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   const handleMetaSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -386,6 +453,177 @@ export function SettingsView() {
             </div>
           </div>
         )}
+        {/* Bloco Comum: Automação e Relatórios Executivos */}
+        <div className="mt-8 pt-8 border-t border-line">
+          <header className="mb-6">
+            <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              Automação e Relatórios Executivos
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Configure o envio automático de relatórios analíticos diários e semanais consolidados por WhatsApp e E-mail.
+            </p>
+          </header>
+
+          <form onSubmit={handleReportSave} className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            {/* Lado Esquerdo: Preferências de Frequência e Destinatários */}
+            <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground mb-2">Preferências de Envio</h4>
+              
+              <div className="space-y-3">
+                <label className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={reportForm.reportDailyWhatsapp}
+                    onChange={(e) => setReportForm({ ...reportForm, reportDailyWhatsapp: e.target.checked })}
+                    className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                  />
+                  <span>Enviar relatório diário por WhatsApp</span>
+                </label>
+
+                <label className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={reportForm.reportDailyEmail}
+                    onChange={(e) => setReportForm({ ...reportForm, reportDailyEmail: e.target.checked })}
+                    className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                  />
+                  <span>Enviar relatório diário por E-mail</span>
+                </label>
+
+                <label className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={reportForm.reportWeeklyWhatsapp}
+                    onChange={(e) => setReportForm({ ...reportForm, reportWeeklyWhatsapp: e.target.checked })}
+                    className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                  />
+                  <span>Enviar relatório semanal por WhatsApp</span>
+                </label>
+
+                <label className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={reportForm.reportWeeklyEmail}
+                    onChange={(e) => setReportForm({ ...reportForm, reportWeeklyEmail: e.target.checked })}
+                    className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                  />
+                  <span>Enviar relatório semanal por E-mail</span>
+                </label>
+              </div>
+
+              <div className="space-y-1.5 pt-2">
+                <label className="text-xs font-semibold text-foreground/80 block">Números de Celular de Destino (DDI+DDD+Número, separados por vírgula)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 5514981468232, 5581999998888"
+                  value={reportForm.reportWhatsappNumbers}
+                  onChange={(e) => setReportForm({ ...reportForm, reportWhatsappNumbers: e.target.value })}
+                  className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground/80 block">Endereços de E-mail de Destino (separados por vírgula)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: gestao@valem.com.br, diretoria@valem.com.br"
+                  value={reportForm.reportEmailAddresses}
+                  onChange={(e) => setReportForm({ ...reportForm, reportEmailAddresses: e.target.value })}
+                  className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Lado Direito: Servidor SMTP */}
+            <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Mail className="h-4 w-4 text-muted-foreground" />
+                Configuração de Servidor SMTP (E-mail)
+              </h4>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2 space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground/80 block">Servidor SMTP Host</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: smtp.sendgrid.net"
+                    value={reportForm.smtpHost}
+                    onChange={(e) => setReportForm({ ...reportForm, smtpHost: e.target.value })}
+                    className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground/80 block">Porta</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 587"
+                    value={reportForm.smtpPort}
+                    onChange={(e) => setReportForm({ ...reportForm, smtpPort: e.target.value })}
+                    className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground/80 block">Usuário SMTP</label>
+                <input
+                  type="text"
+                  placeholder="Ex: apikey ou contato@valem.com.br"
+                  value={reportForm.smtpUser}
+                  onChange={(e) => setReportForm({ ...reportForm, smtpUser: e.target.value })}
+                  className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground/80 block">Senha SMTP</label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••••••"
+                  value={reportForm.smtpPass}
+                  onChange={(e) => setReportForm({ ...reportForm, smtpPass: e.target.value })}
+                  className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground/80 block">Remetente (From Address)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Valem Chat <alertas@valem.com.br>"
+                  value={reportForm.smtpFrom}
+                  onChange={(e) => setReportForm({ ...reportForm, smtpFrom: e.target.value })}
+                  className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Botão de Salvar Geral */}
+            <div className="lg:col-span-2 flex items-center justify-between pt-4 border-t border-line">
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4" />
+                Os relatórios diários são processados e enviados às 18h e os semanais às sextas-feiras às 18h.
+              </div>
+              <button
+                type="submit"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft active:scale-98"
+              >
+                {isReportSaved ? (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Salvo!
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Salvar Automação de Relatórios
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </section>
   );

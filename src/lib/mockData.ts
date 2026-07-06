@@ -32,6 +32,8 @@ export type Conversation = {
   lastMessageTime: string;
   unreadCount: number;
   operatorId?: string | null;
+  sectorId?: string | null;
+  sectorName?: string | null;
 };
 
 export type QuickResponse = {
@@ -80,6 +82,8 @@ export const TECFAG_MOCK_CONVERSATIONS: Conversation[] = [
     unreadCount: 0,
     lastMessageTime: "10:45",
     operatorId: "op-1",
+    sectorId: "sec-comercial",
+    sectorName: "Comercial",
     messages: [
       {
         id: "t1-m1",
@@ -258,6 +262,8 @@ export const VALEM_MOCK_CONVERSATIONS: Conversation[] = [
     unreadCount: 0,
     lastMessageTime: "10:52",
     operatorId: "op-2",
+    sectorId: "sec-comercial",
+    sectorName: "Comercial",
     messages: [
       {
         id: "v1-m1",
