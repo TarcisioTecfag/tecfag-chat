@@ -120,6 +120,19 @@ setupClient.unsafe(`
     content TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
+
+  -- Garante a coluna wallet_operator_id na tabela contacts
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS wallet_operator_id TEXT;
+
+  -- Cria a tabela de templates de operadores
+  CREATE TABLE IF NOT EXISTS operator_templates (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    operator_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
 `)
   .then(() => {
     console.log("[db] ✓ Tabelas de gestão verificadas/criadas.");

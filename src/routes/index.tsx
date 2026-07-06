@@ -6,6 +6,7 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { SharedFiles } from "@/components/chat/SharedFiles";
 import { SettingsView } from "@/components/chat/SettingsView";
 import { ContactsView } from "@/components/chat/ContactsView";
+import { WalletView } from "@/components/chat/WalletView";
 import { GroupsView } from "@/components/chat/GroupsView";
 import { ProfileModal } from "@/components/chat/ProfileModal";
 import { MonitorView } from "@/components/chat/MonitorView";
@@ -88,6 +89,17 @@ function Index() {
                 className="flex-1 h-full overflow-hidden"
               >
                 <ContactsView />
+              </motion.div>
+            ) : activeView === "wallet" ? (
+              <motion.div
+                key="wallet"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <WalletView />
               </motion.div>
             ) : activeView === "groups" ? (
               <motion.div

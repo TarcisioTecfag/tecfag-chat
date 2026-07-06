@@ -6,6 +6,7 @@ import {
   QueueType,
   Message,
   QuickResponse,
+  OperatorTemplate,
 } from "@/lib/mockData";
 
 export type MetaConfig = {
@@ -71,8 +72,8 @@ type ChatContextType = {
   setSearchQuery: (query: string) => void;
   channelFilter: Channel | "all";
   setChannelFilter: (filter: Channel | "all") => void;
-  activeView: "chat" | "contacts" | "settings" | "groups" | "monitor" | "analytics";
-  setActiveView: (view: "chat" | "contacts" | "settings" | "groups" | "monitor" | "analytics") => void;
+  activeView: "chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics";
+  setActiveView: (view: "chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics") => void;
   rightSidebarOpen: boolean;
   setRightSidebarOpen: (open: boolean) => void;
   
@@ -105,6 +106,12 @@ type ChatContextType = {
   createQuickResponse: (qr: Omit<QuickResponse, "id">) => void;
   updateQuickResponse: (id: string, fields: Partial<QuickResponse>) => void;
   deleteQuickResponse: (id: string) => void;
+  
+  // Individual Templates State & Operations
+  templates: OperatorTemplate[];
+  createTemplate: (title: string, text: string) => Promise<void>;
+  updateTemplate: (id: string, title: string, text: string) => Promise<void>;
+  deleteTemplate: (id: string) => Promise<void>;
   
   // Actions
   sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null) => Promise<void>;
@@ -142,12 +149,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups" | "monitor" | "analytics">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics">("chat");
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([]);
-  const [quickResponses, setQuickResponses] = useState<QuickResponse[]>([]);;
+  const [quickResponses, setQuickResponses] = useState<QuickResponse[]>([]);
+  const [templates, setTemplates] = useState<OperatorTemplate[]>([]);
 
   const [operators, setOperators] = useState<Operator[]>([
     {
@@ -274,6 +282,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .catch((err) => console.error("Erro ao sincronizar respostas rápidas do banco:", err));
     }
   }, [tenant]);
+
+  // Sincronizar templates individuais do operador quando o tenant ou o operador ativo mudar
+  useEffect(() => {
+    if (typeof window !== "undefined" && currentOperatorId) {
+      fetch(`${BACKEND_URL}/api/templates?tenantId=${tenant}&operatorId=${currentOperatorId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setTemplates(data);
+          }
+        })
+        .catch((err) => console.error("Erro ao sincronizar templates do banco:", err));
+    }
+  }, [tenant, currentOperatorId]);
 
   // Persistir alterações apenas após o cliente estar pronto (evita sobrescrever dados com o padrão de render)
   useEffect(() => {
@@ -675,6 +697,66 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error("Erro ao excluir resposta rápida no DB:", err);
       toast.error("Erro ao excluir resposta rápida.");
+    }
+  };
+
+  const createTemplate = async (title: string, text: string) => {
+    const id = `tpl-${Date.now()}`;
+    const newTpl: OperatorTemplate = {
+      id,
+      tenantId: tenant,
+      operatorId: currentOperatorId,
+      title,
+      text,
+    };
+    setTemplates((prev) => [...prev, newTpl]);
+
+    try {
+      await fetch(`${BACKEND_URL}/api/templates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newTpl),
+      });
+      toast.success("Template criado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao criar template no DB:", err);
+      toast.error("Erro ao criar template.");
+    }
+  };
+
+  const updateTemplate = async (id: string, title: string, text: string) => {
+    setTemplates((prev) => prev.map((tpl) => (tpl.id === id ? { ...tpl, title, text } : tpl)));
+
+    try {
+      await fetch(`${BACKEND_URL}/api/templates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          tenantId: tenant,
+          operatorId: currentOperatorId,
+          title,
+          text,
+        }),
+      });
+      toast.success("Template atualizado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao atualizar template no DB:", err);
+      toast.error("Erro ao atualizar template.");
+    }
+  };
+
+  const deleteTemplate = async (id: string) => {
+    setTemplates((prev) => prev.filter((tpl) => tpl.id !== id));
+
+    try {
+      await fetch(`${BACKEND_URL}/api/templates?id=${id}`, {
+        method: "DELETE",
+      });
+      toast.success("Template excluído com sucesso!");
+    } catch (err) {
+      console.error("Erro ao excluir template no DB:", err);
+      toast.error("Erro ao excluir template.");
     }
   };
 
@@ -1344,6 +1426,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     messages: [...c.messages, incomingMsg],
                     phone: message.phone || c.phone,
                     avatar: message.avatar || c.avatar,
+                    queue: message.queue || c.queue,
+                    operatorId: message.operatorId !== undefined ? message.operatorId : c.operatorId,
                   };
                 }
                 return c;
@@ -1366,7 +1450,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 phone: message.phone || "",
                 tags: ["WhatsApp Inbound"],
                 channel: "whatsapp",
-                queue: "fila",
+                queue: message.queue || "fila",
+                operatorId: message.operatorId || null,
                 unreadCount: 1,
                 lastMessageTime: timeStr,
                 messages: [incomingMsg],
@@ -1509,6 +1594,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createQuickResponse,
         updateQuickResponse,
         deleteQuickResponse,
+        
+        templates: templates.filter((tpl) => tpl.tenantId === tenant),
+        createTemplate,
+        updateTemplate,
+        deleteTemplate,
         
         sendMessage,
         captureChat,

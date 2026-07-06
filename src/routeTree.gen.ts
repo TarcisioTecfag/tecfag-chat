@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
+import { Route as ApiTemplatesRouteImport } from './routes/api/templates'
 import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
 import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
@@ -42,6 +43,11 @@ const IndexRoute = IndexRouteImport.update({
 const CallRoomIdRoute = CallRoomIdRouteImport.update({
   id: '/call/$roomId',
   path: '/call/$roomId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTemplatesRoute = ApiTemplatesRouteImport.update({
+  id: '/api/templates',
+  path: '/api/templates',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSectorsRoute = ApiSectorsRouteImport.update({
@@ -164,6 +170,7 @@ export interface FileRoutesByFullPath {
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
@@ -190,6 +197,7 @@ export interface FileRoutesByTo {
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
@@ -217,6 +225,7 @@ export interface FileRoutesById {
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
@@ -245,6 +254,7 @@ export interface FileRouteTypes {
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/api/templates'
     | '/call/$roomId'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/api/templates'
     | '/call/$roomId'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
@@ -297,6 +308,7 @@ export interface FileRouteTypes {
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/api/templates'
     | '/call/$roomId'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
@@ -324,6 +336,7 @@ export interface RootRouteChildren {
   ApiOperatorsRoute: typeof ApiOperatorsRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
   ApiSectorsRoute: typeof ApiSectorsRoute
+  ApiTemplatesRoute: typeof ApiTemplatesRoute
   CallRoomIdRoute: typeof CallRoomIdRoute
   ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
   ApiBaileysDisconnectRoute: typeof ApiBaileysDisconnectRoute
@@ -354,6 +367,13 @@ declare module '@tanstack/react-router' {
       path: '/call/$roomId'
       fullPath: '/call/$roomId'
       preLoaderRoute: typeof CallRoomIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/templates': {
+      id: '/api/templates'
+      path: '/api/templates'
+      fullPath: '/api/templates'
+      preLoaderRoute: typeof ApiTemplatesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/sectors': {
@@ -546,6 +566,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiOperatorsRoute: ApiOperatorsRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
   ApiSectorsRoute: ApiSectorsRoute,
+  ApiTemplatesRoute: ApiTemplatesRoute,
   CallRoomIdRoute: CallRoomIdRoute,
   ApiBaileysConnectRoute: ApiBaileysConnectRoute,
   ApiBaileysDisconnectRoute: ApiBaileysDisconnectRoute,

@@ -32,8 +32,18 @@ export type Conversation = {
   lastMessageTime: string;
   unreadCount: number;
   operatorId?: string | null;
+  walletOperatorId?: string | null;
   sectorId?: string | null;
   sectorName?: string | null;
+};
+
+export type OperatorTemplate = {
+  id: string;
+  tenantId: string;
+  operatorId: string;
+  title: string;
+  text: string;
+  createdAt?: string;
 };
 
 export type QuickResponse = {

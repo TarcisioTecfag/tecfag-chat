@@ -96,6 +96,7 @@ export const contacts = pgTable("contacts", {
   avatar: text("avatar"), // URL da foto de perfil do contato
   tags: jsonb("tags").$type<string[]>().default([]).notNull(),
   mainChannel: text("main_channel").notNull(), // 'whatsapp' | 'instagram' | 'messenger'
+  walletOperatorId: text("wallet_operator_id").references(() => operators.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -264,6 +265,16 @@ export const aiReports = pgTable("ai_reports", {
   generatedAt: timestamp("generated_at").defaultNow().notNull(),
 });
 
+// ─── 13. TEMPLATES INDIVIDUAIS DOS OPERADORES ───────────────────────────────
+export const operatorTemplates = pgTable("operator_templates", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "cascade" }).notNull(),
+  title: text("title").notNull(),
+  text: text("text").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -273,6 +284,7 @@ export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type QuickResponse = typeof quickResponses.$inferSelect;
 export type MediaFile = typeof mediaFiles.$inferSelect;
+export type OperatorTemplate = typeof operatorTemplates.$inferSelect;
 
 // ── Novos tipos do Gestor de I.A. ──
 export type ResponseTimeLog = typeof responseTimeLogs.$inferSelect;

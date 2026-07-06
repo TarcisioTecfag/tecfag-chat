@@ -45,6 +45,7 @@ export const Route = createFileRoute("/api/contacts")({
             email: email || null,
             cnpj: cnpj || null,
             mainChannel: channel || "whatsapp",
+            walletOperatorId: operatorId || null,
           });
 
           // 2. Criar Conversa no Banco

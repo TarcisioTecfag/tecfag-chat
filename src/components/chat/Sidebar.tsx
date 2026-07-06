@@ -12,6 +12,7 @@ import {
   Building2,
   Contact,
   Shield,
+  Wallet,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -26,6 +27,7 @@ export function Sidebar() {
   const navItems = [
     { id: "chat", icon: Users, label: "Chat" },
     { id: "contacts", icon: Contact, label: "Base de Clientes" },
+    { id: "wallet", icon: Wallet, label: "Minha Carteira" },
   ];
 
   const decorativeItems = [

@@ -417,6 +417,7 @@ export function ChatPanel() {
     sectors,
     operators,
     quickResponses,
+    templates,
     currentOperatorId,
     operatorProfile,
   } = useChat();
@@ -1495,34 +1496,73 @@ export function ChatPanel() {
 
       {/* Floating Quick Replies Menu */}
       <AnimatePresence>
-        {showQuickMenu && (
-          <motion.div
-            initial={{ opacity: 0, y: 15, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 15, scale: 0.98 }}
-            transition={{ type: "spring", damping: 20, stiffness: 300 }}
-            className="absolute bottom-20 left-6 right-6 z-50 rounded-2xl bg-card p-2 border border-border shadow-card max-h-48 overflow-y-auto scrollbar-thin"
-          >
-            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-line">
-              Respostas Rápidas
-            </div>
-            {quickResponses.map((qr) => (
-              <button
-                key={qr.id || qr.shortcut}
-                onClick={() => selectQuickResponse(qr.text)}
-                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
-              >
-                <span className="text-xs font-bold text-primary font-mono">{qr.shortcut}</span>
-                <span className="truncate text-xs text-foreground/80 max-w-[280px] font-medium ml-2">
-                  {qr.text}
-                </span>
-                <span className="text-[10px] text-muted-foreground italic shrink-0">
-                  {qr.description}
-                </span>
-              </button>
-            ))}
-          </motion.div>
-        )}
+        {(() => {
+          const filterText = text.startsWith("/") ? text.slice(1).toLowerCase() : "";
+          const filteredQrs = quickResponses.filter((qr) => 
+            qr.shortcut.toLowerCase().includes(filterText) ||
+            qr.text.toLowerCase().includes(filterText)
+          );
+          const filteredTpls = (templates || []).filter((tpl) => 
+            tpl.title.toLowerCase().includes(filterText) ||
+            tpl.text.toLowerCase().includes(filterText)
+          );
+          const showFloatingMenu = showQuickMenu && (filteredQrs.length > 0 || filteredTpls.length > 0);
+
+          if (!showFloatingMenu) return null;
+
+          return (
+            <motion.div
+              initial={{ opacity: 0, y: 15, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 15, scale: 0.98 }}
+              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+              className="absolute bottom-20 left-6 right-6 z-50 rounded-2xl bg-card p-4 border border-border shadow-card max-h-60 overflow-y-auto scrollbar-thin flex flex-col gap-4"
+            >
+              {filteredQrs.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60 border-b border-line mb-1">
+                    Respostas Rápidas (Gerais)
+                  </div>
+                  {filteredQrs.map((qr) => (
+                    <button
+                      key={qr.id || qr.shortcut}
+                      onClick={() => selectQuickResponse(qr.text)}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
+                    >
+                      <span className="text-xs font-bold text-primary font-mono">{qr.shortcut}</span>
+                      <span className="truncate text-xs text-foreground/80 max-w-[280px] font-medium ml-2">
+                        {qr.text}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground italic shrink-0">
+                        {qr.description}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {filteredTpls.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60 border-b border-line mb-1">
+                    Meus Templates (Individuais)
+                  </div>
+                  {filteredTpls.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      onClick={() => selectQuickResponse(tpl.text)}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
+                    >
+                      <span className="text-xs font-bold text-foreground font-medium">{tpl.title}</span>
+                      <span className="truncate text-xs text-muted-foreground max-w-[320px] ml-2">
+                        {tpl.text}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
 

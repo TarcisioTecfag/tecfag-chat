@@ -81,6 +81,7 @@ export const Route = createFileRoute("/api/chats")({
               channel: row.contact.mainChannel || "whatsapp",
               queue: row.conversation.queueState || "fila",
               operatorId: row.conversation.operatorId || null,
+              walletOperatorId: row.contact.walletOperatorId || null,
               sectorId: row.conversation.sectorId || null,
               sectorName: row.sectorName || null,
               unreadCount: row.conversation.unreadCount || 0,

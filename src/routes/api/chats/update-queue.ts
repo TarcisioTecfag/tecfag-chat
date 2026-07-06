@@ -59,6 +59,14 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             })
             .where(eq(conversations.id, conversationId));
 
+          // 2.5. Se a conversa foi iniciada/capturada por um atendente, vincula à carteira do contato
+          if (queueState === "meus" && operatorId && conv.contactId) {
+            await db
+              .update(contacts)
+              .set({ walletOperatorId: operatorId })
+              .where(eq(contacts.id, conv.contactId));
+          }
+
           // 3. Se enviou uma mensagem de log do sistema, salvar
           if (systemMessageText) {
             const messageId = `sys-${Date.now()}`;

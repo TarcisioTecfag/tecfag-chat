@@ -679,14 +679,25 @@ export class SessionManager {
       // Se veio do cliente, incrementa as não lidas.
       const unreadCount = isFromMe ? 0 : (conversation ? conversation.unreadCount + 1 : 1);
 
-      // Regra de reabertura automática de filas:
-      // - Se o cliente mandar mensagem e a conversa estava finalizada, reabre para a fila geral de espera
-      // - Se o operador mandar mensagem e a conversa estava na fila, captura para 'meus'
+      // Regra de reabertura e carteirização automática de filas:
       let targetQueue = conversation?.queueState || "fila";
-      if (!isFromMe && conversation?.queueState === "finalizados") {
-        targetQueue = "fila";
-      } else if (isFromMe && conversation?.queueState === "fila") {
-        targetQueue = "meus";
+      let targetOperatorId = conversation?.operatorId || null;
+
+      if (!isFromMe) {
+        if (contact?.walletOperatorId) {
+          // Se o cliente tem dono de carteira, atribui diretamente a ele e abre em "Meus"
+          targetQueue = "meus";
+          targetOperatorId = contact.walletOperatorId;
+        } else if (conversation?.queueState === "finalizados") {
+          // Sem dono e finalizada: reabre na fila geral
+          targetQueue = "fila";
+          targetOperatorId = null;
+        }
+      } else {
+        // Se a mensagem veio do operador (WhatsApp Web conectado ou painel)
+        if (conversation?.queueState === "fila") {
+          targetQueue = "meus";
+        }
       }
 
       if (!conversation) {
@@ -695,7 +706,8 @@ export class SessionManager {
           id: convId,
           tenantId,
           contactId,
-          queueState: isFromMe ? "meus" : "fila", // Se iniciamos contato, move para a fila do operador
+          queueState: isFromMe ? "meus" : (contact?.walletOperatorId ? "meus" : "fila"),
+          operatorId: (!isFromMe && contact?.walletOperatorId) ? contact.walletOperatorId : null,
           unreadCount,
           lastMessageText: text,
           lastMessageTime: new Date(),
@@ -710,6 +722,7 @@ export class SessionManager {
             lastMessageText: text,
             lastMessageTime: new Date(),
             queueState: targetQueue,
+            operatorId: targetOperatorId,
           })
           .where(eq(conversations.id, convId));
       }
@@ -800,6 +813,8 @@ export class SessionManager {
           quotedMessageId,
           quotedMessageSender,
           quotedMessageContent,
+          queue: !conversation ? (isFromMe ? "meus" : (contact?.walletOperatorId ? "meus" : "fila")) : targetQueue,
+          operatorId: !conversation ? ((!isFromMe && contact?.walletOperatorId) ? contact.walletOperatorId : null) : targetOperatorId,
         }
       });
 
