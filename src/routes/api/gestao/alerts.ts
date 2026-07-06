@@ -108,7 +108,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
         } catch (e: any) {
           const errDetail = { message: e?.message, code: e?.code, detail: e?.detail, cause: e?.cause ? { message: e.cause?.message, code: e.cause?.code } : null };
           console.error("[gestao/alerts] ERRO:", JSON.stringify(errDetail));
-          return new Response(JSON.stringify({ _error: errDetail, items: [] }), {
+          return new Response(JSON.stringify([]), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
