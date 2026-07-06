@@ -124,6 +124,11 @@ setupClient.unsafe(`
   -- Garante a coluna wallet_operator_id na tabela contacts
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS wallet_operator_id TEXT;
 
+  -- Ajusta constraint de operator_id em conversations para set null ao excluir operador
+  ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_operator_id_operators_id_fk;
+  ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_operator_id_fkey;
+  ALTER TABLE conversations ADD CONSTRAINT conversations_operator_id_fkey FOREIGN KEY (operator_id) REFERENCES operators(id) ON DELETE SET NULL;
+
   -- Cria a tabela de templates de operadores
   CREATE TABLE IF NOT EXISTS operator_templates (
     id TEXT PRIMARY KEY,
