@@ -169,48 +169,32 @@ export const Route = createFileRoute("/api/gestao/overview")({
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
-          const isRelationMissing = e?.code === "42P01" || e?.message?.includes("does not exist");
-          if (isRelationMissing) {
-            // Tabelas ainda não foram criadas — retorna dados vazios em vez de 500
-            console.warn("[gestao/overview] Tabelas de gestão pendentes de criação. Retornando dados padrão.");
-            return new Response(JSON.stringify({
-              today: new Date().toISOString().split("T")[0],
-              activeConversations: 0,
-              overdueAlerts: 0,
-              avgResponseTimeSeconds: null,
-              avgResponseTimeFormatted: "–",
-              teamPerformanceScore: null,
-              operators: [],
-            }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-          const isRelationMissing2 = e?.message?.includes("does not exist");
-          if (isRelationMissing2) {
-            return new Response(JSON.stringify({
-              today: new Date().toISOString().split("T")[0],
-              activeConversations: 0, overdueAlerts: 0,
-              avgResponseTimeSeconds: null, avgResponseTimeFormatted: "–",
-              teamPerformanceScore: null, operators: [],
-            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          }
-          console.error("[gestao/overview] Erro:", e);
-          return new Response(JSON.stringify({
-            error: e.message,
-            pgCode: e.code,
-            detail: e.detail,
-            hint: e.hint,
-            // Drizzle envolve o erro original em e.cause:
-            cause: e.cause ? {
+          // Loga o erro completo nos logs do servidor (Railway) para investigação
+          const errDetail = {
+            message: e?.message,
+            code: e?.code,
+            detail: e?.detail,
+            hint: e?.hint,
+            cause: e?.cause ? {
               message: e.cause?.message,
               code: e.cause?.code,
               detail: e.cause?.detail,
-              severity: e.cause?.severity,
-              routine: e.cause?.routine,
             } : null,
-            allKeys: Object.getOwnPropertyNames(e),
+          };
+          console.error("[gestao/overview] ERRO:", JSON.stringify(errDetail));
+
+          // Retorna dados seguros (zeros) em vez de 500 para não travar o dashboard
+          return new Response(JSON.stringify({
+            today: new Date().toISOString().split("T")[0],
+            activeConversations: 0,
+            overdueAlerts: 0,
+            avgResponseTimeSeconds: null,
+            avgResponseTimeFormatted: "–",
+            teamPerformanceScore: null,
+            operators: [],
+            _debug: errDetail,
           }), {
-            status: 500,
+            status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }

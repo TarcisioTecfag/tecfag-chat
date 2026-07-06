@@ -106,16 +106,10 @@ export const Route = createFileRoute("/api/gestao/alerts")({
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
-          const isRelationMissing = e?.code === "42P01" || e?.message?.includes("does not exist");
-          if (isRelationMissing) {
-            console.warn("[gestao/alerts] Tabelas de gestão pendentes de criação. Retornando lista vazia.");
-            return new Response(JSON.stringify([]), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-          console.error("[gestao/alerts] Erro:", e);
-          return new Response(JSON.stringify({ error: e.message }), {
-            status: 500,
+          const errDetail = { message: e?.message, code: e?.code, detail: e?.detail, cause: e?.cause ? { message: e.cause?.message, code: e.cause?.code } : null };
+          console.error("[gestao/alerts] ERRO:", JSON.stringify(errDetail));
+          return new Response(JSON.stringify({ _error: errDetail, items: [] }), {
+            status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
