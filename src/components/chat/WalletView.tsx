@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ } from "@/lib/utils";
@@ -50,6 +50,25 @@ export function WalletView() {
     title: "",
     text: "",
   });
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleInsertTag = (tag: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const currentText = templateForm.text;
+
+    const newText = currentText.substring(0, start) + tag + currentText.substring(end);
+    setTemplateForm({ ...templateForm, text: newText });
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + tag.length, start + tag.length);
+    }, 50);
+  };
 
   // Filter clients in the wallet (walletOperatorId === currentOperatorId)
   const walletClients = conversations.filter((c) => {
@@ -472,13 +491,44 @@ export function WalletView() {
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/80">Mensagem</label>
                 <textarea
+                  ref={textareaRef}
                   placeholder="Olá! Como posso te ajudar hoje?"
                   value={templateForm.text}
                   onChange={(e) => setTemplateForm({ ...templateForm, text: e.target.value })}
-                  rows={6}
+                  rows={4}
                   className="rounded-2xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground outline-none transition focus:border-primary focus:bg-card focus:shadow-soft resize-none scrollbar-thin leading-relaxed"
                   required
                 />
+              </div>
+
+              {/* Tags Dinâmicas */}
+              <div className="rounded-2xl bg-muted/50 p-3.5 border border-border/60">
+                <span className="text-[9px] font-extrabold uppercase tracking-wide text-primary block mb-2">
+                  Tags Dinâmicas (Clique para inserir)
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTag("<<1>>")}
+                    className="flex flex-col items-center justify-center gap-1 bg-card hover:bg-muted border border-border/80 hover:border-primary/20 rounded-xl p-2 transition cursor-pointer text-center group active:scale-95"
+                    title="Inserir Nome do Vendedor"
+                  >
+                    <code className="text-primary font-bold font-mono px-1.5 py-0.5 bg-primary-soft rounded text-[10px] group-hover:bg-primary group-hover:text-primary-foreground transition">{"<<1>>"}</code>
+                    <span className="text-[9px] text-muted-foreground font-medium">Nome do Vendedor</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTag("<<2>>")}
+                    className="flex flex-col items-center justify-center gap-1 bg-card hover:bg-muted border border-border/80 hover:border-primary/20 rounded-xl p-2 transition cursor-pointer text-center group active:scale-95"
+                    title="Inserir Nome do Cliente"
+                  >
+                    <code className="text-primary font-bold font-mono px-1.5 py-0.5 bg-primary-soft rounded text-[10px] group-hover:bg-primary group-hover:text-primary-foreground transition">{"<<2>>"}</code>
+                    <span className="text-[9px] text-muted-foreground font-medium">Nome do Cliente</span>
+                  </button>
+                </div>
+                <p className="text-[9px] text-muted-foreground/80 mt-2 leading-relaxed text-center">
+                  * No envio do chat, as tags são trocadas pelos nomes reais correspondentes.
+                </p>
               </div>
 
               <div className="flex items-center justify-end gap-3 border-t border-line pt-4 mt-2">

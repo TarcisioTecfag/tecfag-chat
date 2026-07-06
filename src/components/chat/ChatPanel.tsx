@@ -910,7 +910,17 @@ export function ChatPanel() {
   };
 
   const selectQuickResponse = (response: string) => {
-    setText(response);
+    let parsedText = response;
+    
+    // Substitui as tags dinâmicas pelos valores reais correspondentes
+    if (parsedText.includes("<<1>>")) {
+      parsedText = parsedText.replaceAll("<<1>>", operatorProfile.name);
+    }
+    if (parsedText.includes("<<2>>")) {
+      parsedText = parsedText.replaceAll("<<2>>", activeChat?.name || "Cliente");
+    }
+
+    setText(parsedText);
     setShowQuickMenu(false);
     inputRef.current?.focus();
   };
