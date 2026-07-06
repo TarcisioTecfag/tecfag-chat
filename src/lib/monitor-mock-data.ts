@@ -9,6 +9,32 @@
  * Todos os dados abaixo representam um dia típico de operação da Valem.
  */
 
+// ── Tipos Live View ───────────────────────────────────────────────────────────
+
+export type LiveMessage = {
+  id: string;
+  sender: "agent" | "client";
+  text: string;
+  time: string;
+};
+
+export type LiveConversation = {
+  id: string;
+  contactName: string;
+  contactPhone: string;
+  lastMessage: string;
+  waitingMinutes: number;
+  isUnanswered: boolean;
+  messages: LiveMessage[];
+};
+
+export type LiveOperator = {
+  operatorId: string;
+  operatorName: string;
+  status: "disponivel" | "ocupado" | "ausente";
+  conversations: LiveConversation[];
+};
+
 // ── Tipos (espelhando MonitorView.tsx) ────────────────────────────────────────
 
 export type OverviewData = {
@@ -372,5 +398,189 @@ export const MOCK_AUDITS: AuditItem[] = [
       "Compartilhar com toda a equipe a abordagem de Juliana para tratativa de reclamações — modelo de reversão de churn.",
     flagCount: 0,
     auditedAt: new Date(Date.now() - 180 * 60000).toISOString(),
+  },
+];
+
+// ── Mock: Ao Vivo (atendimentos em tempo real) ─────────────────────────────────
+
+export const MOCK_LIVE: LiveOperator[] = [
+  {
+    operatorId: "op-mock-1",
+    operatorName: "Faggner Silva",
+    status: "disponivel",
+    conversations: [
+      {
+        id: "lconv-001",
+        contactName: "Lucas Ferreira",
+        contactPhone: "(11) 98456-7231",
+        lastMessage: "Perfeito! Aguardo a proposta então. 👍",
+        waitingMinutes: 2,
+        isUnanswered: true,
+        messages: [
+          { id: "m1", sender: "client", text: "Olá! Vi a indicação de vocês pelo Carlos.", time: "10:18" },
+          { id: "m2", sender: "agent", text: "Boa tarde, Lucas! Que ótimo ter você aqui. Como posso ajudá-lo hoje?", time: "10:19" },
+          { id: "m3", sender: "client", text: "Estou precisando de um sistema de atendimento para minha equipe. Somos 6 vendedores.", time: "10:20" },
+          { id: "m4", sender: "agent", text: "Perfeito! Nosso plano Business foi feito exatamente pra isso. Posso te mostrar como funciona?", time: "10:21" },
+          { id: "m5", sender: "client", text: "Sim, com certeza. Qual é o valor?", time: "10:22" },
+          { id: "m6", sender: "agent", text: "Para 6 usuários sai R$ 297/mês. Inclui relatórios, auditoria por IA e acesso ao histórico completo. Posso preparar uma proposta personalizada?", time: "10:23" },
+          { id: "m7", sender: "client", text: "Sim! Manda por aqui mesmo.", time: "10:24" },
+          { id: "m8", sender: "agent", text: "Vou preparar agora e mando em instantes. 📄", time: "10:25" },
+          { id: "m9", sender: "client", text: "Perfeito! Aguardo a proposta então. 👍", time: "10:26" },
+        ],
+      },
+      {
+        id: "lconv-002",
+        contactName: "Beatriz Rocha",
+        contactPhone: "(21) 99821-4430",
+        lastMessage: "Ok, até mais tarde então!",
+        waitingMinutes: 6,
+        isUnanswered: false,
+        messages: [
+          { id: "m1", sender: "client", text: "Boa tarde! Quero renovar meu plano. Vence semana que vem.", time: "10:05" },
+          { id: "m2", sender: "agent", text: "Oi Beatriz! Que bom falar com você. 😊 Vou verificar seu plano atual.", time: "10:06" },
+          { id: "m3", sender: "client", text: "Estou no plano básico há 8 meses.", time: "10:07" },
+          { id: "m4", sender: "agent", text: "Vi aqui! Você usou 94% da capacidade no mês passado. Já pensou em fazer upgrade pro plano Pro? Cabe mais usuários e temos a IA de auditoria.", time: "10:08" },
+          { id: "m5", sender: "client", text: "Quanto custa a diferença?", time: "10:09" },
+          { id: "m6", sender: "agent", text: "A diferença é de R$78/mês. Considerando o que você usa, o Pro se paga pela eficiência nos atendimentos. Vou te mandar a comparação detalhada.", time: "10:10" },
+          { id: "m7", sender: "client", text: "Ok, me manda. Vou analisar com calma.", time: "10:11" },
+          { id: "m8", sender: "agent", text: "📊 Aqui está a comparação. Qualquer dúvida, é só falar!", time: "10:11" },
+          { id: "m9", sender: "client", text: "Ok, até mais tarde então!", time: "10:12" },
+        ],
+      },
+    ],
+  },
+  {
+    operatorId: "op-mock-2",
+    operatorName: "Ana Paula",
+    status: "disponivel",
+    conversations: [
+      {
+        id: "lconv-003",
+        contactName: "Roberto Almeida",
+        contactPhone: "(11) 98456-7231",
+        lastMessage: "Faz mais de 20 minutos que enviei a mensagem...",
+        waitingMinutes: 23,
+        isUnanswered: true,
+        messages: [
+          { id: "m1", sender: "client", text: "Oi, boa tarde! Preciso de ajuda com o sistema.", time: "09:58" },
+          { id: "m2", sender: "agent", text: "Olá Roberto! Pois não, como posso ajudar?", time: "10:00" },
+          { id: "m3", sender: "client", text: "Não estou conseguindo acessar o painel de relatórios. Dá erro 403.", time: "10:01" },
+          { id: "m4", sender: "agent", text: "Entendido. Pode me passar seu usuário de acesso?", time: "10:02" },
+          { id: "m5", sender: "client", text: "roberto@empresa.com.br", time: "10:02" },
+          { id: "m6", sender: "client", text: "Faz mais de 20 minutos que enviei a mensagem...", time: "10:21" },
+        ],
+      },
+      {
+        id: "lconv-004",
+        contactName: "Carla Mendonça",
+        contactPhone: "(41) 98123-9960",
+        lastMessage: "Tá bom! Vou pensar e te dou um retorno amanhã.",
+        waitingMinutes: 11,
+        isUnanswered: false,
+        messages: [
+          { id: "m1", sender: "client", text: "Olá! Gostaria de contratar o plano para minha empresa.", time: "10:04" },
+          { id: "m2", sender: "agent", text: "Oi Carla, tudo bem? Fico feliz com o interesse! Qual o tamanho da sua equipe?", time: "10:05" },
+          { id: "m3", sender: "client", text: "Somos 4 pessoas hoje, mas planejamos crescer para 10 até o final do ano.", time: "10:06" },
+          { id: "m4", sender: "agent", text: "Ótimo! Recomendo o plano Business — ele cresce com você e tem desconto no plano anual. Posso montar uma simulação?", time: "10:07" },
+          { id: "m5", sender: "client", text: "Pode sim. Mas tem desconto para pagamento anual?", time: "10:08" },
+          { id: "m6", sender: "agent", text: "Tem sim! 20% de desconto. Ou seja, você pagaria o equivalente a R$238/mês ao invés de R$297.", time: "10:09" },
+          { id: "m7", sender: "client", text: "Hmm, interessante. Mas preciso conversar com meu sócio antes.", time: "10:10" },
+          { id: "m8", sender: "agent", text: "Claro, sem pressão! Se quiser, posso enviar um resumo por e-mail para vocês analisarem juntos?", time: "10:10" },
+          { id: "m9", sender: "client", text: "Tá bom! Vou pensar e te dou um retorno amanhã.", time: "10:11" },
+        ],
+      },
+    ],
+  },
+  {
+    operatorId: "op-mock-3",
+    operatorName: "Pedro Henrique",
+    status: "ocupado",
+    conversations: [
+      {
+        id: "lconv-005",
+        contactName: "Diego Furtado",
+        contactPhone: "(21) 97534-0021",
+        lastMessage: "Qual é o prazo para ativar o sistema?",
+        waitingMinutes: 8,
+        isUnanswered: true,
+        messages: [
+          { id: "m1", sender: "client", text: "Bom dia! Quero contratar o plano Enterprise.", time: "10:15" },
+          { id: "m2", sender: "agent", text: "Bom dia Diego! Que ótima escolha! Qual o tamanho da operação?", time: "10:16" },
+          { id: "m3", sender: "client", text: "Temos 25 atendentes. Precisamos de multicanal e API.", time: "10:17" },
+          { id: "m4", sender: "agent", text: "Perfeito, o Enterprise cobre tudo isso. Vou preparar a proposta customizada para vocês.", time: "10:18" },
+          { id: "m5", sender: "client", text: "Qual é o prazo para ativar o sistema?", time: "10:19" },
+        ],
+      },
+      {
+        id: "lconv-006",
+        contactName: "Fernanda Souza",
+        contactPhone: "(31) 99712-4856",
+        lastMessage: "Recebi sim. Vou analisar com a equipe.",
+        waitingMinutes: 17,
+        isUnanswered: false,
+        messages: [
+          { id: "m1", sender: "client", text: "Boa tarde, preciso cancelar meu plano.", time: "09:45" },
+          { id: "m2", sender: "agent", text: "Oi Fernanda! Sinto muito ouvir isso. Pode me contar o motivo? Quero entender se consigo ajudar.", time: "09:46" },
+          { id: "m3", sender: "client", text: "Achei caro para o que usa.", time: "09:47" },
+          { id: "m4", sender: "agent", text: "Entendo. Posso te oferecer 30% de desconto pelo próximo trimestre enquanto você usa mais os recursos. O que acha?", time: "09:49" },
+          { id: "m5", sender: "client", text: "Hmm... Quanto ficaria?", time: "09:50" },
+          { id: "m6", sender: "agent", text: "De R$197 para R$138/mês pelos próximos 3 meses. Depois volta ao normal ou você decide migrar de plano.", time: "09:52" },
+          { id: "m7", sender: "client", text: "Ok, vou aceitar. Mas preciso que vocês me ensinem a usar os relatórios.", time: "09:53" },
+          { id: "m8", sender: "agent", text: "Combinado! Vou agendar um treinamento de 30min com nossa equipe. Qual melhor horário?", time: "09:54" },
+          { id: "m9", sender: "client", text: "Recebi sim. Vou analisar com a equipe.", time: "10:05" },
+        ],
+      },
+      {
+        id: "lconv-007",
+        contactName: "Thiago Moraes",
+        contactPhone: "(19) 98765-4321",
+        lastMessage: "Sim, estou interessado em saber mais.",
+        waitingMinutes: 4,
+        isUnanswered: false,
+        messages: [
+          { id: "m1", sender: "agent", text: "Oi Thiago! Passando para ver se posso ajudá-lo com alguma dúvida sobre o sistema.", time: "10:18" },
+          { id: "m2", sender: "client", text: "Oi! Sim, estou interessado em saber mais.", time: "10:19" },
+        ],
+      },
+    ],
+  },
+  {
+    operatorId: "op-mock-4",
+    operatorName: "Juliana Costa",
+    status: "disponivel",
+    conversations: [
+      {
+        id: "lconv-008",
+        contactName: "Mariana Rocha",
+        contactPhone: "(48) 99234-8821",
+        lastMessage: "Fechado então! Quando ativo?",
+        waitingMinutes: 3,
+        isUnanswered: true,
+        messages: [
+          { id: "m1", sender: "client", text: "Boa tarde Juliana! Quero renovar e já aproveitar para fazer upgrade.", time: "10:22" },
+          { id: "m2", sender: "agent", text: "Oi Mariana! Que ótimo! Você está no básico há 14 meses, sabia que economiza 20% no anual?", time: "10:23" },
+          { id: "m3", sender: "client", text: "Não sabia! Quanto fica o Pro anual?", time: "10:24" },
+          { id: "m4", sender: "agent", text: "R$2.856/ano (R$238/mês). Você paga 10 meses e ganha 2. E ainda tem a IA de auditoria incluída.", time: "10:25" },
+          { id: "m5", sender: "client", text: "Fechado então! Quando ativo?", time: "10:26" },
+        ],
+      },
+      {
+        id: "lconv-009",
+        contactName: "Carlos Eduardo",
+        contactPhone: "(11) 97654-3210",
+        lastMessage: "Funcionou! Muito obrigado pela ajuda.",
+        waitingMinutes: 9,
+        isUnanswered: false,
+        messages: [
+          { id: "m1", sender: "client", text: "Oi! Estou com dificuldade na integração da API com nosso CRM.", time: "10:08" },
+          { id: "m2", sender: "agent", text: "Oi Carlos! Pode me passar qual CRM vocês usam?", time: "10:09" },
+          { id: "m3", sender: "client", text: "HubSpot.", time: "10:09" },
+          { id: "m4", sender: "agent", text: "Temos integração nativa com HubSpot! Vou te enviar o guia de 3 passos.", time: "10:10" },
+          { id: "m5", sender: "agent", text: "📎 Aqui está: [doc.valem.app/hubspot-integration]. Em 10 minutos você já estará configurado.", time: "10:10" },
+          { id: "m6", sender: "client", text: "Deixa eu testar...", time: "10:12" },
+          { id: "m7", sender: "client", text: "Funcionou! Muito obrigado pela ajuda.", time: "10:14" },
+        ],
+      },
+    ],
   },
 ];

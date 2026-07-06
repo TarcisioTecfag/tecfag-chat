@@ -26,12 +26,12 @@ export function Sidebar() {
   const navItems = [
     { id: "chat", icon: Users, label: "Chat" },
     { id: "contacts", icon: Contact, label: "Base de Clientes" },
-    { id: "monitor", icon: Eye, label: "Monitorar" },
   ];
 
   const decorativeItems = [
     { id: "settings", icon: Settings, label: "Ajustes", isAvailable: true },
     { id: "groups", icon: Shield, label: "Grupo de Acesso", isAvailable: true },
+    { id: "monitor", icon: Eye, label: "Monitorar", isAvailable: true },
     { icon: Clock, label: "Histórico" },
     { icon: ClipboardCheck, label: "Tarefas" },
     { icon: BarChart2, label: "Estatísticas" },

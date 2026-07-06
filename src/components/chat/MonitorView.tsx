@@ -4,9 +4,10 @@ import {
   Eye, AlertTriangle, Clock, Users, TrendingUp, TrendingDown,
   RefreshCw, ChevronRight, Minus, CheckCircle, XCircle,
   MessageSquare, BarChart2, FileText, Bell, Zap, FlaskConical,
+  Activity, Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS } from "@/lib/monitor-mock-data";
+import { MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, MOCK_LIVE, LiveOperator, LiveConversation } from "@/lib/monitor-mock-data";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 🧪 DEMO MODE — troque para false para usar dados reais da API
@@ -14,7 +15,7 @@ import { MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS } from "@/lib/monitor-mock-data
 const DEMO_MODE = true;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
-type MonitorTab = "overview" | "alerts" | "operators" | "audits" | "reports";
+type MonitorTab = "overview" | "live" | "alerts" | "operators" | "audits" | "reports";
 
 type OverviewData = {
   today: string;
@@ -626,6 +627,188 @@ function AuditsTab({ audits, loading }: { audits: AuditItem[]; loading: boolean 
   );
 }
 
+function LiveTab() {
+  const [selectedConvId, setSelectedConvId] = useState<string>("lconv-001");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const operators = MOCK_LIVE as LiveOperator[];
+  
+  let selectedConv: any = null;
+  let selectedOpName = "";
+  
+  for (const op of operators) {
+    const found = op.conversations.find((c: LiveConversation) => c.id === selectedConvId);
+    if (found) {
+      selectedConv = found;
+      selectedOpName = op.operatorName;
+      break;
+    }
+  }
+
+  if (!selectedConv && operators.length > 0 && operators[0].conversations.length > 0) {
+    selectedConv = operators[0].conversations[0];
+    selectedOpName = operators[0].operatorName;
+  }
+
+  return (
+    <div className="flex h-full min-h-[500px] divide-x divide-line rounded-2xl border border-border overflow-hidden bg-card">
+      {/* Sidebar de Operadores e Conversas */}
+      <div className="w-80 flex flex-col min-h-0 bg-muted/10 shrink-0">
+        <div className="p-3 border-b border-line shrink-0">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Buscar operador ou cliente..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-muted/60 border border-border rounded-xl pl-9 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-4">
+          {operators.map((op: LiveOperator) => {
+            const filteredConvs = op.conversations.filter((c: LiveConversation) => 
+              c.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              op.operatorName.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+
+            if (filteredConvs.length === 0 && searchTerm) return null;
+
+            return (
+              <div key={op.operatorId} className="space-y-1.5">
+                {/* Cabeçalho do Operador */}
+                <div className="flex items-center justify-between px-2 py-1 shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`h-2 w-2 rounded-full ${
+                      op.status === "disponivel" ? "bg-emerald-500" :
+                      op.status === "ocupado" ? "bg-amber-500" :
+                      "bg-slate-400"
+                    }`} />
+                    <span className="text-xs font-bold text-foreground">{op.operatorName}</span>
+                  </div>
+                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase ${
+                    op.status === "disponivel" ? "text-emerald-700 bg-emerald-50" :
+                    op.status === "ocupado" ? "text-amber-700 bg-amber-50" :
+                    "text-slate-600 bg-slate-100"
+                  }`}>
+                    {op.status === "disponivel" ? "Livre" : op.status === "ocupado" ? "Ocupado" : "Pausa"}
+                  </span>
+                </div>
+
+                {/* Lista de Conversas do Operador */}
+                <div className="space-y-1 pl-2">
+                  {filteredConvs.map((conv: LiveConversation) => {
+                    const isSelected = conv.id === selectedConvId;
+                    return (
+                      <button
+                        key={conv.id}
+                        onClick={() => setSelectedConvId(conv.id)}
+                        className={`w-full text-left p-2.5 rounded-xl transition flex flex-col gap-1 cursor-pointer border ${
+                          isSelected 
+                            ? "bg-primary text-primary-foreground border-primary" 
+                            : "bg-card border-border hover:bg-muted/40 text-foreground"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold truncate pr-2">{conv.contactName}</span>
+                          {conv.isUnanswered && (
+                            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                              isSelected ? "bg-white/20 text-white" : "bg-red-50 text-red-600 border border-red-100 animate-pulse"
+                            }`}>
+                              Aguardando {conv.waitingMinutes}m
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-[10px] truncate ${isSelected ? "text-primary-foreground/75" : "text-muted-foreground"}`}>
+                          {conv.lastMessage}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Janela de Conversa em Tempo Real */}
+      <div className="flex-1 flex flex-col min-h-0 bg-muted/5">
+        {selectedConv ? (
+          <>
+            {/* Header da Conversa */}
+            <div className="px-5 py-3 border-b border-line bg-card flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <Avatar name={selectedConv.contactName} size="md" />
+                <div>
+                  <h3 className="text-xs font-extrabold text-foreground">{selectedConv.contactName}</h3>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {selectedConv.contactPhone} · Operador: <span className="font-semibold text-foreground">{selectedOpName}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                AO VIVO
+              </div>
+            </div>
+
+            {/* Balões de Mensagem */}
+            <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-3 bg-slate-50/30">
+              {selectedConv.messages.map((msg: any) => {
+                const isAgent = msg.sender === "agent";
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex ${isAgent ? "justify-end" : "justify-start"}`}
+                  >
+                    <div className={`max-w-[70%] rounded-2xl px-3.5 py-2 shadow-soft text-xs leading-relaxed ${
+                      isAgent
+                        ? "bg-primary text-primary-foreground rounded-tr-none"
+                        : "bg-card text-foreground border border-border rounded-tl-none"
+                    }`}>
+                      <p>{msg.text}</p>
+                      <span className={`text-[8px] block text-right mt-1.5 select-none ${
+                        isAgent ? "text-primary-foreground/60" : "text-muted-foreground/60"
+                      }`}>
+                        {msg.time}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer de Modo Supervisor */}
+            <div className="px-5 py-2.5 border-t border-line bg-card flex items-center justify-between shrink-0 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                Modo Supervisor: Espiando chat em tempo real
+              </div>
+              <div className="text-[9px] font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded-lg">
+                Somente Visualização
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
+            <MessageSquare className="h-8 w-8 opacity-30" />
+            <span className="text-xs">Nenhum atendimento ativo selecionado</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PlaceholderTab({ icon: Icon, title, description }: {
   icon: React.ElementType;
   title: string;
@@ -693,7 +876,8 @@ export function MonitorView() {
 
   const tabs: { id: MonitorTab; label: string; icon: React.ElementType; badge?: number }[] = [
     { id: "overview", label: "Visão Geral", icon: Eye },
-    { id: "alerts", label: "Alertas", icon: Bell, badge: alerts.filter((a) => a.isOverdue).length },
+    { id: "live", label: "Ao Vivo", icon: Activity, badge: DEMO_MODE ? 4 : undefined },
+    { id: "alerts", label: "Alertas", icon: Bell, badge: alerts.filter((a: AlertItem) => a.isOverdue).length },
     { id: "operators", label: "Operadores", icon: Users },
     { id: "audits", label: "Auditorias IA", icon: Zap },
     { id: "reports", label: "Relatórios", icon: FileText },
@@ -779,6 +963,9 @@ export function MonitorView() {
                 audits={audits}
                 onSwitchTab={setActiveTab}
               />
+            )}
+            {activeTab === "live" && (
+              <LiveTab />
             )}
             {activeTab === "alerts" && (
               <AlertsTab alerts={alerts} loading={loadingAlerts} />
