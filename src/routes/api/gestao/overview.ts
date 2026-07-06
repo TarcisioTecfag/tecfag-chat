@@ -99,11 +99,11 @@ export const Route = createFileRoute("/api/gestao/overview")({
               )
             );
 
-          // Se não tiver métricas pré-calculadas, busca operadores ativos
+          // Se não tiver métricas pré-calculadas, busca todos os operadores do tenant
           const allOperators = await db
             .select({ id: operators.id, name: operators.name, status: operators.status, avatar: operators.avatar })
             .from(operators)
-            .where(and(eq(operators.tenantId, tenantId), eq(operators.isOnline, true)));
+            .where(eq(operators.tenantId, tenantId));
 
           // Monta o objeto de operador com métricas (ou zeros se ainda não há dados)
           const operatorsWithMetrics = allOperators.map((op) => {

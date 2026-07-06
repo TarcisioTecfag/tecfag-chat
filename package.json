@@ -12,7 +12,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
-    "start": "bun run src/db/migrate.ts; npm run db:seed && node .output/server/index.mjs",
+    "start": "npm run db:seed && node .output/server/index.mjs",
     "db:seed": "tsx src/db/seed.ts",
     "db:migrate": "bun run src/db/migrate.ts",
     "db:push": "drizzle-kit push",
