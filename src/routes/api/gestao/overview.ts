@@ -7,7 +7,7 @@ import {
   operatorDailyMetrics,
   conversations,
 } from "../../../db/schema";
-import { eq, and, isNull, isNotNull, avg, count, max, sql } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, avg, count, ne, gte, lte } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,7 +43,7 @@ export const Route = createFileRoute("/api/gestao/overview")({
               .where(
                 and(
                   eq(conversations.tenantId, tenantId),
-                  sql`${conversations.queueState} != 'finalizados'`
+                  ne(conversations.queueState, "finalizados")
                 )
               ),
             // Total de ciclos SLA sem resposta (overdue)
@@ -60,6 +60,9 @@ export const Route = createFileRoute("/api/gestao/overview")({
           ]);
 
           // Tempo médio de resposta do dia (em segundos, apenas dos que já responderam)
+          const todayStart = new Date(today + "T00:00:00.000Z");
+          const todayEnd = new Date(today + "T23:59:59.999Z");
+
           const avgResponseResult = await db
             .select({ avg: avg(responseTimeLogs.responseTimeSeconds) })
             .from(responseTimeLogs)
@@ -67,7 +70,8 @@ export const Route = createFileRoute("/api/gestao/overview")({
               and(
                 eq(responseTimeLogs.tenantId, tenantId),
                 isNotNull(responseTimeLogs.responseTimeSeconds),
-                sql`DATE(${responseTimeLogs.createdAt}) = ${today}`
+                gte(responseTimeLogs.createdAt, todayStart),
+                lte(responseTimeLogs.createdAt, todayEnd)
               )
             );
 
@@ -79,7 +83,8 @@ export const Route = createFileRoute("/api/gestao/overview")({
               and(
                 eq(aiConversationAudits.tenantId, tenantId),
                 eq(aiConversationAudits.status, "done"),
-                sql`DATE(${aiConversationAudits.auditedAt}) = ${today}`
+                gte(aiConversationAudits.auditedAt, todayStart),
+                lte(aiConversationAudits.auditedAt, todayEnd)
               )
             );
 

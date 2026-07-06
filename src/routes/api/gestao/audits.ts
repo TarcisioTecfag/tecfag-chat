@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { aiConversationAudits, operators } from "../../../db/schema";
-import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
 import { AuditService } from "../../../lib/audit-service";
 
 // Inicia o serviço de auditoria ao carregar esta rota
@@ -47,7 +47,10 @@ export const Route = createFileRoute("/api/gestao/audits")({
 
           if (date) {
             // Filtra auditorias do dia especificado
-            filters.push(sql`DATE(${aiConversationAudits.auditedAt}) = ${date}`);
+            const dayStart = new Date(date + "T00:00:00.000Z");
+            const dayEnd = new Date(date + "T23:59:59.999Z");
+            filters.push(gte(aiConversationAudits.auditedAt, dayStart));
+            filters.push(lte(aiConversationAudits.auditedAt, dayEnd));
           }
 
           const audits = await db
@@ -82,7 +85,7 @@ export const Route = createFileRoute("/api/gestao/audits")({
             const ops = await db
               .select({ id: operators.id, name: operators.name })
               .from(operators)
-              .where(sql`${operators.id} = ANY(ARRAY[${sql.join(operatorIds.map(id => sql`${id}`), sql`, `)}]::text[])`);
+              .where(inArray(operators.id, operatorIds));
             ops.forEach((op) => { operatorMap[op.id] = op.name; });
           }
 
