@@ -99,10 +99,17 @@ setupClient.unsafe(`
 
   -- Garante colunas em operator_daily_metrics
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS avg_response_time_seconds INTEGER;
+  ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS max_response_time_seconds INTEGER;
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS avg_performance_score INTEGER;
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS satisfied_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS neutral_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS frustrated_count INTEGER NOT NULL DEFAULT 0;
+
+  -- Garante colunas novas em operators (status, avatar, is_online podem ser adições pós-migração)
+  ALTER TABLE operators ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'disponivel';
+  ALTER TABLE operators ADD COLUMN IF NOT EXISTS avatar TEXT;
+  ALTER TABLE operators ADD COLUMN IF NOT EXISTS is_online BOOLEAN NOT NULL DEFAULT TRUE;
+  ALTER TABLE operators ADD COLUMN IF NOT EXISTS group_id TEXT;
 
   CREATE TABLE IF NOT EXISTS ai_reports (
     id TEXT PRIMARY KEY,

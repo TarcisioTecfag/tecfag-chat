@@ -193,6 +193,40 @@ export const Route = createFileRoute("/api/gestao/health")({
           } catch (oe: any) {
             result.operatorsDiag = { error: oe.message };
           }
+
+          // 8. Diagnóstico de conversas por queue_state — revela se tudo está em finalizados
+          try {
+            const qStates = await client`
+              SELECT queue_state, COUNT(*) as total
+              FROM conversations
+              WHERE tenant_id = 'valem'
+              GROUP BY queue_state
+              ORDER BY total DESC
+            `;
+            result.convsByQueueState = qStates.map((r: any) => ({
+              state: r.queue_state,
+              count: Number(r.total),
+            }));
+          } catch (qe: any) {
+            result.convsByQueueState = { error: qe.message };
+          }
+
+          // 9. Teste Drizzle: operadores via Drizzle ORM (verifica se a query falha)
+          try {
+            const { operators: opsTable } = await import("../../../db/schema");
+            const { eq: dEq } = await import("drizzle-orm");
+            const drizzleOps = await db
+              .select({ id: opsTable.id, name: opsTable.name })
+              .from(opsTable)
+              .where(dEq(opsTable.tenantId, "valem"));
+            result.drizzleOperatorsTest = { status: "✓ OK", count: drizzleOps.length };
+          } catch (doe: any) {
+            result.drizzleOperatorsTest = {
+              status: "✗ FALHOU",
+              message: doe.message,
+              cause: doe.cause?.message,
+            };
+          }
         } catch (e: any) {
 
           result.db.error = {

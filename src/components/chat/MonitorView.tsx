@@ -123,10 +123,12 @@ function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg"
 function OverviewTab({
   overview,
   alerts,
+  audits,
   onSwitchTab,
 }: {
   overview: OverviewData | null;
   alerts: AlertItem[];
+  audits: AuditItem[];
   onSwitchTab: (tab: MonitorTab) => void;
 }) {
   if (!overview) {
@@ -276,7 +278,7 @@ function OverviewTab({
         </div>
       </div>
 
-      {/* Auditorias Feed Placeholder */}
+      {/* Auditorias IA — mostra as últimas ou estado vazio */}
       <div className="bg-card rounded-2xl border border-border shadow-soft shrink-0">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
           <span className="text-sm font-extrabold text-foreground">Últimas Auditorias IA</span>
@@ -287,12 +289,34 @@ function OverviewTab({
             Ver todas <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className="flex items-center justify-center py-10 text-muted-foreground gap-3">
-          <Zap className="h-5 w-5 text-primary/40" />
-          <span className="text-sm">
-            Aguardando configuração da API de IA para gerar auditorias automáticas
-          </span>
-        </div>
+        {audits.length === 0 ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground gap-3">
+            <Zap className="h-4 w-4 text-primary/40" />
+            <span className="text-sm">Nenhuma auditoria concluída ainda hoje — finalize atendimentos para gerar</span>
+          </div>
+        ) : (
+          <div className="divide-y divide-line">
+            {audits.filter((a) => a.performanceScore !== null).slice(0, 4).map((audit) => (
+              <div key={audit.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/40 transition">
+                <Avatar name={audit.contactName || "?"} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-foreground truncate">{audit.contactName || "Contato"}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">via {audit.operatorName}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <ScoreBadge score={audit.performanceScore} />
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
+                    audit.clientSentiment === "satisfeito" ? "text-emerald-700 bg-emerald-50" :
+                    audit.clientSentiment === "frustrado" ? "text-red-700 bg-red-50" :
+                    "text-amber-700 bg-amber-50"
+                  }`}>
+                    {audit.clientSentiment === "satisfeito" ? "😊" : audit.clientSentiment === "frustrado" ? "😤" : "😐"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -729,6 +753,7 @@ export function MonitorView() {
               <OverviewTab
                 overview={overview}
                 alerts={alerts}
+                audits={audits}
                 onSwitchTab={setActiveTab}
               />
             )}
