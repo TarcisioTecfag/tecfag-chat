@@ -13,6 +13,9 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import postgres from "postgres";
+import { db } from "../../../db";
+import { conversations } from "../../../db/schema";
+import { count, eq } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -156,7 +159,29 @@ export const Route = createFileRoute("/api/gestao/health")({
           } catch (ce: any) {
             result.conversationsColumns = `Erro: ${ce.message}`;
           }
+
+          // 6. Testa a query via Drizzle ORM (mesmo db usado por overview.ts)
+          try {
+            const drizzleResult = await db
+              .select({ total: count() })
+              .from(conversations)
+              .where(eq(conversations.tenantId, "valem"));
+            result.drizzleTest = { status: "✓ OK", count: drizzleResult[0]?.total };
+          } catch (de: any) {
+            result.drizzleTest = {
+              status: "✗ FALHOU",
+              message: de.message,
+              code: de.code,
+              cause: de.cause ? {
+                message: de.cause?.message,
+                code: de.cause?.code,
+                detail: de.cause?.detail,
+                severity: de.cause?.severity,
+              } : null,
+            };
+          }
         } catch (e: any) {
+
           result.db.error = {
             message: e.message,
             code: e.code,
