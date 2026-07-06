@@ -19,6 +19,7 @@ import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
+import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
 import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
@@ -78,6 +79,11 @@ const ApiCallsRoute = ApiCallsRouteImport.update({
 const ApiGestaoOverviewRoute = ApiGestaoOverviewRouteImport.update({
   id: '/api/gestao/overview',
   path: '/api/gestao/overview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoAuditsRoute = ApiGestaoAuditsRouteImport.update({
+  id: '/api/gestao/audits',
+  path: '/api/gestao/audits',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGestaoAlertsRoute = ApiGestaoAlertsRouteImport.update({
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
+  '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRoutesByTo {
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
+  '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRoutesById {
@@ -196,6 +204,7 @@ export interface FileRoutesById {
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
+  '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRouteTypes {
@@ -220,6 +229,7 @@ export interface FileRouteTypes {
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/gestao/alerts'
+    | '/api/gestao/audits'
     | '/api/gestao/overview'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -242,6 +252,7 @@ export interface FileRouteTypes {
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/gestao/alerts'
+    | '/api/gestao/audits'
     | '/api/gestao/overview'
   id:
     | '__root__'
@@ -264,6 +275,7 @@ export interface FileRouteTypes {
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/gestao/alerts'
+    | '/api/gestao/audits'
     | '/api/gestao/overview'
   fileRoutesById: FileRoutesById
 }
@@ -285,6 +297,7 @@ export interface RootRouteChildren {
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
   ApiGestaoAlertsRoute: typeof ApiGestaoAlertsRoute
+  ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
   ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
 }
 
@@ -358,6 +371,13 @@ declare module '@tanstack/react-router' {
       path: '/api/gestao/overview'
       fullPath: '/api/gestao/overview'
       preLoaderRoute: typeof ApiGestaoOverviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/audits': {
+      id: '/api/gestao/audits'
+      path: '/api/gestao/audits'
+      fullPath: '/api/gestao/audits'
+      preLoaderRoute: typeof ApiGestaoAuditsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/gestao/alerts': {
@@ -475,18 +495,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
   ApiGestaoAlertsRoute: ApiGestaoAlertsRoute,
+  ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
   ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

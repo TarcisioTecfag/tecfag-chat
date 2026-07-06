@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { conversations, messages } from "../../../db/schema";
+import { conversations, messages, contacts } from "../../../db/schema";
 import { eq } from "drizzle-orm";
+import { AuditService } from "../../../lib/audit-service";
 
 export const Route = createFileRoute("/api/chats/update-queue")({
   server: {
@@ -70,6 +71,26 @@ export const Route = createFileRoute("/api/chats/update-queue")({
               isInternalNote: true,
               sentAt: new Date(),
             });
+          }
+
+          // 4. Se a conversa foi finalizada, enfileira auditoria de IA
+          if (queueState === "finalizados") {
+            // Busca o nome do contato para desnormalizar na auditoria
+            db.select({ name: contacts.name })
+              .from(contacts)
+              .where(eq(contacts.id, conv.contactId ?? ""))
+              .limit(1)
+              .then((rows) => {
+                AuditService.getInstance().enqueueAudit({
+                  tenantId: conv.tenantId,
+                  conversationId,
+                  operatorId: operatorId ?? conv.operatorId,
+                  contactName: rows[0]?.name ?? null,
+                });
+                // Inicia o serviço de auditoria caso ainda não esteja rodando
+                AuditService.getInstance().start();
+              })
+              .catch((e) => console.error("[AuditService] Erro ao enfileirar auditoria:", e));
           }
 
           return new Response(JSON.stringify({ success: true }), {
