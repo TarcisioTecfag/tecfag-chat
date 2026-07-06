@@ -164,6 +164,22 @@ export const Route = createFileRoute("/api/gestao/overview")({
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
+          const isRelationMissing = e?.code === "42P01" || e?.message?.includes("does not exist");
+          if (isRelationMissing) {
+            // Tabelas ainda não foram criadas — retorna dados vazios em vez de 500
+            console.warn("[gestao/overview] Tabelas de gestão pendentes de criação. Retornando dados padrão.");
+            return new Response(JSON.stringify({
+              today: new Date().toISOString().split("T")[0],
+              activeConversations: 0,
+              overdueAlerts: 0,
+              avgResponseTimeSeconds: null,
+              avgResponseTimeFormatted: "–",
+              teamPerformanceScore: null,
+              operators: [],
+            }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
           console.error("[gestao/overview] Erro:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,

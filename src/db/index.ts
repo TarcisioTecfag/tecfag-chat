@@ -4,9 +4,91 @@ import * as schema from "./schema";
 
 const connectionString = process.env.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/valemchat";
 
-// Client do PostgreSQL
+// Client do PostgreSQL (pool principal)
 const client = postgres(connectionString, {
-  max: 10, // número máximo de conexões no pool
+  max: 10,
 });
 
 export const db = drizzle(client, { schema });
+
+// ── Auto-Criação das Tabelas de Gestão ────────────────────────────────────────
+// Garante que as 4 tabelas de IA/gestão existam no banco de produção (Railway).
+// Usa CREATE TABLE IF NOT EXISTS — seguro de rodar múltiplas vezes.
+// .unsafe() permite múltiplos statements DDL em uma só chamada.
+const setupClient = postgres(connectionString, { max: 1 });
+
+setupClient.unsafe(`
+  CREATE TABLE IF NOT EXISTS response_time_logs (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    operator_id TEXT,
+    contact_id TEXT,
+    client_message_id TEXT NOT NULL,
+    client_message_at TIMESTAMP NOT NULL,
+    agent_response_id TEXT,
+    agent_response_at TIMESTAMP,
+    response_time_seconds INTEGER,
+    is_overdue BOOLEAN NOT NULL DEFAULT FALSE,
+    overdue_threshold_seconds INTEGER NOT NULL DEFAULT 900,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS ai_conversation_audits (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    operator_id TEXT,
+    contact_name TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    performance_score INTEGER,
+    client_sentiment TEXT,
+    had_long_response_gap BOOLEAN DEFAULT FALSE,
+    had_missed_objection BOOLEAN DEFAULT FALSE,
+    had_rude_language BOOLEAN DEFAULT FALSE,
+    had_no_follow_up BOOLEAN DEFAULT FALSE,
+    summary TEXT,
+    strengths TEXT,
+    weaknesses TEXT,
+    actionable_insight TEXT,
+    raw_ai_response JSONB,
+    error_message TEXT,
+    audited_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS operator_daily_metrics (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    operator_id TEXT NOT NULL,
+    operator_name TEXT NOT NULL,
+    date TEXT NOT NULL,
+    total_conversations INTEGER NOT NULL DEFAULT 0,
+    avg_response_time_seconds INTEGER,
+    avg_performance_score INTEGER,
+    overdue_count INTEGER NOT NULL DEFAULT 0,
+    satisfied_count INTEGER NOT NULL DEFAULT 0,
+    neutral_count INTEGER NOT NULL DEFAULT 0,
+    frustrated_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS ai_reports (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    report_type TEXT NOT NULL,
+    period_start TIMESTAMP NOT NULL,
+    period_end TIMESTAMP NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+`)
+  .then(() => {
+    console.log("[db] ✓ Tabelas de gestão verificadas/criadas.");
+    setupClient.end();
+  })
+  .catch((e) => {
+    console.warn("[db] Aviso ao criar tabelas de gestão:", e?.message ?? e);
+    setupClient.end();
+  });
+

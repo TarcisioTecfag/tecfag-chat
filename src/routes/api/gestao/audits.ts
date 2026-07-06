@@ -97,6 +97,13 @@ export const Route = createFileRoute("/api/gestao/audits")({
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
+          const isRelationMissing = e?.code === "42P01" || e?.message?.includes("does not exist");
+          if (isRelationMissing) {
+            console.warn("[gestao/audits] Tabelas de gestão pendentes de criação. Retornando lista vazia.");
+            return new Response(JSON.stringify([]), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
           console.error("[gestao/audits] Erro:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
