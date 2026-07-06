@@ -3,9 +3,11 @@ import { db } from "../../../db";
 import { responseTimeLogs, conversations, contacts, operators } from "../../../db/schema";
 import { eq, isNull, and, desc } from "drizzle-orm";
 import { SlaEngine } from "../../../lib/sla-engine";
+import { AuditService } from "../../../lib/audit-service";
 
-// Inicializa a engine de SLA na primeira request desta rota (lazy init)
+// Inicializa os engines na primeira request desta rota (lazy init)
 SlaEngine.getInstance().start();
+AuditService.getInstance().start();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

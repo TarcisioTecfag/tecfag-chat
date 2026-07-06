@@ -75,22 +75,29 @@ export const Route = createFileRoute("/api/chats/update-queue")({
 
           // 4. Se a conversa foi finalizada, enfileira auditoria de IA
           if (queueState === "finalizados") {
-            // Busca o nome do contato para desnormalizar na auditoria
-            db.select({ name: contacts.name })
-              .from(contacts)
-              .where(eq(contacts.id, conv.contactId ?? ""))
-              .limit(1)
-              .then((rows) => {
-                AuditService.getInstance().enqueueAudit({
+            // Race-condition fix: enqueueAudit é aguardado antes de qualquer batch rodar.
+            // AuditService já está iniciado no boot (alerts.ts) — start() aqui é apenas fallback.
+            (async () => {
+              try {
+                const rows = await db.select({ name: contacts.name })
+                  .from(contacts)
+                  .where(eq(contacts.id, conv.contactId ?? ""))
+                  .limit(1);
+
+                await AuditService.getInstance().enqueueAudit({
                   tenantId: conv.tenantId,
                   conversationId,
                   operatorId: operatorId ?? conv.operatorId,
                   contactName: rows[0]?.name ?? null,
                 });
-                // Inicia o serviço de auditoria caso ainda não esteja rodando
+
+                // Garante que o serviço está rodando (caso o servidor reiniciou
+                // sem ter passado pelo alerts.ts antes desta finalização)
                 AuditService.getInstance().start();
-              })
-              .catch((e) => console.error("[AuditService] Erro ao enfileirar auditoria:", e));
+              } catch (e) {
+                console.error("[AuditService] Erro ao enfileirar auditoria:", e);
+              }
+            })();
           }
 
           return new Response(JSON.stringify({ success: true }), {

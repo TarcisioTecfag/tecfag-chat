@@ -11,8 +11,9 @@ import fs from "fs";
 import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
 import { db } from "../../db";
-import { channelConfigs, contacts, conversations, messages, mediaFiles } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { channelConfigs, contacts, conversations, messages, mediaFiles, responseTimeLogs } from "../../db/schema";
+import { eq, isNull, and, desc } from "drizzle-orm";
+import { SlaEngine } from "../sla-engine";
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connected";
 
@@ -731,6 +732,58 @@ export class SessionManager {
         quotedMessageContent,
         sentAt: new Date(),
       }).onConflictDoNothing();
+
+      // ── SLA Engine: rastreamento de tempo de resposta via Baileys ─────────
+      // Espelha a mesma lógica de chats.ts POST para mensagens nativas do WA.
+      try {
+        const now = new Date();
+        if (finalSenderType === "client") {
+          // Cliente enviou: abre um novo ciclo de SLA
+          await db.insert(responseTimeLogs).values({
+            id: `sla-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            tenantId,
+            conversationId: convId,
+            operatorId: null,
+            clientMessageId: messageId,
+            clientMessageAt: now,
+            overdueThresholdSeconds: 900, // 15 minutos
+          });
+        } else if (finalSenderType === "agent") {
+          // Operador respondeu: fecha o ciclo SLA mais recente pendente
+          const openLog = await db
+            .select()
+            .from(responseTimeLogs)
+            .where(and(eq(responseTimeLogs.conversationId, convId), isNull(responseTimeLogs.agentResponseId)))
+            .orderBy(desc(responseTimeLogs.clientMessageAt))
+            .limit(1);
+
+          if (openLog.length > 0) {
+            const log = openLog[0];
+            const deltaSeconds = Math.floor((now.getTime() - new Date(log.clientMessageAt).getTime()) / 1000);
+            await db
+              .update(responseTimeLogs)
+              .set({ agentResponseId: messageId, agentResponseAt: now, responseTimeSeconds: deltaSeconds })
+              .where(eq(responseTimeLogs.id, log.id));
+
+            // Atualiza métricas diárias do operador associado à conversa
+            const convRow = await db
+              .select({ operatorId: conversations.operatorId })
+              .from(conversations)
+              .where(eq(conversations.id, convId))
+              .limit(1);
+
+            if (convRow[0]?.operatorId) {
+              SlaEngine.getInstance().updateResponseMetrics(
+                tenantId, convRow[0].operatorId, deltaSeconds
+              ).catch((e: any) => console.warn("[SlaEngine/Baileys] Erro ao atualizar métricas:", e?.message));
+            }
+          }
+        }
+      } catch (slaErr: any) {
+        // SLA não é crítico — falha silenciosamente para não bloquear mensagens
+        console.warn("[SlaEngine/Baileys] Erro ao registrar ciclo SLA:", slaErr?.message);
+      }
+      // ── Fim SLA Engine ──────────────────────────────────────────────────────
 
       // 4. Notificar a UI via evento SSE
       this.notify(tenantId, {
