@@ -180,6 +180,19 @@ export const Route = createFileRoute("/api/gestao/health")({
               } : null,
             };
           }
+
+          // 7. Diagnóstico de operadores — mostra tenant_ids distintos para entender o problema
+          try {
+            const opsAll = await client`SELECT id, name, tenant_id FROM operators LIMIT 10`;
+            const tenantIds = await client`SELECT DISTINCT tenant_id FROM operators`;
+            result.operatorsDiag = {
+              totalSample: opsAll.length,
+              tenantIds: tenantIds.map((r: any) => r.tenant_id),
+              sample: opsAll.map((r: any) => ({ id: r.id, name: r.name, tenantId: r.tenant_id })),
+            };
+          } catch (oe: any) {
+            result.operatorsDiag = { error: oe.message };
+          }
         } catch (e: any) {
 
           result.db.error = {
