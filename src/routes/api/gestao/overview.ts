@@ -181,7 +181,12 @@ export const Route = createFileRoute("/api/gestao/overview")({
             });
           }
           console.error("[gestao/overview] Erro:", e);
-          return new Response(JSON.stringify({ error: e.message }), {
+          return new Response(JSON.stringify({
+            error: e.message,
+            pgCode: e.code,
+            detail: e.detail,
+            hint: e.hint,
+          }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });

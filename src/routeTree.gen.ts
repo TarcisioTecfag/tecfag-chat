@@ -19,6 +19,7 @@ import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
+import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
 import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
 import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
@@ -79,6 +80,11 @@ const ApiCallsRoute = ApiCallsRouteImport.update({
 const ApiGestaoOverviewRoute = ApiGestaoOverviewRouteImport.update({
   id: '/api/gestao/overview',
   path: '/api/gestao/overview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoHealthRoute = ApiGestaoHealthRouteImport.update({
+  id: '/api/gestao/health',
+  path: '/api/gestao/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGestaoAuditsRoute = ApiGestaoAuditsRouteImport.update({
@@ -158,6 +164,7 @@ export interface FileRoutesByFullPath {
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
+  '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRoutesByTo {
@@ -181,6 +188,7 @@ export interface FileRoutesByTo {
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
+  '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRoutesById {
@@ -205,6 +213,7 @@ export interface FileRoutesById {
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
+  '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
 }
 export interface FileRouteTypes {
@@ -230,6 +239,7 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
+    | '/api/gestao/health'
     | '/api/gestao/overview'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -253,6 +263,7 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
+    | '/api/gestao/health'
     | '/api/gestao/overview'
   id:
     | '__root__'
@@ -276,6 +287,7 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
+    | '/api/gestao/health'
     | '/api/gestao/overview'
   fileRoutesById: FileRoutesById
 }
@@ -298,6 +310,7 @@ export interface RootRouteChildren {
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
   ApiGestaoAlertsRoute: typeof ApiGestaoAlertsRoute
   ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
+  ApiGestaoHealthRoute: typeof ApiGestaoHealthRoute
   ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
 }
 
@@ -371,6 +384,13 @@ declare module '@tanstack/react-router' {
       path: '/api/gestao/overview'
       fullPath: '/api/gestao/overview'
       preLoaderRoute: typeof ApiGestaoOverviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/health': {
+      id: '/api/gestao/health'
+      path: '/api/gestao/health'
+      fullPath: '/api/gestao/health'
+      preLoaderRoute: typeof ApiGestaoHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/gestao/audits': {
@@ -496,6 +516,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
   ApiGestaoAlertsRoute: ApiGestaoAlertsRoute,
   ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
+  ApiGestaoHealthRoute: ApiGestaoHealthRoute,
   ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
 }
 export const routeTree = rootRouteImport
