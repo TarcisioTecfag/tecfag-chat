@@ -3,9 +3,15 @@ import { useChat } from "@/hooks/useChatState";
 import {
   Eye, AlertTriangle, Clock, Users, TrendingUp, TrendingDown,
   RefreshCw, ChevronRight, Minus, CheckCircle, XCircle,
-  MessageSquare, BarChart2, FileText, Bell, Zap,
+  MessageSquare, BarChart2, FileText, Bell, Zap, FlaskConical,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS } from "@/lib/monitor-mock-data";
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🧪 DEMO MODE — troque para false para usar dados reais da API
+// ══════════════════════════════════════════════════════════════════════════════
+const DEMO_MODE = true;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 type MonitorTab = "overview" | "alerts" | "operators" | "audits" | "reports";
@@ -650,6 +656,17 @@ export function MonitorView() {
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
   const fetchData = useCallback(async () => {
+    // ── DEMO MODE: usa dados simulados sem chamar a API ────────────────────────
+    if (DEMO_MODE) {
+      setOverview(MOCK_OVERVIEW as any);
+      setAlerts(MOCK_ALERTS as any);
+      setAudits(MOCK_AUDITS as any);
+      setLastRefresh(new Date());
+      setLoadingAlerts(false);
+      setLoadingAudits(false);
+      return;
+    }
+    // ── MODO REAL: busca da API ────────────────────────────────────────────────
     try {
       const [ovRes, alRes, auRes] = await Promise.all([
         fetch(`/api/gestao/overview?tenantId=${tenant}`),
@@ -696,6 +713,12 @@ export function MonitorView() {
           <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
             <Eye className="h-4.5 w-4.5 text-primary" />
             Monitoramento da Operação
+            {DEMO_MODE && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 text-[10px] font-extrabold border border-amber-300 animate-pulse">
+                <FlaskConical className="h-3 w-3" />
+                MODO DEMO
+              </span>
+            )}
           </h1>
           <p className="text-[11px] text-muted-foreground capitalize mt-0.5">{today}</p>
         </div>
