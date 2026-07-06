@@ -26,6 +26,7 @@ export function Sidebar() {
   const navItems = [
     { id: "chat", icon: Users, label: "Chat" },
     { id: "contacts", icon: Contact, label: "Base de Clientes" },
+    { id: "monitor", icon: Eye, label: "Monitorar" },
   ];
 
   const decorativeItems = [
@@ -33,7 +34,6 @@ export function Sidebar() {
     { id: "groups", icon: Shield, label: "Grupo de Acesso", isAvailable: true },
     { icon: Clock, label: "Histórico" },
     { icon: ClipboardCheck, label: "Tarefas" },
-    { icon: Eye, label: "Monitorar" },
     { icon: BarChart2, label: "Estatísticas" },
   ];
 

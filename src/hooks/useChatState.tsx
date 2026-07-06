@@ -71,8 +71,8 @@ type ChatContextType = {
   setSearchQuery: (query: string) => void;
   channelFilter: Channel | "all";
   setChannelFilter: (filter: Channel | "all") => void;
-  activeView: "chat" | "contacts" | "settings" | "groups";
-  setActiveView: (view: "chat" | "contacts" | "settings" | "groups") => void;
+  activeView: "chat" | "contacts" | "settings" | "groups" | "monitor";
+  setActiveView: (view: "chat" | "contacts" | "settings" | "groups" | "monitor") => void;
   rightSidebarOpen: boolean;
   setRightSidebarOpen: (open: boolean) => void;
   
@@ -142,7 +142,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "contacts" | "settings" | "groups" | "monitor">("chat");
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
   const [sectors, setSectors] = useState<Sector[]>([]);
