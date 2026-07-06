@@ -8,6 +8,19 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, MOCK_LIVE, LiveOperator, LiveConversation } from "@/lib/monitor-mock-data";
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  BarChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  Cell,
+} from "recharts";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 🧪 DEMO MODE — troque para false para usar dados reais da API
@@ -149,6 +162,29 @@ function OverviewTab({
     );
   }
 
+  // Função utilitária para converter "2min 45s" ou similar em minutos decimais
+  const parseTimeToMinutes = (timeStr: string): number => {
+    if (!timeStr) return 0;
+    const minMatch = timeStr.match(/(\d+)\s*(?:min|m)/i);
+    const secMatch = timeStr.match(/(\d+)\s*(?:s)/i);
+    const min = minMatch ? parseInt(minMatch[1], 10) : 0;
+    const sec = secMatch ? parseInt(secMatch[1], 10) : 0;
+    return Number((min + sec / 60).toFixed(2));
+  };
+
+  // 1. Dados do gráfico de performance e tempo de resposta da equipe
+  const chartDataEquipe = overview.operators.map((op) => ({
+    name: op.operatorName.split(" ")[0] + (op.operatorName.split(" ")[1] ? " " + op.operatorName.split(" ")[1][0] + "." : ""),
+    score: op.avgPerformanceScore || 0,
+    tmr: parseTimeToMinutes(op.avgResponseTimeFormatted),
+  }));
+
+  // 2. Dados do gráfico de alertas críticos
+  const chartDataAlertas = alerts.slice(0, 6).map((al) => ({
+    cliente: al.contactName,
+    espera: Number((al.waitingMinutes + al.waitingSeconds / 60).toFixed(1)),
+  }));
+
   const metricCards = [
     {
       label: "Conversas Ativas",
@@ -204,6 +240,62 @@ function OverviewTab({
             </div>
           );
         })}
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-5 gap-4 shrink-0">
+        {/* Performance vs Response Time Chart */}
+        <div className="col-span-3 bg-card rounded-2xl border border-border shadow-soft p-4 flex flex-col justify-between h-72">
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground mb-3 block">
+            Performance vs. Tempo de Resposta da Equipe
+          </span>
+          <div className="flex-1 min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartDataEquipe} margin={{ top: 10, right: -5, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
+                <YAxis yAxisId="left" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} domain={[0, 100]} />
+                <YAxis yAxisId="right" orientation="right" stroke="#ef4444" fontSize={10} tickLine={false} unit="m" />
+                <RechartsTooltip 
+                  contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px" }}
+                />
+                <Legend verticalAlign="top" height={36} iconSize={8} wrapperStyle={{ fontSize: "11px" }} />
+                <Bar yAxisId="left" dataKey="score" name="Score de Qualidade" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={16} />
+                <Line yAxisId="right" type="monotone" dataKey="tmr" name="TMR Médio (min)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Critical Alerts Wait Time Chart */}
+        <div className="col-span-2 bg-card rounded-2xl border border-border shadow-soft p-4 flex flex-col justify-between h-72">
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground mb-3 block">
+            Tempo de Espera dos Casos Críticos (Minutos)
+          </span>
+          <div className="flex-1 min-h-0">
+            {chartDataAlertas.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-1">
+                <CheckCircle className="h-6 w-6 text-emerald-400" />
+                <span className="text-xs">Fila zerada no momento</span>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartDataAlertas} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
+                  <XAxis type="number" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} unit=" min" />
+                  <YAxis dataKey="cliente" type="category" stroke="var(--muted-foreground)" fontSize={9} tickLine={false} width={80} />
+                  <RechartsTooltip contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px" }} />
+                  <Bar dataKey="espera" name="Minutos de Espera" radius={[0, 4, 4, 0]} barSize={10}>
+                    {chartDataAlertas.map((entry, index) => {
+                      const color = entry.espera >= 20 ? "#dc2626" : entry.espera >= 15 ? "#f97316" : "#f59e0b";
+                      return <Cell key={`cell-${index}`} fill={color} />;
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Middle Row */}
