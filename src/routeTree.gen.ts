@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
 import { Route as ApiTemplatesRouteImport } from './routes/api/templates'
+import { Route as ApiTasksRouteImport } from './routes/api/tasks'
 import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
 import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
@@ -50,6 +51,11 @@ const CallRoomIdRoute = CallRoomIdRouteImport.update({
 const ApiTemplatesRoute = ApiTemplatesRouteImport.update({
   id: '/api/templates',
   path: '/api/templates',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTasksRoute = ApiTasksRouteImport.update({
+  id: '/api/tasks',
+  path: '/api/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSectorsRoute = ApiSectorsRouteImport.update({
@@ -182,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
@@ -211,6 +218,7 @@ export interface FileRoutesByTo {
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
@@ -241,6 +249,7 @@ export interface FileRoutesById {
   '/api/operators': typeof ApiOperatorsRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
+  '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
@@ -272,6 +281,7 @@ export interface FileRouteTypes {
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/api/tasks'
     | '/api/templates'
     | '/call/$roomId'
     | '/api/baileys/connect'
@@ -301,6 +311,7 @@ export interface FileRouteTypes {
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/api/tasks'
     | '/api/templates'
     | '/call/$roomId'
     | '/api/baileys/connect'
@@ -330,6 +341,7 @@ export interface FileRouteTypes {
     | '/api/operators'
     | '/api/quick-responses'
     | '/api/sectors'
+    | '/api/tasks'
     | '/api/templates'
     | '/call/$roomId'
     | '/api/baileys/connect'
@@ -360,6 +372,7 @@ export interface RootRouteChildren {
   ApiOperatorsRoute: typeof ApiOperatorsRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
   ApiSectorsRoute: typeof ApiSectorsRoute
+  ApiTasksRoute: typeof ApiTasksRoute
   ApiTemplatesRoute: typeof ApiTemplatesRoute
   CallRoomIdRoute: typeof CallRoomIdRoute
   ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
@@ -399,6 +412,13 @@ declare module '@tanstack/react-router' {
       path: '/api/templates'
       fullPath: '/api/templates'
       preLoaderRoute: typeof ApiTemplatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/tasks': {
+      id: '/api/tasks'
+      path: '/api/tasks'
+      fullPath: '/api/tasks'
+      preLoaderRoute: typeof ApiTasksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/sectors': {
@@ -607,6 +627,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiOperatorsRoute: ApiOperatorsRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
   ApiSectorsRoute: ApiSectorsRoute,
+  ApiTasksRoute: ApiTasksRoute,
   ApiTemplatesRoute: ApiTemplatesRoute,
   CallRoomIdRoute: CallRoomIdRoute,
   ApiBaileysConnectRoute: ApiBaileysConnectRoute,

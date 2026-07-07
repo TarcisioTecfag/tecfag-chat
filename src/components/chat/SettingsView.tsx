@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useChat } from "@/hooks/useChatState";
-import { Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save, Mail, FileText } from "lucide-react";
+import { Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save, Mail, FileText, Link, ExternalLink, CheckCircle2, Loader2 } from "lucide-react";
 
 export function SettingsView() {
   const {
@@ -14,6 +14,10 @@ export function SettingsView() {
 
   const [metaForm, setMetaForm] = useState({ ...metaConfig });
   const [isSaved, setIsSaved] = useState(false);
+
+  // Estado de integração RD Station CRM
+  const [rdCrmConfigured, setRdCrmConfigured] = useState<boolean | null>(null);
+  const [rdCrmConnecting, setRdCrmConnecting] = useState(false);
 
   // Estados de Relatórios e SMTP
   const [reportForm, setReportForm] = useState({
@@ -62,6 +66,14 @@ export function SettingsView() {
       }
     };
     loadReports();
+  }, [tenant]);
+
+  // Verifica status de integração RD CRM
+  useEffect(() => {
+    fetch(`/api/settings/rd-crm?tenantId=${tenant}`)
+      .then((r) => r.json())
+      .then((data) => setRdCrmConfigured(data.configured ?? false))
+      .catch(() => setRdCrmConfigured(false));
   }, [tenant]);
 
   const handleReportSave = async (e: React.FormEvent) => {
@@ -624,6 +636,68 @@ export function SettingsView() {
             </div>
           </form>
         </div>
+      </div>
+
+      {/* ─── Integração RD Station CRM ──────────────────────────────── */}
+      <div className="mt-6 rounded-3xl bg-card border border-border p-8 shadow-soft">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: "var(--primary-soft)" }}>
+            <Link className="h-5 w-5" style={{ color: "var(--primary)" }} />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-foreground">Integração RD Station CRM</h3>
+            <p className="text-xs text-muted-foreground">Conecte para sincronizar tarefas do CRM com o calendário.</p>
+          </div>
+          <div className="ml-auto">
+            {rdCrmConfigured === null ? (
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-card border border-border px-3 py-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Verificando...
+              </span>
+            ) : rdCrmConfigured ? (
+              <span className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold text-white" style={{ background: "var(--primary)" }}>
+                <CheckCircle2 className="h-3.5 w-3.5" /> Conectado
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                <AlertCircle className="h-3.5 w-3.5" /> Não conectado
+              </span>
+            )}
+          </div>
+        </div>
+
+        {!rdCrmConfigured && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Clique no botão abaixo para autorizar o acesso ao RD Station CRM. Você será redirecionado para o RD Station para aprovar a conexão.
+            </p>
+            <button
+              onClick={async () => {
+                setRdCrmConnecting(true);
+                try {
+                  const clientId = "1f1aaf46-1ee3-423e-97cc-9f71409b77d6";
+                  const redirectUri = encodeURIComponent(`${window.location.origin}/api/settings/rd-crm?tenantId=${tenant}`);
+                  const authUrl = `https://crm.rdstation.com/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}`;
+                  window.location.href = authUrl;
+                } catch {
+                  setRdCrmConnecting(false);
+                }
+              }}
+              disabled={rdCrmConnecting}
+              className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-white transition-all hover:scale-105 active:scale-95 disabled:opacity-60"
+              style={{ background: "var(--primary)" }}
+            >
+              {rdCrmConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+              Conectar ao RD Station CRM
+            </button>
+          </div>
+        )}
+
+        {rdCrmConfigured && (
+          <div className="rounded-2xl bg-background/60 border border-border p-4">
+            <p className="text-sm text-foreground font-medium">✅ Integração ativa</p>
+            <p className="text-xs text-muted-foreground mt-1">As tarefas do RD CRM estão disponíveis no módulo "Tarefas" da barra lateral. O token de acesso é renovado automaticamente.</p>
+          </div>
+        )}
       </div>
     </section>
   );

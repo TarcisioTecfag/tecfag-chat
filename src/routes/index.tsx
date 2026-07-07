@@ -11,6 +11,7 @@ import { GroupsView } from "@/components/chat/GroupsView";
 import { ProfileModal } from "@/components/chat/ProfileModal";
 import { MonitorView } from "@/components/chat/MonitorView";
 import { AnalyticsView } from "@/components/chat/AnalyticsView";
+import { TasksView } from "@/components/chat/TasksView";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { motion, AnimatePresence } from "framer-motion";
@@ -133,6 +134,17 @@ function Index() {
                 className="flex-1 h-full overflow-hidden"
               >
                 <AnalyticsView />
+              </motion.div>
+            ) : activeView === "tasks" ? (
+              <motion.div
+                key="tasks"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <TasksView />
               </motion.div>
             ) : (
               <motion.div
