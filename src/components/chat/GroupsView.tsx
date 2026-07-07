@@ -20,7 +20,11 @@ import {
   Lock,
   Edit,
   ChevronDown,
-  Camera
+  Camera,
+  Wallet,
+  LayoutTemplate,
+  X,
+  Search
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -42,11 +46,75 @@ export function GroupsView() {
     deleteAccessGroup,
     createSector,
     updateSector,
-    deleteSector
+    deleteSector,
+    conversations,
+    updateContactWallet,
+    quickResponses,
+    createQuickResponse,
+    updateQuickResponse,
+    deleteQuickResponse
   } = useChat();
 
   // Active sub-views / tabs
-  const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors" | "wallets" | "templates">("users");
+
+  // Quick Responses Form States
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrModalMode, setQrModalMode] = useState<"create" | "edit">("create");
+  const [editingQr, setEditingQr] = useState<any | null>(null);
+  const [qrForm, setQrForm] = useState({
+    shortcut: "",
+    text: "",
+    description: ""
+  });
+
+  const handleOpenCreateQrModal = () => {
+    setQrForm({ shortcut: "", text: "", description: "" });
+    setQrModalMode("create");
+    setEditingQr(null);
+    setShowQrModal(true);
+  };
+
+  const handleOpenEditQrModal = (qr: any) => {
+    setQrForm({
+      shortcut: qr.shortcut,
+      text: qr.text,
+      description: qr.description || ""
+    });
+    setQrModalMode("edit");
+    setEditingQr(qr);
+    setShowQrModal(true);
+  };
+
+  const handleSaveQr = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!qrForm.shortcut.startsWith("/")) {
+      toast.warning("O atalho deve começar com barra '/' (Ex: /saudacao)");
+      return;
+    }
+
+    if (qrModalMode === "create") {
+      createQuickResponse({
+        shortcut: qrForm.shortcut,
+        text: qrForm.text,
+        description: qrForm.description || null
+      });
+    } else if (qrModalMode === "edit" && editingQr) {
+      updateQuickResponse(editingQr.id, {
+        shortcut: qrForm.shortcut,
+        text: qrForm.text,
+        description: qrForm.description || null
+      });
+      toast.success("Resposta rápida atualizada!");
+    }
+    setShowQrModal(false);
+  };
+
+  const handleDeleteQr = (id: string) => {
+    if (confirm("Tem certeza que deseja excluir esta resposta rápida global?")) {
+      deleteQuickResponse(id);
+    }
+  };
 
   // Operator Form States
   const [showOpForm, setShowOpForm] = useState(false);
@@ -350,6 +418,40 @@ export function GroupsView() {
             <Building2 className="h-4 w-4" /> Setores
           </span>
           {activeTab === "sectors" && (
+            <motion.span
+              layoutId="activeGroupsTabIndicator"
+              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab("wallets")}
+          className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
+            activeTab === "wallets" ? "text-primary font-black" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <Wallet className="h-4 w-4" /> Carteiras Globais
+          </span>
+          {activeTab === "wallets" && (
+            <motion.span
+              layoutId="activeGroupsTabIndicator"
+              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab("templates")}
+          className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
+            activeTab === "templates" ? "text-primary font-black" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <LayoutTemplate className="h-4 w-4" /> Templates Globais
+          </span>
+          {activeTab === "templates" && (
             <motion.span
               layoutId="activeGroupsTabIndicator"
               className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
@@ -965,7 +1067,7 @@ export function GroupsView() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : activeTab === "sectors" ? (
         /* SECTORS TAB */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
@@ -1131,6 +1233,275 @@ export function GroupsView() {
                 <p className="text-xs">Crie ou selecione um setor no painel ao lado.</p>
               </div>
             )}
+          </div>
+        </div>
+      ) : activeTab === "wallets" ? (
+        /* TAB CARTEIRAS GLOBAIS */
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-base font-extrabold text-foreground">Carteirização Global</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Gerencie os clientes associados à carteira de cada vendedor.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {operators.map((op) => {
+              // Filtra clientes deste operador
+              const opClients = conversations.filter(c => c.walletOperatorId === op.id);
+              // Filtra clientes disponíveis para adicionar (não estão na carteira dele)
+              const availableClients = conversations.filter(c => c.walletOperatorId !== op.id);
+
+              return (
+                <div key={op.id} className="rounded-2xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between min-h-[300px]">
+                  <div>
+                    {/* Cabecalho do Operador */}
+                    <div className="flex items-center gap-3 border-b border-line pb-3 mb-4">
+                      <img
+                        src={op.avatar || "https://i.pravatar.cc/80"}
+                        alt={op.name}
+                        className="h-10 w-10 rounded-full object-cover border border-border shadow-xs"
+                      />
+                      <div>
+                        <h4 className="font-bold text-sm text-foreground">{op.name}</h4>
+                        <span className="text-[10px] text-muted-foreground block">{op.email}</span>
+                      </div>
+                    </div>
+
+                    {/* Lista de Clientes da Carteira */}
+                    <div className="space-y-2 max-h-[160px] overflow-y-auto scrollbar-thin pr-1 mb-4">
+                      <span className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1">
+                        Clientes na Carteira ({opClients.length})
+                      </span>
+                      {opClients.length > 0 ? (
+                        opClients.map((client) => (
+                          <div key={client.id} className="flex items-center justify-between gap-3 bg-muted/40 hover:bg-muted/80 rounded-xl px-3 py-2 border border-border/40 transition">
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-foreground block truncate">{client.name}</span>
+                              <span className="text-[10px] text-muted-foreground block truncate">{client.phone || "Sem telefone"}</span>
+                            </div>
+                            <button
+                              onClick={() => updateContactWallet(client.contactId || client.id, null)}
+                              className="grid h-7 w-7 place-items-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition cursor-pointer"
+                              title="Remover da carteira"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-6 text-xs text-muted-foreground italic">
+                          Nenhum cliente associado a esta carteira.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Form para Adicionar Cliente à Carteira */}
+                  <div className="border-t border-line pt-3 mt-auto">
+                    <span className="text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1.5">
+                      Adicionar Cliente
+                    </span>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1 flex items-center">
+                        <select
+                          id={`select-client-${op.id}`}
+                          className="appearance-none h-9 w-full rounded-xl bg-muted pl-3 pr-10 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent cursor-pointer select-none"
+                          defaultValue=""
+                        >
+                          <option value="" disabled>Selecionar cliente...</option>
+                          {availableClients.map(c => (
+                            <option key={c.id} value={c.contactId || c.id}>
+                              {c.name} ({c.phone || "Sem tel"}) {c.walletOperatorId ? `• Carteira de: ${operators.find(o => o.id === c.walletOperatorId)?.name || "?"}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const selectEl = document.getElementById(`select-client-${op.id}`) as HTMLSelectElement;
+                          if (selectEl && selectEl.value) {
+                            updateContactWallet(selectEl.value, op.id);
+                            selectEl.value = ""; // limpa
+                          } else {
+                            toast.warning("Selecione um cliente primeiro.");
+                          }
+                        }}
+                        className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0"
+                        title="Vincular à carteira"
+                      >
+                        <Plus className="h-4.5 w-4.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        /* TAB TEMPLATES GLOBAIS */
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-extrabold text-foreground">Respostas Rápidas Globais</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Respostas automáticas gerais que aparecem para todos os atendentes ao digitar "/".</p>
+            </div>
+            <button
+              onClick={handleOpenCreateQrModal}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer transition-transform duration-150 active:scale-95"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar Resposta Rápida
+            </button>
+          </div>
+
+          {quickResponses.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in duration-200">
+              {quickResponses.map((qr) => (
+                <div key={qr.id} className="rounded-2xl border border-border bg-card p-4 shadow-xs flex flex-col justify-between hover:border-muted-foreground/30 transition-all duration-200">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="font-mono text-xs font-black text-primary px-2 py-0.5 bg-primary-soft rounded-lg">
+                        {qr.shortcut}
+                      </span>
+                      {qr.description && (
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[120px]" title={qr.description}>
+                          {qr.description}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-foreground leading-relaxed line-clamp-3 bg-muted/40 p-2.5 rounded-xl border border-border/30 font-medium">
+                      {qr.text}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 border-t border-line mt-3 pt-2">
+                    <button
+                      onClick={() => handleOpenEditQrModal(qr)}
+                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer"
+                      title="Editar"
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteQr(qr.id)}
+                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition cursor-pointer"
+                      title="Excluir"
+                    >
+                      <Trash className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card p-6 text-center">
+              <LayoutTemplate className="h-10 w-10 text-muted-foreground/40 mb-3" />
+              <h3 className="text-sm font-semibold text-foreground">Nenhuma resposta rápida criada</h3>
+              <p className="text-xs text-muted-foreground max-w-sm mt-1">
+                Adicione mensagens gerais/templates globais para agilizar os atendimentos da sua equipe.
+              </p>
+              <button
+                onClick={handleOpenCreateQrModal}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:opacity-95 transition cursor-pointer shadow-soft"
+              >
+                <Plus className="h-4 w-4" />
+                Criar Primeira Resposta Rápida
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Create / Edit Quick Response Modal */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl bg-card border border-border p-6 shadow-card animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
+              <h2 className="text-md font-bold text-foreground">
+                {qrModalMode === "create" ? "Nova Resposta Rápida Global" : "Editar Resposta Rápida Global"}
+              </h2>
+              <button
+                onClick={() => setShowQrModal(false)}
+                className="rounded-lg p-1 hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveQr} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/80">Atalho (Shortcut)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: /saudacao"
+                  value={qrForm.shortcut}
+                  onChange={(e) => setQrForm({ ...qrForm, shortcut: e.target.value })}
+                  className="rounded-2xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground outline-none transition focus:border-primary focus:bg-card focus:shadow-soft"
+                  required
+                />
+                <span className="text-[9px] text-muted-foreground">Deve iniciar com barra "/" (ex: `/cnpj`).</span>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/80">Descrição (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Envia as chaves PIX da empresa"
+                  value={qrForm.description}
+                  onChange={(e) => setQrForm({ ...qrForm, description: e.target.value })}
+                  className="rounded-2xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground outline-none transition focus:border-primary focus:bg-card focus:shadow-soft"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/80">Texto da Mensagem</label>
+                <textarea
+                  placeholder="Olá! Como posso te ajudar?"
+                  value={qrForm.text}
+                  onChange={(e) => setQrForm({ ...qrForm, text: e.target.value })}
+                  rows={4}
+                  className="rounded-2xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground outline-none transition focus:border-primary focus:bg-card focus:shadow-soft resize-none scrollbar-thin leading-relaxed"
+                  required
+                />
+              </div>
+
+              {/* Dica de Variáveis Dinâmicas */}
+              <div className="rounded-2xl bg-muted/50 p-3 border border-border/60">
+                <span className="text-[9px] font-extrabold uppercase tracking-wide text-primary block mb-2 text-center">
+                  Tags Dinâmicas Disponíveis
+                </span>
+                <div className="grid grid-cols-2 gap-2 text-[9px] text-muted-foreground font-medium">
+                  <div className="flex items-center justify-between gap-1.5 bg-card rounded-lg px-2 py-1 border border-border/40">
+                    <code className="text-primary font-bold font-mono">{"<<1>>"}</code>
+                    <span>Nome do Vendedor</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-1.5 bg-card rounded-lg px-2 py-1 border border-border/40">
+                    <code className="text-primary font-bold font-mono">{"<<2>>"}</code>
+                    <span>Nome do Cliente</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-line pt-4 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowQrModal(false)}
+                  className="rounded-2xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 rounded-2xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground hover:opacity-95 transition cursor-pointer shadow-soft"
+                >
+                  <Check className="h-4 w-4" />
+                  Salvar Resposta Rápida
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -120,6 +120,7 @@ type ChatContextType = {
   finishChat: (id: string) => void;
   updateTags: (id: string, tags: string[]) => void;
   updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => void;
+  updateContactWallet: (contactId: string, walletOperatorId: string | null) => Promise<void>;
   createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => string;
   markAsRead: (id: string) => void;
   markAsUnread: (id: string) => void;
@@ -1248,6 +1249,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateContactWallet = async (contactId: string, walletOperatorId: string | null) => {
+    // 1. Atualiza estado local imediatamente (optimistic update)
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.contactId === contactId || c.id === contactId
+          ? { ...c, walletOperatorId }
+          : c
+      )
+    );
+
+    // 2. Persiste no banco de dados
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/contacts/update-wallet`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId, walletOperatorId }),
+      });
+      if (!res.ok) {
+        console.error("[updateContactWallet] Erro ao persistir no DB");
+      }
+    } catch (err) {
+      console.error("[updateContactWallet] Erro na requisição:", err);
+    }
+  };
+
   const createContact = (name: string, phone: string, email: string, cnpj: string, channel: Channel) => {
     const conversationId = `conv-${Date.now()}`;
     const contactId = `cont-${Date.now()}`;
@@ -1606,6 +1632,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         finishChat,
         updateTags,
         updateClientInfo,
+        updateContactWallet,
         createContact,
         markAsRead,
         markAsUnread,

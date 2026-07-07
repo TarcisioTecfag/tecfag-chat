@@ -25,6 +25,7 @@ import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overv
 import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
 import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
 import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
+import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
@@ -115,6 +116,11 @@ const ApiGestaoAlertsRoute = ApiGestaoAlertsRouteImport.update({
   path: '/api/gestao/alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiContactsUpdateWalletRoute = ApiContactsUpdateWalletRouteImport.update({
+  id: '/update-wallet',
+  path: '/update-wallet',
+  getParentRoute: () => ApiContactsRoute,
+} as any)
 const ApiContactsContactIdRoute = ApiContactsContactIdRouteImport.update({
   id: '/$contactId',
   path: '/$contactId',
@@ -181,6 +187,7 @@ export interface FileRoutesByFullPath {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
@@ -208,6 +215,7 @@ export interface FileRoutesByTo {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
@@ -236,6 +244,7 @@ export interface FileRoutesById {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
@@ -265,6 +274,7 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/health'
@@ -292,6 +302,7 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/health'
@@ -319,6 +330,7 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/health'
@@ -467,6 +479,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGestaoAlertsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/contacts/update-wallet': {
+      id: '/api/contacts/update-wallet'
+      path: '/update-wallet'
+      fullPath: '/api/contacts/update-wallet'
+      preLoaderRoute: typeof ApiContactsUpdateWalletRouteImport
+      parentRoute: typeof ApiContactsRoute
+    }
     '/api/contacts/$contactId': {
       id: '/api/contacts/$contactId'
       path: '/$contactId'
@@ -547,10 +566,12 @@ const ApiChatsRouteWithChildren = ApiChatsRoute._addFileChildren(
 
 interface ApiContactsRouteChildren {
   ApiContactsContactIdRoute: typeof ApiContactsContactIdRoute
+  ApiContactsUpdateWalletRoute: typeof ApiContactsUpdateWalletRoute
 }
 
 const ApiContactsRouteChildren: ApiContactsRouteChildren = {
   ApiContactsContactIdRoute: ApiContactsContactIdRoute,
+  ApiContactsUpdateWalletRoute: ApiContactsUpdateWalletRoute,
 }
 
 const ApiContactsRouteWithChildren = ApiContactsRoute._addFileChildren(
