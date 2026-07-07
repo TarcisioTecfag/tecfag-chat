@@ -41,6 +41,13 @@ export const channelConfigs = pgTable("channel_configs", {
   smtpPass: text("smtp_pass"),
   smtpFrom: text("smtp_from"),
 
+  // Integração RD Station CRM (OAuth2 com refresh token rotativo)
+  rdCrmClientId: text("rd_crm_client_id"),
+  rdCrmClientSecret: text("rd_crm_client_secret"),
+  rdCrmAccessToken: text("rd_crm_access_token"),
+  rdCrmRefreshToken: text("rd_crm_refresh_token"),
+  rdCrmTokenExpiresAt: text("rd_crm_token_expires_at"), // timestamp ms como string
+
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

@@ -20,6 +20,7 @@ import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
+import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
 import { Route as ApiGestaoReportsRouteImport } from './routes/api/gestao/reports'
 import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
 import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
@@ -89,6 +90,11 @@ const ApiCallsRoute = ApiCallsRouteImport.update({
 const ApiSettingsReportsRoute = ApiSettingsReportsRouteImport.update({
   id: '/api/settings/reports',
   path: '/api/settings/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
+  id: '/api/settings/rd-crm',
+  path: '/api/settings/rd-crm',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGestaoReportsRoute = ApiGestaoReportsRouteImport.update({
@@ -193,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRoute
   '/api/settings/reports': typeof ApiSettingsReportsRoute
 }
 export interface FileRoutesByTo {
@@ -221,6 +228,7 @@ export interface FileRoutesByTo {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRoute
   '/api/settings/reports': typeof ApiSettingsReportsRoute
 }
 export interface FileRoutesById {
@@ -250,6 +258,7 @@ export interface FileRoutesById {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRoute
   '/api/settings/reports': typeof ApiSettingsReportsRoute
 }
 export interface FileRouteTypes {
@@ -280,6 +289,7 @@ export interface FileRouteTypes {
     | '/api/gestao/health'
     | '/api/gestao/overview'
     | '/api/gestao/reports'
+    | '/api/settings/rd-crm'
     | '/api/settings/reports'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -308,6 +318,7 @@ export interface FileRouteTypes {
     | '/api/gestao/health'
     | '/api/gestao/overview'
     | '/api/gestao/reports'
+    | '/api/settings/rd-crm'
     | '/api/settings/reports'
   id:
     | '__root__'
@@ -336,6 +347,7 @@ export interface FileRouteTypes {
     | '/api/gestao/health'
     | '/api/gestao/overview'
     | '/api/gestao/reports'
+    | '/api/settings/rd-crm'
     | '/api/settings/reports'
   fileRoutesById: FileRoutesById
 }
@@ -362,6 +374,7 @@ export interface RootRouteChildren {
   ApiGestaoHealthRoute: typeof ApiGestaoHealthRoute
   ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
   ApiGestaoReportsRoute: typeof ApiGestaoReportsRoute
+  ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRoute
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
 }
 
@@ -442,6 +455,13 @@ declare module '@tanstack/react-router' {
       path: '/api/settings/reports'
       fullPath: '/api/settings/reports'
       preLoaderRoute: typeof ApiSettingsReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings/rd-crm': {
+      id: '/api/settings/rd-crm'
+      path: '/api/settings/rd-crm'
+      fullPath: '/api/settings/rd-crm'
+      preLoaderRoute: typeof ApiSettingsRdCrmRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/gestao/reports': {
@@ -601,6 +621,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoHealthRoute: ApiGestaoHealthRoute,
   ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
   ApiGestaoReportsRoute: ApiGestaoReportsRoute,
+  ApiSettingsRdCrmRoute: ApiSettingsRdCrmRoute,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
 }
 export const routeTree = rootRouteImport

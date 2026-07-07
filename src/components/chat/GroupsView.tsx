@@ -1,5 +1,165 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
+
+interface OperatorWalletCardProps {
+  op: Operator;
+  conversations: any[];
+  operators: Operator[];
+  updateContactWallet: (contactId: string, walletOperatorId: string | null) => Promise<void>;
+}
+
+function OperatorWalletCard({ op, conversations, operators, updateContactWallet }: OperatorWalletCardProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const opClients = conversations.filter(c => c.walletOperatorId === op.id);
+  const availableClients = conversations.filter(c => c.walletOperatorId !== op.id);
+
+  const filteredClients = availableClients.filter(c => {
+    const searchLower = search.toLowerCase();
+    const matchesName = c.name?.toLowerCase().includes(searchLower);
+    const matchesPhone = c.phone?.toLowerCase().includes(searchLower);
+    return matchesName || matchesPhone;
+  });
+
+  const handleSelectClient = (c: any) => {
+    setSelectedClientId(c.contactId || c.id);
+    setSearch(`${c.name} (${c.phone || "Sem tel"})`);
+    setIsOpen(false);
+  };
+
+  const handleAdd = () => {
+    if (selectedClientId) {
+      updateContactWallet(selectedClientId, op.id);
+      setSelectedClientId(null);
+      setSearch("");
+    } else {
+      toast.warning("Selecione um cliente da lista primeiro.");
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between min-h-[320px] relative">
+      <div>
+        {/* Cabecalho do Operador */}
+        <div className="flex items-center gap-3 border-b border-line pb-3 mb-4">
+          <img
+            src={op.avatar || "https://i.pravatar.cc/80"}
+            alt={op.name}
+            className="h-10 w-10 rounded-full object-cover border border-border shadow-xs"
+          />
+          <div>
+            <h4 className="font-bold text-sm text-foreground">{op.name}</h4>
+            <span className="text-[10px] text-muted-foreground block">{op.email}</span>
+          </div>
+        </div>
+
+        {/* Lista de Clientes da Carteira */}
+        <div className="space-y-2 max-h-[160px] overflow-y-auto scrollbar-thin pr-1 mb-4">
+          <span className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1">
+            Clientes na Carteira ({opClients.length})
+          </span>
+          {opClients.length > 0 ? (
+            opClients.map((client) => (
+              <div key={client.id} className="flex items-center justify-between gap-3 bg-muted/40 hover:bg-muted/80 rounded-xl px-3 py-2 border border-border/40 transition">
+                <div className="min-w-0">
+                  <span className="text-xs font-bold text-foreground block truncate">{client.name}</span>
+                  <span className="text-[10px] text-muted-foreground block truncate">{client.phone || "Sem telefone"}</span>
+                </div>
+                <button
+                  onClick={() => updateContactWallet(client.contactId || client.id, null)}
+                  className="grid h-7 w-7 place-items-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition cursor-pointer border-0"
+                  title="Remover da carteira"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="text-center py-6 text-xs text-muted-foreground italic">
+              Nenhum cliente associado a esta carteira.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Form para Adicionar Cliente à Carteira (Searchable Dropdown) */}
+      <div className="border-t border-line pt-3 mt-auto relative" ref={dropdownRef}>
+        <span className="text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1.5">
+          Adicionar Cliente
+        </span>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setSelectedClientId(null);
+                  setIsOpen(true);
+                }}
+                onFocus={() => setIsOpen(true)}
+                placeholder="Buscar por nome ou telefone..."
+                className="h-9 w-full rounded-xl bg-muted pl-3 pr-10 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary border border-transparent transition"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                <Search className="h-3.5 w-3.5" />
+              </span>
+            </div>
+
+            {isOpen && (
+              <div className="absolute left-0 right-0 bottom-full mb-1 z-35 max-h-[180px] overflow-y-auto rounded-xl bg-card border border-border shadow-card py-1.5 scrollbar-thin animate-in fade-in slide-in-from-bottom-2 duration-150">
+                {filteredClients.length > 0 ? (
+                  filteredClients.map((c) => {
+                    const owner = c.walletOperatorId ? operators.find(o => o.id === c.walletOperatorId) : null;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleSelectClient(c)}
+                        className="flex w-full flex-col text-left px-3.5 py-2 hover:bg-muted/80 transition cursor-pointer border-0"
+                      >
+                        <span className="text-xs font-bold text-foreground block truncate">{c.name}</span>
+                        <span className="text-[10px] text-muted-foreground block truncate">
+                          {c.phone || "Sem tel"} {owner ? `• Carteira de: ${owner.name}` : ""}
+                        </span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3.5 py-3 text-center text-xs text-muted-foreground italic">
+                    Nenhum cliente disponível
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleAdd}
+            className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0 border-0"
+            title="Vincular à carteira"
+          >
+            <Plus className="h-4.5 w-4.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 import { 
   Shield, 
   Users, 
@@ -1244,100 +1404,15 @@ export function GroupsView() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {operators.map((op) => {
-              // Filtra clientes deste operador
-              const opClients = conversations.filter(c => c.walletOperatorId === op.id);
-              // Filtra clientes disponíveis para adicionar (não estão na carteira dele)
-              const availableClients = conversations.filter(c => c.walletOperatorId !== op.id);
-
-              return (
-                <div key={op.id} className="rounded-2xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between min-h-[300px]">
-                  <div>
-                    {/* Cabecalho do Operador */}
-                    <div className="flex items-center gap-3 border-b border-line pb-3 mb-4">
-                      <img
-                        src={op.avatar || "https://i.pravatar.cc/80"}
-                        alt={op.name}
-                        className="h-10 w-10 rounded-full object-cover border border-border shadow-xs"
-                      />
-                      <div>
-                        <h4 className="font-bold text-sm text-foreground">{op.name}</h4>
-                        <span className="text-[10px] text-muted-foreground block">{op.email}</span>
-                      </div>
-                    </div>
-
-                    {/* Lista de Clientes da Carteira */}
-                    <div className="space-y-2 max-h-[160px] overflow-y-auto scrollbar-thin pr-1 mb-4">
-                      <span className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1">
-                        Clientes na Carteira ({opClients.length})
-                      </span>
-                      {opClients.length > 0 ? (
-                        opClients.map((client) => (
-                          <div key={client.id} className="flex items-center justify-between gap-3 bg-muted/40 hover:bg-muted/80 rounded-xl px-3 py-2 border border-border/40 transition">
-                            <div className="min-w-0">
-                              <span className="text-xs font-bold text-foreground block truncate">{client.name}</span>
-                              <span className="text-[10px] text-muted-foreground block truncate">{client.phone || "Sem telefone"}</span>
-                            </div>
-                            <button
-                              onClick={() => updateContactWallet(client.contactId || client.id, null)}
-                              className="grid h-7 w-7 place-items-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition cursor-pointer"
-                              title="Remover da carteira"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-center py-6 text-xs text-muted-foreground italic">
-                          Nenhum cliente associado a esta carteira.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Form para Adicionar Cliente à Carteira */}
-                  <div className="border-t border-line pt-3 mt-auto">
-                    <span className="text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1.5">
-                      Adicionar Cliente
-                    </span>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1 flex items-center">
-                        <select
-                          id={`select-client-${op.id}`}
-                          className="appearance-none h-9 w-full rounded-xl bg-muted pl-3 pr-10 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent cursor-pointer select-none"
-                          defaultValue=""
-                        >
-                          <option value="" disabled>Selecionar cliente...</option>
-                          {availableClients.map(c => (
-                            <option key={c.id} value={c.contactId || c.id}>
-                              {c.name} ({c.phone || "Sem tel"}) {c.walletOperatorId ? `• Carteira de: ${operators.find(o => o.id === c.walletOperatorId)?.name || "?"}` : ""}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const selectEl = document.getElementById(`select-client-${op.id}`) as HTMLSelectElement;
-                          if (selectEl && selectEl.value) {
-                            updateContactWallet(selectEl.value, op.id);
-                            selectEl.value = ""; // limpa
-                          } else {
-                            toast.warning("Selecione um cliente primeiro.");
-                          }
-                        }}
-                        className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0"
-                        title="Vincular à carteira"
-                      >
-                        <Plus className="h-4.5 w-4.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {operators.map((op) => (
+              <OperatorWalletCard
+                key={op.id}
+                op={op}
+                conversations={conversations}
+                operators={operators}
+                updateContactWallet={updateContactWallet}
+              />
+            ))}
           </div>
         </div>
       ) : (
