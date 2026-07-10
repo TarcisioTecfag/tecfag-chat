@@ -411,6 +411,7 @@ export function ChatPanel() {
     captureChat,
     transferChat,
     finishChat,
+    logSystemEvent,
     rightSidebarOpen,
     setRightSidebarOpen,
     tenant,
@@ -706,7 +707,7 @@ export function ChatPanel() {
   const chunksRef = React.useRef<Blob[]>([]);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -847,6 +848,12 @@ export function ChatPanel() {
     );
   }
 
+  const logVigosPhoneCall = () => {
+    if (!activeChat) return;
+    const operatorName = operatorProfile?.name || operators.find((op) => op.id === currentOperatorId)?.name || "Agente";
+    logSystemEvent(activeChat.id, `Clique no botão de ligação para o cliente por ${operatorName}`);
+  };
+
   const handleSend = () => {
     const quoted = replyingTo
       ? {
@@ -891,13 +898,23 @@ export function ChatPanel() {
     setShowEmojiPicker(false);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
+  // Auto-redimensionar o campo de texto conforme o conteúdo
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [text]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       handleSend();
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setText(val);
 
@@ -1030,6 +1047,7 @@ export function ChatPanel() {
                   if (n.startsWith("14")) n = n.substring(2);
                   return `tel:${n}`;
                 })()}
+                onClick={logVigosPhoneCall}
                 className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
                 title="Discar via VigosPhone (Softphone Local)"
               >
@@ -1696,7 +1714,7 @@ export function ChatPanel() {
           )}
 
           <div
-            className={`relative flex items-center gap-3 rounded-2xl px-4 py-3 shadow-soft border transition-all duration-200 ${
+            className={`relative flex items-end gap-3 rounded-2xl px-4 py-3 shadow-soft border transition-all duration-200 ${
               recordingState === "recording"
                 ? "border-primary/40 bg-primary/5"
                 : msgMode === "internal"
@@ -1723,7 +1741,7 @@ export function ChatPanel() {
             {/* Recording: inline waveform */}
             {recordingState === "recording" ? (
               <>
-                <div className="flex items-center gap-[3px] shrink-0">
+                <div className="flex items-center gap-[3px] shrink-0 mb-1">
                   {[0.5, 0.9, 0.65, 1, 0.7, 1.15, 0.55, 0.85, 0.6].map((h, i) => (
                     <div
                       key={i}
@@ -1736,12 +1754,12 @@ export function ChatPanel() {
                     />
                   ))}
                 </div>
-                <span className="text-sm font-bold text-primary tabular-nums flex-1">
+                <span className="text-sm font-bold text-primary tabular-nums flex-1 mb-1">
                   {fmtSec(recordingSeconds)}
                 </span>
                 <button
                   onClick={stopRecording}
-                  className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer"
+                  className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer mb-0.5"
                   title="Parar gravação"
                 >
                   <Square className="h-3.5 w-3.5 fill-current" />
@@ -1749,7 +1767,7 @@ export function ChatPanel() {
               </>
             ) : (
               <>
-                <input
+                <textarea
                   ref={inputRef}
                   placeholder={
                     msgMode === "internal"
@@ -1759,7 +1777,8 @@ export function ChatPanel() {
                   value={text}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  rows={1}
+                  className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none resize-none overflow-y-auto leading-relaxed py-1 max-h-[160px] min-h-[24px] scrollbar-thin"
                 />
                 {/* Quick Template Icon */}
                 <motion.button

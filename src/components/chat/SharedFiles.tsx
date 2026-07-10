@@ -26,7 +26,97 @@ import {
   Link2,
   ChevronRight,
   Pencil,
+  CheckCircle2,
+  XCircle,
+  PhoneCall,
 } from "lucide-react";
+
+interface HistoryEventInfo {
+  title: string;
+  description: string;
+  icon: any;
+  dotBg: string;
+  iconColor: string;
+}
+
+const isHistoryEvent = (msg: any) => {
+  if (msg.senderType === "system" || msg.author === "Sistema" || msg.author === "Sistema — Ligação") {
+    return true;
+  }
+  const text = msg.text || "";
+  return (
+    text.startsWith("CONVERSA INICIADA") ||
+    text.startsWith("Conversa transferida") ||
+    text.startsWith("Conversa encerrada") ||
+    text.startsWith("Clique no botão de ligação") ||
+    text.startsWith("📞 *Ligação iniciada")
+  );
+};
+
+const parseHistoryEvent = (msg: any): HistoryEventInfo => {
+  const text = msg.text || "";
+  
+  if (text.startsWith("CONVERSA INICIADA")) {
+    const operator = text.replace("CONVERSA INICIADA POR", "").trim();
+    return {
+      title: "Atendimento Iniciado",
+      description: operator ? `Atendimento capturado por ${operator}.` : "O atendimento foi iniciado.",
+      icon: CheckCircle2,
+      dotBg: "bg-emerald-500",
+      iconColor: "text-white",
+    };
+  }
+  
+  if (text.startsWith("Conversa transferida")) {
+    return {
+      title: "Atendimento Transferido",
+      description: text,
+      icon: RefreshCw,
+      dotBg: "bg-amber-500",
+      iconColor: "text-white",
+    };
+  }
+  
+  if (text.startsWith("Conversa encerrada")) {
+    return {
+      title: "Atendimento Encerrado",
+      description: "O atendimento foi encerrado.",
+      icon: XCircle,
+      dotBg: "bg-red-500",
+      iconColor: "text-white",
+    };
+  }
+  
+  if (text.includes("botão de ligação") || text.includes("botão do VigosPhone")) {
+    // Ex: "Clique no botão de ligação para o cliente por Pedro"
+    const operatorNamePart = text.split("por ")[1] || "Agente";
+    return {
+      title: "Ligação Discada",
+      description: `Ligação discada via VigosPhone para o cliente por ${operatorNamePart}.`,
+      icon: PhoneCall,
+      dotBg: "bg-teal-500",
+      iconColor: "text-white",
+    };
+  }
+  
+  if (text.startsWith("📞 *Ligação iniciada") || text.includes("Ligação iniciada")) {
+    return {
+      title: "Chamada de Voz (WebRTC)",
+      description: "Chamada de voz iniciada no navegador.",
+      icon: Phone,
+      dotBg: "bg-blue-500",
+      iconColor: "text-white",
+    };
+  }
+
+  return {
+    title: "Mensagem do Sistema",
+    description: text,
+    icon: Shield,
+    dotBg: "bg-gray-500",
+    iconColor: "text-white",
+  };
+};
 
 export function SharedFiles() {
   const {
@@ -41,7 +131,7 @@ export function SharedFiles() {
     setRightSidebarOpen,
   } = useChat();
 
-  const [activeTab, setActiveTab] = useState<"details" | "files" | "channel">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "files" | "events">("details");
   const [newTag, setNewTag] = useState("");
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -196,7 +286,7 @@ export function SharedFiles() {
     },
   ];
 
-  const handleTabChange = (tab: "details" | "files" | "channel") => {
+  const handleTabChange = (tab: "details" | "files" | "events") => {
     setActiveTab(tab);
     setSelectedCategory(null);
   };
@@ -254,21 +344,21 @@ export function SharedFiles() {
           📁 Arquivos
         </button>
         <button
-          onClick={() => handleTabChange("channel")}
+          onClick={() => handleTabChange("events")}
           className={`relative flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition-colors duration-200 cursor-pointer z-10 ${
-            activeTab === "channel"
+            activeTab === "events"
               ? "text-foreground"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          {activeTab === "channel" && (
+          {activeTab === "events" && (
             <motion.span
               layoutId="activeSharedTabIndicator"
               className="absolute inset-0 bg-card rounded-lg shadow-soft -z-10"
               transition={{ type: "spring", stiffness: 350, damping: 28 }}
             />
           )}
-          🔗 Canal
+          🕒 Eventos
         </button>
       </div>
 
@@ -636,151 +726,49 @@ export function SharedFiles() {
           </div>
         )
       ) : (
-        /* TAB 3: STATUS DO CANAL */
-        <div className="flex-1 flex flex-col overflow-y-auto pr-1 scrollbar-thin space-y-4">
-          {tenant === "tecfag" ? (
-            /* META CONFIG PREVIEW */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between rounded-xl bg-muted p-3 border border-line">
-                <span className="text-xs font-bold text-foreground">API Oficial Meta</span>
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 uppercase bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Ativo
-                </span>
+        /* TAB 3: EVENTOS */
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase mb-3 block px-1">
+            Linha do Tempo
+          </span>
+          <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin">
+            {activeChat.messages && activeChat.messages.filter(isHistoryEvent).length > 0 ? (
+              <div className="relative pl-4 border-l border-line space-y-4 py-2 ml-2">
+                {activeChat.messages.filter(isHistoryEvent).map((msg) => {
+                  const eventInfo = parseHistoryEvent(msg);
+                  return (
+                    <div key={msg.id} className="relative group">
+                      {/* Timeline dot */}
+                      <span
+                        className={`absolute -left-[21px] top-1 grid h-4.5 w-4.5 place-items-center rounded-full border border-background shadow-sm ${eventInfo.dotBg}`}
+                      >
+                        {React.createElement(eventInfo.icon, {
+                          className: `h-2.5 w-2.5 ${eventInfo.iconColor}`,
+                        })}
+                      </span>
+                      <div className="bg-muted/40 hover:bg-muted/60 transition-colors border border-line rounded-2xl p-3 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-foreground">
+                            {eventInfo.title}
+                          </span>
+                          <span className="text-[9px] font-semibold text-muted-foreground whitespace-nowrap">
+                            {msg.time}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-relaxed font-medium">
+                          {eventInfo.description}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-
-              <div className="space-y-2.5 text-xs bg-muted/20 p-3 rounded-xl border border-line">
-                <div>
-                  <span className="block text-[9px] font-bold text-muted-foreground uppercase">
-                    Business Account ID
-                  </span>
-                  <span className="font-mono text-foreground font-medium">
-                    {metaConfig.businessAccountId}
-                  </span>
-                </div>
-                <div>
-                  <span className="block text-[9px] font-bold text-muted-foreground uppercase">
-                    WhatsApp Number ID
-                  </span>
-                  <span className="font-mono text-foreground font-medium">
-                    {metaConfig.phoneNumberId}
-                  </span>
-                </div>
+            ) : (
+              <div className="text-center py-12 text-xs text-muted-foreground italic">
+                Nenhum evento registrado neste atendimento.
               </div>
-
-              {/* Webhook Logs mockup */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1">
-                  <Radio className="h-3 w-3 text-primary animate-pulse" /> Webhook Live Logs
-                </span>
-                <div className="rounded-xl bg-neutral-900 p-3 font-mono text-[9px] text-neutral-400 space-y-1.5 max-h-40 overflow-y-auto">
-                  <div className="text-emerald-500">[10:48:02] POST 200 OK</div>
-                  <div>- Event: msg_received</div>
-                  <div>- From: Pedro Silva</div>
-                  <div className="text-neutral-500">[10:48:03] Processed by AI</div>
-                  <div className="text-emerald-500">[10:50:11] POST 200 OK</div>
-                  <div>- Event: msg_delivered</div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* BAILEYS STATUS & QR CODE */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between rounded-xl bg-muted p-3 border border-line">
-                <span className="text-xs font-bold text-foreground">Status Baileys</span>
-
-                {baileysConfig.status === "connected" && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 uppercase bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                    Conectado
-                  </span>
-                )}
-                {baileysConfig.status === "qr_ready" && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 uppercase bg-amber-50 px-2 py-0.5 rounded border border-amber-100">
-                    Aguardando QR
-                  </span>
-                )}
-                {baileysConfig.status === "connecting" && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
-                    Iniciando...
-                  </span>
-                )}
-                {baileysConfig.status === "disconnected" && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 uppercase bg-red-50 px-2 py-0.5 rounded border border-red-100">
-                    Desconectado
-                  </span>
-                )}
-              </div>
-
-              {baileysConfig.status === "connected" ? (
-                <div className="rounded-xl bg-emerald-50/50 border border-emerald-100 p-4 text-center">
-                  <Smartphone className="h-8 w-8 text-emerald-600 mx-auto mb-2" />
-                  <h5 className="text-xs font-bold text-foreground">Aparelho Conectado</h5>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    Valem Chat pareado no WhatsApp Web:
-                  </p>
-                  <div className="text-xs font-bold text-emerald-700 mt-1">
-                    {baileysConfig.pairedPhone}
-                  </div>
-
-                  <button
-                    onClick={disconnectBaileys}
-                    className="mt-4 inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 text-[10px] font-bold text-red-600 hover:bg-red-100/50 transition cursor-pointer"
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    Desconectar Celular
-                  </button>
-                </div>
-              ) : baileysConfig.status === "connecting" ? (
-                <div className="py-8 text-center bg-muted/40 rounded-xl border border-line">
-                  <RefreshCw className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />
-                  <p className="text-[10px] text-muted-foreground">
-                    Iniciando servidor de sessões Baileys...
-                  </p>
-                </div>
-              ) : baileysConfig.status === "qr_ready" ? (
-                <div className="space-y-3 text-center bg-muted/40 p-4 rounded-xl border border-line">
-                  <div className="bg-white p-2 rounded-lg inline-block border border-border shadow-soft">
-                    {baileysConfig.qrCodeUrl ? (
-                      <img
-                        src={baileysConfig.qrCodeUrl}
-                        alt="QR Code"
-                        className="h-32 w-32 object-contain"
-                      />
-                    ) : (
-                      <QrCode className="h-32 w-32 text-muted-foreground animate-pulse" />
-                    )}
-                  </div>
-                  <h5 className="text-xs font-bold text-foreground">Escaneie o QR Code</h5>
-                  <p className="text-[9px] text-muted-foreground max-w-[180px] mx-auto">
-                    Abra o WhatsApp no seu celular, vá em Aparelhos Conectados e escaneie este
-                    código.
-                  </p>
-                  <button
-                    onClick={() => {
-                      connectBaileys();
-                    }}
-                    className="mt-2 text-[9px] text-primary font-bold hover:underline"
-                  >
-                    [Simular Leitura no Celular]
-                  </button>
-                </div>
-              ) : (
-                <div className="rounded-xl bg-red-50/50 border border-red-100 p-4 text-center">
-                  <Smartphone className="h-8 w-8 text-red-500 mx-auto mb-2" />
-                  <h5 className="text-xs font-bold text-foreground">Celular Desconectado</h5>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    Você precisa gerar um código QR para sincronizar as mensagens da Valem.
-                  </p>
-                  <button
-                    onClick={connectBaileys}
-                    className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-4 text-[10px] font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
-                  >
-                    <QrCode className="h-3.5 w-3.5" />
-                    Conectar Celular
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </aside>

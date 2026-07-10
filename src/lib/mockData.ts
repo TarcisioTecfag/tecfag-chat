@@ -12,6 +12,7 @@ export type Message = {
   quotedMessageId?: string | null;
   quotedMessageSender?: string | null;
   quotedMessageContent?: string | null;
+  senderType?: string;
 };
 
 export type Conversation = {

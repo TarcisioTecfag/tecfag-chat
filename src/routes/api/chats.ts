@@ -99,6 +99,7 @@ export const Route = createFileRoute("/api/chats")({
                 }),
                 side: m.senderType === "client" ? "in" : "out",
                 isInternalNote: m.isInternalNote,
+                senderType: m.senderType,
                 quotedMessageId: m.quotedMessageId,
                 quotedMessageSender: m.quotedMessageSender,
                 quotedMessageContent: m.quotedMessageContent,

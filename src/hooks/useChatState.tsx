@@ -118,6 +118,7 @@ type ChatContextType = {
   captureChat: (id: string) => void;
   transferChat: (id: string, sectorName: string, targetOperatorId?: string | null) => void;
   finishChat: (id: string) => void;
+  logSystemEvent: (chatId: string, eventText: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => void;
   updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => void;
   updateContactWallet: (contactId: string, walletOperatorId: string | null) => Promise<void>;
@@ -1167,6 +1168,49 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const logSystemEvent = async (chatId: string, eventText: string) => {
+    const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const systemMsg: Message = {
+      id: `sys-${Date.now()}`,
+      author: "Sistema",
+      text: eventText,
+      time: now,
+      side: "out",
+      isInternalNote: true,
+      senderType: "system",
+    };
+
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            lastMessageTime: now,
+            messages: [...c.messages, systemMsg],
+          };
+        }
+        return c;
+      })
+    );
+
+    try {
+      await fetch(`${BACKEND_URL}/api/chats`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: tenant,
+          conversationId: chatId,
+          senderType: "system",
+          senderName: "Sistema",
+          content: eventText,
+          isInternalNote: true,
+        }),
+      });
+    } catch (err) {
+      console.error("Erro ao salvar log de evento no banco:", err);
+    }
+  };
+
   const updateTags = async (id: string, tags: string[]) => {
     // 1. Atualizar estado local imediatamente
     setConversations((prev) =>
@@ -1437,6 +1481,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               text: message.content,
               time: timeStr,
               side: message.senderType === "client" ? "in" : "out",
+              isInternalNote: !!message.isInternalNote,
+              senderType: message.senderType,
               quotedMessageId: message.quotedMessageId || null,
               quotedMessageSender: message.quotedMessageSender || null,
               quotedMessageContent: message.quotedMessageContent || null,
@@ -1630,6 +1676,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         captureChat,
         transferChat,
         finishChat,
+        logSystemEvent,
         updateTags,
         updateClientInfo,
         updateContactWallet,
