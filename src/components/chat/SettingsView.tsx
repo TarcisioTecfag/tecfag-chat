@@ -675,8 +675,8 @@ export function SettingsView() {
                 setRdCrmConnecting(true);
                 try {
                   const clientId = "1f1aaf46-1ee3-423e-97cc-9f71409b77d6";
-                  const redirectUri = encodeURIComponent(`${window.location.origin}/api/settings/rd-crm?tenantId=${tenant}`);
-                  const authUrl = `https://crm.rdstation.com/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}`;
+                  const redirectUri = encodeURIComponent(`${window.location.origin}/api/settings/rd-crm/callback`);
+                  const authUrl = `https://accounts.rdstation.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${tenant}`;
                   window.location.href = authUrl;
                 } catch {
                   setRdCrmConnecting(false);

@@ -37,6 +37,7 @@ import { Route as ApiBaileysSendRouteImport } from './routes/api/baileys/send'
 import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
 import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
 import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
+import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -178,6 +179,12 @@ const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
   path: '/api/baileys/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSettingsRdCrmCallbackRoute =
+  ApiSettingsRdCrmCallbackRouteImport.update({
+    id: '/callback',
+    path: '/callback',
+    getParentRoute: () => ApiSettingsRdCrmRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -206,8 +213,9 @@ export interface FileRoutesByFullPath {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
-  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRoute
+  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -236,8 +244,9 @@ export interface FileRoutesByTo {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
-  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRoute
+  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -267,8 +276,9 @@ export interface FileRoutesById {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
-  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRoute
+  '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -301,6 +311,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/settings/rd-crm/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -331,6 +342,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/settings/rd-crm/callback'
   id:
     | '__root__'
     | '/'
@@ -361,6 +373,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/settings/rd-crm/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -387,7 +400,7 @@ export interface RootRouteChildren {
   ApiGestaoHealthRoute: typeof ApiGestaoHealthRoute
   ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
   ApiGestaoReportsRoute: typeof ApiGestaoReportsRoute
-  ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRoute
+  ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
 }
 
@@ -589,6 +602,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBaileysConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/settings/rd-crm/callback': {
+      id: '/api/settings/rd-crm/callback'
+      path: '/callback'
+      fullPath: '/api/settings/rd-crm/callback'
+      preLoaderRoute: typeof ApiSettingsRdCrmCallbackRouteImport
+      parentRoute: typeof ApiSettingsRdCrmRoute
+    }
   }
 }
 
@@ -618,6 +638,17 @@ const ApiContactsRouteWithChildren = ApiContactsRoute._addFileChildren(
   ApiContactsRouteChildren,
 )
 
+interface ApiSettingsRdCrmRouteChildren {
+  ApiSettingsRdCrmCallbackRoute: typeof ApiSettingsRdCrmCallbackRoute
+}
+
+const ApiSettingsRdCrmRouteChildren: ApiSettingsRdCrmRouteChildren = {
+  ApiSettingsRdCrmCallbackRoute: ApiSettingsRdCrmCallbackRoute,
+}
+
+const ApiSettingsRdCrmRouteWithChildren =
+  ApiSettingsRdCrmRoute._addFileChildren(ApiSettingsRdCrmRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiCallsRoute: ApiCallsRoute,
@@ -642,7 +673,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoHealthRoute: ApiGestaoHealthRoute,
   ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
   ApiGestaoReportsRoute: ApiGestaoReportsRoute,
-  ApiSettingsRdCrmRoute: ApiSettingsRdCrmRoute,
+  ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
 }
 export const routeTree = rootRouteImport

@@ -19,32 +19,6 @@ export const Route = createFileRoute("/api/settings/rd-crm")(({
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId");
-        const code = url.searchParams.get("code");
-
-        // ─── OAuth Callback: recebe o code do RD Station ─────────────────────
-        if (code) {
-          const tenant = tenantId || "valem"; // fallback para valem (tenant default)
-          try {
-            const redirectUri = `${url.origin}/api/settings/rd-crm`;
-            await exchangeCodeForTokens(tenant, code, redirectUri);
-            clearTokenCache(tenant);
-
-            // Redireciona para a página principal com mensagem de sucesso
-            return new Response(null, {
-              status: 302,
-              headers: {
-                ...corsHeaders,
-                Location: `/?rd_crm_connected=true`,
-              },
-            });
-          } catch (e: any) {
-            console.error("[RD CRM Callback] Erro:", e.message);
-            return new Response(
-              `<html><body><h2>Erro na conexão com o RD CRM</h2><p>${e.message}</p><a href="/">Voltar</a></body></html>`,
-              { status: 500, headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8" } }
-            );
-          }
-        }
 
         // ─── Verificação de status ───────────────────────────────────────────
         if (!tenantId) {
@@ -91,10 +65,10 @@ export const Route = createFileRoute("/api/settings/rd-crm")(({
 
           clearTokenCache(tenantId);
 
-          // Gera a URL de autorização OAuth2 para o usuário clicar
+          // Gera a URL de autorização oficial do RD Station (accounts.rdstation.com)
           const origin = new URL(request.url).origin;
-          const redirectUri = encodeURIComponent(`${origin}/api/settings/rd-crm?tenantId=${tenantId}`);
-          const authUrl = `https://crm.rdstation.com/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}`;
+          const redirectUri = encodeURIComponent(`${origin}/api/settings/rd-crm/callback`);
+          const authUrl = `https://accounts.rdstation.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${tenantId}`;
 
           return new Response(
             JSON.stringify({ success: true, authUrl }),
