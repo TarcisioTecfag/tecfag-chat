@@ -149,6 +149,69 @@ export function SettingsView() {
     }
   };
 
+  const renderRdCrmCard = () => (
+    <div className="rounded-2xl bg-card border border-border p-6 shadow-soft">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: "var(--primary-soft)" }}>
+          <Link className="h-5 w-5" style={{ color: "var(--primary)" }} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-bold text-foreground truncate">Integração RD Station CRM</h3>
+          <p className="text-[11px] text-muted-foreground truncate">Sincronize tarefas do CRM com o calendário.</p>
+        </div>
+        <div className="shrink-0">
+          {rdCrmConfigured === null ? (
+            <span className="inline-flex items-center gap-1 rounded-xl bg-card border border-border px-2.5 py-1 text-[10px] text-muted-foreground">
+              <Loader2 className="h-2.5 w-2.5 animate-spin" /> Verificando...
+            </span>
+          ) : rdCrmConfigured ? (
+            <span className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10px] font-semibold text-white" style={{ background: "var(--primary)" }}>
+              <CheckCircle2 className="h-3.5 w-3.5" /> Conectado
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-2.5 py-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+              <AlertCircle className="h-3 w-3" /> Pendente
+            </span>
+          )}
+        </div>
+      </div>
+
+      {!rdCrmConfigured && (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Clique abaixo para conectar ao RD Station CRM. Você será redirecionado para o painel de autorização oficial.
+          </p>
+          <button
+            onClick={async () => {
+              setRdCrmConnecting(true);
+              try {
+                const clientId = "1f1aaf46-1ee3-423e-97cc-9f71409b77d6";
+                const redirectUri = encodeURIComponent(`${window.location.origin}/api/settings/rd-crm/callback`);
+                const authUrl = `https://accounts.rdstation.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${tenant}`;
+                window.location.href = authUrl;
+              } catch {
+                setRdCrmConnecting(false);
+              }
+            }}
+            disabled={rdCrmConnecting}
+            className="w-full inline-flex h-9 items-center justify-center gap-2 rounded-xl px-4 text-xs font-semibold text-white transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60 cursor-pointer"
+            style={{ background: "var(--primary)" }}
+          >
+            {rdCrmConnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+            Conectar ao RD CRM
+          </button>
+        </div>
+      )}
+
+      {rdCrmConfigured && (
+        <div className="rounded-xl bg-background/60 border border-border p-3">
+          <p className="text-xs text-foreground font-semibold">✅ Sincronização Ativa</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">As tarefas estão no menu "Tarefas". Os tokens de acesso são mantidos atualizados.</p>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-8 shadow-soft overflow-y-auto scrollbar-thin">
       <div className={tenant === "tecfag" ? "max-w-3xl" : "max-w-6xl w-full"}>
@@ -255,6 +318,7 @@ export function SettingsView() {
                 </button>
               </div>
             </form>
+            {renderRdCrmCard()}
           </div>
         ) : (
           /* BAILEYS CONNECTION GRID */
@@ -383,85 +447,88 @@ export function SettingsView() {
               </div>
             </div>
 
-            {/* Bloco Direito: Diagnóstico de Envio (Teste) */}
-            <div className="rounded-2xl bg-card p-6 border border-border shadow-soft flex flex-col justify-between min-h-[360px]">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b border-line pb-3 mb-2">
-                  <RefreshCw className="h-4 w-4 text-primary" />
-                  <h4 className="font-bold text-foreground">Diagnóstico de Envio (Teste de Disparo)</h4>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Envie uma mensagem instantânea de teste para qualquer número de sua preferência para validar o fluxo de envio e receber logs detalhados de sucesso ou erro.
-                </p>
-
-                <form onSubmit={handleTestSend} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-foreground/80 block">Número do Celular (DDI + DDD + Número)</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: 5514981468232"
-                      value={testPhone}
-                      onChange={(e) => setTestPhone(e.target.value)}
-                      disabled={baileysConfig.status !== "connected"}
-                      className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent disabled:opacity-50"
-                    />
+            {/* Bloco Direito: Diagnóstico de Envio (Teste) + RD Station CRM */}
+            <div className="space-y-6">
+              <div className="rounded-2xl bg-card p-6 border border-border shadow-soft flex flex-col justify-between min-h-[360px]">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 border-b border-line pb-3 mb-2">
+                    <RefreshCw className="h-4 w-4 text-primary" />
+                    <h4 className="font-bold text-foreground">Diagnóstico de Envio (Teste de Disparo)</h4>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Envie uma mensagem instantânea de teste para qualquer número de sua preferência para validar o fluxo de envio e receber logs detalhados de sucesso ou erro.
+                  </p>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-foreground/80 block">Conteúdo da Mensagem</label>
-                    <textarea
-                      rows={3}
-                      value={testMessage}
-                      onChange={(e) => setTestMessage(e.target.value)}
-                      disabled={baileysConfig.status !== "connected"}
-                      className="w-full rounded-xl bg-muted p-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent resize-none disabled:opacity-50"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={baileysConfig.status !== "connected" || testStatus.type === "sending"}
-                    className="w-full inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground transition hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-soft active:scale-98"
-                  >
-                    {testStatus.type === "sending" ? (
-                      <>
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        Disparando...
-                      </>
-                    ) : (
-                      "Disparar Mensagem de Teste"
-                    )}
-                  </button>
-                </form>
-              </div>
-
-              {testStatus.type !== "idle" && (
-                <div className="mt-4 pt-4 border-t border-line">
-                  {testStatus.type === "success" && (
-                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 text-xs font-semibold text-emerald-600 flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 mt-1 shrink-0 animate-pulse" />
-                      <div>{testStatus.message}</div>
+                  <form onSubmit={handleTestSend} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-foreground/80 block">Número do Celular (DDI + DDD + Número)</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 5514981468232"
+                        value={testPhone}
+                        onChange={(e) => setTestPhone(e.target.value)}
+                        disabled={baileysConfig.status !== "connected"}
+                        className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent disabled:opacity-50"
+                      />
                     </div>
-                  )}
-                  {testStatus.type === "error" && (
-                    <div className="rounded-xl bg-red-50 border border-red-100 p-3 text-xs font-semibold text-red-600 flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
-                      <AlertCircle className="h-4.5 w-4.5 shrink-0 text-red-500 mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-extrabold uppercase text-[9px] tracking-wider text-red-500 mb-0.5">Erro no Disparo:</div>
-                        <div className="break-words font-mono text-[11px] leading-relaxed text-red-700 bg-red-100/50 p-1.5 rounded-lg border border-red-200 mt-1">
-                          {testStatus.message}
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-foreground/80 block">Conteúdo da Mensagem</label>
+                      <textarea
+                        rows={3}
+                        value={testMessage}
+                        onChange={(e) => setTestMessage(e.target.value)}
+                        disabled={baileysConfig.status !== "connected"}
+                        className="w-full rounded-xl bg-muted p-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-transparent resize-none disabled:opacity-50"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={baileysConfig.status !== "connected" || testStatus.type === "sending"}
+                      className="w-full inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground transition hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-soft active:scale-98"
+                    >
+                      {testStatus.type === "sending" ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          Disparando...
+                        </>
+                      ) : (
+                        "Disparar Mensagem de Teste"
+                      )}
+                    </button>
+                  </form>
+                </div>
+
+                {testStatus.type !== "idle" && (
+                  <div className="mt-4 pt-4 border-t border-line">
+                    {testStatus.type === "success" && (
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 text-xs font-semibold text-emerald-600 flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 mt-1 shrink-0 animate-pulse" />
+                        <div>{testStatus.message}</div>
+                      </div>
+                    )}
+                    {testStatus.type === "error" && (
+                      <div className="rounded-xl bg-red-50 border border-red-100 p-3 text-xs font-semibold text-red-600 flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
+                        <AlertCircle className="h-4.5 w-4.5 shrink-0 text-red-500 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-extrabold uppercase text-[9px] tracking-wider text-red-500 mb-0.5">Erro no Disparo:</div>
+                          <div className="break-words font-mono text-[11px] leading-relaxed text-red-700 bg-red-100/50 p-1.5 rounded-lg border border-red-200 mt-1">
+                            {testStatus.message}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                  {testStatus.type === "sending" && (
-                    <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs font-semibold text-blue-600 flex items-center gap-2 animate-pulse">
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500" />
-                      <div>{testStatus.message}</div>
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
+                    {testStatus.type === "sending" && (
+                      <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs font-semibold text-blue-600 flex items-center gap-2 animate-pulse">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500" />
+                        <div>{testStatus.message}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {renderRdCrmCard()}
             </div>
           </div>
         )}
@@ -636,68 +703,6 @@ export function SettingsView() {
             </div>
           </form>
         </div>
-      </div>
-
-      {/* ─── Integração RD Station CRM ──────────────────────────────── */}
-      <div className="mt-6 rounded-3xl bg-card border border-border p-8 shadow-soft">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: "var(--primary-soft)" }}>
-            <Link className="h-5 w-5" style={{ color: "var(--primary)" }} />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-foreground">Integração RD Station CRM</h3>
-            <p className="text-xs text-muted-foreground">Conecte para sincronizar tarefas do CRM com o calendário.</p>
-          </div>
-          <div className="ml-auto">
-            {rdCrmConfigured === null ? (
-              <span className="inline-flex items-center gap-1.5 rounded-xl bg-card border border-border px-3 py-1.5 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> Verificando...
-              </span>
-            ) : rdCrmConfigured ? (
-              <span className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold text-white" style={{ background: "var(--primary)" }}>
-                <CheckCircle2 className="h-3.5 w-3.5" /> Conectado
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                <AlertCircle className="h-3.5 w-3.5" /> Não conectado
-              </span>
-            )}
-          </div>
-        </div>
-
-        {!rdCrmConfigured && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Clique no botão abaixo para autorizar o acesso ao RD Station CRM. Você será redirecionado para o RD Station para aprovar a conexão.
-            </p>
-            <button
-              onClick={async () => {
-                setRdCrmConnecting(true);
-                try {
-                  const clientId = "1f1aaf46-1ee3-423e-97cc-9f71409b77d6";
-                  const redirectUri = encodeURIComponent(`${window.location.origin}/api/settings/rd-crm/callback`);
-                  const authUrl = `https://accounts.rdstation.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${tenant}`;
-                  window.location.href = authUrl;
-                } catch {
-                  setRdCrmConnecting(false);
-                }
-              }}
-              disabled={rdCrmConnecting}
-              className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-white transition-all hover:scale-105 active:scale-95 disabled:opacity-60"
-              style={{ background: "var(--primary)" }}
-            >
-              {rdCrmConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-              Conectar ao RD Station CRM
-            </button>
-          </div>
-        )}
-
-        {rdCrmConfigured && (
-          <div className="rounded-2xl bg-background/60 border border-border p-4">
-            <p className="text-sm text-foreground font-medium">✅ Integração ativa</p>
-            <p className="text-xs text-muted-foreground mt-1">As tarefas do RD CRM estão disponíveis no módulo "Tarefas" da barra lateral. O token de acesso é renovado automaticamente.</p>
-          </div>
-        )}
       </div>
     </section>
   );
