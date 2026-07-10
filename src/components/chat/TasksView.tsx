@@ -476,12 +476,15 @@ export function TasksView() {
                           {getTaskTypeIcon(task.type)}
                           {task.type}
                         </span>
-                        {task.dueDate && (
-                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            {formatTime(task.dueDate)}
-                          </span>
-                        )}
+                        {task.dueDate && (() => {
+                          const isOverdue = task.status !== "done" && new Date(task.dueDate) < new Date();
+                          return (
+                            <span className={`flex items-center gap-1 text-[11px] ${isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
+                              <Clock className="h-3 w-3" />
+                              {formatTime(task.dueDate)} {isOverdue && "(Atrasada)"}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
