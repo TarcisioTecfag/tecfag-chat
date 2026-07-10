@@ -109,7 +109,7 @@ function formatPhone(phone: string | null): string {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function TasksView() {
-  const { tenant, setSelectedChatId, setActiveView, setActiveQueue } = useChat();
+  const { tenant, setSelectedChatId, setActiveView, setActiveQueue, operatorProfile } = useChat();
 
   const [tasks, setTasks] = useState<TaskData[]>([]);
   const [loading, setLoading] = useState(false);
@@ -136,7 +136,8 @@ export function TasksView() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tasks?tenantId=${tenant}`);
+      const emailParam = operatorProfile?.email ? `&email=${encodeURIComponent(operatorProfile.email)}` : "";
+      const res = await fetch(`/api/tasks?tenantId=${tenant}${emailParam}`);
       const data = await res.json();
       if (data.error) {
         setError(data.error);
@@ -150,7 +151,7 @@ export function TasksView() {
     } finally {
       setLoading(false);
     }
-  }, [tenant]);
+  }, [tenant, operatorProfile]);
 
   // Auto-fetch on mount if configured
   useEffect(() => {

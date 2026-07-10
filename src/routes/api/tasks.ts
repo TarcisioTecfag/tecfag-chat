@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { contacts, conversations } from "../../db/schema";
-import { rdRequest, buildPhoneSearchTerms, getCachedDeal, getCachedContact } from "../../lib/rdCrmService";
-import { eq } from "drizzle-orm";
+import { contacts, conversations, tasks as dbTasks } from "../../db/schema";
+import { rdRequest, buildPhoneSearchTerms, getCachedDeal, getCachedContact, getCachedUsers } from "../../lib/rdCrmService";
+import { eq, and } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,15 +20,16 @@ export const Route = createFileRoute("/api/tasks")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       /**
-       * GET /api/tasks?tenantId=xxx
+       * GET /api/tasks?tenantId=xxx&email=operator_email
        * 
-       * Lista tarefas do RD CRM para o tenant e enriquece com dados de contato
-       * e conversas do Valem Chat. Segue o mesmo padrão de busca de contatos 
-       * do fagner/rdCrmService.ts (buildPhoneSearchTerms).
+       * Lista tarefas do RD CRM para o operador (filtrado por e-mail)
+       * e enriquece com dados de contato e conversas do Valem Chat.
+       * Salva e persiste os dados na tabela local 'tasks'.
        */
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId");
+        const email = url.searchParams.get("email"); // E-mail do operador logado
 
         if (!tenantId) {
           return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
@@ -37,32 +38,85 @@ export const Route = createFileRoute("/api/tasks")({
           });
         }
 
+        const cacheKey = `${tenantId}:${email || "all"}`;
+
         // 1. Tenta recuperar do cache de listagem
-        const cached = tasksListCache.get(tenantId);
+        const cached = tasksListCache.get(cacheKey);
         if (cached && cached.expiresAt > Date.now()) {
-          console.log(`[Tasks API] Retornando listagem de tarefas do cache para tenant: ${tenantId}`);
+          console.log(`[Tasks API] Retornando listagem de tarefas do cache para key: ${cacheKey}`);
           return new Response(JSON.stringify({ tasks: cached.data }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
+        // Helper local para obter as tarefas persistidas no banco
+        const getLocalPersistedTasks = async () => {
+          const conditions = [eq(dbTasks.tenantId, tenantId)];
+          if (email) {
+            conditions.push(eq(dbTasks.operatorEmail, email.toLowerCase()));
+          }
+          const stored = await db.select().from(dbTasks).where(and(...conditions));
+          return stored.map((t) => ({
+            id: t.id,
+            name: t.name,
+            type: t.type,
+            status: t.status,
+            dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+            description: t.description,
+            createdAt: t.createdAt ? t.createdAt.toISOString() : null,
+            deal: t.dealId ? { id: t.dealId, name: t.dealName } : null,
+            client: { name: t.clientName, phone: t.clientPhone },
+            chatContactId: t.chatContactId,
+            chatConversationId: t.chatConversationId,
+          }));
+        };
+
         try {
-          // 2. Busca tarefas no RD CRM via API v2 (limite 200)
+          // 2. Mapeia o e-mail do operador local para o ID de usuário do RD Station CRM
+          let crmUserId: string | null = null;
+          if (email) {
+            try {
+              const users = await getCachedUsers(tenantId);
+              const matchedUser = users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+              if (matchedUser) {
+                crmUserId = matchedUser.id;
+              }
+            } catch (e: any) {
+              console.warn("[Tasks API] Falha ao mapear usuário por e-mail no CRM:", e.message);
+            }
+          }
+
+          // 3. Busca tarefas no RD CRM via API v2 (Se mapeamos o ID do dono, filtramos no endpoint)
+          const queryPath = crmUserId ? `/tasks?user_id=${crmUserId}&page[size]=200` : "/tasks?page[size]=200";
           const rdTasks = await rdRequest<any[]>(
             tenantId,
             "GET",
-            "/tasks?page[size]=200"
+            queryPath
           );
 
-          if (!rdTasks || !Array.isArray(rdTasks) || rdTasks.length === 0) {
+          if (!rdTasks || !Array.isArray(rdTasks)) {
             return new Response(JSON.stringify({ tasks: [] }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
 
-          // 3. Para cada tarefa, buscar o deal e seus contatos de forma otimizada (caches e try/catch isolados)
+          // Filtragem extra em memória de segurança (caso o parâmetro user_id não seja mapeado perfeitamente no CRM)
+          const filteredTasks = crmUserId
+            ? rdTasks.filter((t: any) => {
+                const ownerIds = t.owner_ids || [];
+                return ownerIds.includes(crmUserId) || t.user_id === crmUserId;
+              })
+            : rdTasks;
+
+          if (filteredTasks.length === 0) {
+            return new Response(JSON.stringify({ tasks: [] }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          // 4. Para cada tarefa, buscar o deal e seus contatos de forma otimizada (caches e try/catch isolados)
           const enrichedTasks = await Promise.all(
-            rdTasks.map(async (task: any) => {
+            filteredTasks.map(async (task: any) => {
               let dealName: string | null = null;
               let clientName: string | null = null;
               let clientPhone: string | null = null;
@@ -103,7 +157,7 @@ export const Route = createFileRoute("/api/tasks")({
                 }
               }
 
-              // 4. Se temos telefone, buscar no banco local (contacts + conversations)
+              // 5. Se temos telefone, buscar no banco local (contacts + conversations)
               if (clientPhone) {
                 const phoneTerms = buildPhoneSearchTerms(clientPhone);
                 try {
@@ -127,6 +181,50 @@ export const Route = createFileRoute("/api/tasks")({
                 }
               }
 
+              // 6. Persistência de Dados no Banco Local (Salva/Sincroniza para uso futuro)
+              try {
+                await db
+                  .insert(dbTasks)
+                  .values({
+                    id: task.id,
+                    tenantId,
+                    name: task.name || "Sem título",
+                    type: task.type || "task",
+                    status: task.status || "pending",
+                    dueDate: task.due_date ? new Date(task.due_date) : null,
+                    description: task.description || null,
+                    dealId: task.deal_id || null,
+                    dealName,
+                    clientName,
+                    clientPhone,
+                    chatContactId,
+                    chatConversationId,
+                    operatorEmail: email ? email.toLowerCase() : null,
+                    createdAt: task.created_at ? new Date(task.created_at) : null,
+                    updatedAt: new Date(),
+                  })
+                  .onConflictDoUpdate({
+                    target: dbTasks.id,
+                    set: {
+                      name: task.name || "Sem título",
+                      type: task.type || "task",
+                      status: task.status || "pending",
+                      dueDate: task.due_date ? new Date(task.due_date) : null,
+                      description: task.description || null,
+                      dealId: task.deal_id || null,
+                      dealName,
+                      clientName,
+                      clientPhone,
+                      chatContactId,
+                      chatConversationId,
+                      operatorEmail: email ? email.toLowerCase() : null,
+                      updatedAt: new Date(),
+                    },
+                  });
+              } catch (dbErr: any) {
+                console.error(`[Tasks API] Falha ao persistir tarefa ${task.id} no banco local:`, dbErr.message);
+              }
+
               return {
                 id: task.id,
                 name: task.name || "Sem título",
@@ -144,17 +242,26 @@ export const Route = createFileRoute("/api/tasks")({
           );
 
           // Salva no cache de listagem
-          tasksListCache.set(tenantId, { data: enrichedTasks, expiresAt: Date.now() + LIST_CACHE_TTL });
+          tasksListCache.set(cacheKey, { data: enrichedTasks, expiresAt: Date.now() + LIST_CACHE_TTL });
 
           return new Response(JSON.stringify({ tasks: enrichedTasks }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
-          console.error("[Tasks API] Erro:", e.message);
-          return new Response(JSON.stringify({ error: e.message }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          console.warn("[Tasks API] Falha ao buscar da API da RD CRM, buscando do banco local persistido:", e.message);
+          try {
+            // Em caso de falha da API (ex: 429 ou rede offline), buscamos do banco local persistido!
+            const localTasks = await getLocalPersistedTasks();
+            return new Response(JSON.stringify({ tasks: localTasks }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          } catch (localErr: any) {
+            console.error("[Tasks API] Falha crítica ao ler banco local:", localErr.message);
+            return new Response(JSON.stringify({ error: e.message }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
         }
       },
 

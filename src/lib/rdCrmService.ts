@@ -317,3 +317,20 @@ export async function getCachedContact(tenantId: string, contactId: string): Pro
     return null;
   }
 }
+
+const usersCache = new Map<string, { data: any[]; expiresAt: number }>();
+export async function getCachedUsers(tenantId: string): Promise<any[]> {
+  const cached = usersCache.get(tenantId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+  try {
+    const res = await rdRequest<any>(tenantId, "GET", "/users");
+    const usersList = Array.isArray(res) ? res : (res as any)?.data || [];
+    usersCache.set(tenantId, { data: usersList, expiresAt: Date.now() + 2 * 60 * 60 * 1000 }); // 2 horas
+    return usersList;
+  } catch (e: any) {
+    console.warn(`[RD CRM Cache] Falha ao buscar usuários do CRM:`, e.message);
+    return [];
+  }
+}

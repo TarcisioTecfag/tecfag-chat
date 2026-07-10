@@ -282,6 +282,26 @@ export const operatorTemplates = pgTable("operator_templates", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 14. TAREFAS SINCRONIZADAS DO RD STATION CRM ──────────────────────────────
+export const tasks = pgTable("tasks", {
+  id: text("id").primaryKey(), // ID da tarefa vindo do RD Station CRM
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  status: text("status").notNull(),
+  dueDate: timestamp("due_date"),
+  description: text("description"),
+  dealId: text("deal_id"),
+  dealName: text("deal_name"),
+  clientName: text("client_name"),
+  clientPhone: text("client_phone"),
+  chatContactId: text("chat_contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  chatConversationId: text("chat_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  operatorEmail: text("operator_email"), // E-mail do operador responsável (para filtro individual)
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -299,3 +319,4 @@ export type AiConversationAudit = typeof aiConversationAudits.$inferSelect;
 export type OperatorDailyMetrics = typeof operatorDailyMetrics.$inferSelect;
 export type AiReport = typeof aiReports.$inferSelect;
 export type CallSession = typeof callSessions.$inferSelect;
+export type Task = typeof tasks.$inferSelect;
