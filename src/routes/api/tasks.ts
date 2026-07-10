@@ -55,7 +55,7 @@ export const Route = createFileRoute("/api/tasks")({
           }
 
           try {
-            const rawTasks = await rdRequest(tenantId, "GET", "/tasks?page[size]=50");
+            const rawTasks = await rdRequest(tenantId, "GET", "/tasks?sort[updated_at]=desc&page[size]=50");
             debugInfo.tasksCount = Array.isArray(rawTasks) ? rawTasks.length : 0;
             debugInfo.tasks = rawTasks;
           } catch (e: any) {
@@ -102,12 +102,19 @@ export const Route = createFileRoute("/api/tasks")({
         };
 
         try {
-          // 2. Mapeia o e-mail do operador local para o ID de usuário do RD Station CRM
+          // 2. Mapeia o e-mail do operador local para o correspondente no CRM (caso haja divergência)
+          const localEmail = email ? email.toLowerCase() : "";
+          const emailMapping: Record<string, string> = {
+            "tarcisio@valem.com.br": "suporte2@tecfag.com.br",
+          };
+          const crmTargetEmail = emailMapping[localEmail] || localEmail;
+
+          // Mapeia o e-mail para o ID de usuário do RD Station CRM
           let crmUserId: string | null = null;
-          if (email) {
+          if (crmTargetEmail) {
             try {
               const users = await getCachedUsers(tenantId);
-              const matchedUser = users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+              const matchedUser = users.find((u: any) => u.email?.toLowerCase() === crmTargetEmail);
               if (matchedUser) {
                 crmUserId = matchedUser.id;
               }
@@ -116,8 +123,10 @@ export const Route = createFileRoute("/api/tasks")({
             }
           }
 
-          // 3. Busca tarefas no RD CRM via API v2 (Se mapeamos o ID do dono, filtramos no endpoint)
-          const queryPath = crmUserId ? `/tasks?user_id=${crmUserId}&page[size]=200` : "/tasks?page[size]=200";
+          // 3. Busca tarefas no RD CRM via API v2 (Se mapeamos o ID do dono, filtramos no endpoint, ordenado por data de modificação mais recente)
+          const queryPath = crmUserId 
+            ? `/tasks?user_id=${crmUserId}&sort[updated_at]=desc&page[size]=200` 
+            : `/tasks?sort[updated_at]=desc&page[size]=200`;
           const rdTasks = await rdRequest<any[]>(
             tenantId,
             "GET",
