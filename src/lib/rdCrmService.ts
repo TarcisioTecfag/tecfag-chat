@@ -279,3 +279,41 @@ export async function isRdCrmConfigured(tenantId: string): Promise<boolean> {
   const token = await loadTokenFromDb(tenantId);
   return !!(token?.accessToken && token?.refreshToken);
 }
+
+// ─── Caches de Negociações e Contatos (Evita N+1 e Rate Limit 429) ───────────
+
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutos
+const dealCache = new Map<string, { data: any; expiresAt: number }>();
+const contactCache = new Map<string, { data: any; expiresAt: number }>();
+
+export async function getCachedDeal(tenantId: string, dealId: string): Promise<any> {
+  const cacheKey = `${tenantId}:${dealId}`;
+  const cached = dealCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+  try {
+    const deal = await rdRequest<any>(tenantId, "GET", `/deals/${dealId}`);
+    dealCache.set(cacheKey, { data: deal, expiresAt: Date.now() + CACHE_TTL });
+    return deal;
+  } catch (e: any) {
+    console.warn(`[RD CRM Cache] Falha ao buscar deal ${dealId}:`, e.message);
+    return null;
+  }
+}
+
+export async function getCachedContact(tenantId: string, contactId: string): Promise<any> {
+  const cacheKey = `${tenantId}:${contactId}`;
+  const cached = contactCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+  try {
+    const contact = await rdRequest<any>(tenantId, "GET", `/contacts/${contactId}`);
+    contactCache.set(cacheKey, { data: contact, expiresAt: Date.now() + CACHE_TTL });
+    return contact;
+  } catch (e: any) {
+    console.warn(`[RD CRM Cache] Falha ao buscar contato ${contactId}:`, e.message);
+    return null;
+  }
+}

@@ -1,14 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { contacts, conversations } from "../../db/schema";
-import { rdRequest, buildPhoneSearchTerms } from "../../lib/rdCrmService";
-import { eq, or, inArray } from "drizzle-orm";
+import { rdRequest, buildPhoneSearchTerms, getCachedDeal, getCachedContact } from "../../lib/rdCrmService";
+import { eq } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
+
+// Cache do endpoint de listagem de tarefas para evitar múltiplos cliques rápidos (TTL: 15s)
+const tasksListCache = new Map<string, { data: any[]; expiresAt: number }>();
+const LIST_CACHE_TTL = 15 * 1000; // 15 segundos
 
 export const Route = createFileRoute("/api/tasks")({
   server: {
@@ -33,8 +37,17 @@ export const Route = createFileRoute("/api/tasks")({
           });
         }
 
+        // 1. Tenta recuperar do cache de listagem
+        const cached = tasksListCache.get(tenantId);
+        if (cached && cached.expiresAt > Date.now()) {
+          console.log(`[Tasks API] Retornando listagem de tarefas do cache para tenant: ${tenantId}`);
+          return new Response(JSON.stringify({ tasks: cached.data }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         try {
-          // 1. Busca tarefas no RD CRM via API v2
+          // 2. Busca tarefas no RD CRM via API v2 (limite 200)
           const rdTasks = await rdRequest<any[]>(
             tenantId,
             "GET",
@@ -47,7 +60,7 @@ export const Route = createFileRoute("/api/tasks")({
             });
           }
 
-          // 2. Para cada tarefa, buscar o deal e seus contatos
+          // 3. Para cada tarefa, buscar o deal e seus contatos de forma otimizada (caches e try/catch isolados)
           const enrichedTasks = await Promise.all(
             rdTasks.map(async (task: any) => {
               let dealName: string | null = null;
@@ -59,7 +72,7 @@ export const Route = createFileRoute("/api/tasks")({
               // Buscar dados do deal (se a tarefa tem deal_id)
               if (task.deal_id) {
                 try {
-                  const deal = await rdRequest<any>(tenantId, "GET", `/deals/${task.deal_id}`);
+                  const deal = await getCachedDeal(tenantId, task.deal_id);
                   if (deal) {
                     dealName = deal.name || null;
 
@@ -72,7 +85,7 @@ export const Route = createFileRoute("/api/tasks")({
                     // Buscar dados do primeiro contato
                     for (const cId of contactIdList.slice(0, 1)) {
                       try {
-                        const contact = await rdRequest<any>(tenantId, "GET", `/contacts/${cId}`);
+                        const contact = await getCachedContact(tenantId, cId);
                         if (contact) {
                           clientName = contact.name || null;
                           const phones = contact.phones || [];
@@ -80,13 +93,17 @@ export const Route = createFileRoute("/api/tasks")({
                             clientPhone = phones[0].phone || null;
                           }
                         }
-                      } catch {}
+                      } catch (err: any) {
+                        console.warn(`[Tasks API] Erro ao enriquecer contato ${cId}:`, err.message);
+                      }
                     }
                   }
-                } catch {}
+                } catch (err: any) {
+                  console.warn(`[Tasks API] Erro ao enriquecer deal ${task.deal_id}:`, err.message);
+                }
               }
 
-              // 3. Se temos telefone, buscar no banco local (contacts + conversations)
+              // 4. Se temos telefone, buscar no banco local (contacts + conversations)
               if (clientPhone) {
                 const phoneTerms = buildPhoneSearchTerms(clientPhone);
                 try {
@@ -105,7 +122,9 @@ export const Route = createFileRoute("/api/tasks")({
                       break;
                     }
                   }
-                } catch {}
+                } catch (err: any) {
+                  console.warn(`[Tasks API] Erro ao buscar telefone local ${clientPhone}:`, err.message);
+                }
               }
 
               return {
@@ -123,6 +142,9 @@ export const Route = createFileRoute("/api/tasks")({
               };
             })
           );
+
+          // Salva no cache de listagem
+          tasksListCache.set(tenantId, { data: enrichedTasks, expiresAt: Date.now() + LIST_CACHE_TTL });
 
           return new Response(JSON.stringify({ tasks: enrichedTasks }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
