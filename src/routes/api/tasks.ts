@@ -38,6 +38,36 @@ export const Route = createFileRoute("/api/tasks")({
           });
         }
 
+        const debug = url.searchParams.get("debug");
+        if (debug === "true") {
+          const debugInfo: any = {
+            tenantId,
+            email,
+            timestamp: new Date().toISOString(),
+          };
+
+          try {
+            const users = await getCachedUsers(tenantId);
+            debugInfo.usersCount = users.length;
+            debugInfo.users = users;
+          } catch (e: any) {
+            debugInfo.usersError = e.message;
+          }
+
+          try {
+            const rawTasks = await rdRequest(tenantId, "GET", "/tasks?page[size]=50");
+            debugInfo.tasksCount = Array.isArray(rawTasks) ? rawTasks.length : 0;
+            debugInfo.tasks = rawTasks;
+          } catch (e: any) {
+            debugInfo.tasksError = e.message;
+          }
+
+          return new Response(JSON.stringify(debugInfo), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         const cacheKey = `${tenantId}:${email || "all"}`;
 
         // 1. Tenta recuperar do cache de listagem
