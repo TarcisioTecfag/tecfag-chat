@@ -162,8 +162,9 @@ export const Route = createFileRoute("/api/tasks")({
               let chatContactId: string | null = null;
               let chatConversationId: string | null = null;
 
-              // Buscar dados do deal (se a tarefa tem deal_id)
-              if (task.deal_id) {
+              // Buscar dados do deal (se a tarefa tem deal_id E está ativa/pendente)
+              const isClosed = task.status === "completed" || task.status === "done" || task.status === "canceled";
+              if (task.deal_id && !isClosed) {
                 try {
                   const deal = await getCachedDeal(tenantId, task.deal_id);
                   if (deal) {
