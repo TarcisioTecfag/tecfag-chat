@@ -322,69 +322,82 @@ export function TasksView() {
           </div>
 
           {/* Weekday Headers */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-1 mb-4 border-b border-border pb-3 bg-muted/40 dark:bg-muted/10 rounded-2xl px-2 py-1.5 shadow-sm">
             {WEEKDAYS.map((day) => (
-              <div key={day} className="text-center text-xs font-semibold text-muted-foreground py-2">
+              <div key={day} className="text-center text-[11px] font-bold uppercase tracking-wider text-muted-foreground/90">
                 {day}
               </div>
             ))}
           </div>
 
           {/* Day Grid */}
-          <div className="grid grid-cols-7 gap-1 flex-1">
+          <div className="grid grid-cols-7 gap-1.5 flex-1">
             {days.map((date, i) => {
               const isCurrentMonth = date.getMonth() === currentMonth;
               const isToday = isSameDay(date, today);
               const isSelected = isSameDay(date, selectedDate);
               const dayTasks = getTasksForDate(date);
               const hasTasks = dayTasks.length > 0;
-              const pendingDayTasks = dayTasks.filter((t) => t.status !== "done");
 
               return (
                 <motion.button
                   key={i}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={() => setSelectedDate(date)}
-                  className="relative flex flex-col items-center justify-center rounded-2xl py-3 transition-all min-h-[60px]"
+                  className="relative flex flex-col items-center justify-start rounded-2xl p-2 transition-all min-h-[90px] border w-full overflow-hidden"
                   style={{
                     background: isSelected
                       ? "var(--primary)"
                       : isToday
                         ? "var(--primary-soft)"
-                        : "transparent",
+                        : "var(--card)",
+                    borderColor: isSelected
+                      ? "var(--primary)"
+                      : isToday
+                        ? "var(--primary-soft)"
+                        : "var(--border)",
                     color: isSelected
                       ? "white"
                       : isCurrentMonth
                         ? "var(--foreground)"
                         : "var(--muted-foreground)",
-                    opacity: isCurrentMonth ? 1 : 0.35,
-                    border: isToday && !isSelected ? "2px solid var(--primary)" : "2px solid transparent",
+                    opacity: isCurrentMonth ? 1 : 0.45,
+                    borderWidth: isToday && !isSelected ? "2.5px" : "1px",
                   }}
                 >
-                  <span className={`text-sm font-semibold ${isSelected ? "text-white" : ""}`}>
+                  <span className={`text-xs font-bold ${isSelected ? "text-white" : "text-foreground/80"} mb-1`}>
                     {date.getDate()}
                   </span>
 
-                  {/* Task indicators */}
+                  {/* Task Previews */}
                   {hasTasks && (
-                    <div className="flex items-center gap-0.5 mt-1">
-                      {dayTasks.slice(0, 3).map((t, j) => (
+                    <div className="flex flex-col gap-1 w-full mt-1 overflow-hidden">
+                      {dayTasks.slice(0, 2).map((t, j) => {
+                        const label = t.client?.name || t.name;
+                        const isDone = t.status === "done";
+                        return (
+                          <div
+                            key={j}
+                            className={`text-[9px] px-1.5 py-0.5 rounded-md truncate w-full font-medium text-center border transition-all ${
+                              isSelected
+                                ? "bg-white/25 text-white border-white/10"
+                                : "bg-muted/60 text-foreground/80 border-border/40 hover:border-primary/20"
+                            } ${isDone ? "line-through opacity-50" : ""}`}
+                            title={`${t.name} ${t.client?.name ? `(${t.client.name})` : ""}`}
+                          >
+                            {label}
+                          </div>
+                        );
+                      })}
+                      {dayTasks.length > 2 && (
                         <div
-                          key={j}
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{
-                            background: isSelected ? "rgba(255,255,255,0.8)" : getTaskTypeColor(t.type),
-                          }}
-                        />
-                      ))}
-                      {dayTasks.length > 3 && (
-                        <span
-                          className="text-[9px] font-bold ml-0.5"
-                          style={{ color: isSelected ? "rgba(255,255,255,0.8)" : "var(--muted-foreground)" }}
+                          className={`text-[8px] font-bold text-center mt-0.5 ${
+                            isSelected ? "text-white/80" : "text-muted-foreground"
+                          }`}
                         >
-                          +{dayTasks.length - 3}
-                        </span>
+                          +{dayTasks.length - 2} mais
+                        </div>
                       )}
                     </div>
                   )}
