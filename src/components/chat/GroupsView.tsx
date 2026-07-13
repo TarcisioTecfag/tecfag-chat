@@ -496,7 +496,12 @@ export function GroupsView() {
     allowedChannels: [] as ("whatsapp" | "instagram" | "messenger")[],
     canCreateUser: false,
     canResetPassword: false,
-    canEditProfile: true
+    canEditProfile: true,
+    canCaptureChat: false,
+    canTransferChat: false,
+    canFinishChat: false,
+    canViewAllChats: false,
+    canOverrideChat: false,
   });
 
   // Password Reset States
@@ -550,7 +555,12 @@ export function GroupsView() {
       allowedChannels: groupForm.allowedChannels,
       canCreateUser: groupForm.canCreateUser,
       canResetPassword: groupForm.canResetPassword,
-      canEditProfile: groupForm.canEditProfile
+      canEditProfile: groupForm.canEditProfile,
+      canCaptureChat: groupForm.canCaptureChat ?? false,
+      canTransferChat: groupForm.canTransferChat ?? false,
+      canFinishChat: groupForm.canFinishChat ?? false,
+      canViewAllChats: groupForm.canViewAllChats ?? false,
+      canOverrideChat: groupForm.canOverrideChat ?? false,
     });
     setGroupForm({
       name: "",
@@ -558,7 +568,12 @@ export function GroupsView() {
       allowedChannels: [],
       canCreateUser: false,
       canResetPassword: false,
-      canEditProfile: true
+      canEditProfile: true,
+      canCaptureChat: false,
+      canTransferChat: false,
+      canFinishChat: false,
+      canViewAllChats: false,
+      canOverrideChat: false,
     });
     setShowGroupForm(false);
     toast.success("Grupo de acesso criado com sucesso!");

@@ -1885,6 +1885,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Atualiza APENAS os campos de estado da conversa — sem criar balão de mensagem,
           // sem incrementar unreadCount, sem tocar som de notificação.
           const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId } = data;
+
           setConversations((prev) =>
             prev.map((c) => {
               if (c.id !== conversationId) return c;
@@ -1896,6 +1897,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               };
             })
           );
+
+          // ── Auto-deselect ────────────────────────────────────────────────────
+          // Se o chat que mudou é o que está selecionado AGORA e:
+          //   a) o chat saiu do domínio do operador atual (foi transferido para outro), OU
+          //   b) o chat foi finalizado
+          // → deseleciona o chat para que o painel mostre estado neutro imediatamente,
+          //   impedindo que o operador anterior continue enviando mensagens.
+          const myId = currentOperatorIdRef.current;
+          const isCurrentlyViewing = selectedChatIdRef.current === conversationId;
+
+          if (isCurrentlyViewing) {
+            const chatWasOwnedByMe = (() => {
+              // Peek at the current conversations to check the previous owner
+              // We can't read state directly here, so use the newOperatorId from the event
+              return newOperatorId !== myId; // the new owner is NOT me
+            })();
+
+            const chatFinalized = queueState === "finalizados";
+            const chatTransferredAway =
+              (queueState === "fila" || queueState === "automacao") ||
+              (queueState === "meus" && newOperatorId && newOperatorId !== myId);
+
+            if (chatFinalized || chatTransferredAway) {
+              // Deselect immediately so the previous owner's panel refreshes
+              setSelectedChatId(null);
+            }
+          }
         }
 
       } catch (err) {

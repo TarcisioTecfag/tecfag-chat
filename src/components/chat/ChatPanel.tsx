@@ -1619,62 +1619,103 @@ export function ChatPanel() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          {/* Banner de bloqueio: chat pertence a outro operador */}
-          {!isOwner && activeChat.operatorId && (
-            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-4 py-2.5">
-              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-                <Lock className="h-4 w-4 shrink-0" />
-                <span className="text-xs font-semibold">
-                  Este atendimento pertence a{" "}
-                  <strong>{ownerOperator?.name ?? "outro operador"}</strong>.
-                </span>
+          {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
+          {!isOwner && activeChat.operatorId ? (
+            <div
+              className={`flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 text-center ${
+                tenant === "valem"
+                  ? "bg-emerald-50 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
+                  : "bg-red-50 border-red-300 dark:bg-red-950/30 dark:border-red-700"
+              }`}
+            >
+              <div
+                className={`h-12 w-12 rounded-full flex items-center justify-center ${
+                  tenant === "valem"
+                    ? "bg-emerald-100 dark:bg-emerald-900"
+                    : "bg-red-100 dark:bg-red-900"
+                }`}
+              >
+                <Lock
+                  className={`h-6 w-6 ${
+                    tenant === "valem"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  }`}
+                />
+              </div>
+              <div>
+                <p
+                  className={`text-sm font-bold ${
+                    tenant === "valem"
+                      ? "text-emerald-800 dark:text-emerald-300"
+                      : "text-red-800 dark:text-red-300"
+                  }`}
+                >
+                  Atendimento com{" "}
+                  <span className="font-extrabold">{ownerOperator?.name ?? "outro operador"}</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Somente o operador responsável pode enviar mensagens aqui.
+                </p>
               </div>
               {canOverride && (
                 <button
                   onClick={() => captureChat(activeChat.id)}
-                  className="shrink-0 h-7 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold px-3 transition cursor-pointer"
+                  className={`mt-1 h-9 rounded-xl text-white text-xs font-bold px-6 transition cursor-pointer ${
+                    tenant === "valem"
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "bg-red-600 hover:bg-red-700"
+                  }`}
                 >
-                  Assumir
+                  Assumir Atendimento
                 </button>
               )}
             </div>
-          )}
-
-          {/* Banner de bloqueio: chat na fila de espera */}
-          {!activeChat.operatorId && activeChat.queue === "fila" && (
-            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 dark:bg-sky-950/30 dark:border-sky-800 px-4 py-2.5">
-              <div className="flex items-center gap-2 text-sky-700 dark:text-sky-400">
-                <Clock className="h-4 w-4 shrink-0" />
-                <span className="text-xs font-semibold">Este atendimento está na Fila de Espera.</span>
+          ) : !activeChat.operatorId && activeChat.queue === "fila" ? (
+            /* ── BLOQUEIO: fila de espera ── */
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-sky-300 bg-sky-50 dark:bg-sky-950/30 dark:border-sky-700 text-center">
+              <div className="h-12 w-12 rounded-full flex items-center justify-center bg-sky-100 dark:bg-sky-900">
+                <Clock className="h-6 w-6 text-sky-600 dark:text-sky-400" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-sky-800 dark:text-sky-300">Fila de Espera</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Capture este atendimento para começar a responder o cliente.
+                </p>
               </div>
               {canCapture && (
                 <button
                   onClick={() => captureChat(activeChat.id)}
-                  className="shrink-0 h-7 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold px-3 transition cursor-pointer"
+                  className="mt-1 h-9 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-6 transition cursor-pointer"
                 >
-                  Capturar
+                  Capturar Atendimento
                 </button>
               )}
             </div>
-          )}
-
-          {/* Banner de bloqueio: chat em automação */}
-          {activeChat.queue === "automacao" && (
-            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 px-4 py-2.5">
-              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
-                <Bot className="h-4 w-4 shrink-0" />
-                <span className="text-xs font-semibold">Este atendimento está em Automação (I.A).</span>
+          ) : activeChat.queue === "automacao" ? (
+            /* ── BLOQUEIO: automação ── */
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-700 text-center">
+              <div className="h-12 w-12 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900">
+                <Bot className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-blue-800 dark:text-blue-300">Em Automação (I.A)</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  A I.A está conduzindo este atendimento. Capture para assumir o controle.
+                </p>
               </div>
               {canCapture && (
                 <button
                   onClick={() => captureChat(activeChat.id)}
-                  className="shrink-0 h-7 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold px-3 transition cursor-pointer"
+                  className="mt-1 h-9 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-6 transition cursor-pointer"
                 >
-                  Assumir
+                  Assumir Atendimento
                 </button>
               )}
             </div>
-          )}
+          ) : (
+            /* ── COMPOSER NORMAL: sou o dono ── */
+            <>
           {/* Drag overlay */}
           {isDragging && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-3xl bg-primary/10 border-2 border-dashed border-primary pointer-events-none">
@@ -1939,6 +1980,8 @@ export function ChatPanel() {
               {msgMode === "internal" ? <Lock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
             </motion.button>
           </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
