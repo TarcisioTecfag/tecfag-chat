@@ -1778,77 +1778,80 @@ export function ChatPanel() {
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   rows={1}
-                  className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none resize-none overflow-y-auto leading-relaxed py-1 max-h-[160px] min-h-[24px] scrollbar-thin"
+                  className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none resize-none overflow-y-auto leading-relaxed py-2 max-h-[160px] min-h-[36px] scrollbar-thin"
                 />
-                {/* Quick Template Icon */}
-                <motion.button
-                  onClick={() => setShowQuickMenu(!showQuickMenu)}
-                  whileHover={{ scale: 1.15 }}
-                  whileTap={{ scale: 0.88 }}
-                  animate={{ rotate: showQuickMenu ? -15 : 0 }}
-                  className={`transition cursor-pointer ${
-                    msgMode === "internal"
-                      ? "text-amber-500 hover:text-amber-700"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  title="Respostas Rápidas"
-                >
-                  <Zap className="h-4.5 w-4.5" strokeWidth={2} />
-                </motion.button>
-                {/* Emoji Picker Trigger */}
-                <div className="relative flex items-center">
+                
+                {/* Icons container to vertically align icons with the send button */}
+                <div className="flex items-center gap-3 shrink-0 h-9">
+                  {/* Quick Template Icon */}
                   <motion.button
-                    onClick={() => setShowEmojiPicker((v) => !v)}
+                    onClick={() => setShowQuickMenu(!showQuickMenu)}
                     whileHover={{ scale: 1.15 }}
                     whileTap={{ scale: 0.88 }}
-                    animate={{ rotate: showEmojiPicker ? 15 : 0 }}
-                    className="text-muted-foreground hover:text-foreground cursor-pointer transition"
-                    title="Emojis"
+                    animate={{ rotate: showQuickMenu ? -15 : 0 }}
+                    className={`transition cursor-pointer ${
+                      msgMode === "internal"
+                        ? "text-amber-500 hover:text-amber-700"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    title="Respostas Rápidas"
                   >
-                    <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
+                    <Zap className="h-4.5 w-4.5" strokeWidth={2} />
                   </motion.button>
-                  <AnimatePresence>
-                    {showEmojiPicker && (
-                      <EmojiPicker
-                        onSelect={(emoji) => {
-                          setText((prev) => prev + emoji);
-                          inputRef.current?.focus();
-                        }}
-                        onClose={() => setShowEmojiPicker(false)}
-                      />
+                  {/* Emoji Picker Trigger */}
+                  <div className="relative flex items-center">
+                    <motion.button
+                      onClick={() => setShowEmojiPicker((v) => !v)}
+                      whileHover={{ scale: 1.15 }}
+                      whileTap={{ scale: 0.88 }}
+                      animate={{ rotate: showEmojiPicker ? 15 : 0 }}
+                      className="text-muted-foreground hover:text-foreground cursor-pointer transition"
+                      title="Emojis"
+                    >
+                      <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
+                    </motion.button>
+                    <AnimatePresence>
+                      {showEmojiPicker && (
+                        <EmojiPicker
+                          onSelect={(emoji) => {
+                            setText((prev) => prev + emoji);
+                            inputRef.current?.focus();
+                          }}
+                          onClose={() => setShowEmojiPicker(false)}
+                        />
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  {/* Attachment Button */}
+                  <motion.button
+                    onClick={() => fileInputRef.current?.click()}
+                    whileHover={{ scale: 1.15 }}
+                    whileTap={{ scale: 0.88 }}
+                    className={`cursor-pointer transition relative ${
+                      attachments.length > 0
+                        ? "text-primary"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    title="Anexar arquivo"
+                  >
+                    <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
+                    {attachments.length > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
+                        {attachments.length}
+                      </span>
                     )}
-                  </AnimatePresence>
-
+                  </motion.button>
+                  {/* Mic button */}
+                  <motion.button
+                    onClick={startRecording}
+                    whileHover={{ scale: 1.15 }}
+                    whileTap={{ scale: 0.88 }}
+                    className="text-muted-foreground hover:text-primary transition cursor-pointer"
+                    title="Gravar áudio"
+                  >
+                    <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
+                  </motion.button>
                 </div>
-                {/* Attachment Button */}
-                <motion.button
-                  onClick={() => fileInputRef.current?.click()}
-                  whileHover={{ scale: 1.15 }}
-                  whileTap={{ scale: 0.88 }}
-                  className={`cursor-pointer transition relative ${
-                    attachments.length > 0
-                      ? "text-primary"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  title="Anexar arquivo"
-                >
-                  <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
-                  {attachments.length > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
-                      {attachments.length}
-                    </span>
-                  )}
-                </motion.button>
-                {/* Mic button */}
-                <motion.button
-                  onClick={startRecording}
-                  whileHover={{ scale: 1.15 }}
-                  whileTap={{ scale: 0.88 }}
-                  className="text-muted-foreground hover:text-primary transition cursor-pointer"
-                  title="Gravar áudio"
-                >
-                  <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
-                </motion.button>
               </>
             )}
 
