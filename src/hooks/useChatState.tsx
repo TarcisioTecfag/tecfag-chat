@@ -204,7 +204,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const selectedChatIdRef = useRef(selectedChatId);
   const currentOperatorIdRef = useRef(currentOperatorId);
   const tenantRef = useRef(tenant);
-  const conversationsRef = useRef<Conversation[]>([]);
 
   useEffect(() => {
     selectedChatIdRef.current = selectedChatId;
@@ -217,10 +216,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     tenantRef.current = tenant;
   }, [tenant]);
-
-  useEffect(() => {
-    conversationsRef.current = conversations;
-  }, [conversations]);
   const [isClient, setIsClient] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
@@ -898,6 +893,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     currentGroup.allowedChannels.includes(c.channel)
   );
   const setConversations = tenant === "tecfag" ? setTecfagConvs : setValemConvs;
+
+  // Ref to track latest conversations and avoid stale closures in event listeners
+  const conversationsRef = useRef<Conversation[]>([]);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   const activeChat = conversations.find((c) => c.id === selectedChatId) || null;
 
