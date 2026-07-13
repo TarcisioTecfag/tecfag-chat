@@ -199,6 +199,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ]);
 
   const [currentOperatorId, setCurrentOperatorId] = useState<string>("op-1");
+
+  // Refs to avoid stale closures in SSE event listener
+  const selectedChatIdRef = useRef(selectedChatId);
+  const currentOperatorIdRef = useRef(currentOperatorId);
+  const tenantRef = useRef(tenant);
+  const conversationsRef = useRef<Conversation[]>([]);
+
+  useEffect(() => {
+    selectedChatIdRef.current = selectedChatId;
+  }, [selectedChatId]);
+
+  useEffect(() => {
+    currentOperatorIdRef.current = currentOperatorId;
+  }, [currentOperatorId]);
+
+  useEffect(() => {
+    tenantRef.current = tenant;
+  }, [tenant]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
   const [isClient, setIsClient] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
@@ -1513,6 +1535,100 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         } else if (data.type === "message") {
           const { message } = data;
+
+          // Mostrar notificação Toast customizada (apenas para o operador atribuído e se o chat não estiver atualmente aberto)
+          const currentOperatorId = currentOperatorIdRef.current;
+          const selectedChatId = selectedChatIdRef.current;
+          const currentConvs = conversationsRef.current;
+
+          const existingConv = currentConvs.find((c) => c.id === message.conversationId);
+          const operatorId = message.operatorId !== undefined
+            ? message.operatorId
+            : (existingConv ? existingConv.operatorId : null);
+
+          const isAssignedToMe = operatorId === currentOperatorId;
+          const isCurrentOpen = message.conversationId === selectedChatId;
+
+          if (isAssignedToMe && message.senderType === "client" && !isCurrentOpen) {
+            const clientName = existingConv?.name || message.senderName || "Cliente";
+            const clientAvatar = existingConv?.avatar || message.avatar || "";
+            const initials = clientName
+              .split(" ")
+              .map((w: string) => w[0])
+              .join("")
+              .toUpperCase()
+              .substring(0, 2) || "C";
+
+            // Formatar visualmente se for mídia
+            let previewText = message.content || "";
+            if (previewText.startsWith("[LOCAL_MEDIA:") || previewText.startsWith("[MEDIA:")) {
+              if (previewText.includes("image")) previewText = "📷 Imagem";
+              else if (previewText.includes("video")) previewText = "🎥 Vídeo";
+              else if (previewText.includes("audio")) previewText = "🎵 Áudio";
+              else if (previewText.includes("sticker")) previewText = "🪄 Figurinha";
+              else if (previewText.includes("document")) {
+                const parts = previewText.split(":");
+                const rawName = parts[parts.length - 1] || "";
+                previewText = `📄 ${rawName.split("]")[0] || "Documento"}`;
+              }
+            }
+
+            toast.custom(
+              (t) => (
+                <div className="flex items-center gap-3 w-[340px] bg-card border border-border rounded-2xl p-3 shadow-lg animate-in slide-in-from-bottom-5 duration-200">
+                  {/* Client Avatar */}
+                  <div className="relative shrink-0">
+                    {clientAvatar ? (
+                      <img
+                        src={clientAvatar}
+                        alt={clientName}
+                        className="h-10 w-10 rounded-full object-cover border border-border"
+                      />
+                    ) : (
+                      <div className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground bg-primary-soft/50 border border-primary/10">
+                        {initials}
+                      </div>
+                    )}
+                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border border-card" />
+                  </div>
+
+                  {/* Message Details */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-foreground truncate">{clientName}</p>
+                    <p className="text-[10px] text-muted-foreground truncate mt-0.5">{previewText}</p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedChatId(message.conversationId);
+                        setActiveView("chat");
+                        markAsRead(message.conversationId);
+                        toast.dismiss(t);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-primary hover:bg-primary/95 text-white text-[10px] font-bold transition duration-155 cursor-pointer shadow-sm"
+                    >
+                      Abrir
+                    </button>
+                    <button
+                      onClick={() => toast.dismiss(t)}
+                      className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ),
+              {
+                duration: 6000,
+                position: "bottom-right",
+              }
+            );
+          }
           
           setConversations((prev) => {
             const exists = prev.some((c) => c.id === message.conversationId);
