@@ -12,7 +12,7 @@ export const Route = createFileRoute("/api/chats")({
           status: 204,
           headers: {
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
           },
         });
@@ -20,7 +20,7 @@ export const Route = createFileRoute("/api/chats")({
       GET: async ({ request }) => {
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         };
 
@@ -240,6 +240,42 @@ export const Route = createFileRoute("/api/chats")({
           });
         } catch (e: any) {
           console.error("Erro ao salvar mensagem no DB:", e);
+          return new Response(JSON.stringify({ error: e.message }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      },
+      PATCH: async ({ request }) => {
+        const corsHeaders = {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        };
+
+        try {
+          const body = await request.json();
+          const { conversationId, unreadCount } = body;
+
+          if (!conversationId) {
+            return new Response(JSON.stringify({ error: "conversationId é obrigatório" }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          await db
+            .update(conversations)
+            .set({
+              unreadCount: unreadCount !== undefined ? unreadCount : 0,
+            })
+            .where(eq(conversations.id, conversationId));
+
+          return new Response(JSON.stringify({ success: true }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } catch (e: any) {
+          console.error("Erro ao atualizar unreadCount no DB:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },

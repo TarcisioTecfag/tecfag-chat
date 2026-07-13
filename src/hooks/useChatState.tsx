@@ -852,11 +852,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
-          setConversations(data);
+          const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
+          let pinnedIds: string[] = [];
+          try {
+            const stored = localStorage.getItem(pinnedKey);
+            if (stored) pinnedIds = JSON.parse(stored);
+          } catch (e) {
+            console.error("Erro ao ler pinned_chats do localStorage:", e);
+          }
+          
+          const chatsWithPinned = data.map((c: any) => ({
+            ...c,
+            pinned: pinnedIds.includes(c.id),
+          }));
+          setConversations(chatsWithPinned);
         }
       })
       .catch((err) => console.error("Erro ao sincronizar conversas do banco:", err));
-  }, [tenant]);
+  }, [tenant, currentOperatorId]);
 
   const rawConversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
   const conversations = rawConversations.filter((c) =>
@@ -1247,18 +1260,47 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
+
+    // Persistir no banco de dados via PATCH
+    fetch(`${BACKEND_URL}/api/chats`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId: id, unreadCount: 0 }),
+    }).catch((e) => {
+      console.error("[markAsRead] Falha ao atualizar unreadCount no servidor:", e);
+    });
   };
 
   const markAsUnread = (id: string) => {
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: Math.max(c.unreadCount, 1) } : c))
     );
+
+    // Persistir no banco de dados via PATCH
+    fetch(`${BACKEND_URL}/api/chats`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId: id, unreadCount: 1 }),
+    }).catch((e) => {
+      console.error("[markAsUnread] Falha ao atualizar unreadCount no servidor:", e);
+    });
   };
 
   const pinChat = (id: string) => {
-    setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, pinned: !(c as any).pinned } : c))
-    );
+    setConversations((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, pinned: !(c as any).pinned } : c));
+      
+      // Persistir no localStorage
+      const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
+      const nextPinnedIds = updated.filter((c) => (c as any).pinned).map((c) => c.id);
+      try {
+        localStorage.setItem(pinnedKey, JSON.stringify(nextPinnedIds));
+      } catch (e) {
+        console.error("Erro ao salvar pinned_chats no localStorage:", e);
+      }
+      
+      return updated;
+    });
   };
 
   const updateClientInfo = async (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => {
@@ -1491,10 +1533,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (exists) {
               return prev.map((c) => {
                 if (c.id === message.conversationId) {
+                  const isCurrentOpen = message.conversationId === selectedChatId;
+                  const newUnread = message.senderType === "client"
+                    ? (isCurrentOpen ? 0 : c.unreadCount + 1)
+                    : c.unreadCount;
+
+                  if (isCurrentOpen && message.senderType === "client") {
+                    // Marcar como lido no banco de dados de forma assíncrona
+                    fetch(`${BACKEND_URL}/api/chats`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ conversationId: c.id, unreadCount: 0 }),
+                    }).catch((e) => console.error("Erro ao marcar como lido via SSE:", e));
+                  }
+
                   return {
                     ...c,
                     lastMessageTime: timeStr,
-                    unreadCount: message.senderType === "client" ? c.unreadCount + 1 : c.unreadCount,
+                    unreadCount: newUnread,
                     messages: [...c.messages, incomingMsg],
                     phone: message.phone || c.phone,
                     avatar: message.avatar || c.avatar,
@@ -1513,6 +1569,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 .substring(0, 2);
               const initialsBg = "#a6d6f2";
               
+              const isCurrentOpen = message.conversationId === selectedChatId;
+              const newUnread = isCurrentOpen ? 0 : 1;
+
+              if (isCurrentOpen && message.senderType === "client") {
+                // Marcar como lido no banco de dados de forma assíncrona
+                fetch(`${BACKEND_URL}/api/chats`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ conversationId: message.conversationId, unreadCount: 0 }),
+                }).catch((e) => console.error("Erro ao marcar como lido via SSE para nova conversa:", e));
+              }
+
+              // Verificar se está fixada no localStorage
+              const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
+              let pinnedIds: string[] = [];
+              try {
+                const stored = localStorage.getItem(pinnedKey);
+                if (stored) pinnedIds = JSON.parse(stored);
+              } catch (e) {}
+              const isPinned = pinnedIds.includes(message.conversationId);
+
               const newConv: Conversation = {
                 id: message.conversationId,
                 name: message.senderName,
@@ -1524,10 +1601,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 channel: "whatsapp",
                 queue: message.queue || "fila",
                 operatorId: message.operatorId || null,
-                unreadCount: 1,
+                unreadCount: newUnread,
                 lastMessageTime: timeStr,
                 messages: [incomingMsg],
-              };
+                pinned: isPinned,
+              } as any;
               return [newConv, ...prev];
             }
           });

@@ -332,40 +332,40 @@ export function ChatList() {
                         setActiveView("chat");
                         markAsRead(c.id);
                       }}
-                      className={`flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition-colors duration-150 ${
+                      className={`flex w-full items-center gap-2 rounded-2xl p-2 text-left transition-colors duration-150 ${
                         isSelected ? "bg-muted" : "hover:bg-muted/50"
                       }`}
                     >
                       {/* Avatar with Channel Badge Overlay */}
                       <div className="relative shrink-0">
                         {c.avatar ? (
-                          <img src={c.avatar} alt={c.name} className="h-10 w-10 rounded-full object-cover border border-border" />
+                          <img src={c.avatar} alt={c.name} className="h-8 w-8 rounded-full object-cover border border-border" />
                         ) : (
                           <div
-                            className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground"
+                            className="grid h-8 w-8 place-items-center rounded-full text-[10px] font-bold text-foreground"
                             style={{ background: c.initialsBg || "#eee" }}
                           >
-                            {c.initials || <User className="h-4 w-4 text-muted-foreground" />}
+                            {c.initials || <User className="h-3 w-3 text-muted-foreground" />}
                           </div>
                         )}
 
                         {/* Channel Badge */}
-                        <span className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white shadow-soft ${
+                        <span className={`absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card text-white shadow-soft ${
                           c.channel === "whatsapp"
                             ? "bg-emerald-500"
                             : c.channel === "instagram"
                             ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
                             : "bg-blue-600"
                         }`}>
-                          {c.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
-                          {c.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
-                          {c.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
+                          {c.channel === "whatsapp" && <WhatsappLogo className="h-2 w-2" />}
+                          {c.channel === "instagram" && <InstagramLogo className="h-2 w-2" />}
+                          {c.channel === "messenger" && <MessengerLogo className="h-2 w-2" />}
                         </span>
 
                         {/* Pin indicator */}
                         {(c as any).pinned && (
-                          <span className="absolute -top-1 -left-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-primary text-primary-foreground">
-                            <Pin className="h-2 w-2" />
+                          <span className="absolute -top-0.5 -left-0.5 grid h-3 w-3 place-items-center rounded-full bg-primary text-primary-foreground">
+                            <Pin className="h-1.5 w-1.5" />
                           </span>
                         )}
                       </div>
@@ -377,9 +377,9 @@ export function ChatList() {
                           <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{(c as any).time || c.lastMessageTime}</span>
                         </div>
                         <div className="flex items-center justify-between mt-0.5">
-                          <p className="truncate text-[11px] text-muted-foreground pr-2 flex items-center gap-1">
+                          <p className="truncate text-[10px] text-muted-foreground pr-2 flex items-center gap-1">
                             {lastMsg?.isInternalNote && (
-                              <span className="text-amber-500 font-semibold">[Nota]</span>
+                              <span className="text-amber-500 font-semibold shrink-0">[Nota]</span>
                             )}
                             {msgIcon && <span>{msgIcon}</span>}
                             <span className="truncate">{msgLabel}</span>
