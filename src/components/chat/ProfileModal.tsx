@@ -1,3 +1,4 @@
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { X, Check, ShieldAlert, Camera, Eye, EyeOff, Plus } from "lucide-react";
@@ -206,14 +207,18 @@ export function ProfileModal() {
                 </button>
               ))}
               
-              <button
-                type="button"
-                onClick={handleAvatarClick}
-                className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-border bg-muted hover:bg-border transition cursor-pointer text-muted-foreground hover:text-foreground"
-                title="Subir do Computador"
-              >
-                <Plus className="h-4.5 w-4.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleAvatarClick}
+                    className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-border bg-muted hover:bg-border transition cursor-pointer text-muted-foreground hover:text-foreground"
+                  >
+                    <Plus className="h-4.5 w-4.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Subir do Computador</TooltipContent>
+              </Tooltip>
             </div>
           </div>
 

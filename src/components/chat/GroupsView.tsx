@@ -1,3 +1,4 @@
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
@@ -136,31 +137,43 @@ function OperatorWalletCard({ op }: OperatorWalletCardProps) {
                     {/* Botões de Ação — visíveis no hover */}
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                       {/* 1. Abrir Conversa */}
-                      <button
-                        onClick={() => handleOpenChat(client)}
-                        className="grid h-7 w-7 place-items-center rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition cursor-pointer border-0"
-                        title="Abrir conversa"
-                      >
-                        <MessageSquare className="h-3.5 w-3.5" />
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => handleOpenChat(client)}
+                            className="grid h-7 w-7 place-items-center rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition cursor-pointer border-0"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Abrir conversa</TooltipContent>
+                      </Tooltip>
 
                       {/* 2. Transferir de Carteira */}
-                      <button
-                        onClick={() => setTransferTarget(client)}
-                        className="grid h-7 w-7 place-items-center rounded-lg hover:bg-amber-500/10 text-muted-foreground hover:text-amber-500 transition cursor-pointer border-0"
-                        title="Transferir para outra carteira"
-                      >
-                        <ArrowLeftRight className="h-3.5 w-3.5" />
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => setTransferTarget(client)}
+                            className="grid h-7 w-7 place-items-center rounded-lg hover:bg-amber-500/10 text-muted-foreground hover:text-amber-500 transition cursor-pointer border-0"
+                          >
+                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Transferir para outra carteira</TooltipContent>
+                      </Tooltip>
 
                       {/* 3. Remover da Carteira */}
-                      <button
-                        onClick={() => updateContactWallet(client.contactId || client.id, null, null)}
-                        className="grid h-7 w-7 place-items-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition cursor-pointer border-0"
-                        title="Remover da carteira"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => updateContactWallet(client.contactId || client.id, null, null)}
+                            className="grid h-7 w-7 place-items-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition cursor-pointer border-0"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Remover da carteira</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 );
@@ -225,13 +238,17 @@ function OperatorWalletCard({ op }: OperatorWalletCardProps) {
                 </div>
               )}
             </div>
-            <button
-              onClick={handleAdd}
-              className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0 border-0"
-              title="Vincular à carteira"
-            >
-              <Plus className="h-4.5 w-4.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleAdd}
+                  className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0 border-0"
+                >
+                  <Plus className="h-4.5 w-4.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Vincular à carteira</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -854,13 +871,17 @@ export function GroupsView() {
                       <ChevronDown className="h-4 w-4" />
                     </span>
                   </div>
-                  <button
-                    type="submit"
-                    className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0"
-                    title="Confirmar Cadastro"
-                  >
-                    <Check className="h-5 w-5" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="submit"
+                        className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0"
+                      >
+                        <Check className="h-5 w-5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Confirmar Cadastro</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             </form>
@@ -928,20 +949,24 @@ export function GroupsView() {
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div 
-                      onClick={() => handleAvatarClick(op.id)} 
-                      className="relative group cursor-pointer h-12 w-12 shrink-0 rounded-full overflow-hidden border border-border shadow-xs"
-                      title="Alterar Foto do Operador"
-                    >
-                      <img
-                        src={op.avatar || "https://i.pravatar.cc/80"}
-                        alt={op.name}
-                        className="h-full w-full object-cover border-0"
-                      />
-                      <div className="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Camera className="h-4 w-4 text-white animate-in zoom-in-75 duration-100" />
-                      </div>
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div 
+                          onClick={() => handleAvatarClick(op.id)} 
+                          className="relative group cursor-pointer h-12 w-12 shrink-0 rounded-full overflow-hidden border border-border shadow-xs"
+                        >
+                          <img
+                            src={op.avatar || "https://i.pravatar.cc/80"}
+                            alt={op.name}
+                            className="h-full w-full object-cover border-0"
+                          />
+                          <div className="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Camera className="h-4 w-4 text-white animate-in zoom-in-75 duration-100" />
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Alterar Foto do Operador</TooltipContent>
+                    </Tooltip>
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-sm text-foreground">{op.name}</span>
@@ -980,17 +1005,21 @@ export function GroupsView() {
 
                   {/* Actions Buttons */}
                   <div className="flex items-center gap-1.5 self-end sm:self-auto pt-2 sm:pt-0">
-                    <button
-                      onClick={() => {
-                        setResetOpId(op.id);
-                        setNewPassword("");
-                        setShowPassword(false);
-                      }}
-                      className="grid h-8 w-8 place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
-                      title="Redefinir Senha"
-                    >
-                      <Key className="h-4 w-4" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => {
+                            setResetOpId(op.id);
+                            setNewPassword("");
+                            setShowPassword(false);
+                          }}
+                          className="grid h-8 w-8 place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                        >
+                          <Key className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Redefinir Senha</TooltipContent>
+                    </Tooltip>
                     
                     <button
                       disabled={isMe}
@@ -1024,13 +1053,17 @@ export function GroupsView() {
                 <h3 className="text-base font-extrabold text-foreground">Grupos Ativos</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">Clique em um grupo para editar permissões.</p>
               </div>
-              <button
-                onClick={() => setShowGroupForm(!showGroupForm)}
-                className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer transition-transform duration-100 active:scale-95"
-                title="Novo Grupo"
-              >
-                {showGroupForm ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowGroupForm(!showGroupForm)}
+                    className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer transition-transform duration-100 active:scale-95"
+                  >
+                    {showGroupForm ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Novo Grupo</TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Create Group Form */}
@@ -1485,13 +1518,17 @@ export function GroupsView() {
                 <h3 className="text-base font-extrabold text-foreground">Setores Ativos</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">Clique em um setor para gerenciar membros.</p>
               </div>
-              <button
-                onClick={() => setShowSectorForm(!showSectorForm)}
-                className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer transition-transform duration-100 active:scale-95 animate-in fade-in"
-                title="Novo Setor"
-              >
-                {showSectorForm ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowSectorForm(!showSectorForm)}
+                    className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer transition-transform duration-100 active:scale-95 animate-in fade-in"
+                  >
+                    {showSectorForm ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Novo Setor</TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Create Sector Form */}
@@ -1553,17 +1590,21 @@ export function GroupsView() {
                       </div>
                     </div>
                     
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteSector(s.id);
-                        setSelectedSectorId(sectors.find(sec => sec.id !== s.id)?.id || "");
-                      }}
-                      className="h-7 w-7 grid place-items-center rounded hover:bg-red-50 text-red-500 transition cursor-pointer"
-                      title="Excluir Setor"
-                    >
-                      <Trash className="h-3.5 w-3.5" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSector(s.id);
+                            setSelectedSectorId(sectors.find(sec => sec.id !== s.id)?.id || "");
+                          }}
+                          className="h-7 w-7 grid place-items-center rounded hover:bg-red-50 text-red-500 transition cursor-pointer"
+                        >
+                          <Trash className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Excluir Setor</TooltipContent>
+                    </Tooltip>
                   </button>
                 );
               })}
@@ -1697,20 +1738,28 @@ export function GroupsView() {
                   </div>
 
                   <div className="flex items-center justify-end gap-2 border-t border-line mt-3 pt-2">
-                    <button
-                      onClick={() => handleOpenEditQrModal(qr)}
-                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer"
-                      title="Editar"
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => qr.id && handleDeleteQr(qr.id)}
-                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition cursor-pointer"
-                      title="Excluir"
-                    >
-                      <Trash className="h-3.5 w-3.5" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => handleOpenEditQrModal(qr)}
+                          className="rounded-lg p-1.5 text-muted-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Editar</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => qr.id && handleDeleteQr(qr.id)}
+                          className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition cursor-pointer"
+                        >
+                          <Trash className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Excluir</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               ))}

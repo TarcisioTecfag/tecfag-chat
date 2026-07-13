@@ -1,3 +1,4 @@
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
@@ -420,20 +421,28 @@ export function WalletView() {
                         </p>
                       </div>
                       <div className="mt-4 flex items-center justify-end gap-2 border-t border-line pt-3">
-                        <button
-                          onClick={() => handleOpenEditModal(tpl)}
-                          className="rounded-lg p-1.5 text-muted-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer"
-                          title="Editar"
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTemplate(tpl.id)}
-                          className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition cursor-pointer"
-                          title="Excluir"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => handleOpenEditModal(tpl)}
+                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Editar</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => handleDeleteTemplate(tpl.id)}
+                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition cursor-pointer"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Excluir</TooltipContent>
+                        </Tooltip>
                       </div>
                     </div>
                   ))}
@@ -507,24 +516,32 @@ export function WalletView() {
                   Tags Dinâmicas (Clique para inserir)
                 </span>
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleInsertTag("<<1>>")}
-                    className="flex flex-col items-center justify-center gap-1 bg-card hover:bg-muted border border-border/80 hover:border-primary/20 rounded-xl p-2 transition cursor-pointer text-center group active:scale-95"
-                    title="Inserir Nome do Vendedor"
-                  >
-                    <code className="text-primary font-bold font-mono px-1.5 py-0.5 bg-primary-soft rounded text-[10px] group-hover:bg-primary group-hover:text-primary-foreground transition">{"<<1>>"}</code>
-                    <span className="text-[9px] text-muted-foreground font-medium">Nome do Vendedor</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleInsertTag("<<2>>")}
-                    className="flex flex-col items-center justify-center gap-1 bg-card hover:bg-muted border border-border/80 hover:border-primary/20 rounded-xl p-2 transition cursor-pointer text-center group active:scale-95"
-                    title="Inserir Nome do Cliente"
-                  >
-                    <code className="text-primary font-bold font-mono px-1.5 py-0.5 bg-primary-soft rounded text-[10px] group-hover:bg-primary group-hover:text-primary-foreground transition">{"<<2>>"}</code>
-                    <span className="text-[9px] text-muted-foreground font-medium">Nome do Cliente</span>
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTag("<<1>>")}
+                        className="flex flex-col items-center justify-center gap-1 bg-card hover:bg-muted border border-border/80 hover:border-primary/20 rounded-xl p-2 transition cursor-pointer text-center group active:scale-95"
+                      >
+                        <code className="text-primary font-bold font-mono px-1.5 py-0.5 bg-primary-soft rounded text-[10px] group-hover:bg-primary group-hover:text-primary-foreground transition">{"<<1>>"}</code>
+                        <span className="text-[9px] text-muted-foreground font-medium">Nome do Vendedor</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Inserir Nome do Vendedor</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTag("<<2>>")}
+                        className="flex flex-col items-center justify-center gap-1 bg-card hover:bg-muted border border-border/80 hover:border-primary/20 rounded-xl p-2 transition cursor-pointer text-center group active:scale-95"
+                      >
+                        <code className="text-primary font-bold font-mono px-1.5 py-0.5 bg-primary-soft rounded text-[10px] group-hover:bg-primary group-hover:text-primary-foreground transition">{"<<2>>"}</code>
+                        <span className="text-[9px] text-muted-foreground font-medium">Nome do Cliente</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Inserir Nome do Cliente</TooltipContent>
+                  </Tooltip>
                 </div>
                 <p className="text-[9px] text-muted-foreground/80 mt-2 leading-relaxed text-center">
                   * No envio do chat, as tags são trocadas pelos nomes reais correspondentes.

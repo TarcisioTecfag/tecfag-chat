@@ -1,3 +1,4 @@
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
@@ -298,13 +299,17 @@ export function SharedFiles() {
         <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
           Painel de Informações
         </span>
-        <button
-          onClick={() => setRightSidebarOpen(false)}
-          className="grid h-6 w-6 place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
-          title="Minimizar Painel"
-        >
-          <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setRightSidebarOpen(false)}
+              className="grid h-6 w-6 place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+            >
+              <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">Minimizar Painel</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Header Tabs (3 segments for Details, Shared Files and Channel Integration) */}
@@ -399,13 +404,17 @@ export function SharedFiles() {
             ) : (
               <div className="relative w-full flex justify-center items-center mt-3 group px-8">
                 <h3 className="text-base font-bold text-foreground">{activeChat.name}</h3>
-                <button
-                  onClick={startEditing}
-                  className="absolute right-6 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground transition duration-150 cursor-pointer"
-                  title="Editar dados do contato"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={startEditing}
+                      className="absolute right-6 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground transition duration-150 cursor-pointer"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Editar dados do contato</TooltipContent>
+                </Tooltip>
               </div>
             )}
 

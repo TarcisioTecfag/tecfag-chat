@@ -1,3 +1,4 @@
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useEffect, useCallback } from "react";
 import { useChat } from "@/hooks/useChatState";
 import {
@@ -997,14 +998,18 @@ export function MonitorView() {
           </h1>
           <p className="text-[11px] text-muted-foreground capitalize mt-0.5">{today}</p>
         </div>
-        <button
-          onClick={fetchData}
-          title="Atualizar agora"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          {lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={fetchData}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">Atualizar agora</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Internal Tab Bar */}
