@@ -1573,9 +1573,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             }
 
+            const isTecfag = tenantRef.current === "tecfag";
+            const primaryColor = isTecfag ? "#df3d3d" : "#2dc4a0";
+            const primarySoftBg = isTecfag ? "#fde8e8" : "#d8f1ea";
+
             toast.custom(
               (t) => (
-                <div className="flex items-center gap-3 w-[340px] bg-card border border-border rounded-2xl p-3 shadow-lg animate-in slide-in-from-bottom-5 duration-200">
+                <div 
+                  className="flex items-center gap-3 w-[340px] bg-card border border-border rounded-2xl p-3 shadow-lg animate-in slide-in-from-bottom-5 duration-200 border-l-4"
+                  style={{ borderLeftColor: primaryColor }}
+                >
                   {/* Client Avatar */}
                   <div className="relative shrink-0">
                     {clientAvatar ? (
@@ -1585,7 +1592,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         className="h-10 w-10 rounded-full object-cover border border-border"
                       />
                     ) : (
-                      <div className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground bg-primary-soft/50 border border-primary/10">
+                      <div 
+                        className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold border"
+                        style={{
+                          backgroundColor: primarySoftBg,
+                          borderColor: `${primaryColor}20`,
+                          color: primaryColor
+                        }}
+                      >
                         {initials}
                       </div>
                     )}
@@ -1607,7 +1621,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         markAsRead(message.conversationId);
                         toast.dismiss(t);
                       }}
-                      className="px-2.5 py-1.5 rounded-lg bg-primary hover:bg-primary/95 text-white text-[10px] font-bold transition duration-155 cursor-pointer shadow-sm"
+                      className="px-2.5 py-1.5 rounded-lg text-white text-[10px] font-bold transition duration-155 cursor-pointer shadow-sm hover:opacity-90"
+                      style={{ backgroundColor: primaryColor }}
                     >
                       Abrir
                     </button>
