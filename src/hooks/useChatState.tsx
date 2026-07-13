@@ -121,7 +121,7 @@ type ChatContextType = {
   logSystemEvent: (chatId: string, eventText: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => void;
   updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => void;
-  updateContactWallet: (contactId: string, walletOperatorId: string | null) => Promise<void>;
+  updateContactWallet: (contactId: string, walletOperatorId: string | null, targetOperatorId?: string | null) => Promise<void>;
   createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => string;
   markAsRead: (id: string) => void;
   markAsUnread: (id: string) => void;
@@ -1358,17 +1358,62 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateContactWallet = async (contactId: string, walletOperatorId: string | null) => {
-    // 1. Atualiza estado local imediatamente (optimistic update)
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.contactId === contactId || c.id === contactId
-          ? { ...c, walletOperatorId }
-          : c
-      )
+  const updateContactWallet = async (
+    contactId: string,
+    walletOperatorId: string | null,
+    targetOperatorId?: string | null,
+  ) => {
+    // 1. Identifica a conversa ativa do contato (não finalizada) antes de alterar o estado
+    const activeConversation = conversations.find(
+      (c) =>
+        (c.contactId === contactId || c.id === contactId) &&
+        c.queue !== "finalizados"
     );
 
-    // 2. Persiste no banco de dados
+    // Determina o novo estado da fila com base no operador-alvo
+    const targetOp = targetOperatorId
+      ? operators.find((o) => o.id === targetOperatorId)
+      : null;
+    const newQueueState = targetOp ? "meus" : walletOperatorId ? "fila" : "fila";
+    const logText = targetOp
+      ? `Carteira transferida para ${targetOp.name}. Atendimento movido automaticamente.`
+      : walletOperatorId
+      ? `Cliente adicionado à carteira.`
+      : `Cliente removido da carteira. Atendimento retornou para a fila.`;
+
+    // 2. Optimistic update: carteira + conversa ativa (se existir)
+    setConversations((prev) =>
+      prev.map((c) => {
+        const isContact = c.contactId === contactId || c.id === contactId;
+        if (!isContact) return c;
+
+        const isActive = c.queue !== "finalizados";
+        if (isActive && activeConversation && c.id === activeConversation.id) {
+          const systemMsg: Message = {
+            id: `sys-${Date.now()}`,
+            author: "Sistema",
+            text: logText,
+            time: new Date().toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            side: "out",
+            isInternalNote: true,
+          };
+          return {
+            ...c,
+            walletOperatorId,
+            operatorId: targetOperatorId !== undefined ? targetOperatorId : c.operatorId,
+            queue: newQueueState,
+            messages: [...c.messages, systemMsg],
+          };
+        }
+
+        return { ...c, walletOperatorId };
+      })
+    );
+
+    // 3. Persiste carteira no banco de dados
     try {
       const res = await fetch(`${BACKEND_URL}/api/contacts/update-wallet`, {
         method: "POST",
@@ -1377,9 +1422,37 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       if (!res.ok) {
         console.error("[updateContactWallet] Erro ao persistir no DB");
+        // Rollback do estado local
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.contactId === contactId || c.id === contactId
+              ? { ...c, walletOperatorId: activeConversation?.walletOperatorId ?? null }
+              : c
+          )
+        );
+        return;
       }
     } catch (err) {
       console.error("[updateContactWallet] Erro na requisição:", err);
+      return;
+    }
+
+    // 4. Se há conversa ativa e um operador-alvo, sincroniza o atendimento via update-queue
+    if (activeConversation && targetOperatorId !== undefined) {
+      try {
+        await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: activeConversation.id,
+            queueState: newQueueState,
+            operatorId: targetOperatorId,
+            systemMessageText: logText,
+          }),
+        });
+      } catch (err) {
+        console.error("[updateContactWallet] Erro ao sincronizar atendimento:", err);
+      }
     }
   };
 

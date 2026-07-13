@@ -1,19 +1,29 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
 
 interface OperatorWalletCardProps {
   op: Operator;
-  conversations: any[];
-  operators: Operator[];
-  updateContactWallet: (contactId: string, walletOperatorId: string | null) => Promise<void>;
 }
 
-function OperatorWalletCard({ op, conversations, operators, updateContactWallet }: OperatorWalletCardProps) {
+function OperatorWalletCard({ op }: OperatorWalletCardProps) {
+  const {
+    conversations,
+    operators,
+    updateContactWallet,
+    setSelectedChatId,
+    setActiveView,
+    setActiveQueue,
+  } = useChat();
+
+  // Dropdown de busca para adicionar cliente
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Modal de transferência de carteira (portal)
+  const [transferTarget, setTransferTarget] = useState<any | null>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -27,6 +37,7 @@ function OperatorWalletCard({ op, conversations, operators, updateContactWallet 
 
   const opClients = conversations.filter(c => c.walletOperatorId === op.id);
   const availableClients = conversations.filter(c => c.walletOperatorId !== op.id);
+  const otherOperators = operators.filter(o => o.id !== op.id);
 
   const filteredClients = availableClients.filter(c => {
     const searchLower = search.toLowerCase();
@@ -51,113 +62,245 @@ function OperatorWalletCard({ op, conversations, operators, updateContactWallet 
     }
   };
 
+  // Abre a conversa ativa do cliente no módulo de chat
+  const handleOpenChat = (client: any) => {
+    const activeConv = conversations.find(
+      (c) =>
+        (c.contactId === client.contactId || c.id === client.id) &&
+        c.queue !== "finalizados"
+    );
+    if (!activeConv) {
+      toast.info("Este cliente não possui atendimento ativo no momento.");
+      return;
+    }
+    setActiveQueue(activeConv.queue);
+    setSelectedChatId(activeConv.id);
+    setActiveView("chat");
+  };
+
+  // Confirma a transferência de carteira (e atendimento ativo) para outro operador
+  const handleConfirmTransfer = async (client: any, targetOp: Operator) => {
+    setTransferTarget(null);
+    const contactId = client.contactId || client.id;
+    await updateContactWallet(contactId, targetOp.id, targetOp.id);
+    toast.success(`${client.name} transferido(a) para a carteira de ${targetOp.name}.`);
+  };
+
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between min-h-[320px] relative">
-      <div>
-        {/* Cabecalho do Operador */}
-        <div className="flex items-center gap-3 border-b border-line pb-3 mb-4">
-          <img
-            src={op.avatar || "https://i.pravatar.cc/80"}
-            alt={op.name}
-            className="h-10 w-10 rounded-full object-cover border border-border shadow-xs"
-          />
-          <div>
-            <h4 className="font-bold text-sm text-foreground">{op.name}</h4>
-            <span className="text-[10px] text-muted-foreground block">{op.email}</span>
+    <>
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between min-h-[320px] relative">
+        <div>
+          {/* Cabecalho do Operador */}
+          <div className="flex items-center gap-3 border-b border-line pb-3 mb-4">
+            <img
+              src={op.avatar || "https://i.pravatar.cc/80"}
+              alt={op.name}
+              className="h-10 w-10 rounded-full object-cover border border-border shadow-xs"
+            />
+            <div>
+              <h4 className="font-bold text-sm text-foreground">{op.name}</h4>
+              <span className="text-[10px] text-muted-foreground block">{op.email}</span>
+            </div>
+          </div>
+
+          {/* Lista de Clientes da Carteira */}
+          <div className="space-y-2 max-h-[160px] overflow-y-auto scrollbar-thin pr-1 mb-4">
+            <span className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1">
+              Clientes na Carteira ({opClients.length})
+            </span>
+            {opClients.length > 0 ? (
+              opClients.map((client) => {
+                const hasActive = conversations.some(
+                  (c) =>
+                    (c.contactId === client.contactId || c.id === client.id) &&
+                    c.queue !== "finalizados"
+                );
+                return (
+                  <div
+                    key={client.id}
+                    className="group flex items-center justify-between gap-2 bg-muted/40 hover:bg-muted/70 rounded-xl px-3 py-2 border border-border/40 transition"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-bold text-foreground block truncate">{client.name}</span>
+                      <span className="text-[10px] text-muted-foreground block truncate">
+                        {client.phone || "Sem telefone"}
+                        {hasActive && (
+                          <span className="ml-1.5 inline-flex items-center gap-0.5 text-emerald-500">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                            ativo
+                          </span>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* Botões de Ação — visíveis no hover */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      {/* 1. Abrir Conversa */}
+                      <button
+                        onClick={() => handleOpenChat(client)}
+                        className="grid h-7 w-7 place-items-center rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition cursor-pointer border-0"
+                        title="Abrir conversa"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                      </button>
+
+                      {/* 2. Transferir de Carteira */}
+                      <button
+                        onClick={() => setTransferTarget(client)}
+                        className="grid h-7 w-7 place-items-center rounded-lg hover:bg-amber-500/10 text-muted-foreground hover:text-amber-500 transition cursor-pointer border-0"
+                        title="Transferir para outra carteira"
+                      >
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
+                      </button>
+
+                      {/* 3. Remover da Carteira */}
+                      <button
+                        onClick={() => updateContactWallet(client.contactId || client.id, null, null)}
+                        className="grid h-7 w-7 place-items-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition cursor-pointer border-0"
+                        title="Remover da carteira"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-6 text-xs text-muted-foreground italic">
+                Nenhum cliente associado a esta carteira.
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Lista de Clientes da Carteira */}
-        <div className="space-y-2 max-h-[160px] overflow-y-auto scrollbar-thin pr-1 mb-4">
-          <span className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1">
-            Clientes na Carteira ({opClients.length})
+        {/* Form para Adicionar Cliente à Carteira (Searchable Dropdown) */}
+        <div className="border-t border-line pt-3 mt-auto relative" ref={dropdownRef}>
+          <span className="text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1.5">
+            Adicionar Cliente
           </span>
-          {opClients.length > 0 ? (
-            opClients.map((client) => (
-              <div key={client.id} className="flex items-center justify-between gap-3 bg-muted/40 hover:bg-muted/80 rounded-xl px-3 py-2 border border-border/40 transition">
-                <div className="min-w-0">
-                  <span className="text-xs font-bold text-foreground block truncate">{client.name}</span>
-                  <span className="text-[10px] text-muted-foreground block truncate">{client.phone || "Sem telefone"}</span>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setSelectedClientId(null);
+                    setIsOpen(true);
+                  }}
+                  onFocus={() => setIsOpen(true)}
+                  placeholder="Buscar por nome ou telefone..."
+                  className="h-9 w-full rounded-xl bg-muted pl-3 pr-10 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary border border-transparent transition"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                  <Search className="h-3.5 w-3.5" />
+                </span>
+              </div>
+
+              {isOpen && (
+                <div className="absolute left-0 right-0 bottom-full mb-1 z-35 max-h-[180px] overflow-y-auto rounded-xl bg-card border border-border shadow-card py-1.5 scrollbar-thin animate-in fade-in slide-in-from-bottom-2 duration-150">
+                  {filteredClients.length > 0 ? (
+                    filteredClients.map((c) => {
+                      const owner = c.walletOperatorId ? operators.find(o => o.id === c.walletOperatorId) : null;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => handleSelectClient(c)}
+                          className="flex w-full flex-col text-left px-3.5 py-2 hover:bg-muted/80 transition cursor-pointer border-0"
+                        >
+                          <span className="text-xs font-bold text-foreground block truncate">{c.name}</span>
+                          <span className="text-[10px] text-muted-foreground block truncate">
+                            {c.phone || "Sem tel"} {owner ? `• Carteira de: ${owner.name}` : ""}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-3.5 py-3 text-center text-xs text-muted-foreground italic">
+                      Nenhum cliente disponível
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleAdd}
+              className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0 border-0"
+              title="Vincular à carteira"
+            >
+              <Plus className="h-4.5 w-4.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal de Transferência de Carteira — renderizado via portal para não ser cortado pelo overflow */}
+      {transferTarget &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[300] flex items-center justify-center bg-background/70 backdrop-blur-sm p-4"
+            onClick={() => setTransferTarget(null)}
+          >
+            <div
+              className="w-full max-w-sm rounded-3xl bg-card border border-border p-6 shadow-card animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-extrabold text-foreground">Transferir Carteira</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Mover <span className="font-bold text-foreground">{transferTarget.name}</span> para:
+                  </p>
                 </div>
                 <button
-                  onClick={() => updateContactWallet(client.contactId || client.id, null)}
-                  className="grid h-7 w-7 place-items-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition cursor-pointer border-0"
-                  title="Remover da carteira"
+                  onClick={() => setTransferTarget(null)}
+                  className="grid h-8 w-8 place-items-center rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer border-0"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
-            ))
-          ) : (
-            <div className="text-center py-6 text-xs text-muted-foreground italic">
-              Nenhum cliente associado a esta carteira.
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* Form para Adicionar Cliente à Carteira (Searchable Dropdown) */}
-      <div className="border-t border-line pt-3 mt-auto relative" ref={dropdownRef}>
-        <span className="text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1.5">
-          Adicionar Cliente
-        </span>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setSelectedClientId(null);
-                  setIsOpen(true);
-                }}
-                onFocus={() => setIsOpen(true)}
-                placeholder="Buscar por nome ou telefone..."
-                className="h-9 w-full rounded-xl bg-muted pl-3 pr-10 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary border border-transparent transition"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-                <Search className="h-3.5 w-3.5" />
-              </span>
-            </div>
-
-            {isOpen && (
-              <div className="absolute left-0 right-0 bottom-full mb-1 z-35 max-h-[180px] overflow-y-auto rounded-xl bg-card border border-border shadow-card py-1.5 scrollbar-thin animate-in fade-in slide-in-from-bottom-2 duration-150">
-                {filteredClients.length > 0 ? (
-                  filteredClients.map((c) => {
-                    const owner = c.walletOperatorId ? operators.find(o => o.id === c.walletOperatorId) : null;
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => handleSelectClient(c)}
-                        className="flex w-full flex-col text-left px-3.5 py-2 hover:bg-muted/80 transition cursor-pointer border-0"
-                      >
-                        <span className="text-xs font-bold text-foreground block truncate">{c.name}</span>
-                        <span className="text-[10px] text-muted-foreground block truncate">
-                          {c.phone || "Sem tel"} {owner ? `• Carteira de: ${owner.name}` : ""}
+              {/* Lista de operadores destino */}
+              <div className="space-y-2 max-h-[260px] overflow-y-auto scrollbar-thin">
+                {otherOperators.length > 0 ? (
+                  otherOperators.map((targetOp) => (
+                    <button
+                      key={targetOp.id}
+                      onClick={() => handleConfirmTransfer(transferTarget, targetOp)}
+                      className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-muted/40 hover:bg-primary/10 border border-border/40 hover:border-primary/30 transition cursor-pointer text-left group"
+                    >
+                      <img
+                        src={targetOp.avatar || "https://i.pravatar.cc/40"}
+                        alt={targetOp.name}
+                        className="h-8 w-8 rounded-full object-cover border border-border shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <span className="text-xs font-bold text-foreground block truncate group-hover:text-primary transition">
+                          {targetOp.name}
                         </span>
-                      </button>
-                    );
-                  })
+                        <span className="text-[10px] text-muted-foreground block truncate">{targetOp.email}</span>
+                      </div>
+                      <ArrowLeftRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition ml-auto shrink-0" />
+                    </button>
+                  ))
                 ) : (
-                  <div className="px-3.5 py-3 text-center text-xs text-muted-foreground italic">
-                    Nenhum cliente disponível
-                  </div>
+                  <p className="text-center text-xs text-muted-foreground italic py-4">
+                    Nenhum outro operador disponível.
+                  </p>
                 )}
               </div>
-            )}
-          </div>
-          <button
-            onClick={handleAdd}
-            className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0 border-0"
-            title="Vincular à carteira"
-          >
-            <Plus className="h-4.5 w-4.5" />
-          </button>
-        </div>
-      </div>
-    </div>
+
+              <p className="text-[10px] text-muted-foreground mt-4 text-center">
+                Se houver atendimento ativo, ele será movido automaticamente.
+              </p>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 import { 
@@ -184,7 +327,9 @@ import {
   Wallet,
   LayoutTemplate,
   X,
-  Search
+  Search,
+  MessageSquare,
+  ArrowLeftRight
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -257,13 +402,13 @@ export function GroupsView() {
       createQuickResponse({
         shortcut: qrForm.shortcut,
         text: qrForm.text,
-        description: qrForm.description || null
+        description: qrForm.description || ""
       });
     } else if (qrModalMode === "edit" && editingQr) {
       updateQuickResponse(editingQr.id, {
         shortcut: qrForm.shortcut,
         text: qrForm.text,
-        description: qrForm.description || null
+        description: qrForm.description || ""
       });
       toast.success("Resposta rápida atualizada!");
     }
@@ -1408,9 +1553,6 @@ export function GroupsView() {
               <OperatorWalletCard
                 key={op.id}
                 op={op}
-                conversations={conversations}
-                operators={operators}
-                updateContactWallet={updateContactWallet}
               />
             ))}
           </div>
@@ -1461,7 +1603,7 @@ export function GroupsView() {
                       <Edit className="h-3.5 w-3.5" />
                     </button>
                     <button
-                      onClick={() => handleDeleteQr(qr.id)}
+                      onClick={() => qr.id && handleDeleteQr(qr.id)}
                       className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition cursor-pointer"
                       title="Excluir"
                     >
