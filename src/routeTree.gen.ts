@@ -22,6 +22,7 @@ import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
+import { Route as ApiGestaoTasksRouteImport } from './routes/api/gestao/tasks'
 import { Route as ApiGestaoReportsRouteImport } from './routes/api/gestao/reports'
 import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
 import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
@@ -102,6 +103,11 @@ const ApiSettingsReportsRoute = ApiSettingsReportsRouteImport.update({
 const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
   id: '/api/settings/rd-crm',
   path: '/api/settings/rd-crm',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoTasksRoute = ApiGestaoTasksRouteImport.update({
+  id: '/api/gestao/tasks',
+  path: '/api/gestao/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGestaoReportsRoute = ApiGestaoReportsRouteImport.update({
@@ -213,6 +219,7 @@ export interface FileRoutesByFullPath {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -244,6 +251,7 @@ export interface FileRoutesByTo {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -276,6 +284,7 @@ export interface FileRoutesById {
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -309,6 +318,7 @@ export interface FileRouteTypes {
     | '/api/gestao/health'
     | '/api/gestao/overview'
     | '/api/gestao/reports'
+    | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/rd-crm/callback'
@@ -340,6 +350,7 @@ export interface FileRouteTypes {
     | '/api/gestao/health'
     | '/api/gestao/overview'
     | '/api/gestao/reports'
+    | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/rd-crm/callback'
@@ -371,6 +382,7 @@ export interface FileRouteTypes {
     | '/api/gestao/health'
     | '/api/gestao/overview'
     | '/api/gestao/reports'
+    | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/rd-crm/callback'
@@ -400,6 +412,7 @@ export interface RootRouteChildren {
   ApiGestaoHealthRoute: typeof ApiGestaoHealthRoute
   ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
   ApiGestaoReportsRoute: typeof ApiGestaoReportsRoute
+  ApiGestaoTasksRoute: typeof ApiGestaoTasksRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
 }
@@ -495,6 +508,13 @@ declare module '@tanstack/react-router' {
       path: '/api/settings/rd-crm'
       fullPath: '/api/settings/rd-crm'
       preLoaderRoute: typeof ApiSettingsRdCrmRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/tasks': {
+      id: '/api/gestao/tasks'
+      path: '/api/gestao/tasks'
+      fullPath: '/api/gestao/tasks'
+      preLoaderRoute: typeof ApiGestaoTasksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/gestao/reports': {
@@ -673,6 +693,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoHealthRoute: ApiGestaoHealthRoute,
   ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
   ApiGestaoReportsRoute: ApiGestaoReportsRoute,
+  ApiGestaoTasksRoute: ApiGestaoTasksRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
 }

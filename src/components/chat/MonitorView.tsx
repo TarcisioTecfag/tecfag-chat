@@ -5,7 +5,9 @@ import {
   Eye, AlertTriangle, Clock, Users, TrendingUp, TrendingDown,
   RefreshCw, ChevronRight, Minus, CheckCircle, XCircle,
   MessageSquare, BarChart2, Bell, Zap, FlaskConical,
-  Activity, Search,
+  Activity, Search, ClipboardCheck, ChevronLeft, Phone,
+  Mail, Calendar, CheckCircle2, Circle, ExternalLink,
+  Loader2, X, Filter
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, MOCK_LIVE, LiveOperator, LiveConversation } from "@/lib/monitor-mock-data";
@@ -29,7 +31,7 @@ import {
 const DEMO_MODE = true;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
-type MonitorTab = "overview" | "live" | "alerts" | "operators" | "audits";
+type MonitorTab = "overview" | "live" | "alerts" | "operators" | "audits" | "tasks";
 
 type OverviewData = {
   today: string;
@@ -920,6 +922,793 @@ function PlaceholderTab({ icon: Icon, title, description }: {
   );
 }
 
+// ── GlobalTasksTab ───────────────────────────────────────────────────────────
+
+interface GlobalTaskData {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  dueDate: string | null;
+  description: string | null;
+  createdAt: string | null;
+  deal: { id: string; name: string | null } | null;
+  client: { name: string | null; phone: string | null };
+  chatContactId: string | null;
+  chatConversationId: string | null;
+  operatorEmail: string | null;
+  operatorName: string;
+  operatorAvatar: string | null;
+}
+
+const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const MONTHS = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+function getDaysInMonth(year: number, month: number): Date[] {
+  const days: Date[] = [];
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+
+  // Preencher dias anteriores
+  const startDay = firstDay.getDay();
+  for (let i = startDay - 1; i >= 0; i--) {
+    days.push(new Date(year, month, -i));
+  }
+
+  // Dias do mês
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    days.push(new Date(year, month, d));
+  }
+
+  // Preencher dias seguintes
+  const remaining = 42 - days.length;
+  for (let i = 1; i <= remaining; i++) {
+    days.push(new Date(year, month + 1, i));
+  }
+
+  return days;
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function getTaskTypeIcon(type: string) {
+  switch (type) {
+    case "call": return <Phone className="h-3.5 w-3.5" />;
+    case "email": return <Mail className="h-3.5 w-3.5" />;
+    case "meeting": return <Users className="h-3.5 w-3.5" />;
+    case "whatsapp": return <MessageSquare className="h-3.5 w-3.5" />;
+    default: return <ClipboardCheck className="h-3.5 w-3.5" />;
+  }
+}
+
+function getTaskTypeColor(type: string): string {
+  switch (type) {
+    case "whatsapp": return "#128c7e";
+    default: return "var(--primary)";
+  }
+}
+
+function formatTime(dateStr: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatPhone(phone: string | null): string {
+  if (!phone) return "—";
+  const clean = phone.replace(/\D/g, "");
+  if (clean.length === 13) return `+${clean.slice(0, 2)} (${clean.slice(2, 4)}) ${clean.slice(4, 9)}-${clean.slice(9)}`;
+  if (clean.length === 11) return `(${clean.slice(0, 2)}) ${clean.slice(2, 7)}-${clean.slice(7)}`;
+  return phone;
+}
+
+function GlobalTasksTab() {
+  const { tenant, setSelectedChatId, setActiveView } = useChat();
+
+  const [tasks, setTasks] = useState<GlobalTaskData[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Estados do Modal "Todos" (Filtro e Busca global)
+  const [isAllTasksModalOpen, setIsAllTasksModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "completed">("all");
+  const [dateFilter, setDateFilter] = useState("");
+  const [operatorFilter, setOperatorFilter] = useState("all");
+
+  const today = new Date();
+  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
+  const [currentYear, setCurrentYear] = useState(today.getFullYear());
+  const [selectedDate, setSelectedDate] = useState<Date>(today);
+
+  const days = getDaysInMonth(currentYear, currentMonth);
+
+  // ─── Fetch tasks from local API ─────────────────────────────────────────
+  const fetchTasks = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/gestao/tasks?tenantId=${tenant}`);
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        setTasks([]);
+      } else {
+        setTasks(data.tasks || []);
+      }
+    } catch (e: any) {
+      setError(e.message || "Erro ao carregar tarefas globais");
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [tenant]);
+
+  // Fetch on mount
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  // ─── Task completion toggle ─────────────────────────────────────────────
+  const toggleTaskStatus = async (task: GlobalTaskData) => {
+    const newStatus = task.status === "done" ? "pending" : "done";
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t))
+    );
+    try {
+      await fetch("/api/tasks", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: tenant, taskId: task.id, status: newStatus }),
+      });
+    } catch {
+      // Revert on error
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t))
+      );
+    }
+  };
+
+  // ─── Open chat for a task ───────────────────────────────────────────────
+  const openChat = (task: GlobalTaskData) => {
+    if (task.chatConversationId) {
+      setSelectedChatId(task.chatConversationId);
+      setActiveView("chat");
+    }
+  };
+
+  // ─── Navigation ─────────────────────────────────────────────────────────
+  const prevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear((y) => y - 1);
+    } else {
+      setCurrentMonth((m) => m - 1);
+    }
+  };
+
+  const nextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear((y) => y + 1);
+    } else {
+      setCurrentMonth((m) => m + 1);
+    }
+  };
+
+  const goToday = () => {
+    setCurrentMonth(today.getMonth());
+    setCurrentYear(today.getFullYear());
+    setSelectedDate(today);
+  };
+
+  // ─── Filter tasks for selected date ─────────────────────────────────────
+  const getTasksForDate = (date: Date) =>
+    tasks.filter((t) => {
+      if (!t.dueDate) return false;
+      return isSameDay(new Date(t.dueDate), date);
+    });
+
+  // Operadores únicos da lista geral para preencher o filtro
+  const uniqueOperatorsList = Array.from(
+    new Map(
+      tasks
+        .filter((t) => t.operatorEmail)
+        .map((t) => [t.operatorEmail, t.operatorName])
+    ).entries()
+  ).map(([email, name]) => ({ email, name }));
+
+  // Aplica filtro de operador na lista diária
+  const selectedTasks = getTasksForDate(selectedDate).filter((t) => {
+    if (operatorFilter !== "all" && t.operatorEmail !== operatorFilter) {
+      return false;
+    }
+    return true;
+  });
+
+  const pendingCount = tasks.filter((t) => t.status !== "done").length;
+
+  return (
+    <div className="flex flex-col flex-1 overflow-hidden h-full">
+      {/* Header interno de Filtros */}
+      <div className="flex flex-col md:flex-row items-center justify-between border-b border-border pb-4 mb-4 gap-4">
+        <div>
+          <h2 className="text-sm font-extrabold text-foreground flex items-center gap-2">
+            <ClipboardCheck className="h-4.5 w-4.5 text-primary" />
+            Tarefas Globais da Operação
+          </h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {pendingCount > 0 ? `${pendingCount} tarefa${pendingCount > 1 ? "s" : ""} pendente${pendingCount > 1 ? "s" : ""}` : "Nenhuma tarefa pendente"}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+          {/* Seletor de Operador */}
+          <select
+            value={operatorFilter}
+            onChange={(e) => setOperatorFilter(e.target.value)}
+            className="h-9 rounded-xl bg-card border border-border px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer max-w-[180px]"
+          >
+            <option value="all">Todos Operadores</option>
+            {uniqueOperatorsList.map((op) => (
+              <option key={op.email} value={op.email || ""}>
+                {op.name}
+              </option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => setIsAllTasksModalOpen(true)}
+            className="rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground transition-all hover:bg-muted/50 flex items-center gap-1.5 cursor-pointer shrink-0"
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Todos
+          </button>
+          <button
+            onClick={goToday}
+            className="rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground transition-all hover:bg-muted/50 cursor-pointer shrink-0"
+          >
+            Hoje
+          </button>
+          <button
+            onClick={fetchTasks}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-white transition-all disabled:opacity-60 cursor-pointer bg-primary shrink-0"
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      {/* Content Grid */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Calendar */}
+        <div className="flex-1 flex flex-col overflow-auto border-r border-border pr-4">
+          {/* Month Navigation */}
+          <div className="flex items-center justify-between mb-4">
+            <button onClick={prevMonth} className="rounded-xl p-1.5 hover:bg-muted transition-colors cursor-pointer border border-border bg-card">
+              <ChevronLeft className="h-4.5 w-4.5 text-foreground" />
+            </button>
+            <h3 className="text-sm font-bold text-foreground">
+              {MONTHS[currentMonth]} {currentYear}
+            </h3>
+            <button onClick={nextMonth} className="rounded-xl p-1.5 hover:bg-muted transition-colors cursor-pointer border border-border bg-card">
+              <ChevronRight className="h-4.5 w-4.5 text-foreground" />
+            </button>
+          </div>
+
+          {/* Weekday Headers */}
+          <div className="grid grid-cols-7 gap-1.5 mb-2 border-b border-border pb-2 bg-muted/20 dark:bg-muted/5 rounded-xl px-2 py-1 shadow-xs">
+            {WEEKDAYS.map((day) => (
+              <div key={day} className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground/85">
+                {day}
+              </div>
+            ))}
+          </div>
+
+          {/* Day Grid */}
+          <div className="grid grid-cols-7 gap-1.5 flex-1 min-h-[380px]">
+            {days.map((date, i) => {
+              const isCurrentMonth = date.getMonth() === currentMonth;
+              const isToday = isSameDay(date, today);
+              const isSelected = isSameDay(date, selectedDate);
+              
+              // Filtra tarefas globais por dia (independentemente do filtro de operador na barra)
+              const dayTasks = getTasksForDate(date);
+              
+              // Agrupa operadores únicos para este dia
+              const uniqueOpsMap = new Map<string, { name: string; avatar: string | null }>();
+              for (const t of dayTasks) {
+                const email = t.operatorEmail || "";
+                if (!uniqueOpsMap.has(email)) {
+                  uniqueOpsMap.set(email, { name: t.operatorName, avatar: t.operatorAvatar });
+                }
+              }
+              const uniqueOps = Array.from(uniqueOpsMap.values());
+
+              return (
+                <button
+                  key={i}
+                  onClick={() => setSelectedDate(date)}
+                  className="relative flex flex-col items-center justify-start rounded-xl p-1.5 transition-all min-h-[70px] border w-full overflow-hidden cursor-pointer"
+                  style={{
+                    background: isSelected
+                      ? "var(--primary)"
+                      : isToday
+                        ? "var(--primary-soft)"
+                        : "var(--card)",
+                    borderColor: isSelected
+                      ? "var(--primary)"
+                      : isToday
+                        ? "var(--primary-soft)"
+                        : "var(--border)",
+                    color: isSelected
+                      ? "white"
+                      : isCurrentMonth
+                        ? "var(--foreground)"
+                        : "var(--muted-foreground)",
+                    opacity: isCurrentMonth ? 1 : 0.45,
+                    borderWidth: isToday && !isSelected ? "2px" : "1px",
+                  }}
+                >
+                  <span className={`text-[11px] font-bold ${isSelected ? "text-white" : "text-foreground/80"} mb-1`}>
+                    {date.getDate()}
+                  </span>
+
+                  {/* Fotos dos operadores com tarefas no dia */}
+                  {uniqueOps.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-center gap-0.5 mt-1 w-full max-w-full">
+                      {uniqueOps.slice(0, 3).map((op, j) => {
+                        const initials = op.name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                        return (
+                          <div
+                            key={j}
+                            className="relative h-5 w-5 rounded-full border border-card flex items-center justify-center text-[7px] font-extrabold shadow-sm shrink-0"
+                            style={{
+                              background: isSelected ? "rgba(255,255,255,0.2)" : "var(--primary-soft)",
+                              color: isSelected ? "white" : "var(--primary)",
+                            }}
+                            title={op.name}
+                          >
+                            {op.avatar ? (
+                              <img
+                                src={op.avatar}
+                                alt={op.name}
+                                className="h-full w-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <span>{initials}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {uniqueOps.length > 3 && (
+                        <span
+                          className={`text-[8px] font-bold ml-0.5 shrink-0 ${
+                            isSelected ? "text-white/80" : "text-muted-foreground"
+                          }`}
+                        >
+                          +{uniqueOps.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Task Details Panel */}
+        <div className="w-[320px] flex flex-col overflow-hidden shrink-0 pl-4">
+          <div className="pb-3 border-b border-border mb-3">
+            <h4 className="text-xs font-bold text-foreground">
+              {selectedDate.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
+            </h4>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {selectedTasks.length === 0 ? "Nenhuma tarefa" : `${selectedTasks.length} tarefa${selectedTasks.length > 1 ? "s" : ""}`}
+            </p>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+            {error && (
+              <div className="flex items-center gap-2 rounded-xl bg-red-50 dark:bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-400">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {selectedTasks.length === 0 && !error && (
+              <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground">
+                <Calendar className="h-10 w-10 text-muted-foreground/30 mb-2" />
+                <p className="text-xs">Nenhuma tarefa para esta data</p>
+              </div>
+            )}
+
+            {selectedTasks.map((task) => (
+              <div
+                key={task.id}
+                className="group rounded-xl border border-border bg-card p-3.5 transition-all hover:shadow-sm hover:border-primary/30"
+                style={{
+                  borderLeft: `3px solid ${getTaskTypeColor(task.type)}`,
+                }}
+              >
+                {/* Task Header */}
+                <div className="flex items-start gap-2.5">
+                  <button
+                    onClick={() => toggleTaskStatus(task)}
+                    className="mt-0.5 shrink-0 cursor-pointer"
+                  >
+                    {task.status === "done" ? (
+                      <CheckCircle2 className="h-4.5 w-4.5 text-primary" />
+                    ) : (
+                      <Circle className="h-4.5 w-4.5 text-muted-foreground hover:text-foreground transition-colors" />
+                    )}
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={`text-xs font-bold leading-tight ${
+                        task.status === "done" ? "line-through text-muted-foreground" : "text-foreground"
+                      }`}
+                    >
+                      {task.name}
+                    </p>
+
+                    {/* Type & Time */}
+                    <div className="flex items-center gap-2 mt-1">
+                      <span
+                        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white"
+                        style={{ background: getTaskTypeColor(task.type) }}
+                      >
+                        {getTaskTypeIcon(task.type)}
+                        {task.type}
+                      </span>
+                      {task.dueDate && (() => {
+                        const isOverdue = task.status !== "done" && new Date(task.dueDate) < new Date();
+                        return (
+                          <span className={`flex items-center gap-0.5 text-[10px] ${isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
+                            <Clock className="h-2.5 w-2.5" />
+                            {formatTime(task.dueDate)} {isOverdue && "(Atrasada)"}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Operator Assigned */}
+                <div className="mt-2.5 flex items-center gap-2 bg-muted/40 dark:bg-muted/10 rounded-lg p-2 border border-border/30">
+                  <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-[8px] font-extrabold shrink-0">
+                    {task.operatorAvatar ? (
+                      <img
+                        src={task.operatorAvatar}
+                        alt={task.operatorName}
+                        className="h-full w-full rounded-full object-cover"
+                      />
+                    ) : (
+                      <span>{task.operatorName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] text-muted-foreground">Responsável</p>
+                    <p className="text-xs font-semibold text-foreground truncate leading-tight">{task.operatorName}</p>
+                  </div>
+                </div>
+
+                {/* Client Info */}
+                {(task.client.name || task.client.phone) && (
+                  <div className="mt-2.5 rounded-lg bg-background/50 p-2 border border-border/20">
+                    {task.client.name && (
+                      <p className="text-[10px] font-bold text-foreground truncate">{task.client.name}</p>
+                    )}
+                    {task.client.phone && (
+                      <p className="text-[9px] text-muted-foreground mt-0.5">{formatPhone(task.client.phone)}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Deal Info */}
+                {task.deal?.name && (
+                  <div className="mt-2 flex items-center gap-1 text-[9px] text-muted-foreground">
+                    <ExternalLink className="h-2.5 w-2.5" />
+                    <span className="truncate">{task.deal.name}</span>
+                  </div>
+                )}
+
+                {/* Description */}
+                {task.description && (
+                  <p className="mt-2 text-[10px] text-muted-foreground leading-normal line-clamp-2">
+                    {task.description}
+                  </p>
+                )}
+
+                {/* Action Button */}
+                {task.chatConversationId ? (
+                  <button
+                    onClick={() => openChat(task)}
+                    className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-[10px] font-bold text-white bg-primary cursor-pointer shadow-xs hover:opacity-90 transition-opacity"
+                  >
+                    <MessageSquare className="h-3 w-3" />
+                    Abrir Atendimento
+                  </button>
+                ) : (
+                  <div className="mt-2.5 flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-2 text-[9px] text-muted-foreground select-none">
+                    <MessageSquare className="h-3 w-3" />
+                    Sem conversa ativa
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* MODAL: TODAS AS TAREFAS (LISTA GLOBAL) */}
+      <AnimatePresence>
+        {isAllTasksModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", damping: 25, stiffness: 280 }}
+              className="w-full max-w-3xl rounded-3xl bg-card border border-border shadow-card flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-line px-6 py-4.5">
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">
+                    <ClipboardCheck className="h-5 w-5 text-primary" />
+                    Lista Completa de Tarefas
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Visualize e filtre todas as tarefas cadastradas no sistema.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsAllTasksModalOpen(false);
+                    setSearchQuery("");
+                    setStatusFilter("all");
+                    setDateFilter("");
+                    setOperatorFilter("all");
+                  }}
+                  className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer"
+                >
+                  <X className="h-4.5 w-4.5" />
+                </button>
+              </div>
+
+              {/* Filters Bar */}
+              <div className="p-6 border-b border-line bg-background/30 flex flex-wrap md:flex-nowrap gap-4 items-center">
+                {/* Search Input */}
+                <div className="relative w-full md:flex-1">
+                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por título ou cliente..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-10 w-full rounded-xl bg-muted pl-10 pr-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Operator Selector */}
+                <select
+                  value={operatorFilter}
+                  onChange={(e) => setOperatorFilter(e.target.value)}
+                  className="h-10 rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent cursor-pointer w-full md:w-44 shrink-0"
+                >
+                  <option value="all">Todos Operadores</option>
+                  {uniqueOperatorsList.map((op) => (
+                    <option key={op.email} value={op.email || ""}>
+                      {op.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Status Toggle */}
+                <div className="flex bg-muted rounded-xl p-1 shrink-0 w-full md:w-auto">
+                  {(["all", "open", "completed"] as const).map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => setStatusFilter(status)}
+                      className={`flex-1 md:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                        statusFilter === status
+                          ? "bg-card text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {status === "all" ? "Todas" : status === "open" ? "Em aberto" : "Concluídas"}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Date Filter */}
+                <div className="relative w-full md:w-40 shrink-0">
+                  <input
+                    type="date"
+                    value={dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value)}
+                    className="h-10 w-full rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent cursor-pointer"
+                  />
+                  {dateFilter && (
+                    <button
+                      onClick={() => setDateFilter("")}
+                      className="absolute right-8 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Tasks List */}
+              <div className="flex-1 overflow-y-auto p-6 bg-background/10 space-y-3 scrollbar-thin">
+                {(() => {
+                  const filtered = tasks.filter((t) => {
+                    if (searchQuery.trim()) {
+                      const q = searchQuery.toLowerCase().trim();
+                      const matchName = t.name.toLowerCase().includes(q);
+                      const matchDesc = t.description?.toLowerCase().includes(q) || false;
+                      const matchClient = t.client.name?.toLowerCase().includes(q) || false;
+                      if (!matchName && !matchDesc && !matchClient) return false;
+                    }
+                    if (statusFilter === "open") {
+                      if (t.status === "done" || t.status === "completed") return false;
+                    } else if (statusFilter === "completed") {
+                      if (t.status !== "done" && t.status !== "completed") return false;
+                    }
+                    if (dateFilter) {
+                      if (!t.dueDate) return false;
+                      const localDateStr = new Date(t.dueDate).toLocaleDateString("sv-SE");
+                      if (localDateStr !== dateFilter) return false;
+                    }
+                    if (operatorFilter !== "all" && t.operatorEmail !== operatorFilter) {
+                      return false;
+                    }
+                    return true;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <Filter className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                        <p className="text-sm font-semibold text-muted-foreground">Nenhuma tarefa encontrada</p>
+                        <p className="text-xs text-muted-foreground/80 mt-1">Experimente ajustar os filtros ou pesquisar outro termo.</p>
+                      </div>
+                    );
+                  }
+
+                  return filtered.map((task) => {
+                    const isOverdue = task.status !== "done" && task.dueDate && new Date(task.dueDate) < new Date();
+                    return (
+                      <div
+                        key={task.id}
+                        className="rounded-2xl border border-border bg-card p-4 transition-all hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4"
+                        style={{ borderLeft: `3.5px solid ${getTaskTypeColor(task.type)}` }}
+                      >
+                        {/* Task Title & Time Info */}
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <button
+                            onClick={() => toggleTaskStatus(task)}
+                            className="mt-0.5 shrink-0 cursor-pointer"
+                          >
+                            {task.status === "done" || task.status === "completed" ? (
+                              <CheckCircle2 className="h-5 w-5" style={{ color: "var(--primary)" }} />
+                            ) : (
+                              <Circle className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
+                            )}
+                          </button>
+
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className={`text-sm font-semibold leading-tight ${
+                                task.status === "done" || task.status === "completed"
+                                  ? "line-through text-muted-foreground"
+                                  : "text-foreground"
+                              }`}
+                            >
+                              {task.name}
+                            </p>
+
+                            <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                              <span
+                                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white"
+                                style={{ background: getTaskTypeColor(task.type) }}
+                              >
+                                {getTaskTypeIcon(task.type)}
+                                {task.type}
+                              </span>
+                              {task.dueDate && (
+                                <span className={`flex items-center gap-1 text-[11px] ${isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
+                                  <Clock className="h-3 w-3" />
+                                  {new Date(task.dueDate).toLocaleDateString("pt-BR")} às {formatTime(task.dueDate)}
+                                  {isOverdue && " (Atrasada)"}
+                                </span>
+                              )}
+                              <span className="text-[11px] text-muted-foreground font-medium">
+                                · Responsável: <span className="text-foreground">{task.operatorName}</span>
+                              </span>
+                            </div>
+
+                            {task.description && (
+                              <p className="mt-1.5 text-[11px] text-muted-foreground line-clamp-1 leading-relaxed">
+                                {task.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Client Info & Action Button */}
+                        <div className="flex items-center gap-4 shrink-0">
+                          {(task.client.name || task.client.phone) && (
+                            <div className="text-right hidden sm:block">
+                              {task.client.name && (
+                                <p className="text-xs font-semibold text-foreground">{task.client.name}</p>
+                              )}
+                              {task.client.phone && (
+                                <p className="text-[10px] text-muted-foreground mt-0.5">{formatPhone(task.client.phone)}</p>
+                              )}
+                            </div>
+                          )}
+
+                          {task.chatConversationId ? (
+                            <button
+                              onClick={() => {
+                                openChat(task);
+                                setIsAllTasksModalOpen(false);
+                              }}
+                              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition-all cursor-pointer shadow-sm bg-primary"
+                            >
+                              <MessageSquare className="h-3.5 w-3.5" />
+                              Atendimento
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-2 text-xs text-muted-foreground select-none">
+                              <MessageSquare className="h-3.5 w-3.5" />
+                              Sem Chat
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function MonitorView() {
   const { tenant } = useChat();
@@ -973,6 +1762,7 @@ export function MonitorView() {
     { id: "alerts", label: "Alertas", icon: Bell, badge: alerts.filter((a: AlertItem) => a.isOverdue).length },
     { id: "operators", label: "Operadores", icon: Users },
     { id: "audits", label: "Auditorias IA", icon: Zap },
+    { id: "tasks", label: "Tarefas Globais", icon: ClipboardCheck },
   ];
 
   const today = new Date().toLocaleDateString("pt-BR", {
@@ -1071,6 +1861,9 @@ export function MonitorView() {
             )}
             {activeTab === "audits" && (
               <AuditsTab audits={audits} loading={loadingAudits} />
+            )}
+            {activeTab === "tasks" && (
+              <GlobalTasksTab />
             )}
 
 
