@@ -34,6 +34,12 @@ import {
   Bot,
 } from "lucide-react";
 import { io as socketIO, type Socket } from "socket.io-client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -1612,6 +1618,7 @@ export function ChatPanel() {
 
       {/* Message Composer */}
       {activeChat.queue !== "finalizados" ? (
+        <TooltipProvider delayDuration={300}>
         <div
           ref={composerRef}
           className="px-5 pb-5"
@@ -1754,13 +1761,17 @@ export function ChatPanel() {
               <div className="flex-1">
                 <AudioBubble src={audioUrl} fileName="Áudio gravado" />
               </div>
-              <button
-                onClick={discardRecording}
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-destructive hover:border-destructive transition cursor-pointer"
-                title="Descartar gravação"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={discardRecording}
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-destructive hover:border-destructive transition cursor-pointer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Descartar gravação</TooltipContent>
+              </Tooltip>
             </div>
           )}
 
@@ -1816,13 +1827,17 @@ export function ChatPanel() {
                   {getFriendlyQuotedContent(replyingTo.text)}
                 </div>
               </div>
-              <button
-                onClick={() => setReplyingTo(null)}
-                className="p-1 rounded-full hover:bg-muted text-muted-foreground transition shrink-0 cursor-pointer"
-                title="Cancelar resposta"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setReplyingTo(null)}
+                    className="p-1 rounded-full hover:bg-muted text-muted-foreground transition shrink-0 cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Cancelar resposta</TooltipContent>
+              </Tooltip>
             </div>
           )}
 
@@ -1870,13 +1885,17 @@ export function ChatPanel() {
                 <span className="text-sm font-bold text-primary tabular-nums flex-1 mb-1">
                   {fmtSec(recordingSeconds)}
                 </span>
-                <button
-                  onClick={stopRecording}
-                  className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer mb-0.5"
-                  title="Parar gravação"
-                >
-                  <Square className="h-3.5 w-3.5 fill-current" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={stopRecording}
+                      className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer mb-0.5"
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Parar gravação</TooltipContent>
+                </Tooltip>
               </>
             ) : (
               <>
@@ -1897,32 +1916,40 @@ export function ChatPanel() {
                 {/* Icons container to vertically align icons with the send button */}
                 <div className="flex items-center gap-3 shrink-0 h-9">
                   {/* Quick Template Icon */}
-                  <motion.button
-                    onClick={() => setShowQuickMenu(!showQuickMenu)}
-                    whileHover={{ scale: 1.15 }}
-                    whileTap={{ scale: 0.88 }}
-                    animate={{ rotate: showQuickMenu ? -15 : 0 }}
-                    className={`transition cursor-pointer ${
-                      msgMode === "internal"
-                        ? "text-amber-500 hover:text-amber-700"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    title="Respostas Rápidas"
-                  >
-                    <Zap className="h-4.5 w-4.5" strokeWidth={2} />
-                  </motion.button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <motion.button
+                        onClick={() => setShowQuickMenu(!showQuickMenu)}
+                        whileHover={{ scale: 1.15 }}
+                        whileTap={{ scale: 0.88 }}
+                        animate={{ rotate: showQuickMenu ? -15 : 0 }}
+                        className={`transition cursor-pointer ${
+                          msgMode === "internal"
+                            ? "text-amber-500 hover:text-amber-700"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Zap className="h-4.5 w-4.5" strokeWidth={2} />
+                      </motion.button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Respostas Rápidas</TooltipContent>
+                  </Tooltip>
                   {/* Emoji Picker Trigger */}
                   <div className="relative flex items-center">
-                    <motion.button
-                      onClick={() => setShowEmojiPicker((v) => !v)}
-                      whileHover={{ scale: 1.15 }}
-                      whileTap={{ scale: 0.88 }}
-                      animate={{ rotate: showEmojiPicker ? 15 : 0 }}
-                      className="text-muted-foreground hover:text-foreground cursor-pointer transition"
-                      title="Emojis"
-                    >
-                      <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
-                    </motion.button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <motion.button
+                          onClick={() => setShowEmojiPicker((v) => !v)}
+                          whileHover={{ scale: 1.15 }}
+                          whileTap={{ scale: 0.88 }}
+                          animate={{ rotate: showEmojiPicker ? 15 : 0 }}
+                          className="text-muted-foreground hover:text-foreground cursor-pointer transition"
+                        >
+                          <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
+                        </motion.button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Emojis</TooltipContent>
+                    </Tooltip>
                     <AnimatePresence>
                       {showEmojiPicker && (
                         <EmojiPicker
@@ -1936,34 +1963,42 @@ export function ChatPanel() {
                     </AnimatePresence>
                   </div>
                   {/* Attachment Button */}
-                  <motion.button
-                    onClick={() => fileInputRef.current?.click()}
-                    whileHover={{ scale: 1.15 }}
-                    whileTap={{ scale: 0.88 }}
-                    className={`cursor-pointer transition relative ${
-                      attachments.length > 0
-                        ? "text-primary"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    title="Anexar arquivo"
-                  >
-                    <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
-                    {attachments.length > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
-                        {attachments.length}
-                      </span>
-                    )}
-                  </motion.button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <motion.button
+                        onClick={() => fileInputRef.current?.click()}
+                        whileHover={{ scale: 1.15 }}
+                        whileTap={{ scale: 0.88 }}
+                        className={`cursor-pointer transition relative ${
+                          attachments.length > 0
+                            ? "text-primary"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
+                        {attachments.length > 0 && (
+                          <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
+                            {attachments.length}
+                          </span>
+                        )}
+                      </motion.button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Anexar arquivo</TooltipContent>
+                  </Tooltip>
                   {/* Mic button */}
-                  <motion.button
-                    onClick={startRecording}
-                    whileHover={{ scale: 1.15 }}
-                    whileTap={{ scale: 0.88 }}
-                    className="text-muted-foreground hover:text-primary transition cursor-pointer"
-                    title="Gravar áudio"
-                  >
-                    <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
-                  </motion.button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <motion.button
+                        onClick={startRecording}
+                        whileHover={{ scale: 1.15 }}
+                        whileTap={{ scale: 0.88 }}
+                        className="text-muted-foreground hover:text-primary transition cursor-pointer"
+                      >
+                        <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
+                      </motion.button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Gravar áudio</TooltipContent>
+                  </Tooltip>
                 </div>
               </>
             )}
@@ -1983,6 +2018,7 @@ export function ChatPanel() {
             </>
           )}
         </div>
+        </TooltipProvider>
       ) : (
         <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
           <p className="text-xs text-muted-foreground italic">

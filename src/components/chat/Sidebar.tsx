@@ -152,7 +152,6 @@ export function Sidebar() {
                     ? "bg-primary-soft text-primary font-semibold"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
-                title={item.label}
               >
                 {isActive && (
                   <motion.span
@@ -162,9 +161,14 @@ export function Sidebar() {
                   />
                 )}
                 <Icon className="h-5 w-5" strokeWidth={isActive ? 2.25 : 1.75} />
+                {/* Floating tooltip — mesmo padrão dos módulos inferiores */}
+                <span className="absolute left-14 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+                  {item.label}
+                </span>
               </motion.button>
             );
           })}
+
 
           <div className="my-2 h-[1px] w-8 bg-line" />
 
@@ -195,10 +199,10 @@ export function Sidebar() {
                     />
                   )}
                   <Icon className="h-5 w-5" strokeWidth={isActive ? 2.25 : 1.75} />
-                  {/* Floating tooltip */}
-                  <span className="absolute left-14 scale-0 opacity-0 rounded bg-foreground px-2 py-1 text-xs text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none">
-                    {item.label}
-                  </span>
+                                  {/* Floating tooltip */}
+                  <span className="absolute left-14 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+                  {item.label}
+                </span>
                 </motion.button>
               );
             }
@@ -228,8 +232,8 @@ export function Sidebar() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => setIsProfileModalOpen(true)}
-          className="relative block h-10 w-10 rounded-full cursor-pointer"
-          title="Editar Meu Perfil"
+          className="relative block h-10 w-10 rounded-full cursor-pointer group"
+          aria-label="Editar Meu Perfil"
         >
           <img
             src={operatorProfile.avatar}
@@ -243,6 +247,10 @@ export function Sidebar() {
               ? "bg-amber-500"
               : "bg-gray-400"
           }`} />
+          {/* Floating tooltip — posicionado acima */}
+          <span className="absolute left-14 bottom-0 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+            Editar Meu Perfil
+          </span>
         </motion.button>
       </div>
     </aside>
