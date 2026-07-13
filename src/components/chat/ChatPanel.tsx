@@ -37,7 +37,6 @@ import { io as socketIO, type Socket } from "socket.io-client";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
@@ -1618,7 +1617,6 @@ export function ChatPanel() {
 
       {/* Message Composer */}
       {activeChat.queue !== "finalizados" ? (
-        <TooltipProvider delayDuration={300}>
         <div
           ref={composerRef}
           className="px-5 pb-5"
@@ -2018,7 +2016,6 @@ export function ChatPanel() {
             </>
           )}
         </div>
-        </TooltipProvider>
       ) : (
         <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
           <p className="text-xs text-muted-foreground italic">
