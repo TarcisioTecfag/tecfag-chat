@@ -28,6 +28,7 @@ export type SessionEvent =
       queueState: string;
       operatorId: string | null;
       sectorId: string | null;
+      responsibleName?: string;
     };
 
 export type SessionListener = (event: SessionEvent) => void;

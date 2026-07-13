@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { conversations, messages, contacts } from "../../../db/schema";
+import { conversations, messages, contacts, operators } from "../../../db/schema";
 import { eq } from "drizzle-orm";
 import { AuditService } from "../../../lib/audit-service";
 import { SessionManager } from "../../../lib/baileys/session-manager";
@@ -67,12 +67,14 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             );
           }
 
+          const targetOpId = operatorId !== undefined ? operatorId : conv.operatorId;
+
           // 3. Atualizar o queueState e operatorId no banco
           await db
             .update(conversations)
             .set({
               queueState,
-              operatorId: operatorId !== undefined ? operatorId : conv.operatorId,
+              operatorId: targetOpId,
               sectorId: sectorId !== undefined ? sectorId : (conv as any).sectorId,
               lastMessageText: systemMessageText || conv.lastMessageText,
               lastMessageTime: new Date(),
@@ -82,10 +84,28 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           // 3.5. Se a conversa foi capturada/transferida, vincula à carteira do contato —
           // apenas quando não havia dono anterior (captura da fila), para não sobrescrever
           // a carteira em transferências temporárias.
-          if (queueState === "meus" && operatorId && conv.contactId && !conv.operatorId) {
+          if (queueState === "meus" && targetOpId && conv.contactId && !conv.operatorId) {
             await db
               .update(contacts)
-              .set({ walletOperatorId: operatorId })
+              .set({ walletOperatorId: targetOpId })
+              .where(eq(contacts.id, conv.contactId));
+          }
+
+          // 3.8. Sincronizar o responsável na tabela do cliente (contacts)
+          let respName = "Na Fila";
+          if (targetOpId && queueState === "meus") {
+            const op = await db.query.operators.findFirst({
+              where: eq(operators.id, targetOpId),
+            });
+            if (op) {
+              respName = op.name;
+            }
+          }
+
+          if (conv.contactId) {
+            await db
+              .update(contacts)
+              .set({ responsibleName: respName })
               .where(eq(contacts.id, conv.contactId));
           }
 
@@ -117,6 +137,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             queueState,
             operatorId: finalOperatorId,
             sectorId: finalSectorId,
+            responsibleName: respName,
           });
 
           // 6. Se a conversa foi finalizada, enfileira auditoria de IA

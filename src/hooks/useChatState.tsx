@@ -1111,6 +1111,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...c,
             queue: "meus",
             operatorId: currentOperatorId,
+            responsibleName: operatorProfile.name,
             messages: [...c.messages, systemMsg],
           };
         }
@@ -1187,6 +1188,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...c,
             queue: targetQueueState,
             operatorId: targetOperatorId || null,
+            responsibleName: targetOp ? targetOp.name : "Na Fila",
             sectorId: sectorId,
             sectorName: sectorName,
             messages: [...c.messages, systemMsg],
@@ -1243,6 +1245,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return {
             ...c,
             queue: "finalizados",
+            responsibleName: "Na Fila",
             messages: [...c.messages, systemMsg],
           };
         }
@@ -1884,7 +1887,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Evento de atualização de fila: captura, transferência ou finalização.
           // Atualiza APENAS os campos de estado da conversa — sem criar balão de mensagem,
           // sem incrementar unreadCount, sem tocar som de notificação.
-          const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId } = data;
+          const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName } = data;
 
           setConversations((prev) =>
             prev.map((c) => {
@@ -1894,6 +1897,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 queue: queueState,
                 operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
                 sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
+                responsibleName: responsibleName !== undefined ? responsibleName : c.responsibleName,
               };
             })
           );

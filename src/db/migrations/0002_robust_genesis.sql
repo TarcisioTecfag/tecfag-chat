@@ -1,0 +1,1 @@
+ALTER TABLE "contacts" ADD COLUMN "responsible_name" text DEFAULT 'Na Fila' NOT NULL;

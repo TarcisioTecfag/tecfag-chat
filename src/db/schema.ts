@@ -110,6 +110,7 @@ export const contacts = pgTable("contacts", {
   tags: jsonb("tags").$type<string[]>().default([]).notNull(),
   mainChannel: text("main_channel").notNull(), // 'whatsapp' | 'instagram' | 'messenger'
   walletOperatorId: text("wallet_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  responsibleName: text("responsible_name").default("Na Fila").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

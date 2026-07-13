@@ -13,6 +13,10 @@ async function main() {
   const db = drizzle(client, { schema });
 
   try {
+    // Migração em tempo de execução: garante a coluna responsible_name no banco (local e Railway)
+    console.log("🔍 Verificando/Criando coluna responsible_name...");
+    await client`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS responsible_name text DEFAULT 'Na Fila' NOT NULL;`;
+    
     // Se o banco já possuir operadores, não rodar seeding para evitar recriação de registros deletados
     const allOps = await db.select().from(operators).limit(1);
     if (allOps.length > 0) {
@@ -390,6 +394,19 @@ async function main() {
       if (existingConv.length === 0) {
         console.log(`Inserindo conversa: ${conv.id}`);
         await db.insert(conversations).values(conv);
+
+        // Atualizar o responsibleName no contato correspondente
+        if (conv.operatorId && conv.queueState === "meus") {
+          let opName = "Na Fila";
+          if (conv.operatorId === "op-1") opName = "Fagner F. (Admin)";
+          else if (conv.operatorId === "op-2") opName = "Tarcísio (Valem)";
+          else if (conv.operatorId === "op-3") opName = "Pedro (Tecfag)";
+          else if (conv.operatorId === "op-4") opName = "Julia (Whats Only)";
+
+          await db.update(contacts)
+            .set({ responsibleName: opName })
+            .where(eq(contacts.id, conv.contactId));
+        }
       }
     }
 

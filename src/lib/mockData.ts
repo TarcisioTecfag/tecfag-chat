@@ -36,6 +36,7 @@ export type Conversation = {
   walletOperatorId?: string | null;
   sectorId?: string | null;
   sectorName?: string | null;
+  responsibleName?: string;
 };
 
 export type OperatorTemplate = {

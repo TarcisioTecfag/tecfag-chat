@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { contacts, conversations } from "../../db/schema";
+import { contacts, conversations, operators } from "../../db/schema";
+import { eq } from "drizzle-orm";
 
 export const Route = createFileRoute("/api/contacts")({
   server: {
@@ -36,6 +37,17 @@ export const Route = createFileRoute("/api/contacts")({
           const finalContactId = contactId || `cont-${Date.now()}`;
           const finalConversationId = conversationId || `conv-${Date.now()}`;
 
+          // Obter o nome do operador para popular responsibleName
+          let respName = "Na Fila";
+          if (operatorId && (queueState === "meus" || !queueState)) {
+            const op = await db.query.operators.findFirst({
+              where: eq(operators.id, operatorId),
+            });
+            if (op) {
+              respName = op.name;
+            }
+          }
+
           // 1. Criar Contato no Banco
           await db.insert(contacts).values({
             id: finalContactId,
@@ -46,6 +58,7 @@ export const Route = createFileRoute("/api/contacts")({
             cnpj: cnpj || null,
             mainChannel: channel || "whatsapp",
             walletOperatorId: operatorId || null,
+            responsibleName: respName,
           });
 
           // 2. Criar Conversa no Banco

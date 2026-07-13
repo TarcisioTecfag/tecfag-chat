@@ -51,6 +51,7 @@ export function ContactsView() {
     setSelectedChatId,
     setActiveView,
     updateTags,
+    operators,
   } = useChat();
 
   const [search, setSearch] = useState("");
@@ -118,7 +119,8 @@ export function ContactsView() {
       const matchEmail = c.email?.toLowerCase().includes(q) || false;
       const matchCnpj = c.cnpj?.toLowerCase().includes(q) || false;
       const matchTags = c.tags.some((t) => t.toLowerCase().includes(q));
-      return matchName || matchPhone || matchEmail || matchCnpj || matchTags;
+      const matchResponsible = c.responsibleName?.toLowerCase().includes(q) || false;
+      return matchName || matchPhone || matchEmail || matchCnpj || matchTags || matchResponsible;
     }
     return true;
   });
@@ -236,6 +238,7 @@ export function ContactsView() {
                 <th className="py-4 px-4">Contato</th>
                 <th className="py-4 px-4">CNPJ</th>
                 <th className="py-4 px-4">Marcadores (Tags)</th>
+                <th className="py-4 px-4">Responsável</th>
                 <th className="py-4 px-6 text-right">Acoes</th>
               </tr>
             </thead>
@@ -298,6 +301,18 @@ export function ContactsView() {
                         {c.tags.length === 0 && <span className="text-muted-foreground italic font-medium text-[10px]">Sem tags</span>}
                       </div>
                     </td>
+                    <td className="py-3.5 px-4">
+                      {c.responsibleName === "Na Fila" || !c.responsibleName ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                          Na Fila
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 font-bold text-foreground">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                          {c.responsibleName}
+                        </span>
+                      )}
+                    </td>
                     <td className="py-3.5 px-6 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Tooltip>
@@ -323,7 +338,7 @@ export function ContactsView() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-muted-foreground">
+                  <td colSpan={7} className="py-12 text-center text-muted-foreground">
                     <User className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" strokeWidth={1.5} />
                     <p className="text-sm font-semibold">Nenhum contato encontrado</p>
                     <p className="text-xs mt-0.5">Tente ajustar seus termos de pesquisa ou crie um novo contato.</p>
