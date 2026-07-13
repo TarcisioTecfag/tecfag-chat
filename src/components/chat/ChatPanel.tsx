@@ -1005,9 +1005,15 @@ export function ChatPanel() {
             <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
             <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5">
               {activeChat.queue === "meus" && (
-                <span className="flex items-center gap-1 text-primary">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Meus Atendimentos
-                </span>
+                isOwner ? (
+                  <span className="flex items-center gap-1 text-primary">
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Meus Atendimentos
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-amber-500">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Atendimento com {ownerOperator?.name ?? "outro operador"}
+                  </span>
+                )
               )}
               {activeChat.queue === "fila" && (
                 <span className="flex items-center gap-1 text-amber-500">
