@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { conversations, messages, contacts } from "../../../db/schema";
 import { eq } from "drizzle-orm";
 import { AuditService } from "../../../lib/audit-service";
+import { SessionManager } from "../../../lib/baileys/session-manager";
 
 export const Route = createFileRoute("/api/chats/update-queue")({
   server: {
@@ -47,7 +48,26 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             });
           }
 
-          // 2. Atualizar o queueState e operatorId no banco
+          // 2. Lock atômico: impede captura dupla.
+          // Se outra operadora já capturou o chat (operatorId existente e diferente do solicitante),
+          // retorna 409 Conflict para que o frontend possa fazer rollback.
+          if (
+            queueState === "meus" &&
+            operatorId &&
+            conv.operatorId &&
+            conv.operatorId !== operatorId &&
+            conv.queueState === "meus"
+          ) {
+            return new Response(
+              JSON.stringify({ error: "conflict", currentOperatorId: conv.operatorId }),
+              {
+                status: 409,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              }
+            );
+          }
+
+          // 3. Atualizar o queueState e operatorId no banco
           await db
             .update(conversations)
             .set({
@@ -59,17 +79,20 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             })
             .where(eq(conversations.id, conversationId));
 
-          // 2.5. Se a conversa foi iniciada/capturada por um atendente, vincula à carteira do contato
-          if (queueState === "meus" && operatorId && conv.contactId) {
+          // 3.5. Se a conversa foi capturada/transferida, vincula à carteira do contato —
+          // apenas quando não havia dono anterior (captura da fila), para não sobrescrever
+          // a carteira em transferências temporárias.
+          if (queueState === "meus" && operatorId && conv.contactId && !conv.operatorId) {
             await db
               .update(contacts)
               .set({ walletOperatorId: operatorId })
               .where(eq(contacts.id, conv.contactId));
           }
 
-          // 3. Se enviou uma mensagem de log do sistema, salvar
+          // 4. Se enviou uma mensagem de log do sistema, salvar
           if (systemMessageText) {
-            const messageId = `sys-${Date.now()}`;
+            // Sufixo aleatório para evitar colisão de IDs se dois eventos ocorrem no mesmo ms
+            const messageId = `sys-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
             await db.insert(messages).values({
               id: messageId,
               tenantId: conv.tenantId,
@@ -82,7 +105,21 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             });
           }
 
-          // 4. Se a conversa foi finalizada, enfileira auditoria de IA
+          // 5. Notificar TODOS os clientes SSE conectados via evento específico de fila.
+          // Usar type: "queue_update" — distinto de "message" — para o frontend saber
+          // que é apenas uma mudança de estado, sem criar balões de mensagem falsos.
+          const finalOperatorId = operatorId !== undefined ? operatorId : conv.operatorId ?? null;
+          const finalSectorId = sectorId !== undefined ? sectorId : (conv as any).sectorId ?? null;
+
+          SessionManager.getInstance().notifyPublic(conv.tenantId, {
+            type: "queue_update",
+            conversationId,
+            queueState,
+            operatorId: finalOperatorId,
+            sectorId: finalSectorId,
+          });
+
+          // 6. Se a conversa foi finalizada, enfileira auditoria de IA
           if (queueState === "finalizados") {
             // Race-condition fix: enqueueAudit é aguardado antes de qualquer batch rodar.
             // AuditService já está iniciado no boot (alerts.ts) — start() aqui é apenas fallback.

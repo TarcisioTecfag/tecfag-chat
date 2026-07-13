@@ -35,9 +35,16 @@ export type AccessGroup = {
   name: string;
   allowedTenants: ("tecfag" | "valem")[];
   allowedChannels: ("whatsapp" | "instagram" | "messenger")[];
+  // Administração do painel
   canCreateUser: boolean;
   canResetPassword: boolean;
   canEditProfile: boolean;
+  // ── Permissões de Atendimento (RBAC) ──────────────────────────────────────
+  canCaptureChat: boolean;   // Pode puxar chats da fila para si
+  canTransferChat: boolean;  // Pode transferir chats para outro operador
+  canFinishChat: boolean;    // Pode encerrar conversas
+  canViewAllChats: boolean;  // Vê chats de todos os operadores (somente leitura)
+  canOverrideChat: boolean;  // Pode assumir chat de outro operador sem transferência prévia
   tenantId?: "tecfag" | "valem";
 };
 
@@ -355,6 +362,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     canCreateUser: true,
     canResetPassword: true,
     canEditProfile: true,
+    // Admins têm todas as permissões de atendimento habilitadas
+    canCaptureChat: true,
+    canTransferChat: true,
+    canFinishChat: true,
+    canViewAllChats: true,
+    canOverrideChat: true,
   };
 
   const defaultOperator: Operator = {
@@ -1070,16 +1083,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const captureChat = async (id: string) => {
+    // Guard: verificar permissão antes de qualquer estado
+    if (!currentGroup.canCaptureChat) {
+      console.warn("[captureChat] Sem permissão para capturar atendimentos.");
+      return;
+    }
+
     const textLog = `CONVERSA INICIADA POR ${operatorProfile.name.toUpperCase()}`;
+    const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+    // Snapshot do estado anterior para rollback em caso de falha
+    const previousState = conversationsRef.current.find((c) => c.id === id);
+
+    // Optimistic update
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
-          // Add system internal note
           const systemMsg: Message = {
-            id: `sys-${Date.now()}`,
+            id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             author: "Sistema",
             text: textLog,
-            time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            time: now,
             side: "out",
             isInternalNote: true,
           };
@@ -1097,7 +1121,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSelectedChatId(id);
 
     try {
-      await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
+      const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1107,8 +1131,30 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           systemMessageText: textLog,
         }),
       });
+
+      if (res.status === 409) {
+        // Outro operador capturou antes — rollback
+        console.warn("[captureChat] Conflito: chat já foi capturado por outro operador.");
+        if (previousState) {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === id ? { ...previousState } : c))
+          );
+        }
+        setSelectedChatId(null);
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
     } catch (err) {
-      console.error("Erro ao persistir captura de chat no DB:", err);
+      console.error("[captureChat] Erro ao persistir no DB — revertendo estado:", err);
+      if (previousState) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...previousState } : c))
+        );
+      }
+      setSelectedChatId(null);
     }
   };
 
@@ -1117,18 +1163,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targetQueueState = targetOp ? "meus" : "fila";
     const opName = targetOp ? targetOp.name : "Qualquer atendente";
     const textLog = `Conversa transferida para o setor: ${sectorName} (${opName}).`;
-    
+    const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
     const targetSector = sectors.find(s => s.name === sectorName);
     const sectorId = targetSector ? targetSector.id : null;
 
+    // Snapshot para rollback
+    const previousState = conversationsRef.current.find((c) => c.id === id);
+
+    // Optimistic update: atualiza a conversa localmente
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
           const systemMsg: Message = {
-            id: `sys-${Date.now()}`,
+            id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             author: "Sistema",
             text: textLog,
-            time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            time: now,
             side: "out",
             isInternalNote: true,
           };
@@ -1144,11 +1195,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return c;
       })
     );
-    setActiveQueue(targetQueueState);
-    setSelectedChatId(id);
+
+    // O operador que transferiu não é mais dono: deselecionar o chat
+    // (ele vai sumir da aba "Meus" do operador de origem)
+    setSelectedChatId(null);
 
     try {
-      await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
+      const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1159,8 +1212,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           systemMessageText: textLog,
         }),
       });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
     } catch (err) {
-      console.error("Erro ao persistir transferência de chat no DB:", err);
+      console.error("[transferChat] Erro ao persistir no DB — revertendo estado:", err);
+      // Rollback: restaurar estado anterior da conversa
+      if (previousState) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...previousState } : c))
+        );
+      }
     }
   };
 
@@ -1756,7 +1819,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     ...c,
                     lastMessageTime: timeStr,
                     unreadCount: newUnread,
-                    messages: [...c.messages, incomingMsg],
+                    // Deduplicação: não adiciona a mensagem se ela já existe no array (ex: reconexão SSE)
+                    messages: c.messages.some((m) => m.id === incomingMsg.id)
+                      ? c.messages
+                      : [...c.messages, incomingMsg],
                     phone: message.phone || c.phone,
                     avatar: message.avatar || c.avatar,
                     queue: message.queue || c.queue,
@@ -1814,7 +1880,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return [newConv, ...prev];
             }
           });
+        } else if (data.type === "queue_update") {
+          // Evento de atualização de fila: captura, transferência ou finalização.
+          // Atualiza APENAS os campos de estado da conversa — sem criar balão de mensagem,
+          // sem incrementar unreadCount, sem tocar som de notificação.
+          const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId } = data;
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== conversationId) return c;
+              return {
+                ...c,
+                queue: queueState,
+                operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
+                sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
+              };
+            })
+          );
         }
+
       } catch (err) {
         console.error("Erro ao processar dados recebidos do SSE:", err);
       }

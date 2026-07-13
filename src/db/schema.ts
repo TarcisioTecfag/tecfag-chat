@@ -61,6 +61,12 @@ export const accessGroups = pgTable("access_groups", {
   canCreateUser: boolean("can_create_user").default(true).notNull(),
   canResetPassword: boolean("can_reset_password").default(true).notNull(),
   canEditProfile: boolean("can_edit_profile").default(true).notNull(),
+  // ── Permissões de Atendimento (RBAC) ────────────────────────────────────────
+  canCaptureChat: boolean("can_capture_chat").default(false).notNull(),
+  canTransferChat: boolean("can_transfer_chat").default(false).notNull(),
+  canFinishChat: boolean("can_finish_chat").default(false).notNull(),
+  canViewAllChats: boolean("can_view_all_chats").default(false).notNull(),
+  canOverrideChat: boolean("can_override_chat").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

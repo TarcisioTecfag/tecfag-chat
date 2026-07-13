@@ -53,7 +53,11 @@ export const Route = createFileRoute("/api/groups")({
 
         try {
           const body = await request.json();
-          const { id, tenantId, name, allowedTenants, allowedChannels, canCreateUser, canResetPassword, canEditProfile } = body;
+          const {
+            id, tenantId, name, allowedTenants, allowedChannels,
+            canCreateUser, canResetPassword, canEditProfile,
+            canCaptureChat, canTransferChat, canFinishChat, canViewAllChats, canOverrideChat,
+          } = body;
 
           if (!id || !tenantId || !name) {
             return new Response(JSON.stringify({ error: "id, tenantId e name são obrigatórios" }), {
@@ -78,6 +82,11 @@ export const Route = createFileRoute("/api/groups")({
                 canCreateUser: canCreateUser !== undefined ? canCreateUser : existing.canCreateUser,
                 canResetPassword: canResetPassword !== undefined ? canResetPassword : existing.canResetPassword,
                 canEditProfile: canEditProfile !== undefined ? canEditProfile : existing.canEditProfile,
+                canCaptureChat: canCaptureChat !== undefined ? canCaptureChat : existing.canCaptureChat,
+                canTransferChat: canTransferChat !== undefined ? canTransferChat : existing.canTransferChat,
+                canFinishChat: canFinishChat !== undefined ? canFinishChat : existing.canFinishChat,
+                canViewAllChats: canViewAllChats !== undefined ? canViewAllChats : existing.canViewAllChats,
+                canOverrideChat: canOverrideChat !== undefined ? canOverrideChat : existing.canOverrideChat,
               })
               .where(eq(accessGroups.id, id));
           } else {
@@ -90,6 +99,11 @@ export const Route = createFileRoute("/api/groups")({
               canCreateUser: canCreateUser !== undefined ? canCreateUser : true,
               canResetPassword: canResetPassword !== undefined ? canResetPassword : true,
               canEditProfile: canEditProfile !== undefined ? canEditProfile : true,
+              canCaptureChat: canCaptureChat !== undefined ? canCaptureChat : false,
+              canTransferChat: canTransferChat !== undefined ? canTransferChat : false,
+              canFinishChat: canFinishChat !== undefined ? canFinishChat : false,
+              canViewAllChats: canViewAllChats !== undefined ? canViewAllChats : false,
+              canOverrideChat: canOverrideChat !== undefined ? canOverrideChat : false,
             });
           }
 

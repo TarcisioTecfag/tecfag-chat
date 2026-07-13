@@ -21,7 +21,14 @@ export type SessionEvent =
   | { type: "qr"; qr: string }
   | { type: "status"; status: SessionStatus; phone?: string }
   | { type: "message"; message: any }
-  | { type: "contact_avatar"; contactId: string; phone: string; avatar: string };
+  | { type: "contact_avatar"; contactId: string; phone: string; avatar: string }
+  | {
+      type: "queue_update";
+      conversationId: string;
+      queueState: string;
+      operatorId: string | null;
+      sectorId: string | null;
+    };
 
 export type SessionListener = (event: SessionEvent) => void;
 

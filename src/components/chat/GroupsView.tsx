@@ -1369,6 +1369,93 @@ export function GroupsView() {
                 </div>
               </div>
 
+              {/* ── Permissões de Atendimento (Chat RBAC) ──────────────────── */}
+              <div className="space-y-3 pt-4 border-t border-line">
+                <div className="flex items-center gap-1.5">
+                  <MessageSquare className="h-4 w-4 text-primary" />
+                  <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Controle de Atendimentos</h5>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Define o que os membros deste grupo podem fazer dentro do fluxo de atendimento ao cliente.
+                </p>
+                <div className="space-y-2">
+
+                  {/* canCaptureChat */}
+                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupObj.canCaptureChat ?? false}
+                      onChange={(e) => updateGroupPermission(selectedGroupId, "canCaptureChat", e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-extrabold block text-foreground">Capturar Atendimentos</span>
+                      <span className="text-[10px] text-muted-foreground block">Permite puxar conversas da fila de espera ou automação para si mesmo.</span>
+                    </div>
+                  </label>
+
+                  {/* canTransferChat */}
+                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupObj.canTransferChat ?? false}
+                      onChange={(e) => updateGroupPermission(selectedGroupId, "canTransferChat", e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-extrabold block text-foreground">Transferir Atendimentos</span>
+                      <span className="text-[10px] text-muted-foreground block">Permite redirecionar uma conversa ativa para outro operador ou setor.</span>
+                    </div>
+                  </label>
+
+                  {/* canFinishChat */}
+                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupObj.canFinishChat ?? false}
+                      onChange={(e) => updateGroupPermission(selectedGroupId, "canFinishChat", e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-extrabold block text-foreground">Encerrar Atendimentos</span>
+                      <span className="text-[10px] text-muted-foreground block">Permite finalizar conversas ativas e movê-las para "Finalizados".</span>
+                    </div>
+                  </label>
+
+                  {/* canViewAllChats */}
+                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupObj.canViewAllChats ?? false}
+                      onChange={(e) => updateGroupPermission(selectedGroupId, "canViewAllChats", e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-extrabold block text-foreground">Visualizar Todos os Chats</span>
+                      <span className="text-[10px] text-muted-foreground block">Permite ver conversas atribuídas a outros operadores (modo leitura — não inclui captura ou transferência).</span>
+                    </div>
+                  </label>
+
+                  {/* canOverrideChat */}
+                  <label className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50/30 p-3 hover:bg-red-50/50 transition cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupObj.canOverrideChat ?? false}
+                      onChange={(e) => updateGroupPermission(selectedGroupId, "canOverrideChat", e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-red-500 focus:ring-red-400 shrink-0 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-extrabold block text-foreground flex items-center gap-1.5">
+                        Assumir Atendimento Alheio
+                        <span className="text-[9px] font-bold text-red-500 bg-red-100 px-1.5 py-0.5 rounded">Admin</span>
+                      </span>
+                      <span className="text-[10px] text-muted-foreground block">Permite forçar a tomada de controle de uma conversa de outro operador sem transferência formal.</span>
+                    </div>
+                  </label>
+
+                </div>
+              </div>
+
             </div>
           </div>
         </div>

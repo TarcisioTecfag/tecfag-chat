@@ -3,7 +3,7 @@ import { useChat } from "@/hooks/useChatState";
 import {
   Eye, AlertTriangle, Clock, Users, TrendingUp, TrendingDown,
   RefreshCw, ChevronRight, Minus, CheckCircle, XCircle,
-  MessageSquare, BarChart2, FileText, Bell, Zap, FlaskConical,
+  MessageSquare, BarChart2, Bell, Zap, FlaskConical,
   Activity, Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -28,7 +28,7 @@ import {
 const DEMO_MODE = true;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
-type MonitorTab = "overview" | "live" | "alerts" | "operators" | "audits" | "reports";
+type MonitorTab = "overview" | "live" | "alerts" | "operators" | "audits";
 
 type OverviewData = {
   today: string;
@@ -972,7 +972,6 @@ export function MonitorView() {
     { id: "alerts", label: "Alertas", icon: Bell, badge: alerts.filter((a: AlertItem) => a.isOverdue).length },
     { id: "operators", label: "Operadores", icon: Users },
     { id: "audits", label: "Auditorias IA", icon: Zap },
-    { id: "reports", label: "Relatórios", icon: FileText },
   ];
 
   const today = new Date().toLocaleDateString("pt-BR", {
@@ -1069,13 +1068,7 @@ export function MonitorView() {
               <AuditsTab audits={audits} loading={loadingAudits} />
             )}
 
-            {activeTab === "reports" && (
-              <PlaceholderTab
-                icon={FileText}
-                title="Relatórios automáticos em breve"
-                description="Após a ativação das auditorias IA, relatórios diários e semanais serão gerados automaticamente e exibidos aqui."
-              />
-            )}
+
           </motion.div>
         </AnimatePresence>
       </div>

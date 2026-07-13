@@ -31,6 +31,7 @@ import {
   Phone,
   PhoneOff,
   PhoneCall,
+  Bot,
 } from "lucide-react";
 import { io as socketIO, type Socket } from "socket.io-client";
 
@@ -421,7 +422,18 @@ export function ChatPanel() {
     templates,
     currentOperatorId,
     operatorProfile,
+    currentGroup,
   } = useChat();
+
+  // ── Flags de permissão derivadas do grupo de acesso ──────────────────────
+  const isOwner = !!activeChat && activeChat.operatorId === currentOperatorId;
+  const canCapture = currentGroup?.canCaptureChat ?? false;
+  const canTransfer = currentGroup?.canTransferChat ?? false;
+  const canFinish = currentGroup?.canFinishChat ?? false;
+  const canOverride = currentGroup?.canOverrideChat ?? false;
+  const ownerOperator = activeChat?.operatorId
+    ? operators.find((o) => o.id === activeChat.operatorId)
+    : null;
 
   const [text, setText] = useState("");
   const [replyingTo, setReplyingTo] = useState<any>(null);
@@ -1054,136 +1066,419 @@ export function ChatPanel() {
                 <PhoneCall className="h-3.5 w-3.5" />
               </a>
 
-              {/* Transfer Menu */}
-              <div className="relative">
+              {/* Transfer Menu — apenas para o dono com canTransferChat */}
+              {isOwner && canTransfer && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowTransferDropdown(!showTransferDropdown)}
+                    className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-4 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                  >
+                    <ArrowRightLeft className="h-3.5 w-3.5" />
+                    Transferir
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+
+                  {showTransferDropdown && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={closeTransferDropdown} />
+                      <div className="absolute right-0 mt-1.5 z-50 w-52 rounded-xl bg-card p-1 border border-border shadow-card animate-in fade-in duration-100">
+                        {!selectedTransferSectorId ? (
+                          <>
+                            <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-b border-line mb-1">
+                              Escolha o Setor
+                            </div>
+                            {sectors.map((sec) => (
+                              <button
+                                key={sec.id}
+                                onClick={() => {
+                                  setSelectedTransferSectorId(sec.id);
+                                }}
+                                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                              >
+                                <span>{sec.name}</span>
+                                <span className="text-[10px] text-muted-foreground font-normal">
+                                  {sec.operatorIds.length} atendente(s)
+                                </span>
+                              </button>
+                            ))}
+                          </>
+                        ) : (
+                          (() => {
+                            const selectedSector = sectors.find(
+                              (s) => s.id === selectedTransferSectorId,
+                            );
+                            const sectorOps = selectedSector
+                              ? operators.filter((op) => selectedSector.operatorIds.includes(op.id))
+                              : [];
+
+                            return (
+                              <>
+                                <button
+                                  onClick={() => setSelectedTransferSectorId(null)}
+                                  className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-bold text-primary hover:bg-muted transition border-b border-line mb-1 cursor-pointer"
+                                >
+                                  <ChevronLeft className="h-3.5 w-3.5" />
+                                  Voltar para Setores
+                                </button>
+
+                                <div className="px-3 py-1 text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
+                                  Atendentes em {selectedSector?.name}
+                                </div>
+
+                                {/* Option to transfer to any agent in sector (general queue) */}
+                                <button
+                                  onClick={() => {
+                                    transferChat(
+                                      activeChat.id,
+                                      selectedSector?.name || "Sem Nome",
+                                      null,
+                                    );
+                                    closeTransferDropdown();
+                                  }}
+                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
+                                >
+                                  <div className="h-5 w-5 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
+                                    F
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span>Fila Geral do Setor</span>
+                                    <span className="text-[9px] text-muted-foreground font-normal">
+                                      Qualquer atendente
+                                    </span>
+                                  </div>
+                                </button>
+
+                                {sectorOps.length === 0 ? (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground italic">
+                                    Nenhum atendente neste setor
+                                  </div>
+                                ) : (
+                                  sectorOps.map((op) => (
+                                    <button
+                                      key={op.id}
+                                      onClick={() => {
+                                        transferChat(
+                                          activeChat.id,
+                                          selectedSector?.name || "Sem Nome",
+                                          op.id,
+                                        );
+                                        closeTransferDropdown();
+                                      }}
+                                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                                    >
+                                      <img
+                                        src={op.avatar}
+                                        alt={op.name}
+                                        className="h-5 w-5 rounded-full object-cover shrink-0"
+                                      />
+                                      <div className="flex flex-col">
+                                        <span>{op.name}</span>
+                                        <span className="text-[9px] text-muted-foreground font-normal capitalize">
+                                          {op.status === "disponivel"
+                                            ? "Disponível"
+                                            : op.status === "pausa"
+                                              ? "Em Pausa"
+                                              : "Desconectado"}
+                                        </span>
+                                      </div>
+                                    </button>
+                                  ))
+                                )}
+                              </>
+                            );
+                          })()
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Finish Chat — apenas para o dono com canFinishChat */}
+              {isOwner && canFinish && (
                 <button
-                  onClick={() => setShowTransferDropdown(!showTransferDropdown)}
-                  className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-4 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                  onClick={() => finishChat(activeChat.id)}
+                  className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
                 >
-                  <ArrowRightLeft className="h-3.5 w-3.5" />
-                  Transferir
-                  <ChevronDown className="h-3.5 w-3.5" />
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  Finalizar
+                </button>
+              )}
+            </>
+          ) : (
+            /* Claim Chat — fila/automação, apenas para quem tem canCaptureChat */
+            activeChat.queue !== "finalizados" && canCapture && (
+              <button
+                onClick={() => captureChat(activeChat.id)}
+                className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Capturar Atendimento
+              </button>
+            )
+          )}
+        </div>
+      </header>
+        <div className="flex items-center gap-3">
+          {/* Avatar & Channel Badge */}
+          <div className="relative">
+            {activeChat.avatar ? (
+              <img
+                src={activeChat.avatar}
+                alt={activeChat.name}
+                className="h-10 w-10 rounded-full object-cover"
+              />
+            ) : (
+              <div
+                className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground"
+                style={{ background: activeChat.initialsBg || "#eee" }}
+              >
+                {activeChat.initials || "U"}
+              </div>
+            )}
+            <span
+              className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white ${
+                activeChat.channel === "whatsapp"
+                  ? "bg-emerald-500"
+                  : activeChat.channel === "instagram"
+                    ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
+                    : "bg-blue-600"
+              }`}
+            >
+              {activeChat.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
+              {activeChat.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
+              {activeChat.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
+            </span>
+          </div>
+
+          <div>
+            <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
+            <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5">
+              {activeChat.queue === "meus" && (
+                <span className="flex items-center gap-1 text-primary">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Meus Atendimentos
+                </span>
+              )}
+              {activeChat.queue === "fila" && (
+                <span className="flex items-center gap-1 text-amber-500">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Fila de Espera
+                </span>
+              )}
+              {activeChat.queue === "automacao" && (
+                <span className="flex items-center gap-1 text-blue-500 animate-pulse">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> Automação (I.A)
+                </span>
+              )}
+              {activeChat.queue === "finalizados" && (
+                <span className="flex items-center gap-1 text-gray-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-gray-400" /> Atendimento Finalizado
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Handover Operations Actions */}
+        <div className="flex items-center gap-2 relative">
+          {!rightSidebarOpen && (
+            <button
+              onClick={() => setRightSidebarOpen(true)}
+              className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              title="Mostrar Painel de Informações"
+            >
+              <ChevronLeft className="h-4.5 w-4.5" strokeWidth={2.5} />
+            </button>
+          )}
+      <header className="flex flex-col border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10">
+        {activeChat.operatorId && activeChat.operatorId !== operatorProfile?.id && (
+          <div className="bg-amber-100 text-amber-800 text-[10px] font-bold px-6 py-1 border-b border-amber-200">
+            Este atendimento está sendo respondido por outro atendente.
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            {/* Avatar & Channel Badge */}
+            <div className="relative">
+              {activeChat.avatar ? (
+                <img
+                  src={activeChat.avatar}
+                  alt={activeChat.name}
+                  className="h-10 w-10 rounded-full object-cover"
+                />
+              ) : (
+                <div
+                  className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground"
+                  style={{ background: activeChat.initialsBg || "#eee" }}
+                >
+                  {activeChat.initials || "U"}
+                </div>
+              )}
+              <span
+                className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white ${
+                  activeChat.channel === "whatsapp"
+                    ? "bg-emerald-500"
+                    : activeChat.channel === "instagram"
+                      ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
+                      : "bg-blue-600"
+                }`}
+              >
+                {activeChat.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
+                {activeChat.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
+                {activeChat.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
+              </span>
+            </div>
+
+            <div>
+              <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5">
+                {activeChat.queue === "meus" && (
+                  <span className="flex items-center gap-1 text-primary">
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Meus Atendimentos
+                  </span>
+                )}
+                {activeChat.queue === "fila" && (
+                  <span className="flex items-center gap-1 text-amber-500">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Fila de Espera
+                  </span>
+                )}
+                {activeChat.queue === "automacao" && (
+                  <span className="flex items-center gap-1 text-blue-500 animate-pulse">
+                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> Automação (I.A)
+                  </span>
+                )}
+                {activeChat.queue === "finalizados" && (
+                  <span className="flex items-center gap-1 text-gray-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-gray-400" /> Atendimento Finalizado
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Handover Operations Actions */}
+          <div className="flex items-center gap-2 relative">
+            {!rightSidebarOpen && (
+              <button
+                onClick={() => setRightSidebarOpen(true)}
+                className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                title="Mostrar Painel de Informações"
+              >
+                <ChevronLeft className="h-4.5 w-4.5" strokeWidth={2.5} />
+              </button>
+            )}
+            {activeChat.queue === "meus" ? (
+              <>
+                {/* Search button */}
+                <button
+                  onClick={() => setShowMsgSearch((v) => !v)}
+                  className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                    showMsgSearch
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                  title="Buscar mensagem"
+                >
+                  <Search className="h-3.5 w-3.5" />
                 </button>
 
-                {showTransferDropdown && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={closeTransferDropdown} />
-                    <div className="absolute right-0 mt-1.5 z-50 w-52 rounded-xl bg-card p-1 border border-border shadow-card animate-in fade-in duration-100">
-                      {!selectedTransferSectorId ? (
-                        <>
-                          <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-b border-line mb-1">
-                            Escolha o Setor
-                          </div>
-                          {sectors.map((sec) => (
-                            <button
-                              key={sec.id}
-                              onClick={() => {
-                                setSelectedTransferSectorId(sec.id);
-                              }}
-                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                            >
-                              <span>{sec.name}</span>
-                              <span className="text-[10px] text-muted-foreground font-normal">
-                                {sec.operatorIds.length} atendente(s)
-                              </span>
-                            </button>
-                          ))}
-                        </>
-                      ) : (
-                        (() => {
-                          const selectedSector = sectors.find(
-                            (s) => s.id === selectedTransferSectorId,
-                          );
-                          const sectorOps = selectedSector
-                            ? operators.filter((op) => selectedSector.operatorIds.includes(op.id))
-                            : [];
+                {/* Local Dial Button (VigosPhone) */}
+                <a
+                  href={(() => {
+                    if (!activeChat.phone) return "#";
+                    let n = activeChat.phone.replace(/\D/g, "");
+                    if (n.startsWith("55") && n.length > 10) n = n.substring(2);
+                    if (n.startsWith("0")) n = n.substring(1);
+                    if (n.startsWith("14")) n = n.substring(2);
+                    return `tel:${n}`;
+                  })()}
+                  onClick={logVigosPhoneCall}
+                  className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
+                  title="Discar via VigosPhone (Softphone Local)"
+                >
+                  <PhoneCall className="h-3.5 w-3.5" />
+                </a>
 
-                          return (
+                {/* Transfer Menu */}
+                {isOwner && canTransfer && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowTransferDropdown(!showTransferDropdown)}
+                      className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-4 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                    >
+                      <ArrowRightLeft className="h-3.5 w-3.5" />
+                      Transferir
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+
+                    {showTransferDropdown && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={closeTransferDropdown} />
+                        <div className="absolute right-0 mt-1.5 z-50 w-52 rounded-xl bg-card p-1 border border-border shadow-card animate-in fade-in duration-100">
+                          {!selectedTransferSectorId ? (
                             <>
-                              <button
-                                onClick={() => setSelectedTransferSectorId(null)}
-                                className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-bold text-primary hover:bg-muted transition border-b border-line mb-1 cursor-pointer"
-                              >
-                                <ChevronLeft className="h-3.5 w-3.5" />
-                                Voltar para Setores
-                              </button>
-
-                              <div className="px-3 py-1 text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
-                                Atendentes em {selectedSector?.name}
+                              <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-b border-line mb-1">
+                                Escolha o Setor
                               </div>
-
-                              {/* Option to transfer to any agent in sector (general queue) */}
-                              <button
-                                onClick={() => {
-                                  transferChat(
-                                    activeChat.id,
-                                    selectedSector?.name || "Sem Nome",
-                                    null,
-                                  );
-                                  closeTransferDropdown();
-                                }}
-                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
-                              >
-                                <div className="h-5 w-5 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
-                                  F
-                                </div>
-                                <div className="flex flex-col">
-                                  <span>Fila Geral do Setor</span>
-                                  <span className="text-[9px] text-muted-foreground font-normal">
-                                    Qualquer atendente
+                              {sectors.map((sec) => (
+                                <button
+                                  key={sec.id}
+                                  onClick={() => {
+                                    setSelectedTransferSectorId(sec.id);
+                                  }}
+                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                                >
+                                  <span>{sec.name}</span>
+                                  <span className="text-[10px] text-muted-foreground font-normal">
+                                    {sec.operatorIds.length} atendente(s)
                                   </span>
-                                </div>
-                              </button>
+                                </button>
+                              ))}
+                            </>
+                          ) : (
+                            (() => {
+                              const selectedSector = sectors.find(
+                                (s) => s.id === selectedTransferSectorId,
+                              );
+                              const sectorOps = selectedSector
+                                ? operators.filter((op) => selectedSector.operatorIds.includes(op.id))
+                                : [];
 
-                              {sectorOps.length === 0 ? (
-                                <div className="px-3 py-2 text-xs text-muted-foreground italic">
-                                  Nenhum atendente neste setor
-                                </div>
-                              ) : (
-                                sectorOps.map((op) => (
+                              return (
+                                <>
                                   <button
-                                    key={op.id}
+                                    onClick={() => setSelectedTransferSectorId(null)}
+                                    className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-bold text-primary hover:bg-muted transition border-b border-line mb-1 cursor-pointer"
+                                  >
+                                    <ChevronLeft className="h-3.5 w-3.5" />
+                                    Voltar para Setores
+                                  </button>
+
+                                  <div className="px-3 py-1 text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
+                                    Atendentes em {selectedSector?.name}
+                                  </div>
+
+                                  {/* Option to transfer to any agent in sector (general queue) */}
+                                  <button
                                     onClick={() => {
                                       transferChat(
                                         activeChat.id,
                                         selectedSector?.name || "Sem Nome",
-                                        op.id,
+                                        null,
                                       );
                                       closeTransferDropdown();
                                     }}
-                                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
                                   >
-                                    <img
-                                      src={op.avatar}
-                                      alt={op.name}
-                                      className="h-5 w-5 rounded-full object-cover shrink-0"
-                                    />
+                                    <div className="h-5 w-5 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
+                                      F
+                                    </div>
                                     <div className="flex flex-col">
-                                      <span>{op.name}</span>
-                                      <span className="text-[9px] text-muted-foreground font-normal capitalize">
-                                        {op.status === "disponivel"
-                                          ? "Disponível"
-                                          : op.status === "pausa"
-                                            ? "Em Pausa"
-                                            : "Desconectado"}
+                                      <span>Fila Geral do Setor</span>
+                                      <span className="text-[9px] text-muted-foreground font-normal">
+                                        Qualquer atendente
                                       </span>
                                     </div>
                                   </button>
-                                ))
-                              )}
-                            </>
-                          );
-                        })()
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Finish Chat */}
-              <button
-                onClick={() => finishChat(activeChat.id)}
-                className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
               >
                 <CheckCircle className="h-3.5 w-3.5" />
                 Finalizar
@@ -1603,6 +1898,62 @@ export function ChatPanel() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          {/* Banner de bloqueio: chat pertence a outro operador */}
+          {!isOwner && activeChat.operatorId && (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-4 py-2.5">
+              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                <Lock className="h-4 w-4 shrink-0" />
+                <span className="text-xs font-semibold">
+                  Este atendimento pertence a{" "}
+                  <strong>{ownerOperator?.name ?? "outro operador"}</strong>.
+                </span>
+              </div>
+              {canOverride && (
+                <button
+                  onClick={() => captureChat(activeChat.id)}
+                  className="shrink-0 h-7 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold px-3 transition cursor-pointer"
+                >
+                  Assumir
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Banner de bloqueio: chat na fila de espera */}
+          {!activeChat.operatorId && activeChat.queue === "fila" && (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 dark:bg-sky-950/30 dark:border-sky-800 px-4 py-2.5">
+              <div className="flex items-center gap-2 text-sky-700 dark:text-sky-400">
+                <Clock className="h-4 w-4 shrink-0" />
+                <span className="text-xs font-semibold">Este atendimento está na Fila de Espera.</span>
+              </div>
+              {canCapture && (
+                <button
+                  onClick={() => captureChat(activeChat.id)}
+                  className="shrink-0 h-7 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold px-3 transition cursor-pointer"
+                >
+                  Capturar
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Banner de bloqueio: chat em automação */}
+          {activeChat.queue === "automacao" && (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 px-4 py-2.5">
+              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
+                <Bot className="h-4 w-4 shrink-0" />
+                <span className="text-xs font-semibold">Este atendimento está em Automação (I.A).</span>
+              </div>
+              {canCapture && (
+                <button
+                  onClick={() => captureChat(activeChat.id)}
+                  className="shrink-0 h-7 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold px-3 transition cursor-pointer"
+                >
+                  Assumir
+                </button>
+              )}
+            </div>
+          )}
           {/* Drag overlay */}
           {isDragging && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-3xl bg-primary/10 border-2 border-dashed border-primary pointer-events-none">
