@@ -17,11 +17,31 @@ export const Route = createFileRoute("/api/settings/rd-crm/fields")({
         const tenantId = url.searchParams.get("tenantId") || "valem";
 
         try {
-          // Busca campos customizados configurados no RD CRM (solicita tamanho de página 100 para evitar paginação)
-          const customFields = await rdRequest(tenantId, "GET", "/custom_fields?page_size=100").catch((err) => {
-            console.error("[RD CRM Fields] Erro ao buscar campos customizados:", err.message);
-            return { error: err.message };
-          });
+          // Busca campos customizados configurados no RD CRM percorrendo todas as páginas de forma segura
+          const customFields: any[] = [];
+          let pageNum = 1;
+          let hasMore = true;
+          
+          while (hasMore && pageNum <= 5) {
+            try {
+              const res = await rdRequest<any>(tenantId, "GET", `/custom_fields?page=${pageNum}&limit=100`);
+              const fields = Array.isArray(res) ? res : (res && Array.isArray(res.data) ? res.data : []);
+              
+              if (fields.length === 0) {
+                hasMore = false;
+              } else {
+                customFields.push(...fields);
+                if (fields.length < 25) {
+                  hasMore = false;
+                } else {
+                  pageNum++;
+                }
+              }
+            } catch (err: any) {
+              console.error(`[RD CRM Fields] Erro ao buscar custom_fields na página ${pageNum}:`, err.message);
+              hasMore = false;
+            }
+          }
 
           // Busca funis configurados no RD CRM
           const pipelines = await rdRequest(tenantId, "GET", "/pipelines").catch((err) => {

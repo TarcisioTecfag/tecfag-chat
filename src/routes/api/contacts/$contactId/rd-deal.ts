@@ -52,15 +52,37 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
 
           const tenantId = contact.tenantId;
 
-          // Busca os campos customizados configurados no CRM (solicita tamanho de página 100 para evitar paginação)
-          const allCrmFields = await rdRequest<any[]>(tenantId, "GET", "/custom_fields?page_size=100").catch((err) => {
-            console.error("[RD Deal API] Erro ao buscar custom_fields:", err.message);
-            return [];
-          });
+          // Busca os campos customizados configurados no CRM percorrendo todas as páginas de forma segura
+          const allCrmFields: any[] = [];
+          let pageNum = 1;
+          let hasMore = true;
+          
+          while (hasMore && pageNum <= 5) {
+            try {
+              // Tentamos carregar usando limit=100 para otimizar, mas caso a API limite a 25, o loop buscará as próximas páginas
+              const res = await rdRequest<any>(tenantId, "GET", `/custom_fields?page=${pageNum}&limit=100`);
+              const fields = Array.isArray(res) ? res : (res && Array.isArray(res.data) ? res.data : []);
+              
+              if (fields.length === 0) {
+                hasMore = false;
+              } else {
+                allCrmFields.push(...fields);
+                // Se retornou menos que 25, significa que com certeza chegamos ao fim dos resultados
+                if (fields.length < 25) {
+                  hasMore = false;
+                } else {
+                  pageNum++;
+                }
+              }
+            } catch (err: any) {
+              console.error(`[RD Deal API] Erro ao buscar custom_fields na página ${pageNum}:`, err.message);
+              hasMore = false;
+            }
+          }
 
           console.log("[RD Deal API] Quantidade de campos recuperados:", allCrmFields.length);
           if (allCrmFields.length > 0) {
-            console.log("[RD Deal API] Exemplo de campos:", allCrmFields.slice(0, 5).map(f => ({ id: f.id, label: f.label })));
+            console.log("[RD Deal API] Todos os campos recuperados:", allCrmFields.map(f => ({ id: f.id, label: f.label })));
           }
 
           // Busca o negócio na API do RD CRM
