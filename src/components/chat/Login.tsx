@@ -120,6 +120,13 @@ export function Login() {
           
           {/* Cabeçalho */}
           <div className="text-center md:text-left mb-8">
+            <div className="flex justify-center md:justify-start mb-6">
+              <img
+                src={activeTenant === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg"}
+                alt={activeTenant === "tecfag" ? "Tecfag Logo" : "Valem Logo"}
+                className="h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-2 transition-all duration-300 hover:scale-105"
+              />
+            </div>
             <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 mb-2.5">
               Boas-vindas de volta
             </h2>
