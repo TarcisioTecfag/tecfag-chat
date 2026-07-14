@@ -60,6 +60,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
                            (deal.total_price !== undefined ? deal.total_price : 
                            (deal.price !== undefined ? deal.price : 
                            (deal.amount_total !== undefined ? deal.amount_total : 0)));
+              deal.deal_custom_fields = deal.deal_custom_fields || deal.custom_fields || [];
             }
 
             // Normalização flexível para encontrar os campos sem depender de acentos, maiúsculas ou espaços exatos

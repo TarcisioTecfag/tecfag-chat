@@ -66,7 +66,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
 
         // Inicializa formulário com dados do CRM
         const cfValues: Record<string, any> = {};
-        const dealCf = data.deal?.deal_custom_fields || [];
+        const dealCf = data.deal?.deal_custom_fields || data.deal?.custom_fields || [];
         const schema = data.fieldsSchema || {};
 
         Object.keys(schema).forEach((key) => {
@@ -187,7 +187,8 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
   const getCustomFieldValue = (fieldKey: string) => {
     const field = fieldsSchema?.[fieldKey];
     if (!field) return "Não configurado";
-    const found = deal?.deal_custom_fields?.find((cf: any) => cf.custom_field_id === field.id);
+    const dealCf = deal?.deal_custom_fields || deal?.custom_fields || [];
+    const found = dealCf.find((cf: any) => cf.custom_field_id === field.id);
     return found?.value || "Não informado";
   };
 
