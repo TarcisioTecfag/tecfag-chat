@@ -27,7 +27,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
 
         try {
           const body = await request.json();
-          const { conversationId, queueState, systemMessageText, operatorId, sectorId } = body;
+          const { conversationId, queueState, systemMessageText, operatorId, sectorId, isTransfer } = body;
 
           if (!conversationId || !queueState) {
             return new Response(JSON.stringify({ error: "conversationId e queueState são obrigatórios" }), {
@@ -52,6 +52,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           // Se outra operadora já capturou o chat (operatorId existente e diferente do solicitante),
           // retorna 409 Conflict para que o frontend possa fazer rollback.
           if (
+            !isTransfer &&
             queueState === "meus" &&
             operatorId &&
             conv.operatorId &&

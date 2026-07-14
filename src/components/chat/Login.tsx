@@ -61,7 +61,13 @@ export function Login() {
       style={themeStyles}
     >
       {/* PAINEL DA ESQUERDA: Espaço para Foto & Citação */}
-      <div className="relative md:col-span-2 flex flex-col justify-between p-8 md:p-12 overflow-hidden min-h-[400px] md:min-h-screen bg-slate-950 text-white">
+      <motion.div
+        layout
+        transition={{ type: "spring", stiffness: 140, damping: 22 }}
+        className={`relative md:col-span-2 flex flex-col justify-between p-8 md:p-12 overflow-hidden min-h-[400px] md:min-h-screen bg-slate-950 text-white ${
+          isValem ? "order-2 md:order-2" : "order-1 md:order-1"
+        }`}
+      >
         {/* Fundo com a foto carregada */}
         <div 
           className="absolute inset-0 z-0 bg-cover bg-center transition-all duration-500" 
@@ -95,10 +101,16 @@ export function Login() {
             <span className="text-xs text-white/60">Diretora de Tecnologia de Marketing Digital</span>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* PAINEL DA DIREITA: Formulário de Login */}
-      <div className="md:col-span-3 flex items-center justify-center p-6 sm:p-12 md:p-20 bg-white">
+      <motion.div
+        layout
+        transition={{ type: "spring", stiffness: 140, damping: 22 }}
+        className={`md:col-span-3 flex items-center justify-center p-6 sm:p-12 md:p-20 bg-white ${
+          isValem ? "order-1 md:order-1" : "order-2 md:order-2"
+        }`}
+      >
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -244,7 +256,7 @@ export function Login() {
           </div>
 
         </motion.div>
-      </div>
+      </motion.div>
     </div>
   );
 }

@@ -1212,6 +1212,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           operatorId: targetOperatorId || null,
           sectorId: sectorId,
           systemMessageText: textLog,
+          isTransfer: true,
         }),
       });
 
@@ -1479,6 +1480,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
     );
 
+    const previousActiveConvState = activeConversation ? { ...activeConversation } : null;
+
     // 3. Persiste carteira no banco de dados
     try {
       const res = await fetch(`${BACKEND_URL}/api/contacts/update-wallet`, {
@@ -1488,25 +1491,39 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       if (!res.ok) {
         console.error("[updateContactWallet] Erro ao persistir no DB");
-        // Rollback do estado local
+        // Rollback do estado local (ambos carteira e conversa ativa)
         setConversations((prev) =>
-          prev.map((c) =>
-            c.contactId === contactId || c.id === contactId
-              ? { ...c, walletOperatorId: activeConversation?.walletOperatorId ?? null }
-              : c
-          )
+          prev.map((c) => {
+            const isContact = c.contactId === contactId || c.id === contactId;
+            if (!isContact) return c;
+            if (previousActiveConvState && c.id === previousActiveConvState.id) {
+              return { ...previousActiveConvState };
+            }
+            return { ...c, walletOperatorId: activeConversation?.walletOperatorId ?? null };
+          })
         );
         return;
       }
     } catch (err) {
       console.error("[updateContactWallet] Erro na requisição:", err);
+      // Rollback
+      setConversations((prev) =>
+        prev.map((c) => {
+          const isContact = c.contactId === contactId || c.id === contactId;
+          if (!isContact) return c;
+          if (previousActiveConvState && c.id === previousActiveConvState.id) {
+            return { ...previousActiveConvState };
+          }
+          return { ...c, walletOperatorId: activeConversation?.walletOperatorId ?? null };
+        })
+      );
       return;
     }
 
     // 4. Se há conversa ativa e um operador-alvo, sincroniza o atendimento via update-queue
     if (activeConversation && targetOperatorId !== undefined) {
       try {
-        await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
+        const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1514,10 +1531,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             queueState: newQueueState,
             operatorId: targetOperatorId,
             systemMessageText: logText,
+            isTransfer: true,
           }),
         });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
       } catch (err) {
         console.error("[updateContactWallet] Erro ao sincronizar atendimento:", err);
+        // Rollback da parte da conversa
+        if (previousActiveConvState) {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === previousActiveConvState.id ? { ...previousActiveConvState } : c))
+          );
+        }
       }
     }
   };
