@@ -10,6 +10,19 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+// ============================================================================
+// CONFIGURAÇÃO DOS IDS REAIS DO SEU RD CRM (VALEM)
+// Acesse a URL: /api/settings/rd-crm/fields?tenantId=valem no seu navegador
+// Cole os IDs corretos obtidos para os respectivos campos nas constantes abaixo:
+// ============================================================================
+const VALEM_FIELD_IDS = {
+  qualificadoSdr: "6786c57f722a57000d81b831", // Substituir pelo ID de "QUALIFICADO POR SDR (VALEM)"
+  projetosDesenvolvimento: "6786c57f722a57000d81b832", // Substituir pelo ID de "PROJETOS / DESENVOLVIMENTO"
+  tipoProduto: "6786c57f722a57000d81b833", // Substituir pelo ID de "QUAL O TIPO DE PRODUTO (VALEM)"
+  infoComplementar: "6786c57f722a57000d81b834", // Substituir pelo ID de "INFORMAÇÕES COMPLEMENTARES"
+  feitoPor: "6786c57f722a57000d81b835", // Substituir pelo ID de "FEITO POR"
+};
+
 export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
   server: {
     handlers: {
@@ -74,7 +87,12 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
                 : "";
             };
 
-            const findField = (labelPattern: string) => {
+            const findField = (configuredId: string, labelPattern: string) => {
+              // 1. Tenta buscar pelo ID configurado na constante
+              const foundById = allCrmFields.find((f) => f.id === configuredId);
+              if (foundById) return foundById;
+
+              // 2. Se não encontrar pelo ID, cai no algoritmo de busca por texto do rótulo
               const target = normalizeStr(labelPattern);
               return allCrmFields.find((f) => {
                 const normLabel = normalizeStr(f.label || "");
@@ -82,13 +100,13 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
               });
             };
 
-            // Resolve os IDs dos campos com base no label usando normalização
+            // Resolve os IDs dos campos com base no ID configurado ou no label usando normalização
             const fieldsSchema = {
-              qualificadoSdr: findField("qualificado por sdr"),
-              projetosDesenvolvimento: findField("projetos desenvolvimento"),
-              tipoProduto: findField("tipo de produto"),
-              infoComplementar: findField("informacoes complementares"),
-              feitoPor: findField("feito por"),
+              qualificadoSdr: findField(VALEM_FIELD_IDS.qualificadoSdr, "qualificado por sdr"),
+              projetosDesenvolvimento: findField(VALEM_FIELD_IDS.projetosDesenvolvimento, "projetos desenvolvimento"),
+              tipoProduto: findField(VALEM_FIELD_IDS.tipoProduto, "tipo de produto"),
+              infoComplementar: findField(VALEM_FIELD_IDS.infoComplementar, "informacoes complementares"),
+              feitoPor: findField(VALEM_FIELD_IDS.feitoPor, "feito por"),
             };
 
             console.log("[RD Deal API] Fields Schema resolvido:", Object.keys(fieldsSchema).reduce((acc, key) => ({
