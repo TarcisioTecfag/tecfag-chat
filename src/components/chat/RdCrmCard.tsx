@@ -64,16 +64,14 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
         setDeal(data.deal);
         setFieldsSchema(data.fieldsSchema || {});
 
-        // Inicializa formulário com dados do CRM
+        // Inicializa formulário com dados do CRM usando o helper robusto
         const cfValues: Record<string, any> = {};
-        const dealCf = data.deal?.deal_custom_fields || data.deal?.custom_fields || [];
         const schema = data.fieldsSchema || {};
 
         Object.keys(schema).forEach((key) => {
           const field = schema[key];
           if (field) {
-            const found = dealCf.find((cf: any) => cf.custom_field_id === field.id);
-            cfValues[field.id] = found ? found.value : "";
+            cfValues[field.id] = getCustomFieldValueFromDeal(data.deal, field.id);
           }
         });
 
@@ -183,13 +181,50 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
     }
   };
 
+  // Helper robusto para extrair o valor do campo do deal, seja ele Array ou Objeto
+  const getCustomFieldValueFromDeal = (dealObj: any, fieldId: string): string => {
+    if (!dealObj) return "";
+    const cf = dealObj.deal_custom_fields !== undefined ? dealObj.deal_custom_fields : dealObj.custom_fields;
+    if (!cf) return "";
+
+    // Se for Array
+    if (Array.isArray(cf)) {
+      const found = cf.find((item: any) => item && (item.custom_field_id === fieldId || item.id === fieldId));
+      if (found && typeof found === "object") {
+        return found.value !== undefined && found.value !== null ? String(found.value) : "";
+      }
+      return found !== undefined && found !== null ? String(found) : "";
+    }
+
+    // Se for Objeto (dicionário chave-valor)
+    if (typeof cf === "object") {
+      const valObj = cf[fieldId];
+      if (valObj !== undefined) {
+        if (valObj && typeof valObj === "object" && valObj.value !== undefined) {
+          return valObj.value !== null ? String(valObj.value) : "";
+        }
+        return valObj !== null ? String(valObj) : "";
+      }
+
+      // Fallback: itera se a chave for diferente do ID
+      const keys = Object.keys(cf);
+      for (const k of keys) {
+        const item = cf[k];
+        if (item && typeof item === "object" && (item.custom_field_id === fieldId || item.id === fieldId)) {
+          return item.value !== undefined && item.value !== null ? String(item.value) : "";
+        }
+      }
+    }
+
+    return "";
+  };
+
   // Helper para ler valor de campo personalizado
   const getCustomFieldValue = (fieldKey: string) => {
     const field = fieldsSchema?.[fieldKey];
     if (!field) return "Não configurado";
-    const dealCf = deal?.deal_custom_fields || deal?.custom_fields || [];
-    const found = dealCf.find((cf: any) => cf.custom_field_id === field.id);
-    return found?.value || "Não informado";
+    const val = getCustomFieldValueFromDeal(deal, field.id);
+    return val !== "" ? val : "Não informado";
   };
 
   if (loading) {
