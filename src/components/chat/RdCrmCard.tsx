@@ -200,7 +200,24 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
 
     // Se for Array
     if (Array.isArray(cf)) {
-      const found = cf.find((item: any) => item && (item.custom_field_id === fieldId || item.id === fieldId));
+      const found = cf.find((item: any) => {
+        if (!item) return false;
+        
+        // 1. Caso venha no padrão { custom_field_id: "..." }
+        if (item.custom_field_id === fieldId) return true;
+        
+        // 2. Caso venha no padrão { custom_field: { _id: "..." } } ou { custom_field: { id: "..." } }
+        if (item.custom_field && typeof item.custom_field === "object") {
+          const cfId = item.custom_field._id || item.custom_field.id;
+          if (cfId === fieldId) return true;
+        }
+        
+        // 3. Caso venha no padrão { id: "..." }
+        if (item.id === fieldId) return true;
+        
+        return false;
+      });
+
       if (found && typeof found === "object") {
         return found.value !== undefined && found.value !== null ? String(found.value) : "";
       }
@@ -221,8 +238,11 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
       const keys = Object.keys(cf);
       for (const k of keys) {
         const item = cf[k];
-        if (item && typeof item === "object" && (item.custom_field_id === fieldId || item.id === fieldId)) {
-          return item.value !== undefined && item.value !== null ? String(item.value) : "";
+        if (item && typeof item === "object") {
+          const itemId = item.custom_field_id || item.id || (item.custom_field && (item.custom_field._id || item.custom_field.id));
+          if (itemId === fieldId) {
+            return item.value !== undefined && item.value !== null ? String(item.value) : "";
+          }
         }
       }
     }
