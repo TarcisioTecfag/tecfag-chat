@@ -125,10 +125,21 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
     setSaving(true);
     try {
       // Converte o objeto de customFields em array aceito pela API do RD CRM
-      const deal_custom_fields = Object.keys(form.customFields).map((id) => ({
-        custom_field_id: id,
-        value: form.customFields[id] || "",
-      }));
+      const deal_custom_fields = Object.keys(form.customFields).map((id) => {
+        const schemaKey = Object.keys(fieldsSchema).find((key) => fieldsSchema[key]?.id === id);
+        const field = schemaKey ? fieldsSchema[schemaKey] : null;
+        let val = form.customFields[id] || "";
+
+        // Para campos de múltipla escolha (multiple_choice ou option), a API espera os valores encapsulados em um array
+        if (field && (field.type === "multiple_choice" || field.type === "option") && typeof val === "string") {
+          val = val ? [val] : [];
+        }
+
+        return {
+          custom_field_id: id,
+          value: val,
+        };
+      });
 
       const payload = {
         name: form.name,
@@ -370,7 +381,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                       <label className="text-[9px] font-bold text-muted-foreground uppercase">
                         {field.label}
                       </label>
-                      {field.type === "select" ? (
+                      {field.type === "select" || field.type === "multiple_choice" || field.type === "option" ? (
                         <select
                           value={form.customFields[field.id] || ""}
                           onChange={(e) =>
@@ -382,11 +393,14 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                           className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500 border border-border"
                         >
                           <option value="">Selecione uma opção...</option>
-                          {field.custom_field_options?.map((opt: any) => (
-                            <option key={opt.id} value={opt.value}>
-                              {opt.value}
-                            </option>
-                          ))}
+                          {(field.options || field.custom_field_options)?.map((opt: any) => {
+                            const val = typeof opt === "string" ? opt : opt.value;
+                            return (
+                              <option key={val} value={val}>
+                                {val}
+                              </option>
+                            );
+                          })}
                         </select>
                       ) : (
                         // Textarea para Informações Complementares, input para o resto

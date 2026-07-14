@@ -52,38 +52,13 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
 
           const tenantId = contact.tenantId;
 
-          // Busca os campos customizados configurados no CRM percorrendo todas as páginas de forma segura
-          const allCrmFields: any[] = [];
-          let pageNum = 1;
-          let hasMore = true;
-          
-          while (hasMore && pageNum <= 5) {
-            try {
-              // Tentamos carregar usando limit=100 para otimizar, mas caso a API limite a 25, o loop buscará as próximas páginas
-              const res = await rdRequest<any>(tenantId, "GET", `/custom_fields?page=${pageNum}&limit=100`);
-              const fields = Array.isArray(res) ? res : (res && Array.isArray(res.data) ? res.data : []);
-              
-              if (fields.length === 0) {
-                hasMore = false;
-              } else {
-                allCrmFields.push(...fields);
-                // Se retornou menos que 25, significa que com certeza chegamos ao fim dos resultados
-                if (fields.length < 25) {
-                  hasMore = false;
-                } else {
-                  pageNum++;
-                }
-              }
-            } catch (err: any) {
-              console.error(`[RD Deal API] Erro ao buscar custom_fields na página ${pageNum}:`, err.message);
-              hasMore = false;
-            }
-          }
+          // Busca os campos customizados configurados no CRM
+          const allCrmFields = await rdRequest<any[]>(tenantId, "GET", "/custom_fields").catch((err) => {
+            console.error("[RD Deal API] Erro ao buscar custom_fields:", err.message);
+            return [];
+          });
 
           console.log("[RD Deal API] Quantidade de campos recuperados:", allCrmFields.length);
-          if (allCrmFields.length > 0) {
-            console.log("[RD Deal API] Todos os campos recuperados:", allCrmFields.map(f => ({ id: f.id, label: f.label })));
-          }
 
           // Busca o negócio na API do RD CRM
           try {
@@ -122,13 +97,20 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
               });
             };
 
-            // Resolve os IDs dos campos com base no ID configurado ou no label usando normalização
+            // Resolve os IDs dos campos com base no ID configurado ou no label usando normalização.
+            // Para garantir que sempre retornemos um objeto com o ID correto, fazemos fallback de segurança.
+            const getFieldWithFallback = (key: keyof typeof VALEM_FIELD_IDS, label: string) => {
+              const id = VALEM_FIELD_IDS[key];
+              const found = findField(id, label);
+              return found || { id, label, type: key === "infoComplementar" ? "text" : "multiple_choice" };
+            };
+
             const fieldsSchema = {
-              qualificadoSdr: findField(VALEM_FIELD_IDS.qualificadoSdr, "qualificado por sdr"),
-              projetosDesenvolvimento: findField(VALEM_FIELD_IDS.projetosDesenvolvimento, "projetos desenvolvimento"),
-              tipoProduto: findField(VALEM_FIELD_IDS.tipoProduto, "tipo de produto"),
-              infoComplementar: findField(VALEM_FIELD_IDS.infoComplementar, "informacoes complementares"),
-              feitoPor: findField(VALEM_FIELD_IDS.feitoPor, "feito por"),
+              qualificadoSdr: getFieldWithFallback("qualificadoSdr", "QUALIFICADO POR SDR (VALEM)"),
+              projetosDesenvolvimento: getFieldWithFallback("projetosDesenvolvimento", "PROJETOS / DESENVOLVIMENTO"),
+              tipoProduto: getFieldWithFallback("tipoProduto", "QUAL O TIPO DE PRODUTO (VALEM)"),
+              infoComplementar: getFieldWithFallback("infoComplementar", "INFORMAÇÕES COMPLEMENTARES"),
+              feitoPor: getFieldWithFallback("feitoPor", "FEITO POR"),
             };
 
             console.log("[RD Deal API] Fields Schema resolvido:", Object.keys(fieldsSchema).reduce((acc, key) => ({
