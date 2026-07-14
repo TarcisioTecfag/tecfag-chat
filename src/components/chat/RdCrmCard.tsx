@@ -58,6 +58,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
       }
       const data = await res.json();
       if (data.linked) {
+        console.log("[DEBUG RD DEAL]", data.debug);
         setLinked(true);
         setDealId(data.dealId);
         setDealLink(data.dealLink);

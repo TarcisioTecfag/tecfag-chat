@@ -125,6 +125,12 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
                 dealLink: contact.rdCrmDealLink,
                 deal,
                 fieldsSchema,
+                debug: {
+                  dealKeys: Object.keys(deal || {}),
+                  dealCustomFieldsType: typeof (deal?.deal_custom_fields || deal?.custom_fields),
+                  dealCustomFieldsIsArray: Array.isArray(deal?.deal_custom_fields || deal?.custom_fields),
+                  dealCustomFieldsRaw: deal?.deal_custom_fields || deal?.custom_fields || null,
+                }
               }),
               {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
