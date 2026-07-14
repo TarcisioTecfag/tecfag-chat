@@ -103,11 +103,22 @@ export function Login() {
         {/* CITAÇÃO INFERIOR */}
         <div className="relative z-10 max-w-md mt-auto pt-16">
           <blockquote className="text-xl md:text-2xl font-medium leading-relaxed tracking-tight mb-6">
-            “Simplesmente todas as ferramentas que minha equipe e eu precisamos.”
+            {activeTenant === "tecfag" ? (
+              "“Simplesmente todas as ferramentas que minha equipe e eu precisamos.”"
+            ) : (
+              <>
+                “Com experiência, vendemos rápido.<br />
+                Com estratégia, vendemos muito.”
+              </>
+            )}
           </blockquote>
           <div>
-            <cite className="not-italic block font-bold text-sm text-white">Karen Yue</cite>
-            <span className="text-xs text-white/60">Diretora de Tecnologia de Marketing Digital</span>
+            <cite className="not-italic block font-bold text-sm text-white">
+              {activeTenant === "tecfag" ? "Karen Yue" : "João Rodolfo Lanza"}
+            </cite>
+            <span className="text-xs text-white/60">
+              {activeTenant === "tecfag" ? "Diretora de Tecnologia de Marketing Digital" : "Diretor Executivo da Tecfag Group"}
+            </span>
           </div>
         </div>
       </motion.div>
