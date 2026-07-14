@@ -72,7 +72,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
         Object.keys(schema).forEach((key) => {
           const field = schema[key];
           if (field) {
-            cfValues[field.id] = getCustomFieldValueFromDeal(data.deal, field.id);
+            cfValues[field.id] = getCustomFieldValueFromDeal(data.deal, field.id, field.slug);
           }
         });
 
@@ -194,7 +194,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
   };
 
   // Helper robusto para extrair o valor do campo do deal, seja ele Array ou Objeto
-  const getCustomFieldValueFromDeal = (dealObj: any, fieldId: string): string => {
+  const getCustomFieldValueFromDeal = (dealObj: any, fieldId: string, fieldSlug?: string): string => {
     if (!dealObj) return "";
     const cf = dealObj.deal_custom_fields !== undefined ? dealObj.deal_custom_fields : dealObj.custom_fields;
     if (!cf) return "";
@@ -211,38 +211,52 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
         if (item.custom_field && typeof item.custom_field === "object") {
           const cfId = item.custom_field._id || item.custom_field.id;
           if (cfId === fieldId) return true;
+          if (fieldSlug && (item.custom_field.slug === fieldSlug || item.custom_field.api_identifier === fieldSlug)) return true;
         }
         
         // 3. Caso venha no padrão { id: "..." }
         if (item.id === fieldId) return true;
+        if (fieldSlug && (item.slug === fieldSlug || item.api_identifier === fieldSlug)) return true;
         
         return false;
       });
 
       if (found && typeof found === "object") {
-        return found.value !== undefined && found.value !== null ? String(found.value) : "";
+        const val = found.value !== undefined && found.value !== null ? found.value : "";
+        return Array.isArray(val) ? val.join(", ") : String(val);
       }
       return found !== undefined && found !== null ? String(found) : "";
     }
 
     // Se for Objeto (dicionário chave-valor)
     if (typeof cf === "object") {
-      const valObj = cf[fieldId];
-      if (valObj !== undefined) {
-        if (valObj && typeof valObj === "object" && valObj.value !== undefined) {
-          return valObj.value !== null ? String(valObj.value) : "";
-        }
-        return valObj !== null ? String(valObj) : "";
+      // 1. Tenta buscar diretamente pela chave sendo o slug
+      if (fieldSlug && cf[fieldSlug] !== undefined) {
+        const val = cf[fieldSlug];
+        return Array.isArray(val) ? val.join(", ") : (val !== null ? String(val) : "");
+      }
+      
+      // 2. Tenta buscar pela chave sendo o ID
+      if (cf[fieldId] !== undefined) {
+        const val = cf[fieldId];
+        return Array.isArray(val) ? val.join(", ") : (val !== null ? String(val) : "");
       }
 
-      // Fallback: itera se a chave for diferente do ID
+      // 3. Fallback: varre chaves comparando com ID ou slug
       const keys = Object.keys(cf);
       for (const k of keys) {
+        if (k === fieldId || (fieldSlug && k === fieldSlug)) {
+          const val = cf[k];
+          return Array.isArray(val) ? val.join(", ") : (val !== null ? String(val) : "");
+        }
+        
         const item = cf[k];
         if (item && typeof item === "object") {
           const itemId = item.custom_field_id || item.id || (item.custom_field && (item.custom_field._id || item.custom_field.id));
-          if (itemId === fieldId) {
-            return item.value !== undefined && item.value !== null ? String(item.value) : "";
+          const itemSlug = item.slug || item.api_identifier || (item.custom_field && (item.custom_field.slug || item.custom_field.api_identifier));
+          if (itemId === fieldId || (fieldSlug && itemSlug === fieldSlug)) {
+            const val = item.value !== undefined && item.value !== null ? item.value : "";
+            return Array.isArray(val) ? val.join(", ") : String(val);
           }
         }
       }
@@ -255,7 +269,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
   const getCustomFieldValue = (fieldKey: string) => {
     const field = fieldsSchema?.[fieldKey];
     if (!field) return "Não configurado";
-    const val = getCustomFieldValueFromDeal(deal, field.id);
+    const val = getCustomFieldValueFromDeal(deal, field.id, field.slug);
     return val !== "" ? val : "Não informado";
   };
 
