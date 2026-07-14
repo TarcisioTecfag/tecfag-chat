@@ -311,6 +311,63 @@ export const tasks = pgTable("tasks", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// ── Valentina Agent Tables ─────────────────────────────────────────────
+
+// ─── 15. CONFIGURAÇÕES DOS AGENTES VALENTINA ─────────────────────────────────
+// Cada linha configura um dos 3 agentes (SDR, Supervisor, Vendedor) por tenant.
+// O campo `config` guarda prompts, regras de roteamento e comportamento em JSONB.
+export const agentConfigs = pgTable("agent_configs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  agentType: text("agent_type").notNull(), // 'sdr' | 'supervisor' | 'vendedor'
+  enabled: integer("enabled").default(0).notNull(), // 0=off, 1=on
+  config: jsonb("config").default({}).notNull(), // prompts, rules, routing
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── 16. ESTADO DO FLUXO DO AGENTE POR CONVERSA ─────────────────────────────
+// Rastreia em qual passo da conversa o agente está para cada atendimento ativo.
+// Permite retomar o fluxo exatamente de onde parou após reconexão.
+export const agentFlowStates = pgTable("agent_flow_states", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id).notNull(),
+  agentType: text("agent_type").notNull(), // 'sdr' | 'supervisor' | 'vendedor'
+  currentStep: text("current_step").notNull(), // 'greeting' | 'collecting_name' | etc.
+  collectedData: jsonb("collected_data").default({}).notNull(),
+  metadata: jsonb("metadata").default({}).notNull(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  lastInteractionAt: timestamp("last_interaction_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  outcome: text("outcome"), // 'transferred' | 'abandoned' | 'completed' | 'escalated'
+});
+
+// ─── 17. ESTADO DO ROUND ROBIN (Distribuição de Leads) ───────────────────────
+// Controla a distribuição circular de leads entre operadores de cada setor.
+export const roundRobinState = pgTable("round_robin_state", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  sectorId: text("sector_id").references(() => sectors.id).notNull(),
+  lastAssignedOperatorId: text("last_assigned_operator_id"),
+  assignmentCount: jsonb("assignment_count").default({}).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── 18. MENSAGENS INTERNAS (Chat Operador ↔ Valentina) ──────────────────────
+// Histórico do chat interno entre operadores e o agente Supervisor.
+export const internalMessages = pgTable("internal_messages", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id).notNull(),
+  direction: text("direction").notNull(), // 'to_agent' | 'from_agent'
+  agentType: text("agent_type").notNull(), // 'supervisor'
+  content: text("content").notNull(),
+  metadata: jsonb("metadata").default({}).notNull(),
+  read: integer("read").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -329,3 +386,9 @@ export type OperatorDailyMetrics = typeof operatorDailyMetrics.$inferSelect;
 export type AiReport = typeof aiReports.$inferSelect;
 export type CallSession = typeof callSessions.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
+
+// ── Tipos da Valentina (Agentes I.A.) ──
+export type AgentConfig = typeof agentConfigs.$inferSelect;
+export type AgentFlowState = typeof agentFlowStates.$inferSelect;
+export type RoundRobinState = typeof roundRobinState.$inferSelect;
+export type InternalMessage = typeof internalMessages.$inferSelect;

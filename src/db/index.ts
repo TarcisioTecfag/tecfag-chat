@@ -138,6 +138,53 @@ setupClient.unsafe(`
     text TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
+
+  -- ── Valentina Agent Tables ──────────────────────────────────────────────
+
+  CREATE TABLE IF NOT EXISTS agent_configs (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    agent_type TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    config JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_flow_states (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    agent_type TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    collected_data JSONB NOT NULL DEFAULT '{}',
+    metadata JSONB NOT NULL DEFAULT '{}',
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_interaction_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    outcome TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS round_robin_state (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    sector_id TEXT NOT NULL REFERENCES sectors(id),
+    last_assigned_operator_id TEXT,
+    assignment_count JSONB NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS internal_messages (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    operator_id TEXT NOT NULL REFERENCES operators(id),
+    direction TEXT NOT NULL,
+    agent_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}',
+    read INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
 `)
   .then(() => {
     console.log("[db] ✓ Tabelas de gestão verificadas/criadas.");

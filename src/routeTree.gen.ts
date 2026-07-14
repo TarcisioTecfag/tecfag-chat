@@ -20,6 +20,9 @@ import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
+import { Route as ApiValentinaMessagesRouteImport } from './routes/api/valentina/messages'
+import { Route as ApiValentinaConfigRouteImport } from './routes/api/valentina/config'
+import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/agents'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
 import { Route as ApiGestaoTasksRouteImport } from './routes/api/gestao/tasks'
@@ -95,6 +98,21 @@ const ApiChatsRoute = ApiChatsRouteImport.update({
 const ApiCallsRoute = ApiCallsRouteImport.update({
   id: '/api/calls',
   path: '/api/calls',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaMessagesRoute = ApiValentinaMessagesRouteImport.update({
+  id: '/api/valentina/messages',
+  path: '/api/valentina/messages',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaConfigRoute = ApiValentinaConfigRouteImport.update({
+  id: '/api/valentina/config',
+  path: '/api/valentina/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaAgentsRoute = ApiValentinaAgentsRouteImport.update({
+  id: '/api/valentina/agents',
+  path: '/api/valentina/agents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSettingsReportsRoute = ApiSettingsReportsRouteImport.update({
@@ -235,6 +253,9 @@ export interface FileRoutesByFullPath {
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/valentina/agents': typeof ApiValentinaAgentsRoute
+  '/api/valentina/config': typeof ApiValentinaConfigRoute
+  '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
@@ -269,6 +290,9 @@ export interface FileRoutesByTo {
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/valentina/agents': typeof ApiValentinaAgentsRoute
+  '/api/valentina/config': typeof ApiValentinaConfigRoute
+  '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
@@ -304,6 +328,9 @@ export interface FileRoutesById {
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/valentina/agents': typeof ApiValentinaAgentsRoute
+  '/api/valentina/config': typeof ApiValentinaConfigRoute
+  '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
@@ -340,6 +367,9 @@ export interface FileRouteTypes {
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/valentina/agents'
+    | '/api/valentina/config'
+    | '/api/valentina/messages'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
@@ -374,6 +404,9 @@ export interface FileRouteTypes {
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/valentina/agents'
+    | '/api/valentina/config'
+    | '/api/valentina/messages'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
@@ -408,6 +441,9 @@ export interface FileRouteTypes {
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/valentina/agents'
+    | '/api/valentina/config'
+    | '/api/valentina/messages'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
@@ -440,6 +476,9 @@ export interface RootRouteChildren {
   ApiGestaoTasksRoute: typeof ApiGestaoTasksRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
+  ApiValentinaAgentsRoute: typeof ApiValentinaAgentsRoute
+  ApiValentinaConfigRoute: typeof ApiValentinaConfigRoute
+  ApiValentinaMessagesRoute: typeof ApiValentinaMessagesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -519,6 +558,27 @@ declare module '@tanstack/react-router' {
       path: '/api/calls'
       fullPath: '/api/calls'
       preLoaderRoute: typeof ApiCallsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/messages': {
+      id: '/api/valentina/messages'
+      path: '/api/valentina/messages'
+      fullPath: '/api/valentina/messages'
+      preLoaderRoute: typeof ApiValentinaMessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/config': {
+      id: '/api/valentina/config'
+      path: '/api/valentina/config'
+      fullPath: '/api/valentina/config'
+      preLoaderRoute: typeof ApiValentinaConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/agents': {
+      id: '/api/valentina/agents'
+      path: '/api/valentina/agents'
+      fullPath: '/api/valentina/agents'
+      preLoaderRoute: typeof ApiValentinaAgentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/settings/reports': {
@@ -748,6 +808,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoTasksRoute: ApiGestaoTasksRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
+  ApiValentinaAgentsRoute: ApiValentinaAgentsRoute,
+  ApiValentinaConfigRoute: ApiValentinaConfigRoute,
+  ApiValentinaMessagesRoute: ApiValentinaMessagesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

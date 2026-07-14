@@ -13,6 +13,7 @@ import {
   Contact,
   Shield,
   Wallet,
+  Bot,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -32,6 +33,7 @@ export function Sidebar() {
   ];
 
   const decorativeItems = [
+    { id: "valentina", icon: Bot, label: "Valentina", isAvailable: true },
     { id: "settings", icon: Settings, label: "Ajustes", isAvailable: true },
     { id: "groups", icon: Shield, label: "Grupo de Acesso", isAvailable: true },
     { id: "monitor", icon: Eye, label: "Monitorar", isAvailable: true },

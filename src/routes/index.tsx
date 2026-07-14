@@ -12,6 +12,7 @@ import { ProfileModal } from "@/components/chat/ProfileModal";
 import { MonitorView } from "@/components/chat/MonitorView";
 import { AnalyticsView } from "@/components/chat/AnalyticsView";
 import { TasksView } from "@/components/chat/TasksView";
+import { ValentinaView } from "@/components/valentina/ValentinaView";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { motion, AnimatePresence } from "framer-motion";
@@ -145,6 +146,17 @@ function Index() {
                 className="flex-1 h-full overflow-hidden"
               >
                 <TasksView />
+              </motion.div>
+            ) : activeView === "valentina" ? (
+              <motion.div
+                key="valentina"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <ValentinaView />
               </motion.div>
             ) : (
               <motion.div
