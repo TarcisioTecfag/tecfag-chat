@@ -16,9 +16,9 @@ const corsHeaders = {
 // Cole os IDs corretos obtidos para os respectivos campos nas constantes abaixo:
 // ============================================================================
 const VALEM_FIELD_IDS = {
-  qualificadoSdr: "6786c57f722a57000d81b831", // Substituir pelo ID de "QUALIFICADO POR SDR (VALEM)"
-  projetosDesenvolvimento: "6786c57f722a57000d81b832", // Substituir pelo ID de "PROJETOS / DESENVOLVIMENTO"
-  tipoProduto: "6786c57f722a57000d81b833", // Substituir pelo ID de "QUAL O TIPO DE PRODUTO (VALEM)"
+  qualificadoSdr: "696ba913a1aef400136910f7", // ID real de "QUALIFICADO POR SDR (VALEM)"
+  projetosDesenvolvimento: "696bb0eb4d002d0014b3cd3e", // ID real de "PROJETOS / DESENVOLVIMENTO"
+  tipoProduto: "696ba80ed2dcbf001474aaf9", // ID real de "QUAL O TIPO DE PRODUTO (VALEM)"
   infoComplementar: "6786c57f722a57000d81b834", // Substituir pelo ID de "INFORMAÇÕES COMPLEMENTARES"
   feitoPor: "6786c57f722a57000d81b835", // Substituir pelo ID de "FEITO POR"
 };
@@ -52,8 +52,8 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
 
           const tenantId = contact.tenantId;
 
-          // Busca os campos customizados configurados no CRM
-          const allCrmFields = await rdRequest<any[]>(tenantId, "GET", "/custom_fields").catch((err) => {
+          // Busca os campos customizados configurados no CRM (solicita tamanho de página 100 para evitar paginação)
+          const allCrmFields = await rdRequest<any[]>(tenantId, "GET", "/custom_fields?page[size]=100").catch((err) => {
             console.error("[RD Deal API] Erro ao buscar custom_fields:", err.message);
             return [];
           });
