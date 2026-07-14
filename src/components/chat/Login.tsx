@@ -175,12 +175,10 @@ export function Login() {
             {/* Esqueceu a Senha */}
             <div className="text-left py-1">
               <a
-                href="#forgot-password"
+                href="https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br&message=Olá,%20preciso%20de%20ajuda%20para%20recuperar%20minha%20senha%20no%20sistema."
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-xs font-bold text-[var(--primary)] hover:text-[var(--primary-hover)] transition-colors"
-                onClick={(e) => {
-                  e.preventDefault();
-                  toast.info("A recuperação de senha deve ser solicitada ao administrador do sistema.");
-                }}
               >
                 Esqueceu a senha?
               </a>
@@ -242,12 +240,10 @@ export function Login() {
             <p className="text-xs text-slate-500 font-medium">
               Não tem uma conta?{" "}
               <a
-                href="#signup"
+                href="https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br&message=Olá,%20gostaria%20de%20solicitar%20a%20criação%20de%20uma%20conta%20de%20operador%20no%20sistema."
+                target="_blank"
+                rel="noopener noreferrer"
                 className="font-bold text-[var(--primary)] hover:text-[var(--primary-hover)] transition-colors ml-1"
-                onClick={(e) => {
-                  e.preventDefault();
-                  toast.info("O cadastro de novos operadores deve ser solicitado ao administrador.");
-                }}
               >
                 Cadastre-se
               </a>
