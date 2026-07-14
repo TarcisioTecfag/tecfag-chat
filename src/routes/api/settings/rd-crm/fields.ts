@@ -17,8 +17,8 @@ export const Route = createFileRoute("/api/settings/rd-crm/fields")({
         const tenantId = url.searchParams.get("tenantId") || "valem";
 
         try {
-          // Busca campos customizados configurados no RD CRM
-          const customFields = await rdRequest(tenantId, "GET", "/custom_fields").catch((err) => {
+          // Busca campos customizados configurados no RD CRM (solicita tamanho de página 100 para evitar paginação)
+          const customFields = await rdRequest(tenantId, "GET", "/custom_fields?page_size=100").catch((err) => {
             console.error("[RD CRM Fields] Erro ao buscar campos customizados:", err.message);
             return { error: err.message };
           });

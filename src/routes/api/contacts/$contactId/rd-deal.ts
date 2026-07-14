@@ -53,7 +53,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
           const tenantId = contact.tenantId;
 
           // Busca os campos customizados configurados no CRM (solicita tamanho de página 100 para evitar paginação)
-          const allCrmFields = await rdRequest<any[]>(tenantId, "GET", "/custom_fields?page[size]=100").catch((err) => {
+          const allCrmFields = await rdRequest<any[]>(tenantId, "GET", "/custom_fields?page_size=100").catch((err) => {
             console.error("[RD Deal API] Erro ao buscar custom_fields:", err.message);
             return [];
           });
