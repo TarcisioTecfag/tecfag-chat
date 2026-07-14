@@ -114,10 +114,10 @@ export function Login() {
           </blockquote>
           <div>
             <cite className="not-italic block font-bold text-sm text-white">
-              {activeTenant === "tecfag" ? "Karen Yue" : "João Rodolfo Lanza"}
+              {activeTenant === "tecfag" ? "Gilson Donato" : "João Rodolfo Lanza"}
             </cite>
             <span className="text-xs text-white/60">
-              {activeTenant === "tecfag" ? "Diretora de Tecnologia de Marketing Digital" : "Diretor Executivo da Tecfag Group"}
+              {activeTenant === "tecfag" ? "Chief Executive Officer da Tecfag Group" : "Diretor Executivo da Tecfag Group"}
             </span>
           </div>
         </div>
