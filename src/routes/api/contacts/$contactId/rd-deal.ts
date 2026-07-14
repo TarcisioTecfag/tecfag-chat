@@ -45,18 +45,55 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
             return [];
           });
 
+          console.log("[RD Deal API] Quantidade de campos recuperados:", allCrmFields.length);
+          if (allCrmFields.length > 0) {
+            console.log("[RD Deal API] Exemplo de campos:", allCrmFields.slice(0, 5).map(f => ({ id: f.id, label: f.label })));
+          }
+
           // Busca o negócio na API do RD CRM
           try {
             const deal = await rdRequest(tenantId, "GET", `/deals/${contact.rdCrmDealId}`);
             
-            // Resolve os IDs dos campos com base no label
-            const fieldsSchema = {
-              qualificadoSdr: allCrmFields.find((f) => f.label?.trim().toUpperCase() === "QUALIFICADO POR SDR (VALEM)"),
-              projetosDesenvolvimento: allCrmFields.find((f) => f.label?.trim().toUpperCase() === "PROJETOS / DESENVOLVIMENTO"),
-              tipoProduto: allCrmFields.find((f) => f.label?.trim().toUpperCase() === "QUAL O TIPO DE PRODUTO (VALEM)"),
-              infoComplementar: allCrmFields.find((f) => f.label?.trim().toUpperCase() === "INFORMAÇÕES COMPLEMENTARES"),
-              feitoPor: allCrmFields.find((f) => f.label?.trim().toUpperCase() === "FEITO POR"),
+            // Normaliza o valor retornado
+            if (deal) {
+              deal.value = deal.value !== undefined ? deal.value : 
+                           (deal.total_price !== undefined ? deal.total_price : 
+                           (deal.price !== undefined ? deal.price : 
+                           (deal.amount_total !== undefined ? deal.amount_total : 0)));
+            }
+
+            // Normalização flexível para encontrar os campos sem depender de acentos, maiúsculas ou espaços exatos
+            const normalizeStr = (str: string) => {
+              return str
+                ? str
+                    .toLowerCase()
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "") // remove acentos
+                    .replace(/[^a-z0-9]/g, "") // remove pontuações e espaços
+                : "";
             };
+
+            const findField = (labelPattern: string) => {
+              const target = normalizeStr(labelPattern);
+              return allCrmFields.find((f) => {
+                const normLabel = normalizeStr(f.label || "");
+                return normLabel.includes(target) || target.includes(normLabel);
+              });
+            };
+
+            // Resolve os IDs dos campos com base no label usando normalização
+            const fieldsSchema = {
+              qualificadoSdr: findField("qualificado por sdr"),
+              projetosDesenvolvimento: findField("projetos desenvolvimento"),
+              tipoProduto: findField("tipo de produto"),
+              infoComplementar: findField("informacoes complementares"),
+              feitoPor: findField("feito por"),
+            };
+
+            console.log("[RD Deal API] Fields Schema resolvido:", Object.keys(fieldsSchema).reduce((acc, key) => ({
+              ...acc,
+              [key]: (fieldsSchema as any)[key] ? { id: (fieldsSchema as any)[key].id, label: (fieldsSchema as any)[key].label } : "NÃO ENCONTRADO"
+            }), {}));
 
             return new Response(
               JSON.stringify({
@@ -222,10 +259,13 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
             }
           }
 
-          // 2. Atualiza o Negócio (Deal) no CRM
+          // 2. Atualiza o Negócio (Deal) no CRM (v2 espera total_price, v1/outros aceitam value)
           const dealPayload: Record<string, any> = {
             name: body.name,
             value: body.value,
+            total_price: body.value,
+            price: body.value,
+            amount_total: body.value,
           };
 
           if (body.deal_custom_fields) {
