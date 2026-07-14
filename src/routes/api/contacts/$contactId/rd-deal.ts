@@ -19,8 +19,8 @@ const VALEM_FIELD_IDS = {
   qualificadoSdr: "696ba913a1aef400136910f7", // ID real de "QUALIFICADO POR SDR (VALEM)"
   projetosDesenvolvimento: "696bb0eb4d002d0014b3cd3e", // ID real de "PROJETOS / DESENVOLVIMENTO"
   tipoProduto: "696ba80ed2dcbf001474aaf9", // ID real de "QUAL O TIPO DE PRODUTO (VALEM)"
-  infoComplementar: "6786c57f722a57000d81b834", // Substituir pelo ID de "INFORMAÇÕES COMPLEMENTARES"
-  feitoPor: "6786c57f722a57000d81b835", // Substituir pelo ID de "FEITO POR"
+  infoComplementar: "696bd749b44b6d00179417a0", // ID real de "INFORMAÇÕES COMPLEMENTARES"
+  feitoPor: "69b1638eb0e1180014224ca3", // ID real de "FEITO POR"
 };
 
 export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
