@@ -534,6 +534,12 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                     </p>
                   </div>
                 </div>
+
+                {/* Bloco de Diagnóstico Temporário */}
+                <div className="mt-4 p-2.5 bg-black/85 rounded-xl text-[10px] text-green-400 font-mono overflow-auto max-h-[200px] leading-tight select-all border border-green-500/20">
+                  <div className="font-bold border-b border-green-500/10 pb-1 mb-1">🔍 DEBUG DE CAMPOS PERSONALIZADOS:</div>
+                  <pre>{JSON.stringify(deal?.deal_custom_fields || deal?.custom_fields || [], null, 2)}</pre>
+                </div>
               </div>
             )}
 
