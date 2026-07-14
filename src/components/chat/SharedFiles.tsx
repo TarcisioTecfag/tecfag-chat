@@ -1,6 +1,7 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { RdCrmCard } from "./RdCrmCard";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -562,6 +563,9 @@ export function SharedFiles() {
               </button>
             </form>
           </div>
+
+          {/* RD Station CRM Card Integration */}
+          <RdCrmCard contactId={activeChat.contactId || activeChat.id} tenantId={tenant} />
         </div>
       ) : activeTab === "files" ? (
         /* TAB 2: ARQUIVOS COMPARTILHADOS (REAL IMPLEMENTATION) */

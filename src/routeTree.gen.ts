@@ -38,7 +38,9 @@ import { Route as ApiBaileysSendRouteImport } from './routes/api/baileys/send'
 import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
 import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
 import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
+import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
+import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -185,11 +187,22 @@ const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
   path: '/api/baileys/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSettingsRdCrmFieldsRoute = ApiSettingsRdCrmFieldsRouteImport.update({
+  id: '/fields',
+  path: '/fields',
+  getParentRoute: () => ApiSettingsRdCrmRoute,
+} as any)
 const ApiSettingsRdCrmCallbackRoute =
   ApiSettingsRdCrmCallbackRouteImport.update({
     id: '/callback',
     path: '/callback',
     getParentRoute: () => ApiSettingsRdCrmRoute,
+  } as any)
+const ApiContactsContactIdRdDealRoute =
+  ApiContactsContactIdRdDealRouteImport.update({
+    id: '/rd-deal',
+    path: '/rd-deal',
+    getParentRoute: () => ApiContactsContactIdRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -212,7 +225,7 @@ export interface FileRoutesByFullPath {
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
-  '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -222,7 +235,9 @@ export interface FileRoutesByFullPath {
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
+  '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -244,7 +259,7 @@ export interface FileRoutesByTo {
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
-  '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -254,7 +269,9 @@ export interface FileRoutesByTo {
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
+  '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -277,7 +294,7 @@ export interface FileRoutesById {
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
-  '/api/contacts/$contactId': typeof ApiContactsContactIdRoute
+  '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -287,7 +304,9 @@ export interface FileRoutesById {
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
+  '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -321,7 +340,9 @@ export interface FileRouteTypes {
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
+    | '/api/settings/rd-crm/fields'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -353,7 +374,9 @@ export interface FileRouteTypes {
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
+    | '/api/settings/rd-crm/fields'
   id:
     | '__root__'
     | '/'
@@ -385,7 +408,9 @@ export interface FileRouteTypes {
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
+    | '/api/settings/rd-crm/fields'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -622,12 +647,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBaileysConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/settings/rd-crm/fields': {
+      id: '/api/settings/rd-crm/fields'
+      path: '/fields'
+      fullPath: '/api/settings/rd-crm/fields'
+      preLoaderRoute: typeof ApiSettingsRdCrmFieldsRouteImport
+      parentRoute: typeof ApiSettingsRdCrmRoute
+    }
     '/api/settings/rd-crm/callback': {
       id: '/api/settings/rd-crm/callback'
       path: '/callback'
       fullPath: '/api/settings/rd-crm/callback'
       preLoaderRoute: typeof ApiSettingsRdCrmCallbackRouteImport
       parentRoute: typeof ApiSettingsRdCrmRoute
+    }
+    '/api/contacts/$contactId/rd-deal': {
+      id: '/api/contacts/$contactId/rd-deal'
+      path: '/rd-deal'
+      fullPath: '/api/contacts/$contactId/rd-deal'
+      preLoaderRoute: typeof ApiContactsContactIdRdDealRouteImport
+      parentRoute: typeof ApiContactsContactIdRoute
     }
   }
 }
@@ -644,13 +683,24 @@ const ApiChatsRouteWithChildren = ApiChatsRoute._addFileChildren(
   ApiChatsRouteChildren,
 )
 
+interface ApiContactsContactIdRouteChildren {
+  ApiContactsContactIdRdDealRoute: typeof ApiContactsContactIdRdDealRoute
+}
+
+const ApiContactsContactIdRouteChildren: ApiContactsContactIdRouteChildren = {
+  ApiContactsContactIdRdDealRoute: ApiContactsContactIdRdDealRoute,
+}
+
+const ApiContactsContactIdRouteWithChildren =
+  ApiContactsContactIdRoute._addFileChildren(ApiContactsContactIdRouteChildren)
+
 interface ApiContactsRouteChildren {
-  ApiContactsContactIdRoute: typeof ApiContactsContactIdRoute
+  ApiContactsContactIdRoute: typeof ApiContactsContactIdRouteWithChildren
   ApiContactsUpdateWalletRoute: typeof ApiContactsUpdateWalletRoute
 }
 
 const ApiContactsRouteChildren: ApiContactsRouteChildren = {
-  ApiContactsContactIdRoute: ApiContactsContactIdRoute,
+  ApiContactsContactIdRoute: ApiContactsContactIdRouteWithChildren,
   ApiContactsUpdateWalletRoute: ApiContactsUpdateWalletRoute,
 }
 
@@ -660,10 +710,12 @@ const ApiContactsRouteWithChildren = ApiContactsRoute._addFileChildren(
 
 interface ApiSettingsRdCrmRouteChildren {
   ApiSettingsRdCrmCallbackRoute: typeof ApiSettingsRdCrmCallbackRoute
+  ApiSettingsRdCrmFieldsRoute: typeof ApiSettingsRdCrmFieldsRoute
 }
 
 const ApiSettingsRdCrmRouteChildren: ApiSettingsRdCrmRouteChildren = {
   ApiSettingsRdCrmCallbackRoute: ApiSettingsRdCrmCallbackRoute,
+  ApiSettingsRdCrmFieldsRoute: ApiSettingsRdCrmFieldsRoute,
 }
 
 const ApiSettingsRdCrmRouteWithChildren =
