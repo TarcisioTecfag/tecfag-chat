@@ -68,10 +68,19 @@ export function Login() {
           isValem ? "order-2 md:order-2" : "order-1 md:order-1"
         }`}
       >
-        {/* Fundo com a foto carregada */}
+        {/* Fundo com a foto do Tecfag */}
         <div 
-          className="absolute inset-0 z-0 bg-cover bg-center transition-all duration-500" 
+          className={`absolute inset-0 z-0 bg-cover bg-center transition-opacity duration-700 ${
+            activeTenant === "tecfag" ? "opacity-100" : "opacity-0"
+          }`} 
           style={{ backgroundImage: "url('/bg_login.png')" }} 
+        />
+        {/* Fundo com a foto do Valem */}
+        <div 
+          className={`absolute inset-0 z-0 bg-cover bg-center transition-opacity duration-700 ${
+            activeTenant === "valem" ? "opacity-100" : "opacity-0"
+          }`} 
+          style={{ backgroundImage: "url('/bg_login_valem.png')" }} 
         />
         {/* Camada de sobreposição escura (overlay) para garantir contraste do texto */}
         <div className="absolute inset-0 z-0 bg-black/40" />
