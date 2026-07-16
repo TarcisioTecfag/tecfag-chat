@@ -63,22 +63,22 @@ export function ValentinaChatTab() {
 
   const suggestions = [
     {
-      text: "Qual o meu tempo médio de resposta hoje?",
+      text: "Como está o tempo médio de atendimento (TMA) geral?",
       icon: Clock,
       iconColor: "text-primary",
     },
     {
-      text: "Quantos leads recebi hoje na minha carteira?",
+      text: "Quem são os operadores com mais gargalo de fila?",
       icon: Users,
       iconColor: "text-blue-500",
     },
     {
-      text: "Como está meu desempenho e ranking hoje?",
+      text: "Qual é a taxa de conversão do SDR de hoje?",
       icon: Award,
       iconColor: "text-amber-500",
     },
     {
-      text: "Quem está há mais tempo sem resposta na fila?",
+      text: "Quantos alertas de estouro de SLA tivemos hoje?",
       icon: AlertTriangle,
       iconColor: "text-red-500",
     },
@@ -108,8 +108,21 @@ export function ValentinaChatTab() {
 
     // Simula resposta da Valentina após delay
     setTimeout(() => {
-      const response = VALENTINA_MOCK_RESPONSES[responseIndex.current % VALENTINA_MOCK_RESPONSES.length];
-      responseIndex.current++;
+      let response = "";
+      const normalized = textToSend.toLowerCase();
+
+      if (normalized.includes("tma") || normalized.includes("tempo médio de atendimento")) {
+        response = "O TMA (Tempo Médio de Atendimento) geral está em 12 minutos e 45 segundos hoje. O tempo de primeira resposta (FRT) médio da equipe está em 2 minutos e 12 segundos, mantendo 94% dos atendimentos dentro do acordo de nível de serviço (SLA)!";
+      } else if (normalized.includes("gargalo") || normalized.includes("operadores com mais")) {
+        response = "No momento, o operador Denys está com o maior volume: 8 atendimentos ativos e 2 na fila de espera. Recomendo transferir novos atendimentos da fila geral para outros atendentes que estão mais livres, como a Mariana, que tem apenas 1 atendimento ativo.";
+      } else if (normalized.includes("sdr") || normalized.includes("taxa de conversão")) {
+        response = "Hoje, das 18 triagens iniciadas pelo SDR, 12 foram qualificadas com sucesso (66.6% de conversão), 3 foram descartadas por falta de perfil de compra e 3 abandonaram. Um ótimo resultado considerando a média histórica de 58%!";
+      } else if (normalized.includes("sla") || normalized.includes("alertas de estouro")) {
+        response = "Tivemos apenas 2 alertas de estouro de SLA hoje no setor Comercial, ambos já solucionados. A média de tempo de atraso foi de apenas 3 minutos antes da captura do ticket. A saúde geral das filas está excelente.";
+      } else {
+        response = VALENTINA_MOCK_RESPONSES[responseIndex.current % VALENTINA_MOCK_RESPONSES.length];
+        responseIndex.current++;
+      }
 
       const valentinaMsg: ValentinaChatMessage = {
         id: `val-${Date.now()}`,
