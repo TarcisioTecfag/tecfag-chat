@@ -34,7 +34,7 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   return (
     <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
       <div
-        className="h-full rounded-full bg-violet-600 transition-all duration-300"
+        className="h-full rounded-full bg-emerald-600 transition-all duration-300"
         style={{ width: `${pct}%` }}
       />
     </div>
@@ -52,7 +52,7 @@ export function SdrTab() {
       <div className="w-[30%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
         <div className="px-4 py-3 border-b border-line shrink-0">
           <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
-            <UserPlus className="h-3.5 w-3.5 text-violet-600" />
+            <UserPlus className="h-3.5 w-3.5 text-emerald-600" />
             Triagens SDR
           </h3>
           <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -69,7 +69,7 @@ export function SdrTab() {
                 onClick={() => setSelectedSession(session)}
                 className={`w-full text-left px-4 py-3 border-b border-line transition cursor-pointer ${
                   isSelected
-                    ? "bg-violet-50 border-l-2 border-l-violet-600"
+                    ? "bg-emerald-50 border-l-2 border-l-emerald-600"
                     : "hover:bg-muted/50"
                 }`}
               >
@@ -83,7 +83,7 @@ export function SdrTab() {
                     <span className="text-[10px] text-muted-foreground">
                       Etapa {session.stepNumber}/{session.totalSteps}
                     </span>
-                    <span className="text-[10px] font-semibold text-violet-600">
+                    <span className="text-[10px] font-semibold text-emerald-600">
                       {Math.round((session.stepNumber / session.totalSteps) * 100)}%
                     </span>
                   </div>
@@ -118,14 +118,14 @@ export function SdrTab() {
                 className={`flex ${msg.sender === "client" ? "justify-end" : "justify-start"}`}
               >
                 {msg.sender === "bot" && (
-                  <div className="grid h-6 w-6 place-items-center rounded-full bg-violet-600 text-white shrink-0 mr-2 self-end">
+                  <div className="grid h-6 w-6 place-items-center rounded-full bg-emerald-600 text-white shrink-0 mr-2 self-end">
                     <Bot className="h-3 w-3" />
                   </div>
                 )}
                 <div
                   className={`max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed shadow-soft ${
                     msg.sender === "bot"
-                      ? "bg-violet-600 text-white rounded-bl-[5px]"
+                      ? "bg-emerald-600 text-white rounded-bl-[5px]"
                       : "bg-muted border border-border text-foreground rounded-br-[5px]"
                   }`}
                 >
@@ -171,7 +171,7 @@ export function SdrTab() {
       <div className="w-[25%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
         <div className="px-4 py-3 border-b border-line shrink-0">
           <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
-            <CheckCircle className="h-3.5 w-3.5 text-violet-600" />
+            <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
             Dados Coletados
           </h3>
           <p className="text-[10px] text-muted-foreground mt-0.5">

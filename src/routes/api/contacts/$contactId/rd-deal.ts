@@ -97,12 +97,24 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
               });
             };
 
+            // Define os slugs conhecidos para fallbacks
+            const VALEM_FIELD_SLUGS = {
+              qualificadoSdr: "qualificado-por-sdr-valem",
+              projetosDesenvolvimento: "projetos-desenvolvimento",
+              tipoProduto: "qual-o-tipo-de-produto-valem",
+              infoComplementar: "estudo-de-caso-escopo-do-projeto",
+              feitoPor: "feito-por",
+            };
+
             // Resolve os IDs dos campos com base no ID configurado ou no label usando normalização.
             // Para garantir que sempre retornemos um objeto com o ID correto, fazemos fallback de segurança.
             const getFieldWithFallback = (key: keyof typeof VALEM_FIELD_IDS, label: string) => {
               const id = VALEM_FIELD_IDS[key];
               const found = findField(id, label);
-              return found || { id, label, type: key === "infoComplementar" ? "text" : "multiple_choice" };
+              const slug = VALEM_FIELD_SLUGS[key];
+              return found 
+                ? { ...found, slug: found.slug || found.api_identifier || slug }
+                : { id, label, slug, type: key === "infoComplementar" ? "text" : "multiple_choice" };
             };
 
             const fieldsSchema = {

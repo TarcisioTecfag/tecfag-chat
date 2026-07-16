@@ -14,17 +14,17 @@ import {
 // ── Componente de card especial (lead transferido) ──────────────────────────
 function LeadCard({ data }: { data: Record<string, any> }) {
   return (
-    <div className="mt-2 rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs">
+    <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs">
       <div className="flex items-center gap-2 mb-2">
-        <Sparkles className="h-3.5 w-3.5 text-violet-600" />
-        <span className="font-extrabold text-violet-700">Lead Qualificado</span>
+        <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+        <span className="font-extrabold text-emerald-700">Lead Qualificado</span>
       </div>
-      <div className="space-y-1 text-violet-900/80">
+      <div className="space-y-1 text-emerald-900/80">
         <p><span className="font-semibold">Nome:</span> {data.name || "—"}</p>
         <p><span className="font-semibold">Empresa:</span> {data.company || "—"}</p>
         <p><span className="font-semibold">Score:</span> {data.score || "—"}/100</p>
       </div>
-      <button className="mt-2 flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-violet-700 transition cursor-pointer">
+      <button className="mt-2 flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-700 transition cursor-pointer">
         <ArrowRight className="h-3 w-3" />
         Ver Detalhes
       </button>
@@ -143,7 +143,7 @@ export function ValentinaChatTab() {
               {/* Avatar da Valentina */}
               {m.sender === "valentina" && (
                 <div className="flex items-end mr-2 shrink-0">
-                  <div className="grid h-7 w-7 place-items-center rounded-full bg-violet-600 text-white">
+                  <div className="grid h-7 w-7 place-items-center rounded-full bg-emerald-600 text-white">
                     <Bot className="h-3.5 w-3.5" />
                   </div>
                 </div>
@@ -154,7 +154,7 @@ export function ValentinaChatTab() {
                 <div
                   className={`rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-soft ${
                     m.sender === "valentina"
-                      ? "bg-violet-600 text-white rounded-bl-[5px]"
+                      ? "bg-emerald-600 text-white rounded-bl-[5px]"
                       : "bg-primary text-primary-foreground rounded-br-[5px]"
                   }`}
                 >
@@ -196,10 +196,10 @@ export function ValentinaChatTab() {
               exit={{ opacity: 0, y: -8 }}
               className="flex items-center gap-2"
             >
-              <div className="grid h-7 w-7 place-items-center rounded-full bg-violet-600 text-white shrink-0">
+              <div className="grid h-7 w-7 place-items-center rounded-full bg-emerald-600 text-white shrink-0">
                 <Bot className="h-3.5 w-3.5" />
               </div>
-              <div className="rounded-2xl rounded-bl-[5px] bg-violet-100 px-4 py-2.5 text-xs text-violet-700 font-medium">
+              <div className="rounded-2xl rounded-bl-[5px] bg-emerald-100 px-4 py-2.5 text-xs text-emerald-700 font-medium">
                 <span className="inline-flex items-center gap-1">
                   Valentina está digitando
                   <motion.span
@@ -218,7 +218,7 @@ export function ValentinaChatTab() {
       {/* Barra de input */}
       <div className="shrink-0 border-t border-line px-4 py-3">
         <div className="flex items-center gap-3 rounded-2xl bg-muted border border-border px-4 py-2.5 shadow-soft">
-          <Sparkles className="h-4 w-4 text-violet-500 shrink-0" />
+          <Sparkles className="h-4 w-4 text-emerald-500 shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -233,7 +233,7 @@ export function ValentinaChatTab() {
             disabled={!input.trim() || isTyping}
             className={`grid h-8 w-8 place-items-center rounded-xl transition cursor-pointer ${
               input.trim() && !isTyping
-                ? "bg-violet-600 text-white hover:bg-violet-700 shadow-soft"
+                ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-soft"
                 : "bg-muted text-muted-foreground cursor-not-allowed"
             }`}
           >
