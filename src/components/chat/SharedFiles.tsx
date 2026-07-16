@@ -565,7 +565,9 @@ export function SharedFiles() {
           </div>
 
           {/* RD Station CRM Card Integration */}
-          <RdCrmCard contactId={activeChat.contactId || activeChat.id} tenantId={tenant} />
+          {activeChat.id !== "valentina" && (
+            <RdCrmCard contactId={activeChat.contactId || activeChat.id} tenantId={tenant} />
+          )}
         </div>
       ) : activeTab === "files" ? (
         /* TAB 2: ARQUIVOS COMPARTILHADOS (REAL IMPLEMENTATION) */

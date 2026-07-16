@@ -102,7 +102,7 @@ export function ChatList() {
   ];
 
   // Filter conversations based on UI selections
-  const filteredConvs = conversations.filter((c) => {
+  const filteredConvs = conversations.filter((c) => c.id !== "valentina").filter((c) => {
     // 1. Queue Filter
     if (c.queue !== activeQueue) return false;
 
@@ -305,7 +305,7 @@ export function ChatList() {
       {/* Chat List */}
       <div className="mt-3 flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin">
         <AnimatePresence initial={false}>
-          {/* Item Fixo da Valentina (Sempre o primeiro e destacado em verde do sistema) */}
+          {/* Item Fixo da Valentina (Sempre o primeiro, alinhado e destacado) */}
           <motion.div
             layout
             initial={{ opacity: 0, y: -10 }}
@@ -314,58 +314,40 @@ export function ChatList() {
           >
             <button
               onClick={() => {
-                setActiveView("valentina");
-                setSelectedChatId(""); // Desmarca chat de WhatsApp ativo para evitar conflito visual
+                setSelectedChatId("valentina");
+                setActiveView("chat");
               }}
-              className={`flex w-full items-center gap-2.5 rounded-2xl p-2.5 text-left border transition-all duration-200 cursor-pointer ${
-                activeView === "valentina"
-                  ? "bg-primary border-primary text-primary-foreground shadow-soft"
-                  : "bg-primary-soft/30 hover:bg-primary-soft/50 border-primary/40 text-foreground"
+              className={`flex w-full items-center gap-2 rounded-2xl p-2 text-left transition-colors duration-150 cursor-pointer ${
+                selectedChatId === "valentina" && activeView === "chat" ? "bg-muted" : "hover:bg-muted/50"
               }`}
             >
-              {/* Avatar da Valentina com indicador pulsante */}
+              {/* Avatar da Valentina com indicador de canal/presença */}
               <div className="relative shrink-0">
-                <div className={`grid h-8.5 w-8.5 place-items-center rounded-full shadow-soft transition-colors ${
-                  activeView === "valentina" ? "bg-primary-foreground text-primary" : "bg-primary text-primary-foreground"
-                }`}>
+                <div className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft">
                   <Bot className="h-4.5 w-4.5" />
                 </div>
                 
-                {/* Indicador Online Pulsante */}
-                <span className={`absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full border border-card ${
-                  activeView === "valentina" ? "bg-primary-foreground" : "bg-primary"
-                }`}>
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                    activeView === "valentina" ? "bg-primary-foreground" : "bg-primary"
-                  }`}></span>
-                  <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
-                    activeView === "valentina" ? "bg-primary-foreground" : "bg-primary"
-                  }`}></span>
+                {/* Indicador Online Pulsante como Channel Badge */}
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card bg-primary text-primary-foreground shadow-soft">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary"></span>
                 </span>
               </div>
 
               {/* Info Text */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-1">
-                  <span className={`truncate text-xs font-black flex items-center gap-1.5 ${
-                    activeView === "valentina" ? "text-primary-foreground" : "text-primary"
-                  }`}>
+                  <span className="truncate text-xs font-bold text-primary flex items-center gap-1.5">
                     Valentina
-                    <span className={`px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider ${
-                      activeView === "valentina" ? "bg-primary-foreground text-primary" : "bg-primary text-primary-foreground"
-                    }`}>
+                    <span className="px-1.5 py-0.2 rounded bg-primary text-primary-foreground text-[8px] font-black uppercase tracking-wider">
                       IA
                     </span>
                   </span>
-                  <span className={`shrink-0 text-[10px] font-bold ${
-                    activeView === "valentina" ? "text-primary-foreground/90" : "text-primary"
-                  }`}>Agora</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground font-medium">Agora</span>
                 </div>
                 <div className="flex items-center justify-between mt-0.5">
-                  <p className={`truncate text-[10px] pr-2 font-medium ${
-                    activeView === "valentina" ? "text-primary-foreground/80" : "text-muted-foreground"
-                  }`}>
-                    Online • Assistente de Vendas IA
+                  <p className="truncate text-[10px] text-primary font-bold">
+                    Online
                   </p>
                 </div>
               </div>

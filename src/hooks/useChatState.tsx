@@ -890,10 +890,42 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } catch (e) {
             console.error("Erro ao ler pinned_chats do localStorage:", e);
           }
+
+          const valentinaDefault: Conversation = {
+            id: "valentina",
+            name: "Valentina",
+            avatar: "",
+            initials: "VL",
+            initialsBg: "var(--primary)",
+            phone: "IA",
+            email: "valentina@valem.ai",
+            cnpj: "",
+            cpf: "",
+            tags: ["IA", "Valem"],
+            channel: "whatsapp",
+            queue: "meus",
+            messages: [
+              {
+                id: "val_welcome",
+                author: "Valentina",
+                text: "Olá! 👋 Sou a Valentina, sua assistente inteligente. Como posso ajudar você hoje?",
+                time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                side: "in",
+                isInternalNote: false,
+              }
+            ],
+            lastMessageTime: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            unreadCount: 0,
+            operatorId: currentOperatorId,
+            walletOperatorId: currentOperatorId,
+            sectorId: null,
+            sectorName: null,
+            responsibleName: "Valentina IA",
+          };
           
-          const chatsWithPinned = data.map((c: any) => ({
+          const chatsWithPinned = [valentinaDefault, ...data].map((c: any) => ({
             ...c,
-            pinned: pinnedIds.includes(c.id),
+            pinned: c.id === "valentina" ? true : pinnedIds.includes(c.id),
           }));
           setConversations(chatsWithPinned);
         }
@@ -921,6 +953,70 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const currentChat = conversations.find((c) => c.id === selectedChatId);
     if (!currentChat) return;
+
+    if (selectedChatId === "valentina") {
+      const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const userMsg: Message = {
+        id: `msg-${Date.now()}`,
+        author: "Você",
+        text,
+        time: now,
+        side: "out",
+        isInternalNote,
+        quotedMessageId: quotedMessage?.id || null,
+        quotedMessageSender: quotedMessage?.sender || null,
+        quotedMessageContent: quotedMessage?.content || null,
+      };
+
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === "valentina") {
+            return {
+              ...c,
+              lastMessageTime: now,
+              messages: [...c.messages, userMsg],
+            };
+          }
+          return c;
+        })
+      );
+
+      setTimeout(() => {
+        const replies = [
+          "Olá! Registrei a sua dúvida. No momento, todos os seus leads da Valem estão com o SLA em dia. Excelente trabalho! 👍",
+          "Oi! Lembrete rápido: o lead Marcos Vieira está aguardando retorno na fila comercial. Pode dar uma olhada? ⚠️",
+          "Claro! Posso ajudar a resumir as conversas ou consultar dados do CRM. O que você gostaria de saber especificamente?",
+          "Olá! No dia de hoje, você já respondeu às conversas pendentes e manteve o tempo médio de resposta excelente. Continue assim! 🚀",
+          "Estou analisando as interações de hoje. Percebi que o cliente 'Buffet Lopes' mencionou interesse em fechar o contrato. Vale a pena enviar a proposta agora!",
+        ];
+        const randomReply = replies[Math.floor(Math.random() * replies.length)];
+        const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+        const valentinaMsg: Message = {
+          id: `msg-val-${Date.now()}`,
+          author: "Valentina",
+          text: randomReply,
+          time: respTime,
+          side: "in",
+          isInternalNote: false,
+        };
+
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id === "valentina") {
+              return {
+                ...c,
+                lastMessageTime: respTime,
+                messages: [...c.messages, valentinaMsg],
+              };
+            }
+            return c;
+          })
+        );
+      }, 1500);
+
+      return;
+    }
 
     const shouldSendReal =
       tenant === "valem" &&

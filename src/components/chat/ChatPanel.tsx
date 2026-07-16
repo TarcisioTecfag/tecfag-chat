@@ -972,7 +972,11 @@ export function ChatPanel() {
         <div className="flex items-center gap-3">
           {/* Avatar & Channel Badge */}
           <div className="relative">
-            {activeChat.avatar ? (
+            {activeChat.id === "valentina" ? (
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft">
+                <Bot className="h-5.5 w-5.5" />
+              </div>
+            ) : activeChat.avatar ? (
               <img
                 src={activeChat.avatar}
                 alt={activeChat.name}
@@ -988,16 +992,27 @@ export function ChatPanel() {
             )}
             <span
               className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white ${
-                activeChat.channel === "whatsapp"
-                  ? "bg-emerald-500"
-                  : activeChat.channel === "instagram"
-                    ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
-                    : "bg-blue-600"
+                activeChat.id === "valentina"
+                  ? "bg-primary"
+                  : activeChat.channel === "whatsapp"
+                    ? "bg-emerald-500"
+                    : activeChat.channel === "instagram"
+                      ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
+                      : "bg-blue-600"
               }`}
             >
-              {activeChat.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
-              {activeChat.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
-              {activeChat.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
+              {activeChat.id === "valentina" ? (
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
+                </span>
+              ) : (
+                <>
+                  {activeChat.channel === "whatsapp" && <WhatsappLogo className="h-2.5 w-2.5" />}
+                  {activeChat.channel === "instagram" && <InstagramLogo className="h-2.5 w-2.5" />}
+                  {activeChat.channel === "messenger" && <MessengerLogo className="h-2.5 w-2.5" />}
+                </>
+              )}
             </span>
           </div>
 
