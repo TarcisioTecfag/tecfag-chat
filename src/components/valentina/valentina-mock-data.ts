@@ -4,7 +4,7 @@
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
-export type ValentinaTab = "chat" | "sdr" | "supervisor" | "vendedor";
+export type ValentinaTab = "chat" | "sdr" | "supervisor" | "vendedor" | "knowledge";
 
 export type InternalMessage = {
   id: string;
@@ -368,4 +368,78 @@ export const TOP_QUESTIONS = [
   { question: "Resume o dia de ontem", count: 7 },
   { question: "Quem é o operador mais performático?", count: 5 },
   { question: "Quantos leads foram qualificados?", count: 4 },
+];
+
+// ── Base de Conhecimento Types & Mock Data ───────────────────────────────────
+
+export type KnowledgeFile = {
+  id: string;
+  name: string;
+  size: string;
+  type: "pdf" | "word" | "image" | "txt";
+  format: "embeddings" | "real";
+  uploadedAt: string;
+  folderId: string;
+};
+
+export type Folder = {
+  id: string;
+  name: string;
+  parentId: string | null;
+};
+
+export const INITIAL_FOLDERS: Folder[] = [
+  { id: "f-1", name: "Catálogos & Manuais", parentId: null },
+  { id: "f-2", name: "Políticas da Empresa", parentId: null },
+  { id: "f-3", name: "Válvulas Reguladoras", parentId: "f-1" },
+  { id: "f-4", name: "Válvulas de Retenção", parentId: "f-1" },
+  { id: "f-5", name: "Treinamentos Comerciais", parentId: "f-2" },
+];
+
+export const INITIAL_KNOWLEDGE_FILES: KnowledgeFile[] = [
+  {
+    id: "kf-1",
+    name: "Tabela_Precos_Valvulas_2026.pdf",
+    size: "2.4 MB",
+    type: "pdf",
+    format: "real",
+    uploadedAt: "16/07/2026",
+    folderId: "f-3",
+  },
+  {
+    id: "kf-2",
+    name: "Manual_Instalacao_Reguladora_Pressao.pdf",
+    size: "4.8 MB",
+    type: "pdf",
+    format: "embeddings",
+    uploadedAt: "15/07/2026",
+    folderId: "f-3",
+  },
+  {
+    id: "kf-3",
+    name: "Script_Vendas_Valem_Conversao.docx",
+    size: "1.2 MB",
+    type: "word",
+    format: "embeddings",
+    uploadedAt: "14/07/2026",
+    folderId: "f-5",
+  },
+  {
+    id: "kf-4",
+    name: "Esquema_Conexao_Valvula_Globo.png",
+    size: "720 KB",
+    type: "image",
+    format: "real",
+    uploadedAt: "16/07/2026",
+    folderId: "f-4",
+  },
+  {
+    id: "kf-5",
+    name: "Políticas_Gerais_De_Descontos.txt",
+    size: "15 KB",
+    type: "txt",
+    format: "embeddings",
+    uploadedAt: "10/07/2026",
+    folderId: "f-2",
+  },
 ];
