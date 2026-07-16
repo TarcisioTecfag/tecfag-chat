@@ -40,7 +40,7 @@ export function VendedorTab() {
 
         {/* Título e descrição */}
         <div className="flex items-center gap-2 mb-2">
-          <ShoppingBag className="h-5 w-5 text-emerald-600" />
+          <ShoppingBag className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-extrabold text-foreground">Agente Vendedor</h2>
         </div>
         <p className="text-sm text-muted-foreground font-medium text-center">
@@ -67,7 +67,7 @@ export function VendedorTab() {
                 transition={{ duration: 0.2, delay: 0.1 + idx * 0.08 }}
                 className="flex items-start gap-3 rounded-2xl border border-border bg-card p-4 shadow-soft"
               >
-                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-600">
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Icon className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">

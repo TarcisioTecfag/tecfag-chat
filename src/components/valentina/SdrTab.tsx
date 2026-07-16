@@ -14,14 +14,14 @@ import { SDR_TRIAGE_SESSIONS, SdrTriageSession } from "./valentina-mock-data";
 
 function StatusBadge({ status }: { status: SdrTriageSession["status"] }) {
   const styles = {
-    active: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    active: "bg-primary-soft text-primary border-primary/20",
     completed: "bg-gray-100 text-gray-600 border-gray-200",
     abandoned: "bg-red-100 text-red-600 border-red-200",
   };
   const labels = { active: "Ativo", completed: "Concluído", abandoned: "Abandonado" };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${styles[status]}`}>
-      {status === "active" && <Circle className="h-2 w-2 fill-emerald-500 text-emerald-500" />}
+      {status === "active" && <Circle className="h-2 w-2 fill-primary text-primary" />}
       {status === "completed" && <CheckCircle className="h-2.5 w-2.5" />}
       {status === "abandoned" && <XCircle className="h-2.5 w-2.5" />}
       {labels[status]}
@@ -34,7 +34,7 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   return (
     <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
       <div
-        className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+        className="h-full rounded-full bg-primary transition-all duration-300"
         style={{ width: `${pct}%` }}
       />
     </div>
@@ -52,7 +52,7 @@ export function SdrTab() {
       <div className="w-[30%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
         <div className="px-4 py-3 border-b border-line shrink-0">
           <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
-            <UserPlus className="h-3.5 w-3.5 text-emerald-600" />
+            <UserPlus className="h-3.5 w-3.5 text-primary" />
             Triagens SDR
           </h3>
           <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -69,7 +69,7 @@ export function SdrTab() {
                 onClick={() => setSelectedSession(session)}
                 className={`w-full text-left px-4 py-3 border-b border-line transition cursor-pointer ${
                   isSelected
-                    ? "bg-emerald-50 border-l-2 border-l-emerald-600"
+                    ? "bg-primary-soft border-l-2 border-l-primary"
                     : "hover:bg-muted/50"
                 }`}
               >
@@ -83,7 +83,7 @@ export function SdrTab() {
                     <span className="text-[10px] text-muted-foreground">
                       Etapa {session.stepNumber}/{session.totalSteps}
                     </span>
-                    <span className="text-[10px] font-semibold text-emerald-600">
+                    <span className="text-[10px] font-semibold text-primary">
                       {Math.round((session.stepNumber / session.totalSteps) * 100)}%
                     </span>
                   </div>
@@ -118,14 +118,14 @@ export function SdrTab() {
                 className={`flex ${msg.sender === "client" ? "justify-end" : "justify-start"}`}
               >
                 {msg.sender === "bot" && (
-                  <div className="grid h-6 w-6 place-items-center rounded-full bg-emerald-600 text-white shrink-0 mr-2 self-end">
+                  <div className="grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground shrink-0 mr-2 self-end">
                     <Bot className="h-3 w-3" />
                   </div>
                 )}
                 <div
                   className={`max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed shadow-soft ${
                     msg.sender === "bot"
-                      ? "bg-emerald-600 text-white rounded-bl-[5px]"
+                      ? "bg-primary text-primary-foreground rounded-bl-[5px]"
                       : "bg-muted border border-border text-foreground rounded-br-[5px]"
                   }`}
                 >
@@ -152,7 +152,7 @@ export function SdrTab() {
             <div className="flex justify-center mt-3">
               <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold ${
                 selectedSession.status === "completed"
-                  ? "bg-emerald-100 text-emerald-700"
+                  ? "bg-primary-soft text-primary"
                   : "bg-red-100 text-red-600"
               }`}>
                 {selectedSession.status === "completed" ? (
@@ -171,7 +171,7 @@ export function SdrTab() {
       <div className="w-[25%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
         <div className="px-4 py-3 border-b border-line shrink-0">
           <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
-            <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+            <CheckCircle className="h-3.5 w-3.5 text-primary" />
             Dados Coletados
           </h3>
           <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -186,7 +186,7 @@ export function SdrTab() {
               key={key}
               className={`rounded-xl border p-3 transition ${
                 data.status === "filled"
-                  ? "border-emerald-200 bg-emerald-50/50"
+                  ? "border-primary/20 bg-primary-soft/30"
                   : "border-border bg-muted/30"
               }`}
             >
@@ -195,7 +195,7 @@ export function SdrTab() {
                   {key}
                 </span>
                 {data.status === "filled" ? (
-                  <CheckCircle className="h-3 w-3 text-emerald-500" />
+                  <CheckCircle className="h-3 w-3 text-primary" />
                 ) : (
                   <Clock className="h-3 w-3 text-muted-foreground/50" />
                 )}

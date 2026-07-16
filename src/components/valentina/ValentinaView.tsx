@@ -38,14 +38,14 @@ export function ValentinaView() {
       <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
         <div>
           <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
-            <Bot className="h-4.5 w-4.5 text-emerald-600" />
+            <Bot className="h-4.5 w-4.5 text-primary" />
             Valentina
           </h1>
           <p className="text-[11px] text-muted-foreground capitalize mt-0.5">{today}</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-[10px] font-extrabold">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary-soft text-primary text-[10px] font-extrabold">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
             Online
           </span>
         </div>
@@ -62,7 +62,7 @@ export function ValentinaView() {
               onClick={() => setActiveTab(tab.id)}
               className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 isActive
-                  ? "bg-emerald-600 text-white shadow-soft"
+                  ? "bg-primary text-primary-foreground shadow-soft"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >

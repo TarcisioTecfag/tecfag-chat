@@ -38,7 +38,7 @@ function KpiCard({ icon: Icon, label, value, accent }: {
 
 function getNotifIcon(type: SupervisorNotification["type"]) {
   switch (type) {
-    case "lead_transfer": return { icon: ArrowRight, color: "bg-emerald-100 text-emerald-600" };
+    case "lead_transfer": return { icon: ArrowRight, color: "bg-primary-soft text-primary" };
     case "sla_alert": return { icon: AlertTriangle, color: "bg-amber-100 text-amber-600" };
     case "no_response": return { icon: Clock, color: "bg-orange-100 text-orange-600" };
     case "daily_summary": return { icon: BarChart2, color: "bg-sky-100 text-sky-600" };
@@ -97,7 +97,7 @@ export function SupervisorTab() {
           icon={SendIcon}
           label="Leads Transferidos"
           value={leadsTransferred}
-          accent="bg-emerald-100 text-emerald-600"
+          accent="bg-primary-soft text-primary"
         />
       </div>
 
@@ -107,7 +107,7 @@ export function SupervisorTab() {
         <div className="w-[60%] flex flex-col bg-card rounded-2xl border border-border shadow-soft overflow-hidden">
           <div className="px-4 py-3 border-b border-line shrink-0">
             <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
-              <Eye className="h-3.5 w-3.5 text-emerald-600" />
+              <Eye className="h-3.5 w-3.5 text-primary" />
               Timeline de Atividade
             </h3>
           </div>
@@ -163,7 +163,7 @@ export function SupervisorTab() {
         <div className="w-[40%] flex flex-col bg-card rounded-2xl border border-border shadow-soft overflow-hidden">
           <div className="px-4 py-3 border-b border-line shrink-0">
             <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
-              <HelpCircle className="h-3.5 w-3.5 text-emerald-600" />
+              <HelpCircle className="h-3.5 w-3.5 text-primary" />
               Perguntas Mais Frequentes
             </h3>
             <p className="text-[10px] text-muted-foreground mt-0.5">Últimos 7 dias</p>
@@ -184,13 +184,13 @@ export function SupervisorTab() {
                     <span className="text-[11px] text-foreground font-semibold leading-snug flex-1 mr-2">
                       {q.question}
                     </span>
-                    <span className="text-xs font-extrabold text-emerald-600 shrink-0">
+                    <span className="text-xs font-extrabold text-primary shrink-0">
                       {q.count}x
                     </span>
                   </div>
                   <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                      className="h-full rounded-full bg-primary transition-all duration-500"
                       style={{ width: `${pct}%` }}
                     />
                   </div>
