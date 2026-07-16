@@ -983,22 +983,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setTimeout(() => {
         const replies = [
-          "Olá! Registrei a sua dúvida. No momento, todos os seus leads da Valem estão com o SLA em dia. Excelente trabalho! 👍",
-          "Oi! Lembrete rápido: o lead Marcos Vieira está aguardando retorno na fila comercial. Pode dar uma olhada? ⚠️",
-          "Claro! Posso ajudar a resumir as conversas ou consultar dados do CRM. O que você gostaria de saber especificamente?",
-          "Olá! No dia de hoje, você já respondeu às conversas pendentes e manteve o tempo médio de resposta excelente. Continue assim! 🚀",
-          "Estou analisando as interações de hoje. Percebi que o cliente 'Buffet Lopes' mencionou interesse em fechar o contrato. Vale a pena enviar a proposta agora!",
+          { text: "Olá! Registrei a sua dúvida. No momento, todos os seus leads da Valem estão com o SLA em dia. Excelente trabalho! 👍", isWarning: true },
+          { text: "Oi! Lembrete rápido: o lead Marcos Vieira está aguardando retorno na fila comercial. Pode dar uma olhada? ⚠️", isWarning: true },
+          { text: "Claro! Posso ajudar a resumir as conversas ou consultar dados do CRM. O que você gostaria de saber especificamente?", isWarning: false },
+          { text: "Olá! No dia de hoje, você já respondeu às conversas pendentes e manteve o tempo médio de resposta excelente. Continue assim! 🚀", isWarning: true },
+          { text: "Estou analisando as interações de hoje. Percebi que o cliente 'Buffet Lopes' mencionou interesse em fechar o contrato. Vale a pena enviar a proposta agora!", isWarning: true },
         ];
-        const randomReply = replies[Math.floor(Math.random() * replies.length)];
+        const randomObj = replies[Math.floor(Math.random() * replies.length)];
         const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
         const valentinaMsg: Message = {
           id: `msg-val-${Date.now()}`,
           author: "Valentina",
-          text: randomReply,
+          text: randomObj.text,
           time: respTime,
           side: "in",
           isInternalNote: false,
+          isWarning: randomObj.isWarning,
         };
 
         setConversations((prev) =>

@@ -32,6 +32,8 @@ import {
   PhoneOff,
   PhoneCall,
   Bot,
+  AlertCircle,
+  MessageSquare,
 } from "lucide-react";
 import { io as socketIO, type Socket } from "socket.io-client";
 import {
@@ -461,6 +463,8 @@ export function ChatPanel() {
   const [isDragging, setIsDragging] = useState(false);
   const [msgSearch, setMsgSearch] = useState("");
   const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [showValWarnings, setShowValWarnings] = useState(true);
+  const [showValResponses, setShowValResponses] = useState(true);
   const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
   const [activeMedia, setActiveMedia] = useState<{ type: "image" | "video"; url: string } | null>(
     null,
@@ -976,13 +980,15 @@ export function ChatPanel() {
               <img
                 src="/valentina.png"
                 alt="Valentina"
-                className="h-10 w-10 rounded-full object-cover border border-border"
+                className="h-10 w-10 rounded-full object-cover border border-border cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => setActiveMedia({ type: "image", url: "/valentina.png" })}
               />
             ) : activeChat.avatar ? (
               <img
                 src={activeChat.avatar}
                 alt={activeChat.name}
-                className="h-10 w-10 rounded-full object-cover"
+                className="h-10 w-10 rounded-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => setActiveMedia({ type: "image", url: activeChat.avatar })}
               />
             ) : (
               <div
@@ -1076,6 +1082,37 @@ export function ChatPanel() {
               >
                 <Search className="h-3.5 w-3.5" />
               </button>
+
+              {/* Filtros de mensagens da Valentina */}
+              {activeChat.id === "valentina" && (
+                <>
+                  {/* Filtrar Avisos */}
+                  <button
+                    onClick={() => setShowValWarnings((v) => !v)}
+                    className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                      showValWarnings
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}
+                    title="Avisos de Valentina"
+                  >
+                    <AlertCircle className="h-3.5 w-3.5" />
+                  </button>
+
+                  {/* Filtrar Respostas/Conversas */}
+                  <button
+                    onClick={() => setShowValResponses((v) => !v)}
+                    className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                      showValResponses
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}
+                    title="Respostas/Conversas de Valentina"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
 
               {/* Local Dial Button (VigosPhone) */}
               {activeChat.id !== "valentina" && (
@@ -1358,11 +1395,21 @@ export function ChatPanel() {
       {/* Messages Window */}
       <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
         {(() => {
-          const displayed = msgSearch.trim()
+          let displayed = msgSearch.trim()
             ? activeChat.messages.filter((m) =>
                 m.text.toLowerCase().includes(msgSearch.toLowerCase()),
               )
             : activeChat.messages;
+
+          if (activeChat.id === "valentina") {
+            displayed = displayed.filter((m) => {
+              if (m.isWarning) {
+                return showValWarnings;
+              } else {
+                return showValResponses;
+              }
+            });
+          }
 
           if (displayed.length === 0) {
             return (
@@ -1513,7 +1560,8 @@ export function ChatPanel() {
                     <img
                       src={activeChat.avatar}
                       alt=""
-                      className="h-7 w-7 shrink-0 rounded-full object-cover border border-border self-end"
+                      className="h-7 w-7 shrink-0 rounded-full object-cover border border-border self-end cursor-pointer hover:opacity-90 transition-opacity"
+                      onClick={() => setActiveMedia({ type: "image", url: activeChat.avatar })}
                     />
                   ) : (
                     <div
@@ -1535,8 +1583,18 @@ export function ChatPanel() {
                     ) : (
                       <div
                         onClick={onBubbleClick}
-                        className={`${inR} bg-card border border-border px-4 py-2.5 text-xs text-foreground leading-relaxed shadow-soft text-left cursor-pointer`}
+                        className={`${inR} ${
+                          m.isWarning
+                            ? "bg-amber-50/70 border-amber-200/60 dark:bg-amber-950/15 dark:border-amber-900/40 border-l-4 border-l-amber-500 text-amber-950 dark:text-amber-200"
+                            : "bg-card border-border text-foreground"
+                        } border px-4 py-2.5 text-xs leading-relaxed shadow-soft text-left cursor-pointer`}
                       >
+                        {m.isWarning && (
+                          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 mb-1 select-none">
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            Aviso de Valentina
+                          </div>
+                        )}
                         {m.quotedMessageContent && (
                           <div className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2 py-1 text-[10px] text-muted-foreground select-none max-w-full">
                             <div className="font-bold mb-0.5 text-primary">{m.quotedMessageSender || "Mensagem"}</div>

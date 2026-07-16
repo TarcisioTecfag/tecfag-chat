@@ -13,6 +13,7 @@ export type Message = {
   quotedMessageSender?: string | null;
   quotedMessageContent?: string | null;
   senderType?: string;
+  isWarning?: boolean;
 };
 
 export type Conversation = {
