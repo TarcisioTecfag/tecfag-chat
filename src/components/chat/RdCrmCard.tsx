@@ -289,7 +289,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
     <div className="space-y-3.5">
       {/* Divider e Título da Integração */}
       <div className="flex items-center gap-2 pt-2">
-        <div className="flex h-5 w-5 items-center justify-center rounded-lg bg-orange-500 text-white font-black text-[9px] select-none shadow-soft">
+        <div className="flex h-5 w-5 items-center justify-center rounded-lg bg-primary text-primary-foreground font-black text-[9px] select-none shadow-soft">
           RD
         </div>
         <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">
@@ -301,7 +301,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
         /* ESTADO NÃO VINCULADO */
         <div className={containerStyle}>
           <div className="flex items-start gap-2.5">
-            <Info className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />
+            <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
             <div className="space-y-1">
               <h5 className="text-[11px] font-bold text-foreground">Sem Vínculo com CRM</h5>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
@@ -311,7 +311,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
           </div>
           <button
             onClick={() => setLinkModalOpen(true)}
-            className="w-full flex h-8 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 hover:opacity-95 text-white font-bold text-xs shadow-soft transition cursor-pointer"
+            className="w-full flex h-8 items-center justify-center gap-1.5 rounded-xl bg-primary hover:opacity-90 text-primary-foreground font-bold text-xs shadow-soft transition cursor-pointer"
           >
             <Link className="h-3.5 w-3.5" />
             Vincular Card CRM
@@ -379,7 +379,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                     type="text"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500 border border-border"
+                    className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                   />
                 </div>
                 <div className="space-y-0.5">
@@ -388,7 +388,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                     type="text"
                     value={form.companyName}
                     onChange={(e) => setForm({ ...form, companyName: e.target.value })}
-                    className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500 border border-border"
+                    className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                     placeholder="Empresa no CRM"
                   />
                 </div>
@@ -400,7 +400,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                       type="number"
                       value={form.value || ""}
                       onChange={(e) => setForm({ ...form, value: Number(e.target.value) })}
-                      className="h-8 w-full rounded-lg bg-card pl-7 pr-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500 border border-border"
+                      className="h-8 w-full rounded-lg bg-card pl-7 pr-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                       placeholder="0.00"
                     />
                   </div>
@@ -425,7 +425,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                               customFields: { ...form.customFields, [field.id]: e.target.value },
                             })
                           }
-                          className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500 border border-border"
+                          className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                         >
                           <option value="">Selecione uma opção...</option>
                           {(field.options || field.custom_field_options)?.map((opt: any) => {
@@ -449,7 +449,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                               })
                             }
                             rows={3}
-                            className="w-full rounded-lg bg-card p-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500 border border-border resize-none"
+                            className="w-full rounded-lg bg-card p-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border resize-none"
                             placeholder="Informações adicionais..."
                           />
                         ) : (
@@ -462,7 +462,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                                 customFields: { ...form.customFields, [field.id]: e.target.value },
                               })
                             }
-                            className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500 border border-border"
+                            className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                           />
                         )
                       )}
@@ -493,7 +493,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                     <span className="text-[9px] text-muted-foreground uppercase font-bold">
                       Valor
                     </span>
-                    <div className="text-xs font-bold text-orange-600">
+                    <div className="text-xs font-bold text-primary">
                       {deal?.value !== undefined && deal?.value !== null
                         ? Number(deal.value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
                         : "R$ 0,00"}
@@ -563,7 +563,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                 href={dealLink}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-1 flex items-center justify-center gap-1 text-[10px] font-bold text-orange-600 hover:text-orange-700 hover:underline cursor-pointer border border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 py-1.5 rounded-xl transition"
+                className="mt-1 flex items-center justify-center gap-1 text-[10px] font-bold text-primary hover:opacity-90 hover:underline cursor-pointer border border-primary/20 bg-primary-soft/30 hover:bg-primary-soft/50 py-1.5 rounded-xl transition"
               >
                 Ver Card no RD CRM <ExternalLink className="h-3 w-3" />
               </a>
@@ -578,7 +578,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
           <div className="w-full max-w-sm rounded-3xl bg-card border border-border p-6 shadow-soft space-y-4">
             <div className="flex items-center justify-between border-b border-line pb-2.5">
               <div className="flex items-center gap-2">
-                <div className="flex h-5 w-5 items-center justify-center rounded bg-orange-500 text-white font-black text-[9px]">RD</div>
+                <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground font-black text-[9px]">RD</div>
                 <h3 className="text-sm font-extrabold text-foreground">Vincular Deal RD CRM</h3>
               </div>
               <button
@@ -601,7 +601,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                   value={pastedLink}
                   onChange={(e) => setPastedLink(e.target.value)}
                   required
-                  className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-orange-500 border border-transparent"
+                  className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
                 />
                 <span className="text-[9px] text-muted-foreground leading-relaxed block mt-1">
                   Cole a URL inteira do card do cliente aberta no seu navegador no RD CRM.
@@ -622,7 +622,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                 <button
                   type="submit"
                   disabled={linking || !pastedLink}
-                  className="flex-1 h-9 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-soft transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-55"
+                  className="flex-1 h-9 rounded-xl bg-primary hover:opacity-90 text-primary-foreground text-xs font-bold shadow-soft transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-55"
                 >
                   {linking ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   Confirmar Vínculo
