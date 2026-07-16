@@ -1454,8 +1454,14 @@ export function ChatPanel() {
             const isSystem = m.author === "Sistema";
             const isExpanded = expandedMsgId === m.id;
 
-            // Espaçamento: 3px dentro do grupo, 12px entre grupos
-            const gap = prevLinked ? "mt-[3px]" : i > 0 ? "mt-3" : "";
+            // Espaçamento: 3px dentro do grupo, 12px entre grupos, extra para avisos
+            const gap = m.isWarning || (i > 0 && activeChat.messages[i - 1].isWarning)
+              ? "mt-6"
+              : prevLinked
+              ? "mt-[3px]"
+              : i > 0
+              ? "mt-3"
+              : "";
 
             // ── Mensagens de sistema ──────────────────────────────────────
             if (isSystem) {
@@ -1532,7 +1538,7 @@ export function ChatPanel() {
                     ) : (
                       <div
                         onClick={onBubbleClick}
-                        className={`${outR} px-4 py-2.5 text-xs leading-relaxed shadow-soft bg-primary text-primary-foreground text-left cursor-pointer`}
+                        className={`${outR} px-4 py-2.5 text-sm leading-relaxed shadow-soft bg-primary text-primary-foreground text-left cursor-pointer`}
                       >
                         {m.quotedMessageContent && (
                           <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
@@ -1588,12 +1594,12 @@ export function ChatPanel() {
                         onClick={onBubbleClick}
                         className={`${inR} ${
                           m.isWarning
-                            ? "bg-amber-50/70 border-amber-200/60 dark:bg-amber-950/15 dark:border-amber-900/40 border-l-4 border-l-amber-500 text-amber-950 dark:text-amber-200"
-                            : "bg-card border-border text-foreground"
-                        } border px-4 py-2.5 text-xs leading-relaxed shadow-soft text-left cursor-pointer`}
+                            ? "bg-emerald-500/5 border-emerald-500/10 dark:bg-emerald-950/15 dark:border-emerald-900/30 border-l-4 border-l-primary text-foreground text-[11px]"
+                            : "bg-card border-border text-foreground text-sm"
+                        } border px-4 py-2.5 leading-relaxed shadow-soft text-left cursor-pointer`}
                       >
                         {m.isWarning && (
-                          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 mb-1 select-none">
+                          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-primary mb-1 select-none">
                             <AlertCircle className="h-3 w-3 shrink-0" />
                             Aviso de Valentina
                           </div>
@@ -1609,14 +1615,14 @@ export function ChatPanel() {
                         {/* Card interativo: Atraso de Resposta */}
                         {m.isWarning && m.warningType === "delay" && m.warningMetadata && (
                           <div
-                            className="mt-2.5 p-3 rounded-xl bg-card border border-border/80 shadow-sm flex flex-col gap-2 cursor-default"
+                            className="mt-2.5 p-3 rounded-xl bg-card border border-border/80 shadow-sm flex flex-col gap-2 cursor-default text-xs"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="text-xs font-bold text-foreground">
+                            <div className="text-[11px] font-bold text-foreground">
                               Cliente: <span className="text-primary font-black">{m.warningMetadata.clientName}</span>
                             </div>
                             {m.warningMetadata.lastMessage && (
-                              <div className="p-2 rounded-lg bg-muted/65 text-[11px] text-muted-foreground border-l-2 border-primary italic">
+                              <div className="p-2 rounded-lg bg-muted/65 text-[10px] text-muted-foreground border-l-2 border-primary italic">
                                 "{m.warningMetadata.lastMessage}"
                               </div>
                             )}
@@ -1625,10 +1631,10 @@ export function ChatPanel() {
                                 setSelectedChatId(m.warningMetadata!.clientId);
                                 setActiveView("chat");
                               }}
-                              className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-soft transition cursor-pointer border-none"
+                              className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
                             >
                               <span>Abrir Conversa</span>
-                              <ArrowRight className="h-3.5 w-3.5" />
+                              <ArrowRight className="h-3 w-3" />
                             </button>
                           </div>
                         )}
@@ -1636,16 +1642,16 @@ export function ChatPanel() {
                         {/* Card interativo: Novo Cliente (Lead) */}
                         {m.isWarning && m.warningType === "new_lead" && m.warningMetadata && (
                           <div
-                            className="mt-2.5 p-3 rounded-xl bg-card border border-border/80 shadow-sm flex flex-col gap-2 cursor-default"
+                            className="mt-2.5 p-3 rounded-xl bg-card border border-border/80 shadow-sm flex flex-col gap-2 cursor-default text-xs"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="text-xs font-bold text-foreground flex items-center justify-between gap-2">
+                            <div className="text-[11px] font-bold text-foreground flex items-center justify-between gap-2">
                               <span>
                                 Cliente: <span className="text-primary font-black">{m.warningMetadata.clientName}</span>
                               </span>
                               {m.warningMetadata.temperature && (
                                 <span
-                                  className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                  className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${
                                     m.warningMetadata.temperature === "quente"
                                       ? "bg-red-500/10 text-red-500 border border-red-500/25"
                                       : m.warningMetadata.temperature === "morno"
@@ -1658,8 +1664,8 @@ export function ChatPanel() {
                               )}
                             </div>
                             {m.warningMetadata.interest && (
-                              <div className="text-[11px] text-muted-foreground flex flex-col gap-0.5 bg-muted/40 p-2 rounded-lg">
-                                <span className="font-semibold text-foreground text-[9px] uppercase tracking-wider text-muted-foreground">
+                              <div className="text-[10px] text-muted-foreground flex flex-col gap-0.5 bg-muted/40 p-2 rounded-lg">
+                                <span className="font-semibold text-foreground text-[8px] uppercase tracking-wider text-muted-foreground">
                                   Interesse:
                                 </span>
                                 <span>{m.warningMetadata.interest}</span>
@@ -1670,10 +1676,10 @@ export function ChatPanel() {
                                 setSelectedChatId(m.warningMetadata!.clientId);
                                 setActiveView("chat");
                               }}
-                              className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold shadow-soft transition cursor-pointer border-none"
+                              className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
                             >
                               <span>Abrir Atendimento</span>
-                              <ArrowRight className="h-3.5 w-3.5" />
+                              <ArrowRight className="h-3 w-3" />
                             </button>
                           </div>
                         )}
