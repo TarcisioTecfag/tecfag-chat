@@ -4,7 +4,11 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, Send, Sparkles, ArrowRight, AlertTriangle, User as UserIcon } from "lucide-react";
+import { 
+  Bot, Send, Sparkles, ArrowRight, AlertTriangle, User as UserIcon,
+  Clock, Users, Award, Globe, Plus, Image as ImageIcon, ChevronDown, RefreshCw 
+} from "lucide-react";
+import { useChat } from "@/hooks/useChatState";
 import {
   ValentinaChatMessage,
   VALENTINA_WELCOME_MESSAGES,
@@ -47,12 +51,38 @@ function SlaAlertCard({ data }: { data: Record<string, any> }) {
 // ── Componente principal ────────────────────────────────────────────────────
 
 export function ValentinaChatTab() {
+  const { operatorProfile } = useChat();
   const [messages, setMessages] = useState<ValentinaChatMessage[]>([...VALENTINA_WELCOME_MESSAGES]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const responseIndex = useRef(0);
+
+  const operatorFirstName = operatorProfile?.name?.split(" ")[0] || "Operador";
+
+  const suggestions = [
+    {
+      text: "Qual o meu tempo médio de resposta hoje?",
+      icon: Clock,
+      iconColor: "text-emerald-500",
+    },
+    {
+      text: "Quantos leads recebi hoje na minha carteira?",
+      icon: Users,
+      iconColor: "text-blue-500",
+    },
+    {
+      text: "Como está meu desempenho e ranking hoje?",
+      icon: Award,
+      iconColor: "text-amber-500",
+    },
+    {
+      text: "Quem está há mais tempo sem resposta na fila?",
+      icon: AlertTriangle,
+      iconColor: "text-red-500",
+    },
+  ];
 
   // Auto-scroll quando novas mensagens chegam
   useEffect(() => {
@@ -61,15 +91,14 @@ export function ValentinaChatTab() {
     }
   }, [messages, isTyping]);
 
-  const handleSend = () => {
-    const text = input.trim();
-    if (!text) return;
+  const handleSendWithText = (textToSend: string) => {
+    if (!textToSend.trim()) return;
 
     // Adiciona mensagem do operador
     const operatorMsg: ValentinaChatMessage = {
       id: `op-${Date.now()}`,
       sender: "operator",
-      content: text,
+      content: textToSend,
       timestamp: new Date().toISOString(),
       type: "text",
     };
@@ -112,6 +141,10 @@ export function ValentinaChatTab() {
     }, 1500);
   };
 
+  const handleSend = () => {
+    handleSendWithText(input);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -122,6 +155,111 @@ export function ValentinaChatTab() {
   const formatTime = (iso: string) => {
     return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   };
+
+  const hasChatted = messages.some((m) => m.sender === "operator");
+
+  if (!hasChatted) {
+    return (
+      <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 overflow-y-auto scrollbar-thin select-none">
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center max-w-2xl w-full flex flex-col items-center"
+        >
+          {/* Welcome Text */}
+          <h2 className="text-3xl font-extrabold text-foreground leading-tight">
+            Olá, <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">{operatorFirstName}</span>
+          </h2>
+          <h3 className="text-2xl font-bold text-foreground/80 mt-1">
+            O que você gostaria de saber hoje?
+          </h3>
+          <p className="text-xs text-muted-foreground mt-3">
+            Use uma das sugestões mais comuns abaixo ou faça sua própria pergunta para iniciar
+          </p>
+
+          {/* Grid of 4 suggestions */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-8 w-full">
+            {suggestions.map((sug, idx) => {
+              const SugIcon = sug.icon;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => handleSendWithText(sug.text)}
+                  className="flex flex-col justify-between items-start text-left p-4 rounded-2xl border border-border bg-card hover:bg-muted/40 hover:border-emerald-200 transition duration-150 cursor-pointer shadow-soft group min-h-[120px]"
+                >
+                  <span className="text-xs font-semibold text-foreground leading-snug group-hover:text-emerald-700 transition">
+                    {sug.text}
+                  </span>
+                  <div className={`mt-4 p-2 rounded-xl bg-muted group-hover:bg-emerald-50 transition`}>
+                    <SugIcon className={`h-4 w-4 ${sug.iconColor}`} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <button className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition cursor-pointer">
+            <RefreshCw className="h-3 w-3" />
+            Atualizar Sugestões
+          </button>
+        </motion.div>
+
+        {/* Centered Large Input Field */}
+        <div className="mt-12 w-full max-w-2xl">
+          <div className="flex flex-col gap-2 rounded-2xl bg-card border border-border px-4 py-3 shadow-soft focus-within:border-emerald-500 transition duration-150">
+            {/* Input field row */}
+            <div className="flex items-center justify-between">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Pergunte o que quiser..."
+                className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none pr-4"
+              />
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-muted text-muted-foreground text-[10px] font-bold cursor-pointer hover:bg-muted/80 transition">
+                <Globe className="h-3 w-3 text-emerald-600" />
+                <span>Toda a Base</span>
+                <ChevronDown className="h-2.5 w-2.5" />
+              </div>
+            </div>
+
+            {/* Bottom Actions Row */}
+            <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-line">
+              <div className="flex items-center gap-2">
+                <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer">
+                  <Plus className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Anexar arquivo</span>
+                </button>
+                <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer">
+                  <ImageIcon className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Usar imagem</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-medium text-muted-foreground/60">
+                  {input.length}/1000
+                </span>
+                <button
+                  onClick={handleSend}
+                  disabled={!input.trim() || isTyping}
+                  className={`grid h-8 w-8 place-items-center rounded-xl transition cursor-pointer ${
+                    input.trim() && !isTyping
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-soft"
+                      : "bg-muted text-muted-foreground cursor-not-allowed"
+                  }`}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -226,7 +364,7 @@ export function ValentinaChatTab() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Pergunte algo à Valentina..."
-            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none pr-4"
           />
           <button
             onClick={handleSend}
