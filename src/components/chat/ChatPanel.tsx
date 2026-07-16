@@ -1580,11 +1580,7 @@ export function ChatPanel() {
                 <div
                   id={`msg-dom-${m.id}`}
                   key={m.id}
-                  className={`flex flex-col items-end group relative w-full ${gap} ${
-                    isMatch
-                      ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-background scale-[1.01] transition-all duration-300 rounded-2xl shadow-soft"
-                      : ""
-                  }`}
+                  className={`flex flex-col items-end group relative w-full ${gap}`}
                 >
                   <div className="flex items-center gap-2 max-w-[80%] justify-end">
                     <button
@@ -1605,7 +1601,11 @@ export function ChatPanel() {
                     ) : (
                       <div
                         onClick={onBubbleClick}
-                        className={`${outR} px-4 py-2.5 text-sm leading-relaxed shadow-soft bg-primary text-primary-foreground text-left cursor-pointer`}
+                        className={`${outR} px-4 py-2.5 text-sm leading-relaxed shadow-soft bg-primary text-primary-foreground text-left cursor-pointer transition-all duration-300 ${
+                          isMatch
+                            ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-background scale-[1.01] shadow-lg"
+                            : ""
+                        }`}
                       >
                         {m.quotedMessageContent && (
                           <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
@@ -1633,11 +1633,7 @@ export function ChatPanel() {
               <div
                 id={`msg-dom-${m.id}`}
                 key={m.id}
-                className={`flex items-end gap-2 group relative w-full ${gap} ${
-                  isMatch
-                    ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-background scale-[1.01] transition-all duration-300 rounded-2xl shadow-soft"
-                    : ""
-                }`}
+                className={`flex items-end gap-2 group relative w-full ${gap}`}
               >
                 {/* Avatar — só na última mensagem do grupo */}
                 {isLast ? (
@@ -1672,7 +1668,11 @@ export function ChatPanel() {
                           m.isWarning
                             ? "bg-emerald-500/5 border-emerald-500/10 dark:bg-emerald-950/15 dark:border-emerald-900/30 border-l-4 border-l-primary text-foreground text-[11px]"
                             : "bg-card border-border text-foreground text-sm"
-                        } border px-4 py-2.5 leading-relaxed shadow-soft text-left cursor-pointer`}
+                        } border px-4 py-2.5 leading-relaxed shadow-soft text-left cursor-pointer transition-all duration-300 ${
+                          isMatch
+                            ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-background scale-[1.01] shadow-lg"
+                            : ""
+                        }`}
                       >
                         {m.isWarning && (
                           <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-primary mb-1 select-none">
