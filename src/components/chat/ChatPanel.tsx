@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
@@ -16,6 +16,7 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   FileText,
   Download,
   X,
@@ -466,8 +467,39 @@ export function ChatPanel() {
   const [isDragging, setIsDragging] = useState(false);
   const [msgSearch, setMsgSearch] = useState("");
   const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [searchMatchIndex, setSearchMatchIndex] = useState<number>(0);
   const [showValWarnings, setShowValWarnings] = useState(true);
   const [showValResponses, setShowValResponses] = useState(true);
+
+  const matches = useMemo(() => {
+    if (!msgSearch.trim() || !activeChat) return [];
+    return activeChat.messages.filter((m) => {
+      // Se for a Valentina, respeita os filtros ativos de aviso/conversa
+      if (activeChat.id === "valentina") {
+        if (m.isWarning) {
+          if (!showValWarnings) return false;
+        } else {
+          if (!showValResponses) return false;
+        }
+      }
+      return m.text.toLowerCase().includes(msgSearch.toLowerCase());
+    });
+  }, [msgSearch, activeChat, showValWarnings, showValResponses]);
+
+  useEffect(() => {
+    setSearchMatchIndex(0);
+  }, [msgSearch, activeChat?.id]);
+
+  useEffect(() => {
+    if (matches.length > 0 && matches[searchMatchIndex]) {
+      const activeMatchId = matches[searchMatchIndex].id;
+      const element = document.getElementById(`msg-dom-${activeMatchId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }, [searchMatchIndex, matches]);
+
   const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
   const [activeMedia, setActiveMedia] = useState<{ type: "image" | "video"; url: string } | null>(
     null,
@@ -1379,17 +1411,47 @@ export function ChatPanel() {
           {msgSearch && (
             <button
               onClick={() => setMsgSearch("")}
-              className="text-muted-foreground hover:text-foreground transition"
+              className="text-muted-foreground hover:text-foreground transition cursor-pointer"
             >
               <X className="h-3.5 w-3.5" />
             </button>
           )}
+
+          {/* Contadores e navegação entre ocorrências */}
+          {msgSearch.trim() && (
+            <div className="flex items-center gap-1.5 border-l border-border/60 pl-3 mr-1 select-none">
+              <span className="text-[11px] font-bold text-muted-foreground min-w-[36px] text-center">
+                {matches.length > 0 ? `${searchMatchIndex + 1}/${matches.length}` : "0/0"}
+              </span>
+              <button
+                disabled={matches.length === 0}
+                onClick={() => setSearchMatchIndex((prev) => (prev - 1 + matches.length) % matches.length)}
+                className={`p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer ${
+                  matches.length === 0 ? "opacity-30 cursor-not-allowed" : ""
+                }`}
+                title="Mensagem anterior"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <button
+                disabled={matches.length === 0}
+                onClick={() => setSearchMatchIndex((prev) => (prev + 1) % matches.length)}
+                className={`p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer ${
+                  matches.length === 0 ? "opacity-30 cursor-not-allowed" : ""
+                }`}
+                title="Próxima mensagem"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
           <button
             onClick={() => {
               setShowMsgSearch(false);
               setMsgSearch("");
             }}
-            className="text-[10px] font-semibold text-muted-foreground hover:text-foreground transition ml-1"
+            className="text-[10px] font-semibold text-muted-foreground hover:text-foreground transition ml-1 cursor-pointer"
           >
             Fechar
           </button>
@@ -1398,11 +1460,7 @@ export function ChatPanel() {
       {/* Messages Window */}
       <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
         {(() => {
-          let displayed = msgSearch.trim()
-            ? activeChat.messages.filter((m) =>
-                m.text.toLowerCase().includes(msgSearch.toLowerCase()),
-              )
-            : activeChat.messages;
+          let displayed = activeChat.messages;
 
           if (activeChat.id === "valentina") {
             displayed = displayed.filter((m) => {
@@ -1517,8 +1575,17 @@ export function ChatPanel() {
 
             // ── Enviadas (eu) ─────────────────────────────────────────────
             if (isMe) {
+              const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
               return (
-                <div key={m.id} className={`flex flex-col items-end group relative w-full ${gap}`}>
+                <div
+                  id={`msg-dom-${m.id}`}
+                  key={m.id}
+                  className={`flex flex-col items-end group relative w-full ${gap} ${
+                    isMatch
+                      ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-background scale-[1.01] transition-all duration-300 rounded-2xl shadow-soft"
+                      : ""
+                  }`}
+                >
                   <div className="flex items-center gap-2 max-w-[80%] justify-end">
                     <button
                       onClick={() => setReplyingTo(m)}
@@ -1561,8 +1628,17 @@ export function ChatPanel() {
             }
 
             // ── Recebidas ─────────────────────────────────────────────────
+            const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
             return (
-              <div key={m.id} className={`flex items-end gap-2 group relative w-full ${gap}`}>
+              <div
+                id={`msg-dom-${m.id}`}
+                key={m.id}
+                className={`flex items-end gap-2 group relative w-full ${gap} ${
+                  isMatch
+                    ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-background scale-[1.01] transition-all duration-300 rounded-2xl shadow-soft"
+                    : ""
+                }`}
+              >
                 {/* Avatar — só na última mensagem do grupo */}
                 {isLast ? (
                   activeChat.avatar ? (
