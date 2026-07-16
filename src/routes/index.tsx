@@ -23,7 +23,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { tenant, activeView, rightSidebarOpen, isAuthenticated, isProfileModalOpen } = useChat();
+  const { tenant, activeView, rightSidebarOpen, selectedChatId, isAuthenticated, isProfileModalOpen } = useChat();
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -67,7 +67,7 @@ function Index() {
                 <ChatList />
                 <ChatPanel />
                 <AnimatePresence>
-                  {rightSidebarOpen && (
+                  {rightSidebarOpen && selectedChatId !== "valentina" && (
                     <motion.div
                       key="shared-files"
                       initial={{ opacity: 0, x: 40, width: 0 }}

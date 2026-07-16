@@ -307,9 +307,7 @@ export function ValentinaChatTab() {
               >
                 {/* Avatar da Valentina */}
                 {m.sender === "valentina" && (
-                  <div className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shrink-0 shadow-soft mt-0.5">
-                    <Bot className="h-4 w-4" />
-                  </div>
+                  <img src="/valentina.png" alt="Valentina" className="h-8 w-8 rounded-full object-cover border border-border shrink-0 shadow-soft mt-0.5" />
                 )}
 
                 {/* Conteúdo da mensagem */}
@@ -359,9 +357,7 @@ export function ValentinaChatTab() {
                 exit={{ opacity: 0, y: -8 }}
                 className="flex gap-4 items-start"
               >
-                <div className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shrink-0 shadow-soft mt-0.5">
-                  <Bot className="h-4 w-4" />
-                </div>
+                <img src="/valentina.png" alt="Valentina" className="h-8 w-8 rounded-full object-cover border border-border shrink-0 shadow-soft mt-0.5" />
                 <div className="rounded-2xl rounded-bl-[5px] bg-primary-soft border border-primary/20 px-4 py-2.5 text-xs text-primary font-medium shadow-soft">
                   <span className="inline-flex items-center gap-1">
                     Valentina está digitando

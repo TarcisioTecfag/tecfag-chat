@@ -973,9 +973,11 @@ export function ChatPanel() {
           {/* Avatar & Channel Badge */}
           <div className="relative">
             {activeChat.id === "valentina" ? (
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft">
-                <Bot className="h-5.5 w-5.5" />
-              </div>
+              <img
+                src="/valentina.png"
+                alt="Valentina"
+                className="h-10 w-10 rounded-full object-cover border border-border"
+              />
             ) : activeChat.avatar ? (
               <img
                 src={activeChat.avatar}
@@ -1051,7 +1053,7 @@ export function ChatPanel() {
 
         {/* Handover Operations Actions */}
         <div className="flex items-center gap-2 relative">
-          {!rightSidebarOpen && (
+          {!rightSidebarOpen && activeChat.id !== "valentina" && (
             <button
               onClick={() => setRightSidebarOpen(true)}
               className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
@@ -1076,24 +1078,26 @@ export function ChatPanel() {
               </button>
 
               {/* Local Dial Button (VigosPhone) */}
-              <a
-                href={(() => {
-                  if (!activeChat.phone) return "#";
-                  let n = activeChat.phone.replace(/\D/g, "");
-                  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
-                  if (n.startsWith("0")) n = n.substring(1);
-                  if (n.startsWith("14")) n = n.substring(2);
-                  return `tel:${n}`;
-                })()}
-                onClick={logVigosPhoneCall}
-                className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
-                title="Discar via VigosPhone (Softphone Local)"
-              >
-                <PhoneCall className="h-3.5 w-3.5" />
-              </a>
+              {activeChat.id !== "valentina" && (
+                <a
+                  href={(() => {
+                    if (!activeChat.phone) return "#";
+                    let n = activeChat.phone.replace(/\D/g, "");
+                    if (n.startsWith("55") && n.length > 10) n = n.substring(2);
+                    if (n.startsWith("0")) n = n.substring(1);
+                    if (n.startsWith("14")) n = n.substring(2);
+                    return `tel:${n}`;
+                  })()}
+                  onClick={logVigosPhoneCall}
+                  className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
+                  title="Discar via VigosPhone (Softphone Local)"
+                >
+                  <PhoneCall className="h-3.5 w-3.5" />
+                </a>
+              )}
 
               {/* Transfer Menu — apenas para o dono com canTransferChat */}
-              {isOwner && canTransfer && (
+              {activeChat.id !== "valentina" && isOwner && canTransfer && (
                 <div className="relative">
                   <button
                     onClick={() => setShowTransferDropdown(!showTransferDropdown)}
@@ -1221,7 +1225,7 @@ export function ChatPanel() {
               )}
 
               {/* Finish Chat — apenas para o dono com canFinishChat */}
-              {isOwner && canFinish && (
+              {activeChat.id !== "valentina" && isOwner && canFinish && (
                 <button
                   onClick={() => finishChat(activeChat.id)}
                   className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"

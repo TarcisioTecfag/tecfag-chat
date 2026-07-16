@@ -894,7 +894,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const valentinaDefault: Conversation = {
             id: "valentina",
             name: "Valentina",
-            avatar: "",
+            avatar: "/valentina.png",
             initials: "VL",
             initialsBg: "var(--primary)",
             phone: "IA",

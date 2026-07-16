@@ -323,9 +323,7 @@ export function ChatList() {
             >
               {/* Avatar da Valentina com indicador de canal/presença */}
               <div className="relative shrink-0">
-                <div className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft">
-                  <Bot className="h-4.5 w-4.5" />
-                </div>
+                <img src="/valentina.png" alt="Valentina" className="h-8 w-8 rounded-full object-cover border border-border" />
                 
                 {/* Indicador Online Pulsante como Channel Badge */}
                 <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card bg-primary text-primary-foreground shadow-soft">
