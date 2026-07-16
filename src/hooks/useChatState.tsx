@@ -908,10 +908,46 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               {
                 id: "val_welcome",
                 author: "Valentina",
-                text: "Olá! 👋 Sou a Valentina, sua assistente inteligente. Como posso ajudar você hoje?",
-                time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                text: (() => {
+                  const hour = new Date().getHours();
+                  const greeting = hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
+                  const name = operatorProfile?.name || "operador";
+                  return `Olá! ${greeting} ${name}, como posso te ajudar hoje?`;
+                })(),
+                time: new Date(Date.now() - 1000 * 60 * 30).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
                 side: "in",
                 isInternalNote: false,
+              },
+              {
+                id: "val_warning_delay",
+                author: "Valentina",
+                text: "Alerta de Atraso! O cliente Tarcísio Júnior está aguardando retorno há mais de 20 minutos.",
+                time: new Date(Date.now() - 1000 * 60 * 15).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                side: "in",
+                isInternalNote: false,
+                isWarning: true,
+                warningType: "delay",
+                warningMetadata: {
+                  clientId: "val-1",
+                  clientName: "Tarcísio Júnior",
+                  lastMessage: "Bom dia! Como está a liberação da carga de embaladoras da Valem?",
+                }
+              },
+              {
+                id: "val_warning_new_lead",
+                author: "Valentina",
+                text: "Novo Atendimento! Transferi um novo cliente para a sua fila comercial.",
+                time: new Date(Date.now() - 1000 * 60 * 5).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                side: "in",
+                isInternalNote: false,
+                isWarning: true,
+                warningType: "new_lead",
+                warningMetadata: {
+                  clientId: "tec-1",
+                  clientName: "Pedro Silva",
+                  temperature: "quente",
+                  interest: "Válvula Reguladora de Pressão de 2 polegadas",
+                }
               }
             ],
             lastMessageTime: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
@@ -982,14 +1018,76 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
 
       setTimeout(() => {
-        const replies = [
-          { text: "Olá! Registrei a sua dúvida. No momento, todos os seus leads da Valem estão com o SLA em dia. Excelente trabalho! 👍", isWarning: true },
-          { text: "Oi! Lembrete rápido: o lead Marcos Vieira está aguardando retorno na fila comercial. Pode dar uma olhada? ⚠️", isWarning: true },
-          { text: "Claro! Posso ajudar a resumir as conversas ou consultar dados do CRM. O que você gostaria de saber especificamente?", isWarning: false },
-          { text: "Olá! No dia de hoje, você já respondeu às conversas pendentes e manteve o tempo médio de resposta excelente. Continue assim! 🚀", isWarning: true },
-          { text: "Estou analisando as interações de hoje. Percebi que o cliente 'Buffet Lopes' mencionou interesse em fechar o contrato. Vale a pena enviar a proposta agora!", isWarning: true },
-        ];
-        const randomObj = replies[Math.floor(Math.random() * replies.length)];
+        let randomObj;
+        const normalizedText = text.trim().toLowerCase();
+
+        if (normalizedText.includes("quantos leads") || normalizedText.includes("sem resposta")) {
+          randomObj = {
+            text: "Você tem 1 lead aguardando retorno no momento: Tarcísio Júnior está aguardando há mais de 20 minutos na fila comercial. Recomendo responder o quanto antes! ⚠️",
+            isWarning: true,
+            warningType: "delay" as const,
+            warningMetadata: {
+              clientId: "val-1",
+              clientName: "Tarcísio Júnior",
+              lastMessage: "Bom dia! Como está a liberação da carga de embaladoras da Valem?",
+            }
+          };
+        } else if (normalizedText.includes("leads quentes") || normalizedText.includes("quais são meus leads")) {
+          randomObj = {
+            text: "O lead Pedro Silva está classificado como Quente 🔥. Ele está interessado em Válvula Reguladora de Pressão e a conversa demonstra alta intenção de compra!",
+            isWarning: true,
+            warningType: "new_lead" as const,
+            warningMetadata: {
+              clientId: "tec-1",
+              clientName: "Pedro Silva",
+              temperature: "quente" as const,
+              interest: "Válvula Reguladora de Pressão de 2 polegadas",
+            }
+          };
+        } else if (normalizedText.includes("pontuação") || normalizedText.includes("meus atendimentos") || normalizedText.includes("como está a pontuação")) {
+          randomObj = {
+            text: "Sua pontuação atual de atendimento está excelente! Média de 4.8/5.0 estrelas nas últimas avaliações dos clientes, com tempo médio de primeira resposta de 4 minutos. Bom trabalho! 🚀",
+            isWarning: false
+          };
+        } else {
+          const replies = [
+            {
+              text: "Olá! Registrei a sua dúvida. No momento, todos os seus leads da Valem estão com o SLA em dia. Excelente trabalho! 👍",
+              isWarning: false
+            },
+            {
+              text: "Oi! Lembrete rápido: o lead Pedro Silva está aguardando retorno na fila comercial. Pode dar uma olhada? ⚠️",
+              isWarning: true,
+              warningType: "delay" as const,
+              warningMetadata: {
+                clientId: "tec-1",
+                clientName: "Pedro Silva",
+                lastMessage: "Preciso de um orçamento urgente para o projeto de válvulas.",
+              }
+            },
+            {
+              text: "Claro! Posso ajudar a resumir as conversas ou consultar dados do CRM. O que você gostaria de saber especificamente?",
+              isWarning: false
+            },
+            {
+              text: "Estou analisando as interações de hoje. Percebi que o cliente 'Tarcísio Júnior' tem interesse em fechar o contrato. Vale a pena enviar a proposta agora!",
+              isWarning: false
+            },
+            {
+              text: "Novo lead recebido! Cliente interessado em Válvula de Controle de Fluxo.",
+              isWarning: true,
+              warningType: "new_lead" as const,
+              warningMetadata: {
+                clientId: "val-1",
+                clientName: "Tarcísio Júnior",
+                temperature: "quente" as const,
+                interest: "Válvula de Controle de Fluxo Pneumática",
+              }
+            }
+          ];
+          randomObj = replies[Math.floor(Math.random() * replies.length)];
+        }
+
         const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
         const valentinaMsg: Message = {
@@ -1000,6 +1098,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           side: "in",
           isInternalNote: false,
           isWarning: randomObj.isWarning,
+          warningType: (randomObj as any).warningType,
+          warningMetadata: (randomObj as any).warningMetadata,
         };
 
         setConversations((prev) =>

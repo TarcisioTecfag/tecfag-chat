@@ -14,6 +14,14 @@ export type Message = {
   quotedMessageContent?: string | null;
   senderType?: string;
   isWarning?: boolean;
+  warningType?: "delay" | "new_lead";
+  warningMetadata?: {
+    clientId: string;
+    clientName: string;
+    lastMessage?: string;
+    temperature?: "quente" | "morno" | "frio";
+    interest?: string;
+  };
 };
 
 export type Conversation = {
