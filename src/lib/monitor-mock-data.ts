@@ -55,6 +55,8 @@ export type OperatorMetric = {
   avgResponseTimeFormatted: string;
   overdueCount: number;
   avgPerformanceScore: number | null;
+  avgPerformanceScoreLastWeek: number | null;
+  avgPerformanceScoreLastMonth: number | null;
   satisfiedCount: number;
   neutralCount: number;
   frustratedCount: number;
@@ -110,6 +112,8 @@ export const MOCK_OVERVIEW: OverviewData = {
       avgResponseTimeFormatted: "2min 45s",
       overdueCount: 0,
       avgPerformanceScore: 92,
+      avgPerformanceScoreLastWeek: 89,
+      avgPerformanceScoreLastMonth: 94,
       satisfiedCount: 5,
       neutralCount: 1,
       frustratedCount: 0,
@@ -124,6 +128,8 @@ export const MOCK_OVERVIEW: OverviewData = {
       avgResponseTimeFormatted: "3min 52s",
       overdueCount: 0,
       avgPerformanceScore: 88,
+      avgPerformanceScoreLastWeek: 85,
+      avgPerformanceScoreLastMonth: 82,
       satisfiedCount: 6,
       neutralCount: 2,
       frustratedCount: 0,
@@ -138,6 +144,8 @@ export const MOCK_OVERVIEW: OverviewData = {
       avgResponseTimeFormatted: "7min 10s",
       overdueCount: 1,
       avgPerformanceScore: 74,
+      avgPerformanceScoreLastWeek: 78,
+      avgPerformanceScoreLastMonth: 81,
       satisfiedCount: 7,
       neutralCount: 3,
       frustratedCount: 1,
@@ -152,6 +160,8 @@ export const MOCK_OVERVIEW: OverviewData = {
       avgResponseTimeFormatted: "5min 03s",
       overdueCount: 0,
       avgPerformanceScore: 79,
+      avgPerformanceScoreLastWeek: 83,
+      avgPerformanceScoreLastMonth: 75,
       satisfiedCount: 3,
       neutralCount: 2,
       frustratedCount: 0,
@@ -166,6 +176,8 @@ export const MOCK_OVERVIEW: OverviewData = {
       avgResponseTimeFormatted: "18min 42s",
       overdueCount: 1,
       avgPerformanceScore: 58,
+      avgPerformanceScoreLastWeek: 64,
+      avgPerformanceScoreLastMonth: 70,
       satisfiedCount: 2,
       neutralCount: 1,
       frustratedCount: 1,
