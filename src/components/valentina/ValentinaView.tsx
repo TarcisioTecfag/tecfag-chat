@@ -4,11 +4,12 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState } from "react";
-import { Bot, MessageCircle, UserPlus, Eye, ShoppingBag, Database } from "lucide-react";
+import { Bot, MessageCircle, UserPlus, Eye, ShoppingBag, Database, Shuffle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaTab } from "./valentina-mock-data";
 import { ValentinaChatTab } from "./ValentinaChatTab";
 import { SdrTab } from "./SdrTab";
+import { RodizioTab } from "./RodizioTab";
 import { SupervisorTab } from "./SupervisorTab";
 import { VendedorTab } from "./VendedorTab";
 import { KnowledgeTab } from "./KnowledgeTab";
@@ -18,6 +19,7 @@ import { KnowledgeTab } from "./KnowledgeTab";
 const tabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = [
   { id: "chat", label: "Chat", icon: MessageCircle },
   { id: "sdr", label: "SDR", icon: UserPlus },
+  { id: "rodizio", label: "Rodízio", icon: Shuffle },
   { id: "supervisor", label: "Supervisor", icon: Eye },
   { id: "vendedor", label: "Vendedor", icon: ShoppingBag },
   { id: "knowledge", label: "Base de Conhecimento", icon: Database },
@@ -88,6 +90,7 @@ export function ValentinaView() {
           >
             {activeTab === "chat" && <ValentinaChatTab />}
             {activeTab === "sdr" && <SdrTab />}
+            {activeTab === "rodizio" && <RodizioTab />}
             {activeTab === "supervisor" && <SupervisorTab />}
             {activeTab === "vendedor" && <VendedorTab />}
             {activeTab === "knowledge" && <KnowledgeTab />}
