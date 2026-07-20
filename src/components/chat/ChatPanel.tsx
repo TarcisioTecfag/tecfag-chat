@@ -23,7 +23,7 @@ import {
   Image,
   Film,
   Music,
-  File,
+  File as FileIcon,
   Search,
   Mic,
   Square,
@@ -912,7 +912,7 @@ export function ChatPanel() {
     if (file.type.startsWith("image/")) return <Image className="h-4 w-4" />;
     if (file.type.startsWith("video/")) return <Film className="h-4 w-4" />;
     if (file.type.startsWith("audio/")) return <Music className="h-4 w-4" />;
-    return <File className="h-4 w-4" />;
+    return <FileIcon className="h-4 w-4" />;
   };
 
   const getFileColor = (file: File) => {

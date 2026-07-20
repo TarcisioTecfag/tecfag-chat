@@ -503,7 +503,14 @@ export function GroupsView() {
     }
   }, [sectors, selectedSectorId]);
 
-  const selectedSectorObj = sectors.find(s => s.id === selectedSectorId) || sectors[0];
+  const emptySector = {
+    id: "",
+    tenantId: "" as any,
+    name: "Carregando Setor...",
+    operatorIds: [] as string[],
+  };
+
+  const selectedSectorObj = sectors.find(s => s.id === selectedSectorId) || sectors[0] || emptySector;
 
   // Group Form States
   const [showGroupForm, setShowGroupForm] = useState(false);
@@ -526,9 +533,25 @@ export function GroupsView() {
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
+  const emptyGroup: AccessGroup = {
+    id: "",
+    tenantId: "" as any,
+    name: "Carregando Grupo...",
+    allowedTenants: [] as ("tecfag" | "valem")[],
+    allowedChannels: [] as ("whatsapp" | "instagram" | "messenger")[],
+    canCreateUser: false,
+    canResetPassword: false,
+    canEditProfile: false,
+    canCaptureChat: false,
+    canTransferChat: false,
+    canFinishChat: false,
+    canViewAllChats: false,
+    canOverrideChat: false,
+  };
+
   // Selected Group for Editing Details
   const [selectedGroupId, setSelectedGroupId] = useState<string>(accessGroups[0]?.id || "");
-  const selectedGroupObj = accessGroups.find(g => g.id === selectedGroupId) || accessGroups[0];
+  const selectedGroupObj = accessGroups.find(g => g.id === selectedGroupId) || accessGroups[0] || emptyGroup;
 
   const handleCreateOperator = (e: React.FormEvent) => {
     e.preventDefault();

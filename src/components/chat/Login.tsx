@@ -56,7 +56,7 @@ export function Login() {
   };
 
   const panelTransition = {
-    type: "spring",
+    type: "spring" as const,
     stiffness: 90,
     damping: 17,
     mass: 1.1
