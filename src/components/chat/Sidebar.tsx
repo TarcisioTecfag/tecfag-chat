@@ -34,11 +34,10 @@ export function Sidebar() {
 
   const decorativeItems = [
     { id: "valentina", icon: Bot, label: "Valentina", isAvailable: true },
-    { id: "settings", icon: Settings, label: "Ajustes", isAvailable: true },
     { id: "groups", icon: Shield, label: "Grupo de Acesso", isAvailable: true },
     { id: "monitor", icon: Eye, label: "Monitorar", isAvailable: true },
     { id: "analytics", icon: BarChart2, label: "Estatísticas", isAvailable: true },
-    { icon: Clock, label: "Histórico" },
+    { id: "settings", icon: Settings, label: "Ajustes", isAvailable: true },
   ];
 
   return (
