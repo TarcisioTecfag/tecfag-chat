@@ -117,6 +117,53 @@ function ScoreBadge({ score }: { score: number | null }) {
   );
 }
 
+function ScoreGauge({ score, size = 68 }: { score: number | null; size?: number }) {
+  if (score === null) return <span className="text-xs text-muted-foreground">–</span>;
+  
+  const r = 32;
+  const strokeWidth = 8;
+  const cx = 50;
+  const cy = 42;
+  const totalLength = Math.PI * r;
+  const offset = totalLength - (Math.min(Math.max(score, 0), 100) / 100) * totalLength;
+  
+  const color =
+    score >= 75 ? "#10b981" :
+    score >= 50 ? "#f59e0b" :
+    "#ef4444";
+    
+  return (
+    <div className="relative flex flex-col items-center justify-center shrink-0" style={{ width: size, height: size * 0.7 }}>
+      <svg viewBox="0 0 100 55" className="w-full h-full overflow-visible">
+        {/* Arco de fundo */}
+        <path
+          d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          className="text-muted/20"
+        />
+        {/* Arco de progresso */}
+        <path
+          d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={totalLength}
+          strokeDashoffset={offset}
+          style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)" }}
+        />
+      </svg>
+      {/* Texto no centro/baixo */}
+      <span className="absolute bottom-0 text-[13px] font-black text-foreground" style={{ transform: "translateY(-1px)" }}>
+        {score}
+      </span>
+    </div>
+  );
+}
+
 function WaitBadge({ minutes, isCritical }: { minutes: number; isCritical: boolean }) {
   const color = isCritical
     ? "text-red-600 bg-red-50 border border-red-200"
@@ -522,7 +569,7 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
                   {op.totalConversations} atendimento{op.totalConversations !== 1 ? "s" : ""} hoje
                 </p>
               </div>
-              <ScoreBadge score={op.avgPerformanceScore} />
+              <ScoreGauge score={op.avgPerformanceScore} />
             </div>
 
             <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-line">
