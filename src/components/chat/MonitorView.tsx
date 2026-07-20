@@ -49,13 +49,19 @@ type OperatorMetric = {
   status: string;
   totalConversations: number;
   avgResponseTimeFormatted: string;
+  avgResponseTimeLastWeekFormatted?: string;
+  avgResponseTimeLastMonthFormatted?: string;
   overdueCount: number;
+  overdueCountLastWeek?: number;
+  overdueCountLastMonth?: number;
   avgPerformanceScore: number | null;
   avgPerformanceScoreLastWeek: number | null;
   avgPerformanceScoreLastMonth: number | null;
   satisfiedCount: number;
   neutralCount: number;
   frustratedCount: number;
+  satisfiedPctLastWeek?: number;
+  satisfiedPctLastMonth?: number;
   trafficLight: "green" | "yellow" | "red";
 };
 
@@ -274,9 +280,14 @@ function WaitBadge({ minutes, isCritical }: { minutes: number; isCritical: boole
   );
 }
 
-function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
+function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" | "xl" }) {
   const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-  const sizes = { sm: "h-7 w-7 text-[10px]", md: "h-9 w-9 text-xs", lg: "h-11 w-11 text-sm" };
+  const sizes = { 
+    sm: "h-7 w-7 text-[10px]", 
+    md: "h-9 w-9 text-xs", 
+    lg: "h-11 w-11 text-sm",
+    xl: "h-16 w-16 text-lg" 
+  };
   return (
     <div className={`${sizes[size]} rounded-full bg-primary/15 text-primary font-extrabold flex items-center justify-center shrink-0`}>
       {initials}
@@ -717,7 +728,19 @@ function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean 
   );
 }
 
-function OperatorsTab({ overview }: { overview: OverviewData | null }) {
+function OperatorsTab({ 
+  overview, 
+  audits, 
+  onSelectAudit, 
+  onOpenHistory 
+}: { 
+  overview: OverviewData | null; 
+  audits: AuditItem[]; 
+  onSelectAudit: (auditId: string) => void;
+  onOpenHistory: (operatorId: string, operatorName: string) => void;
+}) {
+  const [expandedOperatorId, setExpandedOperatorId] = useState<string | null>(null);
+
   if (!overview) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -734,6 +757,12 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
       {overview.operators.map((op, i) => {
         const total = op.satisfiedCount + op.neutralCount + op.frustratedCount;
         const satisfiedPct = total > 0 ? Math.round((op.satisfiedCount / total) * 100) : 0;
+        const isExpanded = expandedOperatorId === op.operatorId;
+
+        // Filtra auditorias vinculadas a este operador
+        const operatorAudits = audits.filter(
+          (a) => a.operatorName.toLowerCase() === op.operatorName.toLowerCase()
+        );
 
         return (
           <motion.div
@@ -744,24 +773,44 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
             className="bg-card rounded-2xl border border-border shadow-soft p-6 flex flex-col md:grid md:grid-cols-12 md:items-center justify-between gap-6"
           >
             {/* Coluna 1: Informações do Operador */}
-            <div className="flex items-center gap-4 w-full md:col-span-3">
-              <Avatar name={op.operatorName} size="lg" />
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <p className="font-extrabold text-foreground text-base">{op.operatorName}</p>
-                  <TrafficDot light={op.trafficLight} />
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    op.trafficLight === "green" ? "bg-emerald-50 text-emerald-700" :
-                    op.trafficLight === "yellow" ? "bg-amber-50 text-amber-700" :
-                    "bg-red-50 text-red-700"
+            <div className="flex flex-col gap-3 w-full md:col-span-3">
+              <div className="flex items-center gap-4">
+                <Avatar name={op.operatorName} size="xl" />
+                <div>
+                  <div className="flex items-center flex-wrap gap-2">
+                    <p className="font-black text-foreground text-lg leading-tight">{op.operatorName}</p>
+                    <TrafficDot light={op.trafficLight} />
+                  </div>
+                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-1.5 ${
+                    op.trafficLight === "green" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                    op.trafficLight === "yellow" ? "bg-amber-50 text-amber-700 border border-amber-100" :
+                    "bg-red-50 text-red-700 border border-red-100"
                   }`}>
                     {op.trafficLight === "green" ? "No ritmo" :
                      op.trafficLight === "yellow" ? "Atenção" : "Lento"}
                   </span>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {op.totalConversations} atendimento{op.totalConversations !== 1 ? "s" : ""} hoje
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {op.totalConversations} atendimento{op.totalConversations !== 1 ? "s" : ""} hoje
-                </p>
+              </div>
+              
+              {/* Botões de Ação */}
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  onClick={() => setExpandedOperatorId(isExpanded ? null : op.operatorId)}
+                  className="inline-flex items-center justify-center gap-1 text-[11px] font-extrabold text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-3 py-1.5 rounded-lg transition cursor-pointer"
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  {isExpanded ? "Fechar Ocorrências" : "Ver Ocorrências"}
+                </button>
+                <button
+                  onClick={() => onOpenHistory(op.operatorId, op.operatorName)}
+                  className="inline-flex items-center justify-center gap-1 text-[11px] font-extrabold text-foreground hover:bg-muted border border-border px-3 py-1.5 rounded-lg transition cursor-pointer"
+                >
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  Ver Histórico
+                </button>
               </div>
             </div>
 
@@ -781,35 +830,95 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
               </div>
             </div>
 
-            {/* Coluna 3: Métricas */}
-            <div className="grid grid-cols-3 gap-6 w-full text-center md:col-span-3">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                  Tempo Médio
-                </p>
-                <p className="text-sm font-black text-foreground">{op.avgResponseTimeFormatted}</p>
+            {/* Coluna 3: Métricas Comparativas */}
+            <div className="grid grid-cols-3 gap-x-4 gap-y-2 w-full text-center md:col-span-3 text-xs">
+              {/* Header */}
+              <div className="col-span-3 grid grid-cols-3 border-b border-line pb-1.5 font-bold text-[9px] text-muted-foreground uppercase tracking-widest">
+                <span>Tempo Médio</span>
+                <span>Atrasados</span>
+                <span>Sentimento</span>
               </div>
-              <div className="border-x border-line px-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                  Atrasados
-                </p>
-                <p className={`text-sm font-black ${op.overdueCount > 0 ? "text-red-600 animate-pulse" : "text-foreground"}`}>
-                  {op.overdueCount}
-                </p>
+              
+              {/* Row 1: Hoje */}
+              <div className="col-span-3 grid grid-cols-3 items-center py-1 hover:bg-muted/30 rounded-md">
+                <span className="font-bold text-foreground text-xs" title="Hoje">{op.avgResponseTimeFormatted}</span>
+                <span className={`font-bold text-xs ${op.overdueCount > 0 ? "text-red-600 font-extrabold animate-pulse" : "text-foreground"}`}>{op.overdueCount}</span>
+                <span className="font-bold text-foreground text-xs">{satisfiedPct}% 😊</span>
               </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                  Sentimento
-                </p>
-                {total > 0 ? (
-                  <p className="text-sm font-black text-foreground">
-                    {satisfiedPct}% 😊
-                  </p>
-                ) : (
-                  <p className="text-sm font-black text-muted-foreground">–</p>
-                )}
+              
+              {/* Row 2: vs Semana */}
+              <div className="col-span-3 grid grid-cols-3 items-center py-1 hover:bg-muted/30 rounded-md text-muted-foreground">
+                <span className="text-[11px] font-medium" title="Média da Semana">{op.avgResponseTimeLastWeekFormatted || "–"}</span>
+                <span className="text-[11px] font-medium">{op.overdueCountLastWeek ?? 0}</span>
+                <span className="text-[11px] font-medium">{op.satisfiedPctLastWeek ?? 0}% 😊</span>
+              </div>
+              
+              {/* Row 3: vs Mês */}
+              <div className="col-span-3 grid grid-cols-3 items-center py-1 hover:bg-muted/30 rounded-md text-muted-foreground">
+                <span className="text-[11px] font-medium" title="Média do Mês">{op.avgResponseTimeLastMonthFormatted || "–"}</span>
+                <span className="text-[11px] font-medium">{op.overdueCountLastMonth ?? 0}</span>
+                <span className="text-[11px] font-medium">{op.satisfiedPctLastMonth ?? 0}% 😊</span>
               </div>
             </div>
+
+            {/* Ocorrências Recentes (Framer Motion Slide-down) */}
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                  className="col-span-1 md:col-span-12 border-t border-line pt-4 mt-2 flex flex-col gap-3 overflow-hidden"
+                >
+                  <h4 className="text-xs font-black text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <ClipboardCheck className="h-4 w-4 text-primary" />
+                    Ocorrências Recentes e Auditorias de I.A. ({operatorAudits.length})
+                  </h4>
+                  
+                  {operatorAudits.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-2 italic">Nenhuma auditoria recente encontrada para este operador.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-2">
+                      {operatorAudits.slice(0, 4).map((audit) => (
+                        <div 
+                          key={audit.id}
+                          onClick={() => onSelectAudit(audit.id)}
+                          className="p-4 rounded-xl border border-border bg-card hover:bg-muted/30 transition cursor-pointer flex flex-col gap-2 relative group"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Avatar name={audit.contactName || "?"} size="sm" />
+                              <span className="text-xs font-bold text-foreground">{audit.contactName || "Contato"}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <ScoreBadge score={audit.performanceScore} />
+                              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+                            </div>
+                          </div>
+                          
+                          {/* Pontos Positivos / Negativos */}
+                          <div className="flex flex-col gap-1.5 text-[11px] mt-1">
+                            {audit.strengths && (
+                              <div className="text-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/10 px-2 py-1 rounded border border-emerald-100/50">
+                                <span className="font-extrabold uppercase text-[9px] tracking-wider block mb-0.5 text-emerald-800">Pontos Fortes:</span>
+                                <span className="line-clamp-2 leading-relaxed">{audit.strengths}</span>
+                              </div>
+                            )}
+                            {audit.weaknesses && (
+                              <div className="text-red-700 bg-red-50/50 dark:bg-red-950/10 px-2 py-1 rounded border border-red-100/50">
+                                <span className="font-extrabold uppercase text-[9px] tracking-wider block mb-0.5 text-red-800">Pontos a Melhorar:</span>
+                                <span className="line-clamp-2 leading-relaxed">{audit.weaknesses}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         );
       })}
@@ -817,8 +926,27 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
   );
 }
 
-function AuditsTab({ audits, loading }: { audits: AuditItem[]; loading: boolean }) {
+function AuditsTab({ 
+  audits, 
+  loading, 
+  selectedAuditId, 
+  onSelectAudit 
+}: { 
+  audits: AuditItem[]; 
+  loading: boolean; 
+  selectedAuditId?: string | null;
+  onSelectAudit?: (id: string | null) => void;
+}) {
   const [selected, setSelected] = useState<AuditItem | null>(null);
+
+  useEffect(() => {
+    if (selectedAuditId) {
+      const found = audits.find((a) => a.id === selectedAuditId);
+      if (found) {
+        setSelected(found);
+      }
+    }
+  }, [selectedAuditId, audits]);
 
   if (loading) {
     return (
@@ -855,7 +983,10 @@ function AuditsTab({ audits, loading }: { audits: AuditItem[]; loading: boolean 
         {audits.map((audit) => (
           <button
             key={audit.id}
-            onClick={() => setSelected(audit)}
+            onClick={() => {
+              setSelected(audit);
+              if (onSelectAudit) onSelectAudit(audit.id);
+            }}
             className={`w-full text-left p-3.5 rounded-2xl border transition cursor-pointer ${
               selected?.id === audit.id
                 ? "border-primary bg-primary/5"
@@ -1976,6 +2107,8 @@ export function MonitorView() {
   const [loadingAlerts, setLoadingAlerts] = useState(true);
   const [loadingAudits, setLoadingAudits] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
+  const [historyModalOperator, setHistoryModalOperator] = useState<{ id: string; name: string } | null>(null);
 
   const fetchData = useCallback(async () => {
     // ── DEMO MODE: usa dados simulados sem chamar a API ────────────────────────
@@ -2114,10 +2247,25 @@ export function MonitorView() {
               <AlertsTab alerts={alerts} loading={loadingAlerts} />
             )}
             {activeTab === "operators" && (
-              <OperatorsTab overview={overview} />
+              <OperatorsTab 
+                overview={overview} 
+                audits={audits}
+                onSelectAudit={(auditId) => {
+                  setSelectedAuditId(auditId);
+                  setActiveTab("audits");
+                }}
+                onOpenHistory={(opId, opName) => {
+                  setHistoryModalOperator({ id: opId, name: opName });
+                }}
+              />
             )}
             {activeTab === "audits" && (
-              <AuditsTab audits={audits} loading={loadingAudits} />
+              <AuditsTab 
+                audits={audits} 
+                loading={loadingAudits} 
+                selectedAuditId={selectedAuditId}
+                onSelectAudit={setSelectedAuditId}
+              />
             )}
             {activeTab === "tasks" && (
               <GlobalTasksTab />
@@ -2127,6 +2275,191 @@ export function MonitorView() {
           </motion.div>
         </AnimatePresence>
       </div>
+      <AnimatePresence>
+        {historyModalOperator && (
+          <OperatorHistoryModal
+            operatorId={historyModalOperator.id}
+            operatorName={historyModalOperator.name}
+            onClose={() => setHistoryModalOperator(null)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function OperatorHistoryModal({
+  operatorId,
+  operatorName,
+  onClose,
+}: {
+  operatorId: string;
+  operatorName: string;
+  onClose: () => void;
+}) {
+  const { tenant } = useChat();
+  const [history, setHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterDate, setFilterDate] = useState("");
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (DEMO_MODE) {
+        // Gerar histórico simulado de 10 dias consistentes com o operador
+        const mockHistory = Array.from({ length: 10 }).map((_, idx) => {
+          const d = new Date();
+          d.setDate(d.getDate() - idx);
+          const dateString = d.toISOString().split("T")[0];
+          
+          const charSum = operatorName.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+          const score = Math.max(50, Math.min(100, 82 + ((charSum + idx * 7) % 21) - 10));
+          const respSeconds = Math.max(45, 210 + ((charSum * (idx + 1)) % 320) - 120);
+          const respFormatted = respSeconds >= 60 
+            ? `${Math.floor(respSeconds / 60)}min ${respSeconds % 60}s` 
+            : `${respSeconds}s`;
+          const totalConversations = Math.max(2, 6 + ((charSum + idx) % 12));
+          const overdueCount = (charSum + idx) % 4 === 0 ? 1 : 0;
+          const satisfiedPct = Math.max(55, Math.min(100, 84 + ((charSum - idx * 4) % 18)));
+
+          return {
+            id: `hist-${idx}`,
+            date: dateString,
+            totalConversations,
+            avgResponseTimeFormatted: respFormatted,
+            overdueCount,
+            avgPerformanceScore: score,
+            satisfiedPct,
+          };
+        });
+        setHistory(mockHistory);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/gestao/operator-history?operatorId=${operatorId}&tenantId=${tenant}`);
+        if (res.ok) {
+          const data = await res.json();
+          setHistory(data);
+        }
+      } catch (e) {
+        console.error("Erro ao buscar histórico:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchHistory();
+  }, [operatorId, tenant, operatorName]);
+
+  // Filtragem por data
+  const filteredHistory = history.filter((item) => {
+    if (!filterDate) return true;
+    return item.date.includes(filterDate);
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        className="bg-card w-full max-w-3xl rounded-2xl border border-border shadow-soft flex flex-col max-h-[85vh] overflow-hidden"
+      >
+        {/* Header */}
+        <div className="p-5 border-b border-line flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-black text-foreground">Histórico Completo</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Métricas diárias consolidadas de {operatorName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="h-8 w-8 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Filter Bar */}
+        <div className="p-4 bg-muted/20 border-b border-line flex items-center gap-3">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Filtrar por data (Ex: 2026-07)..."
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 rounded-xl border border-border bg-card text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          {filterDate && (
+            <button
+              onClick={() => setFilterDate("")}
+              className="text-xs text-muted-foreground hover:text-foreground underline cursor-pointer"
+            >
+              Limpar
+            </button>
+          )}
+          <div className="ml-auto text-xs text-muted-foreground">
+            {filteredHistory.length} dia(s) encontrado(s)
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-xs text-muted-foreground">Carregando logs históricos...</p>
+            </div>
+          ) : filteredHistory.length === 0 ? (
+            <div className="text-center py-20 text-muted-foreground">
+              <ClipboardCheck className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="font-semibold text-sm">Nenhum registro encontrado</p>
+              <p className="text-xs mt-1">Tente ajustar o filtro de busca ou data.</p>
+            </div>
+          ) : (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-muted/40 border-b border-border font-bold text-muted-foreground">
+                    <th className="p-3">Data</th>
+                    <th className="p-3 text-center">Atendimentos</th>
+                    <th className="p-3">T. Médio Resposta</th>
+                    <th className="p-3 text-center">Atrasados</th>
+                    <th className="p-3 text-center">Score IA</th>
+                    <th className="p-3 text-center">Sentimento Satisf.</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredHistory.map((row) => (
+                    <tr key={row.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="p-3 font-semibold text-foreground">{row.date}</td>
+                      <td className="p-3 text-center font-medium text-foreground">{row.totalConversations}</td>
+                      <td className="p-3 font-medium text-foreground">{row.avgResponseTimeFormatted}</td>
+                      <td className={`p-3 text-center font-bold ${row.overdueCount > 0 ? "text-red-600" : "text-foreground"}`}>
+                        {row.overdueCount}
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                          row.avgPerformanceScore >= 75 ? "text-emerald-700 bg-emerald-50 border border-emerald-200" :
+                          row.avgPerformanceScore >= 50 ? "text-amber-700 bg-amber-50 border border-amber-200" :
+                          "text-red-700 bg-red-50 border border-red-200"
+                        }`}>
+                          {row.avgPerformanceScore ?? "–"}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center font-bold text-foreground">
+                        {row.satisfiedPct}% 😊
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </motion.div>
     </div>
   );
 }

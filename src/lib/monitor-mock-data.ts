@@ -53,13 +53,19 @@ export type OperatorMetric = {
   status: string;
   totalConversations: number;
   avgResponseTimeFormatted: string;
+  avgResponseTimeLastWeekFormatted?: string;
+  avgResponseTimeLastMonthFormatted?: string;
   overdueCount: number;
+  overdueCountLastWeek?: number;
+  overdueCountLastMonth?: number;
   avgPerformanceScore: number | null;
   avgPerformanceScoreLastWeek: number | null;
   avgPerformanceScoreLastMonth: number | null;
   satisfiedCount: number;
   neutralCount: number;
   frustratedCount: number;
+  satisfiedPctLastWeek?: number;
+  satisfiedPctLastMonth?: number;
   trafficLight: "green" | "yellow" | "red";
 };
 
@@ -114,13 +120,19 @@ export const MOCK_OVERVIEW: OverviewData = {
       status: "disponivel",
       totalConversations: 6,
       avgResponseTimeFormatted: "2min 45s",
+      avgResponseTimeLastWeekFormatted: "3min 12s",
+      avgResponseTimeLastMonthFormatted: "4min 05s",
       overdueCount: 0,
+      overdueCountLastWeek: 1,
+      overdueCountLastMonth: 3,
       avgPerformanceScore: 92,
       avgPerformanceScoreLastWeek: 89,
       avgPerformanceScoreLastMonth: 94,
       satisfiedCount: 5,
       neutralCount: 1,
       frustratedCount: 0,
+      satisfiedPctLastWeek: 85,
+      satisfiedPctLastMonth: 88,
       trafficLight: "green",
     },
     {
@@ -130,13 +142,19 @@ export const MOCK_OVERVIEW: OverviewData = {
       status: "disponivel",
       totalConversations: 8,
       avgResponseTimeFormatted: "3min 52s",
+      avgResponseTimeLastWeekFormatted: "3min 40s",
+      avgResponseTimeLastMonthFormatted: "4min 15s",
       overdueCount: 0,
+      overdueCountLastWeek: 0,
+      overdueCountLastMonth: 2,
       avgPerformanceScore: 88,
       avgPerformanceScoreLastWeek: 85,
       avgPerformanceScoreLastMonth: 82,
       satisfiedCount: 6,
       neutralCount: 2,
       frustratedCount: 0,
+      satisfiedPctLastWeek: 80,
+      satisfiedPctLastMonth: 82,
       trafficLight: "green",
     },
     {
@@ -146,13 +164,19 @@ export const MOCK_OVERVIEW: OverviewData = {
       status: "ocupado",
       totalConversations: 11,
       avgResponseTimeFormatted: "7min 10s",
+      avgResponseTimeLastWeekFormatted: "6min 30s",
+      avgResponseTimeLastMonthFormatted: "5min 50s",
       overdueCount: 1,
+      overdueCountLastWeek: 4,
+      overdueCountLastMonth: 12,
       avgPerformanceScore: 74,
       avgPerformanceScoreLastWeek: 78,
       avgPerformanceScoreLastMonth: 81,
       satisfiedCount: 7,
       neutralCount: 3,
       frustratedCount: 1,
+      satisfiedPctLastWeek: 72,
+      satisfiedPctLastMonth: 75,
       trafficLight: "yellow",
     },
     {
@@ -162,13 +186,19 @@ export const MOCK_OVERVIEW: OverviewData = {
       status: "disponivel",
       totalConversations: 5,
       avgResponseTimeFormatted: "5min 03s",
+      avgResponseTimeLastWeekFormatted: "4min 45s",
+      avgResponseTimeLastMonthFormatted: "4min 20s",
       overdueCount: 0,
+      overdueCountLastWeek: 1,
+      overdueCountLastMonth: 4,
       avgPerformanceScore: 79,
       avgPerformanceScoreLastWeek: 83,
       avgPerformanceScoreLastMonth: 75,
       satisfiedCount: 3,
       neutralCount: 2,
       frustratedCount: 0,
+      satisfiedPctLastWeek: 78,
+      satisfiedPctLastMonth: 72,
       trafficLight: "green",
     },
     {
@@ -178,13 +208,19 @@ export const MOCK_OVERVIEW: OverviewData = {
       status: "ausente",
       totalConversations: 4,
       avgResponseTimeFormatted: "18min 42s",
+      avgResponseTimeLastWeekFormatted: "15min 30s",
+      avgResponseTimeLastMonthFormatted: "12min 10s",
       overdueCount: 1,
+      overdueCountLastWeek: 6,
+      overdueCountLastMonth: 22,
       avgPerformanceScore: 58,
       avgPerformanceScoreLastWeek: 64,
       avgPerformanceScoreLastMonth: 70,
       satisfiedCount: 2,
       neutralCount: 1,
       frustratedCount: 1,
+      satisfiedPctLastWeek: 60,
+      satisfiedPctLastMonth: 65,
       trafficLight: "red",
     },
   ],
