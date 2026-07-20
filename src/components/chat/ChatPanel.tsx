@@ -36,6 +36,7 @@ import {
   Bot,
   AlertCircle,
   MessageSquare,
+  Star,
 } from "lucide-react";
 import { io as socketIO, type Socket } from "socket.io-client";
 import {
@@ -43,6 +44,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { toast } from "sonner";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -255,6 +257,7 @@ function renderMessageContent(
   text: string,
   onMediaClick?: (type: "image" | "video", url: string) => void,
   isMe?: boolean,
+  onSaveSticker?: (messageId: string, url: string) => void,
 ) {
   // ── Preview local de mídia enviada (objectURL temporário) ─────────────────
   if (text.startsWith("[LOCAL_MEDIA:")) {
@@ -372,8 +375,17 @@ function renderMessageContent(
 
       if (type === "sticker") {
         return (
-          <div className="relative max-w-[120px] overflow-hidden">
+          <div className="relative max-w-[120px] group overflow-visible">
             <img src={mediaUrl} alt="Figurinha" className="h-28 w-28 object-contain" />
+            {onSaveSticker && (
+              <button
+                onClick={() => onSaveSticker(messageId, mediaUrl)}
+                className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 hover:scale-110 transition-all duration-150 cursor-pointer shadow-md z-10"
+                title="Salvar Figurinha"
+              >
+                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+              </button>
+            )}
           </div>
         );
       }
@@ -508,6 +520,40 @@ export function ChatPanel() {
   const handleMediaClick = useCallback((type: "image" | "video", url: string) => {
     setActiveMedia({ type, url });
   }, []);
+
+  const handleSaveSticker = useCallback((messageId: string, url: string) => {
+    try {
+      const saved = localStorage.getItem("saved_stickers");
+      let list = saved ? JSON.parse(saved) : [];
+      if (!Array.isArray(list)) list = [];
+      
+      const exists = list.some((item: any) => item.id === messageId || item.url === url);
+      if (exists) {
+        toast.info("Figurinha já está salva!");
+        return;
+      }
+      
+      list.push({ id: messageId, url });
+      localStorage.setItem("saved_stickers", JSON.stringify(list));
+      toast.success("Figurinha salva!");
+    } catch (err) {
+      console.error("Erro ao salvar figurinha:", err);
+      toast.error("Erro ao salvar figurinha");
+    }
+  }, []);
+
+  const handleSendSticker = useCallback(async (stickerUrl: string) => {
+    try {
+      setShowEmojiPicker(false);
+      const response = await fetch(stickerUrl);
+      const blob = await response.blob();
+      const file = new File([blob], `sticker-${Date.now()}.webp`, { type: "image/webp" });
+      await sendMessage("", false, [file]);
+    } catch (err: any) {
+      console.error("Erro ao enviar figurinha:", err);
+      toast.error("Erro ao enviar figurinha: " + (err.message || "Erro desconhecido"));
+    }
+  }, [sendMessage]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1592,7 +1638,7 @@ export function ChatPanel() {
                     </button>
                     {isSticker ? (
                       <div className="leading-relaxed">
-                        {renderMessageContent(m.text, handleMediaClick, true)}
+                        {renderMessageContent(m.text, handleMediaClick, true, handleSaveSticker)}
                       </div>
                     ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
                       <div>{renderMessageContent(m.text, handleMediaClick, true)}</div>
@@ -1661,7 +1707,7 @@ export function ChatPanel() {
                   <div className="flex items-center gap-2">
                     {isSticker ? (
                       <div className="leading-relaxed">
-                        {renderMessageContent(m.text, handleMediaClick, false)}
+                        {renderMessageContent(m.text, handleMediaClick, false, handleSaveSticker)}
                       </div>
                     ) : (
                       <div
@@ -2223,6 +2269,7 @@ export function ChatPanel() {
                             inputRef.current?.focus();
                           }}
                           onClose={() => setShowEmojiPicker(false)}
+                          onSelectSticker={handleSendSticker}
                         />
                       )}
                     </AnimatePresence>

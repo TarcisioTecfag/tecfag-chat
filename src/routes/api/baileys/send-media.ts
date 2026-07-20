@@ -91,7 +91,8 @@ export const Route = createFileRoute("/api/baileys/send-media")({
           // Determinar tipo de mensagem Baileys pelo MIME ou extensão do arquivo
           const ext = fileName.split(".").pop()?.toLowerCase() || "";
           const isAudio = mime.startsWith("audio/") || ["mp3","ogg","webm","m4a","aac","oga","opus","wav"].includes(ext);
-          const isImage = mime.startsWith("image/");
+          const isSticker = mime === "image/webp" || ext === "webp";
+          const isImage = mime.startsWith("image/") && !isSticker;
           const isVideo = mime.startsWith("video/") && !isAudio;
 
           // Normalizar MIME de áudio para o formato que o WhatsApp/Baileys aceita
@@ -110,7 +111,11 @@ export const Route = createFileRoute("/api/baileys/send-media")({
 
           // Determinar tipo de mensagem Baileys pelo MIME
           let sentMsg: any;
-          if (isImage) {
+          if (isSticker) {
+            sentMsg = await sock.sendMessage(jid, {
+              sticker: buffer,
+            });
+          } else if (isImage) {
             sentMsg = await sock.sendMessage(jid, {
               image: buffer,
               mimetype: mime,
@@ -140,7 +145,8 @@ export const Route = createFileRoute("/api/baileys/send-media")({
           // Salvar no DB
           if (conversationId && sentMsg?.key.id) {
             let mediaType = "document";
-            if (mime.startsWith("image/")) mediaType = "image";
+            if (isSticker) mediaType = "sticker";
+            else if (mime.startsWith("image/")) mediaType = "image";
             else if (mime.startsWith("video/")) mediaType = "video";
             else if (mime.startsWith("audio/")) mediaType = "audio";
 
@@ -148,7 +154,9 @@ export const Route = createFileRoute("/api/baileys/send-media")({
               ? `[MEDIA:document]${sentMsg.key.id}:${fileName}`
               : `[MEDIA:${mediaType}]${sentMsg.key.id}`;
 
-            const displayContent = mime.startsWith("image/")
+            const displayContent = isSticker
+              ? "💟 Figurinha"
+              : mime.startsWith("image/")
               ? "📷 Imagem"
               : mime.startsWith("video/")
               ? "🎥 Vídeo"
