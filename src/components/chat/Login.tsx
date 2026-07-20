@@ -133,7 +133,7 @@ export function Login() {
               </blockquote>
               <div>
                 <cite className="not-italic block font-bold text-sm text-white">João Rodolfo Lanza</cite>
-                <span className="text-xs text-white/60">Diretor Executivo da Tecfag Group</span>
+                <span className="text-xs text-white/60">Chief Operating Officer da Tecfag Group</span>
               </div>
             </div>
           </div>
@@ -180,7 +180,9 @@ export function Login() {
               Boas-vindas de volta
             </h2>
             <p className="text-sm text-slate-500 leading-relaxed">
-              Gerencie sua comunicação sem esforço com nossa poderosa plataforma.
+              {activeTenant === "valem"
+                ? "Valentina separou leads quentes para você"
+                : "Fagner separou leads quentes para você"}
             </p>
           </div>
 
