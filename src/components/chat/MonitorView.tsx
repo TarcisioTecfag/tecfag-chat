@@ -117,13 +117,13 @@ function ScoreBadge({ score }: { score: number | null }) {
   );
 }
 
-function ScoreGauge({ score, size = 68 }: { score: number | null; size?: number }) {
+function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number }) {
   if (score === null) return <span className="text-xs text-muted-foreground">–</span>;
   
-  const r = 32;
-  const strokeWidth = 8;
+  const r = 35;
+  const strokeWidth = 9;
   const cx = 50;
-  const cy = 42;
+  const cy = 40;
   const totalLength = Math.PI * r;
   const offset = totalLength - (Math.min(Math.max(score, 0), 100) / 100) * totalLength;
   
@@ -133,8 +133,8 @@ function ScoreGauge({ score, size = 68 }: { score: number | null; size?: number 
     "#ef4444";
     
   return (
-    <div className="relative flex flex-col items-center justify-center shrink-0" style={{ width: size, height: size * 0.7 }}>
-      <svg viewBox="0 0 100 55" className="w-full h-full overflow-visible">
+    <div className="relative flex flex-col items-center justify-center shrink-0" style={{ width: size, height: size * 0.62 }}>
+      <svg viewBox="0 0 100 52" className="w-full h-full overflow-visible">
         {/* Arco de fundo */}
         <path
           d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
@@ -157,7 +157,7 @@ function ScoreGauge({ score, size = 68 }: { score: number | null; size?: number 
         />
       </svg>
       {/* Texto no centro/baixo */}
-      <span className="absolute bottom-0 text-[13px] font-black text-foreground" style={{ transform: "translateY(-1px)" }}>
+      <span className="absolute bottom-0 text-[18px] font-black text-foreground animate-in fade-in zoom-in-75 duration-300" style={{ transform: "translateY(-1px)" }}>
         {score}
       </span>
     </div>
@@ -539,8 +539,6 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
       {overview.operators.map((op, i) => {
         const total = op.satisfiedCount + op.neutralCount + op.frustratedCount;
         const satisfiedPct = total > 0 ? Math.round((op.satisfiedCount / total) * 100) : 0;
-        const neutralPct = total > 0 ? Math.round((op.neutralCount / total) * 100) : 0;
-        const frustratedPct = total > 0 ? Math.round((op.frustratedCount / total) * 100) : 0;
 
         return (
           <motion.div
@@ -548,13 +546,14 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.05 }}
-            className="bg-card rounded-2xl border border-border shadow-soft p-5"
+            className="bg-card rounded-2xl border border-border shadow-soft p-6 flex flex-col md:flex-row md:items-center justify-between gap-6"
           >
-            <div className="flex items-center gap-4">
+            {/* Coluna 1: Informações do Operador */}
+            <div className="flex items-center gap-4 min-w-[240px] flex-1 md:flex-initial">
               <Avatar name={op.operatorName} size="lg" />
-              <div className="flex-1 min-w-0">
+              <div>
                 <div className="flex items-center gap-2.5">
-                  <p className="font-extrabold text-foreground">{op.operatorName}</p>
+                  <p className="font-extrabold text-foreground text-base">{op.operatorName}</p>
                   <TrafficDot light={op.trafficLight} />
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                     op.trafficLight === "green" ? "bg-emerald-50 text-emerald-700" :
@@ -565,38 +564,44 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
                      op.trafficLight === "yellow" ? "Atenção" : "Lento"}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-xs text-muted-foreground mt-1">
                   {op.totalConversations} atendimento{op.totalConversations !== 1 ? "s" : ""} hoje
                 </p>
               </div>
-              <ScoreGauge score={op.avgPerformanceScore} />
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-line">
-              <div className="text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+            {/* Coluna 2 (Centro): O Termômetro Gigante */}
+            <div className="flex flex-col items-center justify-center flex-1 py-3 border-y md:border-y-0 md:border-x border-line px-6">
+              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Desempenho Geral</span>
+              <ScoreGauge score={op.avgPerformanceScore} size={150} />
+            </div>
+
+            {/* Coluna 3: Métricas */}
+            <div className="grid grid-cols-3 gap-6 min-w-[320px] flex-1 md:flex-initial text-center">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
                   Tempo Médio
                 </p>
-                <p className="text-sm font-extrabold text-foreground">{op.avgResponseTimeFormatted}</p>
+                <p className="text-sm font-black text-foreground">{op.avgResponseTimeFormatted}</p>
               </div>
-              <div className="text-center border-x border-line">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+              <div className="border-x border-line px-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
                   Atrasados
                 </p>
-                <p className={`text-sm font-extrabold ${op.overdueCount > 0 ? "text-red-600" : "text-foreground"}`}>
+                <p className={`text-sm font-black ${op.overdueCount > 0 ? "text-red-600 animate-pulse" : "text-foreground"}`}>
                   {op.overdueCount}
                 </p>
               </div>
-              <div className="text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
                   Sentimento
                 </p>
                 {total > 0 ? (
-                  <p className="text-sm font-extrabold text-foreground">
+                  <p className="text-sm font-black text-foreground">
                     {satisfiedPct}% 😊
                   </p>
                 ) : (
-                  <p className="text-sm font-extrabold text-muted-foreground">–</p>
+                  <p className="text-sm font-black text-muted-foreground">–</p>
                 )}
               </div>
             </div>
