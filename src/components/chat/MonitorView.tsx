@@ -69,6 +69,10 @@ type AlertItem = {
   waitingSeconds: number;
   isOverdue: boolean;
   isCritical: boolean;
+  alertType?: "sla" | "conflict";
+  lastMessagePreview?: string;
+  crmCardUrl?: string | null;
+  conversationStartedAt?: string;
 };
 
 type AuditItem = {
@@ -564,6 +568,8 @@ function OverviewTab({
 }
 
 function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean }) {
+  const { setActiveView, setSelectedChatId } = useChat();
+
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -573,7 +579,7 @@ function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean 
   }
 
   return (
-    <div className="flex flex-col gap-3 overflow-y-auto scrollbar-thin pr-1">
+    <div className="flex flex-col gap-4 overflow-y-auto scrollbar-thin pr-1">
       {alerts.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 py-20 text-muted-foreground gap-3">
           <CheckCircle className="h-12 w-12 text-emerald-400" />
@@ -581,34 +587,131 @@ function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean 
           <p className="text-sm">Nenhum cliente aguardando resposta agora.</p>
         </div>
       ) : (
-        alerts.map((alert) => (
-          <div
-            key={alert.logId}
-            className={`bg-card rounded-2xl border shadow-soft p-4 flex items-center gap-4 ${
-              alert.isCritical ? "border-red-200" : "border-border"
-            }`}
-          >
-            {alert.isCritical && (
-              <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-            )}
-            <Avatar name={alert.contactName} size="md" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-bold text-foreground">{alert.contactName}</p>
-                {alert.isCritical && (
-                  <span className="text-[10px] font-extrabold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md">
-                    CRÍTICO
-                  </span>
+        alerts.map((alert) => {
+          const isConflict = alert.alertType === "conflict";
+          
+          return (
+            <div
+              key={alert.logId}
+              className={`bg-card rounded-2xl border shadow-soft p-5 flex flex-col gap-4 transition-all hover:border-muted-foreground/20 ${
+                alert.isCritical 
+                  ? "border-red-200 bg-red-50/10" 
+                  : isConflict 
+                  ? "border-amber-200 bg-amber-50/10" 
+                  : "border-border"
+              }`}
+            >
+              {/* Header: Status + Informações do Cliente + SLA */}
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Avatar name={alert.contactName} size="md" />
+                  <div>
+                    <div className="flex items-center flex-wrap gap-2">
+                      <p className="text-sm font-bold text-foreground">{alert.contactName}</p>
+                      {alert.isCritical && (
+                        <span className="text-[10px] font-extrabold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md border border-red-200">
+                          CRÍTICO
+                        </span>
+                      )}
+                      
+                      {/* Tipo de Alerta */}
+                      {isConflict ? (
+                        <span className="text-[10px] font-extrabold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          Conflito Detectado (I.A.)
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-extrabold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                          <Clock className="h-3 w-3 shrink-0" />
+                          Tempo de Resposta (SLA)
+                        </span>
+                      )}
+                    </div>
+                    {alert.contactPhone && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {alert.contactPhone}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Tempo de Espera */}
+                <WaitBadge minutes={alert.waitingMinutes} isCritical={alert.isCritical} />
+              </div>
+
+              {/* Informações Auxiliares (Operador e Início) */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground border-t border-line/50 pt-3">
+                <div className="flex items-center gap-1">
+                  <span className="font-semibold text-[10px] uppercase tracking-wider">Operador:</span>
+                  <span className="text-foreground font-medium">{alert.operatorName}</span>
+                </div>
+                {alert.conversationStartedAt && (
+                  <div className="flex items-center gap-1">
+                    <span className="font-semibold text-[10px] uppercase tracking-wider">Início:</span>
+                    <span className="text-foreground font-medium">{alert.conversationStartedAt}</span>
+                  </div>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Operador: <span className="font-semibold text-foreground">{alert.operatorName}</span>
-                {alert.contactPhone && ` · ${alert.contactPhone}`}
-              </p>
+
+              {/* Balão de Chat Simulado */}
+              {alert.lastMessagePreview && (
+                <div className="flex flex-col gap-1 mt-1">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground ml-2">Última Mensagem do Cliente</span>
+                  <div className={`rounded-xl p-3 text-sm relative max-w-[85%] border self-start ${
+                    isConflict 
+                      ? "bg-red-50/40 text-red-950 border-red-100" 
+                      : "bg-muted/50 text-foreground border-border"
+                  }`}>
+                    {/* Seta do balão de chat (estilo WhatsApp) */}
+                    <div className={`absolute top-3 -left-[6px] w-3 h-3 rotate-45 border-l border-b ${
+                      isConflict 
+                        ? "bg-red-50/40 border-red-100" 
+                        : "bg-muted/50 border-border"
+                    }`} style={{ borderTopColor: 'transparent', borderRightColor: 'transparent' }} />
+                    <p className="font-medium relative z-10 break-words leading-relaxed select-text">
+                      "{alert.lastMessagePreview}"
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Ações */}
+              <div className="flex items-center gap-2 mt-2 border-t border-line/50 pt-3">
+                <button
+                  onClick={() => {
+                    setActiveView("chat");
+                    setSelectedChatId(alert.conversationId);
+                  }}
+                  className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-xl transition shadow-sm hover:shadow-soft"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  Abrir Conversa
+                </button>
+                
+                {alert.crmCardUrl ? (
+                  <a
+                    href={alert.crmCardUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-foreground bg-secondary hover:bg-secondary-hover border border-border px-4 py-2 rounded-xl transition"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Ver no CRM (RD)
+                  </a>
+                ) : (
+                  <button
+                    disabled
+                    title="Nenhum card do CRM vinculado a este contato"
+                    className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-muted-foreground bg-muted cursor-not-allowed border border-line px-4 py-2 rounded-xl opacity-60"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    CRM Indisponível
+                  </button>
+                )}
+              </div>
             </div>
-            <WaitBadge minutes={alert.waitingMinutes} isCritical={alert.isCritical} />
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );

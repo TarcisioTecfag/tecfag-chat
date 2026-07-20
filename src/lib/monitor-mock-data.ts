@@ -73,6 +73,10 @@ export type AlertItem = {
   waitingSeconds: number;
   isOverdue: boolean;
   isCritical: boolean;
+  alertType?: "sla" | "conflict";
+  lastMessagePreview?: string;
+  crmCardUrl?: string | null;
+  conversationStartedAt?: string;
 };
 
 export type AuditItem = {
@@ -199,6 +203,10 @@ export const MOCK_ALERTS: AlertItem[] = [
     waitingSeconds: 1380,
     isOverdue: true,
     isCritical: true,
+    alertType: "sla",
+    lastMessagePreview: "boa tarde alguem pode me atender?????",
+    crmCardUrl: "https://crm.rdstation.com.br/deals/102948",
+    conversationStartedAt: "20/07/2026 14:15",
   },
   {
     logId: "log-002",
@@ -210,6 +218,10 @@ export const MOCK_ALERTS: AlertItem[] = [
     waitingSeconds: 1020,
     isOverdue: true,
     isCritical: false,
+    alertType: "conflict",
+    lastMessagePreview: "nao tenho mais interesse em realizar nenhuma compra com vcs, que atendimento horrivel",
+    crmCardUrl: null,
+    conversationStartedAt: "20/07/2026 14:02",
   },
   {
     logId: "log-003",
@@ -221,6 +233,10 @@ export const MOCK_ALERTS: AlertItem[] = [
     waitingSeconds: 660,
     isOverdue: false,
     isCritical: false,
+    alertType: "sla",
+    lastMessagePreview: "Preciso do boleto atualizado para pagar hoje, pode gerar?",
+    crmCardUrl: "https://crm.rdstation.com.br/deals/102951",
+    conversationStartedAt: "20/07/2026 14:50",
   },
   {
     logId: "log-004",
@@ -232,6 +248,10 @@ export const MOCK_ALERTS: AlertItem[] = [
     waitingSeconds: 480,
     isOverdue: false,
     isCritical: false,
+    alertType: "conflict",
+    lastMessagePreview: "Vocês prometeram entregar ontem e até agora nada. Quero cancelar o pedido!",
+    crmCardUrl: "https://crm.rdstation.com.br/deals/102955",
+    conversationStartedAt: "20/07/2026 14:45",
   },
 ];
 

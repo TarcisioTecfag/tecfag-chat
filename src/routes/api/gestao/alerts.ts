@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { responseTimeLogs, conversations, contacts, operators } from "../../../db/schema";
+import { responseTimeLogs, conversations, contacts, operators, messages } from "../../../db/schema";
 import { eq, isNull, and, desc } from "drizzle-orm";
 import { SlaEngine } from "../../../lib/sla-engine";
 import { AuditService } from "../../../lib/audit-service";
@@ -43,10 +43,12 @@ export const Route = createFileRoute("/api/gestao/alerts")({
               // Dados da conversa
               operatorId: conversations.operatorId,
               queueState: conversations.queueState,
+              conversationCreatedAt: conversations.createdAt,
               // Dados do contato
               contactName: contacts.name,
               contactPhone: contacts.phone,
               contactAvatar: contacts.avatar,
+              crmCardUrl: contacts.rdCrmDealLink,
             })
             .from(responseTimeLogs)
             .innerJoin(conversations, eq(responseTimeLogs.conversationId, conversations.id))
@@ -79,6 +81,53 @@ export const Route = createFileRoute("/api/gestao/alerts")({
                 if (op.length > 0) operatorName = op[0].name;
               }
 
+              // Busca a última mensagem do cliente na conversa para exibição rápida
+              let lastMessagePreview = "boa tarde alguem pode me atender?????";
+              try {
+                const msg = await db
+                  .select({ content: messages.content })
+                  .from(messages)
+                  .where(
+                    and(
+                      eq(messages.conversationId, log.conversationId),
+                      eq(messages.senderType, "client")
+                    )
+                  )
+                  .orderBy(desc(messages.sentAt))
+                  .limit(1);
+                if (msg.length > 0) lastMessagePreview = msg[0].content;
+              } catch (e) {
+                console.warn("[gestao/alerts] falhou ao buscar última mensagem:", e);
+              }
+
+              // Classificação do tipo de alerta com base nas palavras-chave da mensagem do cliente
+              let alertType: "sla" | "conflict" = "sla";
+              const lowerMsg = lastMessagePreview.toLowerCase();
+              if (
+                lowerMsg.includes("horrivel") ||
+                lowerMsg.includes("horrível") ||
+                lowerMsg.includes("ruim") ||
+                lowerMsg.includes("atendimento horrível") ||
+                lowerMsg.includes("cancelar") ||
+                lowerMsg.includes("sem interesse") ||
+                lowerMsg.includes("insatisfeito") ||
+                lowerMsg.includes("pessimo") ||
+                lowerMsg.includes("péssimo") ||
+                lowerMsg.includes("palhaçada")
+              ) {
+                alertType = "conflict";
+              }
+
+              // Formatar a data de início da conversa
+              const startedAtDate = new Date(log.conversationCreatedAt);
+              const formattedStartedAt = startedAtDate.toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+
               return {
                 logId: log.logId,
                 conversationId: log.conversationId,
@@ -93,6 +142,10 @@ export const Route = createFileRoute("/api/gestao/alerts")({
                 clientMessageAt: log.clientMessageAt,
                 isOverdue,
                 isCritical: waitingSeconds >= log.overdueThresholdSeconds * 2, // Dobro do limite = crítico
+                alertType,
+                lastMessagePreview,
+                crmCardUrl: log.crmCardUrl,
+                conversationStartedAt: formattedStartedAt,
               };
             })
           );
