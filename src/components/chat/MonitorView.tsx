@@ -120,12 +120,58 @@ function ScoreBadge({ score }: { score: number | null }) {
 function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number }) {
   if (score === null) return <span className="text-xs text-muted-foreground">–</span>;
   
+  const [animatedScore, setAnimatedScore] = useState(0);
+  const [displayScore, setDisplayScore] = useState(0);
+  
+  useEffect(() => {
+    // Animar o arco com um leve delay para percepção visual da transição
+    const animTimer = setTimeout(() => {
+      setAnimatedScore(score);
+    }, 80);
+    
+    // Animar o contador numérico usando requestAnimationFrame
+    let startTimestamp: number | null = null;
+    const duration = 1000; // 1s de animação fluida
+    const startVal = 0;
+    
+    let animationFrameId: number;
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      // Easing out cubic para desaceleração suave no fim
+      const easeProgress = 1 - Math.pow(1 - progress, 3);
+      setDisplayScore(Math.floor(easeProgress * (score - startVal) + startVal));
+      if (progress < 1) {
+        animationFrameId = window.requestAnimationFrame(step);
+      }
+    };
+    animationFrameId = window.requestAnimationFrame(step);
+    
+    return () => {
+      clearTimeout(animTimer);
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [score]);
+
   const r = 35;
   const strokeWidth = 9;
   const cx = 50;
   const cy = 40;
   const totalLength = Math.PI * r;
-  const offset = totalLength - (Math.min(Math.max(score, 0), 100) / 100) * totalLength;
+  const offset = totalLength - (Math.min(Math.max(animatedScore, 0), 100) / 100) * totalLength;
+  
+  // Coordenadas da bolinha indicadora na ponta do arco usando trigonometria
+  const percent = Math.min(Math.max(animatedScore, 0), 100) / 100;
+  const angle = Math.PI - (percent * Math.PI);
+  const indicatorX = cx + r * Math.cos(angle);
+  const indicatorY = cy - r * Math.sin(angle);
+  
+  // Identificação do Gradiente
+  const getGradientId = () => {
+    if (score >= 75) return "greenGrad";
+    if (score >= 50) return "yellowGrad";
+    return "redGrad";
+  };
   
   const color =
     score >= 75 ? "#10b981" :
@@ -135,30 +181,67 @@ function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number
   return (
     <div className="relative flex flex-col items-center justify-center shrink-0" style={{ width: size, height: size * 0.62 }}>
       <svg viewBox="0 0 100 52" className="w-full h-full overflow-visible">
-        {/* Arco de fundo */}
+        <defs>
+          {/* Definições de Gradientes Lineares Premium */}
+          <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#059669" />
+            <stop offset="100%" stopColor="#34d399" />
+          </linearGradient>
+          <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#d97706" />
+            <stop offset="100%" stopColor="#fbbf24" />
+          </linearGradient>
+          <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#dc2626" />
+            <stop offset="100%" stopColor="#f87171" />
+          </linearGradient>
+          
+          {/* Sombra de Glow para o arco e indicador */}
+          <filter id="shadowGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor={color} floodOpacity="0.4" />
+          </filter>
+        </defs>
+        
+        {/* Arco de fundo (trilho cinza) */}
         <path
           d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
           fill="none"
           stroke="currentColor"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
-          className="text-muted/20"
+          className="text-muted/15"
         />
-        {/* Arco de progresso */}
+        
+        {/* Arco de progresso com gradiente e glow */}
         <path
           d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
           fill="none"
-          stroke={color}
+          stroke={`url(#${getGradientId()})`}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeDasharray={totalLength}
           strokeDashoffset={offset}
-          style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)" }}
+          filter="url(#shadowGlow)"
+          style={{ transition: "stroke-dashoffset 1s cubic-bezier(0.4, 0, 0.2, 1)" }}
         />
+        
+        {/* Bolinha indicadora brilhante no final do progresso */}
+        {animatedScore > 0 && (
+          <circle
+            cx={indicatorX}
+            cy={indicatorY}
+            r={6}
+            fill="#ffffff"
+            stroke={color}
+            strokeWidth={3}
+            filter="url(#shadowGlow)"
+            className="transition-all duration-1000 ease-out"
+          />
+        )}
       </svg>
       {/* Texto no centro/baixo */}
       <span className="absolute bottom-0 text-[18px] font-black text-foreground animate-in fade-in zoom-in-75 duration-300" style={{ transform: "translateY(-1px)" }}>
-        {score}
+        {displayScore}
       </span>
     </div>
   );
@@ -546,10 +629,10 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.05 }}
-            className="bg-card rounded-2xl border border-border shadow-soft p-6 flex flex-col md:flex-row md:items-center justify-between gap-6"
+            className="bg-card rounded-2xl border border-border shadow-soft p-6 flex flex-col md:grid md:grid-cols-3 md:items-center justify-between gap-6"
           >
             {/* Coluna 1: Informações do Operador */}
-            <div className="flex items-center gap-4 min-w-[240px] flex-1 md:flex-initial">
+            <div className="flex items-center gap-4 w-full">
               <Avatar name={op.operatorName} size="lg" />
               <div>
                 <div className="flex items-center gap-2.5">
@@ -571,13 +654,13 @@ function OperatorsTab({ overview }: { overview: OverviewData | null }) {
             </div>
 
             {/* Coluna 2 (Centro): O Termômetro Gigante */}
-            <div className="flex flex-col items-center justify-center flex-1 py-3 border-y md:border-y-0 md:border-x border-line px-6">
+            <div className="flex flex-col items-center justify-center border-y md:border-y-0 md:border-x border-line py-3 px-6 w-full">
               <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Desempenho Geral</span>
               <ScoreGauge score={op.avgPerformanceScore} size={150} />
             </div>
 
             {/* Coluna 3: Métricas */}
-            <div className="grid grid-cols-3 gap-6 min-w-[320px] flex-1 md:flex-initial text-center">
+            <div className="grid grid-cols-3 gap-6 w-full text-center">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
                   Tempo Médio
