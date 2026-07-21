@@ -188,6 +188,23 @@ export class SdrEngine {
         })
         .join("\n");
 
+      const firstTextItem = batchItems.find((i) => i.text.trim().length > 0)?.text || "olá";
+      const { greeting } = getMirroredGreeting(firstTextItem);
+
+      // Instrução estrita sobre apresentação inicial vs sequência da conversa
+      const firstMessageRule = isFirstMessage
+        ? `🟢 ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO.
+   - A mensagem 1 DEVE ser exatamente: "${greeting} Meu nome é Valentina, da Valem 😊"
+   - A mensagem 2 DEVE ser: "Como posso te ajudar hoje?"`
+        : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
+   - NUNCA diga "Olá", NUNCA diga "Meu nome é Valentina", NUNCA diga "da Valem", NUNCA volte a se apresentar!
+   - Responda DIRETO ao que o cliente disse no lote de forma fluida e conversacional!`;
+
+      const currentDataSummary: Record<string, string> = {};
+      for (const [k, v] of Object.entries(existingCollectedData)) {
+        currentDataSummary[k] = v.value;
+      }
+
       // 5.1 Verificar se o lote contém algum CNPJ para validação matemática e consulta à API (cnpj.ws)
       let cnpjDirective = "";
       const combinedBatchText = batchItems.map((i) => i.text).join(" ");
