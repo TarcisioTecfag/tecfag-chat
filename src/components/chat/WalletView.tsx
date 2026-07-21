@@ -22,8 +22,10 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
+  UserMinus,
 } from "lucide-react";
 import { Conversation, OperatorTemplate } from "@/lib/mockData";
+import { toast } from "sonner";
 
 export function WalletView() {
   const {
@@ -35,6 +37,7 @@ export function WalletView() {
     createTemplate,
     updateTemplate,
     deleteTemplate,
+    updateContactWallet,
     setSelectedChatId,
     setActiveView,
     setActiveQueue,
@@ -136,6 +139,18 @@ export function WalletView() {
     }
   };
 
+  const handleRemoveFromWallet = async (client: Conversation) => {
+    const contactId = client.contactId || client.id;
+    if (
+      confirm(
+        `Deseja remover ${client.name} da sua carteira?\n\nQuando o cliente enviar mensagem no WhatsApp, ele retornará para a automação da Valentina IA.`
+      )
+    ) {
+      await updateContactWallet(contactId, null);
+      toast.success(`${client.name} removido da carteira! Retornado para a Valentina IA.`);
+    }
+  };
+
   const getAttendanceStatus = (c: Conversation) => {
     if (c.queue === "finalizados") {
       return { text: "Sem atendimento ativo", color: "text-muted-foreground bg-muted/50 border-muted-foreground/20" };
@@ -148,104 +163,105 @@ export function WalletView() {
         return { text: "Atendimento com você", color: "text-primary bg-primary-soft border-primary/20" };
       } else {
         const op = operators.find((o) => o.id === c.operatorId);
-        return {
-          text: `Ativo com ${op ? op.name : "outro atendente"}`,
-          color: "text-blue-500 bg-blue-500/10 border-blue-500/20",
-        };
+        return { text: `Atendimento com ${op?.name ?? "outro"}`, color: "text-amber-500 bg-amber-500/10 border-amber-500/20" };
       }
     }
-    return { text: "Sem atendimento ativo", color: "text-muted-foreground bg-muted/50 border-muted-foreground/20" };
+    return { text: "Em automação", color: "text-blue-500 bg-blue-500/10 border-blue-500/20" };
   };
 
   const handleGoToChat = (c: Conversation) => {
     setSelectedChatId(c.id);
-    if (c.queue === "fila" || c.queue === "finalizados" || c.queue === "meus" || c.queue === "automacao") {
-      setActiveQueue(c.queue);
-    }
     setActiveView("chat");
+    if (c.queue === "meus" && c.operatorId === currentOperatorId) {
+      setActiveQueue("meus");
+    } else if (c.queue === "fila") {
+      setActiveQueue("fila");
+    }
   };
 
   return (
-    <div className="flex h-full w-full flex-col rounded-3xl bg-card border border-border p-6 shadow-soft overflow-hidden select-none">
-      {/* Header */}
-      <div className="flex flex-col gap-4 border-b border-line pb-6 md:flex-row md:items-center md:justify-between">
+    <div className="flex h-full flex-col gap-4 p-4 lg:p-6 overflow-hidden">
+      {/* Header Banner */}
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between shrink-0">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Minha Carteira & Templates</h1>
-          <p className="text-xs text-muted-foreground mt-1">
+          <h1 className="text-xl font-bold text-foreground">Minha Carteira & Templates</h1>
+          <p className="text-xs text-muted-foreground">
             Gerencie seus clientes vinculados e configure suas respostas rápidas personalizadas.
           </p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-1.5 rounded-2xl bg-muted p-1 border border-border">
+        {/* Tab Toggle */}
+        <div className="flex items-center gap-1 rounded-2xl bg-muted/60 p-1 border border-border self-start sm:self-auto">
           <button
-            onClick={() => {
-              setActiveTab("wallet");
-              setSearch("");
-            }}
+            onClick={() => setActiveTab("wallet")}
             className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
               activeTab === "wallet"
-                ? "bg-card text-foreground shadow-soft border border-border"
+                ? "bg-card text-foreground shadow-soft"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Briefcase className="h-3.5 w-3.5" />
+            <Briefcase className="h-4 w-4" />
             Clientes da Carteira
           </button>
           <button
-            onClick={() => {
-              setActiveTab("templates");
-              setSearch("");
-            }}
+            onClick={() => setActiveTab("templates")}
             className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
               activeTab === "templates"
-                ? "bg-card text-foreground shadow-soft border border-border"
+                ? "bg-card text-foreground shadow-soft"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <LayoutTemplate className="h-3.5 w-3.5" />
+            <LayoutTemplate className="h-4 w-4" />
             Meus Templates
           </button>
         </div>
       </div>
 
-      {/* Stats Section */}
-      <div className="grid grid-cols-1 gap-4 py-6 sm:grid-cols-3">
-        <div className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-soft">
-          <div className="rounded-xl bg-primary-soft p-3 text-primary">
-            <Briefcase className="h-5 w-5" />
+      {/* Stats KPI Section (Visible in Wallet Tab) */}
+      {activeTab === "wallet" && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0">
+          <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary border border-border">
+              <Briefcase className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Clientes em Carteira
+              </div>
+              <div className="text-lg font-bold text-foreground">{walletClients.length}</div>
+            </div>
           </div>
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Clientes em Carteira</div>
-            <div className="text-xl font-bold text-foreground mt-0.5">{walletClients.length}</div>
+
+          <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 border border-border">
+              <MessageSquare className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Atendimentos Ativos
+              </div>
+              <div className="text-lg font-bold text-foreground">{activeAttendancesCount}</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-border">
+              <LayoutTemplate className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Meus Templates
+              </div>
+              <div className="text-lg font-bold text-foreground">{templates.length}</div>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-soft">
-          <div className="rounded-xl bg-emerald-500/10 p-3 text-emerald-500">
-            <MessageSquare className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Atendimentos Ativos</div>
-            <div className="text-xl font-bold text-foreground mt-0.5">{activeAttendancesCount}</div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-soft">
-          <div className="rounded-xl bg-blue-500/10 p-3 text-blue-500">
-            <LayoutTemplate className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Meus Templates</div>
-            <div className="text-xl font-bold text-foreground mt-0.5">{templates.length}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Controls: Search and Actions */}
-      <div className="flex items-center justify-between gap-4 pb-4">
+      {/* Action Bar (Search & Create) */}
+      <div className="flex items-center justify-between gap-3 shrink-0">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             type="text"
             placeholder={
@@ -375,13 +391,23 @@ export function WalletView() {
                               </span>
                             </td>
                             <td className="p-4 text-right">
-                              <button
-                                onClick={() => handleGoToChat(c)}
-                                className="inline-flex items-center gap-1 rounded-xl bg-muted px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer border border-border hover:border-primary/20"
-                              >
-                                Conversar
-                                <ChevronRight className="h-3 w-3" />
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleRemoveFromWallet(c)}
+                                  className="inline-flex items-center gap-1 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-red-200 dark:border-red-800"
+                                  title="Remover da carteira e devolver para a Valentina IA"
+                                >
+                                  <UserMinus className="h-3.5 w-3.5" />
+                                  Remover
+                                </button>
+                                <button
+                                  onClick={() => handleGoToChat(c)}
+                                  className="inline-flex items-center gap-1 rounded-xl bg-muted px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer border border-border hover:border-primary/20"
+                                >
+                                  Conversar
+                                  <ChevronRight className="h-3 w-3" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -406,43 +432,41 @@ export function WalletView() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
+              className="h-full"
             >
               {filteredTemplates.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredTemplates.map((tpl) => (
                     <div
                       key={tpl.id}
-                      className="flex flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-soft hover:border-primary/30 transition duration-200"
+                      className="group flex flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-soft transition-all hover:shadow-md hover:border-primary/30"
                     >
                       <div>
-                        <h3 className="text-sm font-bold text-foreground line-clamp-1">{tpl.title}</h3>
-                        <p className="text-xs text-muted-foreground/80 mt-2 line-clamp-4 font-normal whitespace-pre-line leading-relaxed bg-muted/30 rounded-xl p-3 border border-border/40">
-                          {tpl.text}
-                        </p>
-                      </div>
-                      <div className="mt-4 flex items-center justify-end gap-2 border-t border-line pt-3">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
+                            {tpl.title}
+                          </h3>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                               onClick={() => handleOpenEditModal(tpl)}
-                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer"
+                              className="p-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition cursor-pointer"
+                              title="Editar Template"
                             >
                               <Edit2 className="h-3.5 w-3.5" />
                             </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Editar</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
                             <button
                               onClick={() => handleDeleteTemplate(tpl.id)}
-                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition cursor-pointer"
+                              className="p-1 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer"
+                              title="Excluir Template"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Excluir</TooltipContent>
-                        </Tooltip>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4 bg-muted/30 p-3 rounded-xl border border-border/50 font-mono">
+                          {tpl.text}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -450,15 +474,15 @@ export function WalletView() {
               ) : (
                 <div className="flex h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card p-6 text-center">
                   <LayoutTemplate className="h-10 w-10 text-muted-foreground/40 mb-3" />
-                  <h3 className="text-sm font-semibold text-foreground">Nenhum template criado</h3>
-                  <p className="text-xs text-muted-foreground max-w-sm mt-1">
-                    Crie templates de mensagens frequentes para enviar rapidamente aos seus clientes durante o chat.
+                  <h3 className="text-sm font-semibold text-foreground">Nenhum template encontrado</h3>
+                  <p className="text-xs text-muted-foreground max-w-sm mt-1 mb-4">
+                    Crie respostas rápidas para economizar tempo no atendimento do dia a dia.
                   </p>
                   <button
                     onClick={handleOpenCreateModal}
-                    className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:opacity-95 transition cursor-pointer shadow-soft"
+                    className="flex items-center gap-2 rounded-2xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-soft transition hover:opacity-95 cursor-pointer"
                   >
-                    <Plus className="h-4 w-4" />
+                    <PlusCircle className="h-4 w-4" />
                     Criar Meu Primeiro Template
                   </button>
                 </div>
@@ -468,99 +492,93 @@ export function WalletView() {
         </AnimatePresence>
       </div>
 
-      {/* Create / Edit Template Modal */}
+      {/* Create/Edit Template Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-3xl bg-card border border-border p-6 shadow-card">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-xl animate-scaleIn">
             <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
-              <h2 className="text-md font-bold text-foreground">
-                {modalMode === "create" ? "Criar Novo Template" : "Editar Template"}
+              <h2 className="text-base font-bold text-foreground">
+                {modalMode === "create" ? "Criar Resposta Rápida" : "Editar Resposta Rápida"}
               </h2>
               <button
                 onClick={() => setShowModal(false)}
-                className="rounded-lg p-1 hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                className="rounded-xl p-1 text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveTemplate} className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/80">Título do Template</label>
+            <form onSubmit={handleSaveTemplate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1.5">
+                  Título do Template
+                </label>
                 <input
                   type="text"
-                  placeholder="Ex: Saudação de boas-vindas"
+                  placeholder="Ex: Boas-vindas Orçamento"
                   value={templateForm.title}
                   onChange={(e) => setTemplateForm({ ...templateForm, title: e.target.value })}
-                  className="rounded-2xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground outline-none transition focus:border-primary focus:bg-card focus:shadow-soft"
+                  className="w-full rounded-2xl border border-border bg-muted/40 px-3.5 py-2 text-xs text-foreground outline-none focus:border-primary focus:bg-card"
                   required
                 />
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/80">Mensagem</label>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-foreground">
+                    Conteúdo da Mensagem
+                  </label>
+                  <span className="text-[10px] text-muted-foreground">Variáveis disponíveis:</span>
+                </div>
+
+                {/* Variable Tags */}
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTag("{{nome}}")}
+                    className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
+                  >
+                    + {"{{nome}}"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTag("{{empresa}}")}
+                    className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
+                  >
+                    + {"{{empresa}}"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertTag("{{operador}}")}
+                    className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
+                  >
+                    + {"{{operador}}"}
+                  </button>
+                </div>
+
                 <textarea
                   ref={textareaRef}
-                  placeholder="Olá! Como posso te ajudar hoje?"
+                  rows={5}
+                  placeholder="Digite o texto do template aqui..."
                   value={templateForm.text}
                   onChange={(e) => setTemplateForm({ ...templateForm, text: e.target.value })}
-                  rows={4}
-                  className="rounded-2xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground outline-none transition focus:border-primary focus:bg-card focus:shadow-soft resize-none scrollbar-thin leading-relaxed"
+                  className="w-full rounded-2xl border border-border bg-muted/40 p-3.5 text-xs font-mono text-foreground outline-none focus:border-primary focus:bg-card resize-none"
                   required
                 />
               </div>
 
-              {/* Tags Dinâmicas */}
-              <div className="rounded-2xl bg-muted/50 p-3.5 border border-border/60">
-                <span className="text-[9px] font-extrabold uppercase tracking-wide text-primary block mb-2">
-                  Tags Dinâmicas (Clique para inserir)
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => handleInsertTag("<<1>>")}
-                        className="flex flex-col items-center justify-center gap-1 bg-card hover:bg-muted border border-border/80 hover:border-primary/20 rounded-xl p-2 transition cursor-pointer text-center group active:scale-95"
-                      >
-                        <code className="text-primary font-bold font-mono px-1.5 py-0.5 bg-primary-soft rounded text-[10px] group-hover:bg-primary group-hover:text-primary-foreground transition">{"<<1>>"}</code>
-                        <span className="text-[9px] text-muted-foreground font-medium">Nome do Vendedor</span>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Inserir Nome do Vendedor</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => handleInsertTag("<<2>>")}
-                        className="flex flex-col items-center justify-center gap-1 bg-card hover:bg-muted border border-border/80 hover:border-primary/20 rounded-xl p-2 transition cursor-pointer text-center group active:scale-95"
-                      >
-                        <code className="text-primary font-bold font-mono px-1.5 py-0.5 bg-primary-soft rounded text-[10px] group-hover:bg-primary group-hover:text-primary-foreground transition">{"<<2>>"}</code>
-                        <span className="text-[9px] text-muted-foreground font-medium">Nome do Cliente</span>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Inserir Nome do Cliente</TooltipContent>
-                  </Tooltip>
-                </div>
-                <p className="text-[9px] text-muted-foreground/80 mt-2 leading-relaxed text-center">
-                  * No envio do chat, as tags são trocadas pelos nomes reais correspondentes.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 border-t border-line pt-4 mt-2">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="rounded-2xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                  className="rounded-2xl border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-1.5 rounded-2xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground hover:opacity-95 transition cursor-pointer shadow-soft"
+                  className="rounded-2xl bg-primary px-5 py-2 text-xs font-semibold text-primary-foreground hover:opacity-95 cursor-pointer shadow-soft"
                 >
-                  <Check className="h-4 w-4" />
                   Salvar Template
                 </button>
               </div>
