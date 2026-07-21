@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 📋 SDR TAB — Monitoramento de triagens SDR & Controle de Whitelist de Testes
+// 📋 SDR TAB — Monitoramento em Tempo Real do Agente SDR Valentina com Gemini 2.5
 // ══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -13,12 +13,10 @@ import { SDR_TRIAGE_SESSIONS, SdrTriageSession } from "./valentina-mock-data";
 import { useChat } from "@/hooks/useChatState";
 import { toast } from "sonner";
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
 function StatusBadge({ status }: { status: SdrTriageSession["status"] }) {
   const styles = {
     active: "bg-primary-soft text-primary border-primary/20",
-    completed: "bg-gray-100 text-gray-600 border-gray-200",
+    completed: "bg-emerald-100 text-emerald-700 border-emerald-200",
     abandoned: "bg-red-100 text-red-600 border-red-200",
   };
   const labels = { active: "Ativo", completed: "Concluído", abandoned: "Abandonado" };
@@ -32,19 +30,15 @@ function StatusBadge({ status }: { status: SdrTriageSession["status"] }) {
   );
 }
 
-// ── Componente principal ────────────────────────────────────────────────────
-
 export function SdrTab() {
   const { tenant, setActiveView, setSelectedChatId } = useChat();
 
-  // Configurações de Whitelist e Status do Agente
   const [sdrEnabled, setSdrEnabled] = useState(true);
   const [testMode, setTestMode] = useState(true);
   const [whitelistPhone, setWhitelistPhone] = useState("14998364338");
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Lista de sessões (Mock + Reais)
   const [sessions, setSessions] = useState<SdrTriageSession[]>(SDR_TRIAGE_SESSIONS);
   const [selectedSession, setSelectedSession] = useState<SdrTriageSession>(SDR_TRIAGE_SESSIONS[0]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -64,9 +58,9 @@ export function SdrTab() {
           }
         }
         if (Array.isArray(data.sessions) && data.sessions.length > 0) {
-          // Mapear mensagens mock de exibição se a sessão real não tiver mensagens separadas
           const formattedLiveSessions: SdrTriageSession[] = data.sessions.map((s: any) => ({
             id: s.id,
+            conversationId: s.conversationId,
             contactName: s.contactName || "Cliente",
             company: s.company || "Empresa não informada",
             currentStep: s.currentStep || "Qualificação",
@@ -76,27 +70,30 @@ export function SdrTab() {
             startedAt: s.startedAt,
             status: s.status,
             outcome: s.outcome,
-            messages: [
-              { sender: "bot", text: "Olá! Sou a Valentina. Vamos realizar sua qualificação?", time: "Hoje" },
-            ],
+            messages: s.messages || [],
           }));
 
-          // Combina sessões reais com os mocks de demonstração
-          setSessions([...formattedLiveSessions, ...SDR_TRIAGE_SESSIONS]);
+          setSessions(formattedLiveSessions);
+          setSelectedSession((prev) => {
+            const match = formattedLiveSessions.find((s) => s.id === prev.id);
+            return match || formattedLiveSessions[0];
+          });
         }
       }
     } catch (e) {
-      console.warn("[SdrTab] Erro ao carregar dados da API SDR, usando fallback local:", e);
+      console.warn("[SdrTab] Erro ao carregar dados da API SDR:", e);
     } finally {
       setIsLoading(false);
     }
   }, [tenant]);
 
+  // Polling a cada 4 segundos para atualização em tempo real das mensagens e etapas
   useEffect(() => {
     fetchSdrData();
+    const interval = setInterval(fetchSdrData, 4000);
+    return () => clearInterval(interval);
   }, [fetchSdrData]);
 
-  // Salvar configurações de Whitelist
   const handleSaveConfig = async () => {
     setIsSavingConfig(true);
     try {
@@ -112,7 +109,7 @@ export function SdrTab() {
       });
 
       if (res.ok) {
-        toast.success("Configurações do Agente SDR salvas com sucesso!");
+        toast.success("Configurações do Agente SDR salvas!");
       } else {
         toast.error("Erro ao salvar configurações do SDR.");
       }
@@ -127,21 +124,13 @@ export function SdrTab() {
   const filteredSessions = sessions.filter((session) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
-    
     const matchName = session.contactName.toLowerCase().includes(q);
     const matchCompany = session.company.toLowerCase().includes(q);
-    const matchMessages = session.messages.some((msg) =>
+    const matchMessages = (session.messages || []).some((msg) =>
       msg.text.toLowerCase().includes(q)
     );
-
     return matchName || matchCompany || matchMessages;
   });
-
-  useEffect(() => {
-    if (filteredSessions.length > 0 && !filteredSessions.some(s => s.id === selectedSession.id)) {
-      setSelectedSession(filteredSessions[0]);
-    }
-  }, [searchQuery, filteredSessions, selectedSession]);
 
   return (
     <div className="flex flex-col gap-3 h-full overflow-hidden">
@@ -168,7 +157,6 @@ export function SdrTab() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Input do número Whitelist */}
           <div className="relative flex items-center">
             <Smartphone className="absolute left-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <input
@@ -181,7 +169,6 @@ export function SdrTab() {
             />
           </div>
 
-          {/* Toggle Modo Teste */}
           <button
             onClick={() => setTestMode(!testMode)}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
@@ -191,7 +178,6 @@ export function SdrTab() {
             Modo Teste: {testMode ? "ON" : "OFF"}
           </button>
 
-          {/* Toggle Ativar Agente */}
           <button
             onClick={() => setSdrEnabled(!sdrEnabled)}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
@@ -202,7 +188,6 @@ export function SdrTab() {
             {sdrEnabled ? "SDR Ativo" : "SDR Inativo"}
           </button>
 
-          {/* Botão Salvar */}
           <button
             onClick={handleSaveConfig}
             disabled={isSavingConfig}
@@ -223,7 +208,7 @@ export function SdrTab() {
               <div>
                 <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
                   <UserPlus className="h-3.5 w-3.5 text-primary" />
-                  Triagens SDR
+                  Triagens SDR (Ao Vivo)
                 </h3>
                 <p className="text-[10px] text-muted-foreground mt-0.5">
                   {sessions.filter((s) => s.status === "active").length} ativas de {sessions.length} total
@@ -238,7 +223,6 @@ export function SdrTab() {
               </button>
             </div>
 
-            {/* Barra de Pesquisa */}
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/60" />
               <input
@@ -299,21 +283,21 @@ export function SdrTab() {
           </div>
         </div>
 
-        {/* ── PAINEL CENTRAL — Preview do chat (45%) ───────────────────────── */}
+        {/* ── PAINEL CENTRAL — Preview do chat em Tempo Real (45%) ───────────────────────── */}
         <div className="flex-1 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
           <div className="px-4 py-3 border-b border-line shrink-0">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-xs font-extrabold text-foreground">{selectedSession.contactName}</h3>
-                <p className="text-[10px] text-muted-foreground">{selectedSession.company} · {selectedSession.currentStep}</p>
+                <h3 className="text-xs font-extrabold text-foreground">{selectedSession?.contactName}</h3>
+                <p className="text-[10px] text-muted-foreground">{selectedSession?.company} · {selectedSession?.currentStep}</p>
               </div>
-              <StatusBadge status={selectedSession.status} />
+              {selectedSession && <StatusBadge status={selectedSession.status} />}
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 scrollbar-thin">
             <AnimatePresence initial={false}>
-              {(selectedSession.messages || []).map((msg, idx) => (
+              {(selectedSession?.messages || []).map((msg, idx) => (
                 <motion.div
                   key={`${selectedSession.id}-${idx}`}
                   initial={{ opacity: 0, y: 6 }}
@@ -351,12 +335,11 @@ export function SdrTab() {
               ))}
             </AnimatePresence>
 
-            {/* Resultado se concluído/abandonado */}
-            {selectedSession.outcome && (
+            {selectedSession?.outcome && (
               <div className="flex justify-center mt-3 animate-fadeIn">
                 <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold ${
                   selectedSession.status === "completed"
-                    ? "bg-primary-soft text-primary"
+                    ? "bg-emerald-100 text-emerald-700"
                     : "bg-red-100 text-red-600"
                 }`}>
                   {selectedSession.status === "completed" ? (
@@ -371,7 +354,7 @@ export function SdrTab() {
           </div>
         </div>
 
-        {/* ── PAINEL DIREITO — Dados coletados (25%) ───────────────────────── */}
+        {/* ── PAINEL DIREITO — Dados coletados reais (25%) ───────────────────────── */}
         <div className="w-[25%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
           <div className="px-4 py-3 border-b border-line shrink-0 flex items-center justify-between gap-2">
             <div>
@@ -380,20 +363,14 @@ export function SdrTab() {
                 Dados Coletados
               </h3>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                {Object.values(selectedSession.collectedData || {}).filter((d) => d.status === "filled").length} de{" "}
-                {Object.keys(selectedSession.collectedData || {}).length} campos
+                {Object.values(selectedSession?.collectedData || {}).filter((d) => d.status === "filled").length} de{" "}
+                {Object.keys(selectedSession?.collectedData || {}).length} campos
               </p>
             </div>
 
             <button
               onClick={() => {
-                const idMap: Record<string, string> = {
-                  "sdr-001": "chat-mock-1",
-                  "sdr-002": "chat-mock-2",
-                  "sdr-003": "chat-mock-3",
-                  "sdr-004": "chat-mock-4",
-                };
-                const targetChatId = (selectedSession as any).conversationId || idMap[selectedSession.id] || "chat-mock-1";
+                const targetChatId = (selectedSession as any)?.conversationId || "chat-mock-1";
                 setSelectedChatId(targetChatId);
                 setActiveView("chat");
                 toast.info("Redirecionando para a conversa...");
@@ -407,7 +384,7 @@ export function SdrTab() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
-            {Object.entries(selectedSession.collectedData || {}).map(([key, data]) => (
+            {Object.entries(selectedSession?.collectedData || {}).map(([key, data]) => (
               <div
                 key={key}
                 className={`rounded-xl border p-3 transition ${
@@ -435,15 +412,14 @@ export function SdrTab() {
             ))}
           </div>
 
-          {/* Informações extras no rodapé */}
           <div className="px-4 py-3 border-t border-line shrink-0 space-y-1">
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <Clock className="h-3 w-3" />
-              Início: {new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+              Início: {selectedSession?.startedAt ? new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
             </div>
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <ChevronRight className="h-3 w-3" />
-              Etapa atual: <span className="font-semibold text-foreground truncate block max-w-[150px]">{selectedSession.currentStep}</span>
+              Etapa atual: <span className="font-semibold text-foreground truncate block max-w-[150px]">{selectedSession?.currentStep || "—"}</span>
             </div>
           </div>
         </div>

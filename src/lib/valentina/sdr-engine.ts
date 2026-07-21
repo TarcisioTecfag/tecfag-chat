@@ -1,55 +1,25 @@
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, conversations, contacts, internalMessages, operators, messages } from "../../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
+import { vertexAi } from "../vertex-ai";
 
-// ── Lista de perguntas e passos da qualificação SDR ──────────────────────────
-export const SDR_QUALIFICATION_STEPS = [
-  {
-    stepKey: "NOME COMPLETO",
-    stepNumber: 1,
-    questionText: (data: Record<string, any>) =>
-      "Olá! 👋 Sou a Valentina, assistente inteligente da Valem. Vi que você nos chamou no WhatsApp! Para direcionar você ao consultor ideal, qual é o seu *nome completo*?",
-  },
-  {
-    stepKey: "EMPRESA",
-    stepNumber: 2,
-    questionText: (data: Record<string, any>) =>
-      `Muito prazer, ${data["NOME COMPLETO"] || "amigo"}! Qual é o *nome da sua empresa*?`,
-  },
-  {
-    stepKey: "CNPJ OU CPF",
-    stepNumber: 3,
-    questionText: (data: Record<string, any>) =>
-      "Excelente! Poderia nos informar o *CNPJ ou CPF* da empresa para cadastro?",
-  },
-  {
-    stepKey: "QUALIFICAÇÃO (TEMPERATURA)",
-    stepNumber: 4,
-    questionText: (data: Record<string, any>) =>
-      "Perfeito! Como você avalia a intenção/urgência de compra da sua empresa hoje?\n\n1️⃣ 1 - Frio (Apenas pesquisando)\n2️⃣ 2 - Morno-frio\n3️⃣ 3 - Morno (Planejando compra neste mês)\n4️⃣ 4 - Quente (Alta intenção para os próximos dias)\n5️⃣ 5 - Altíssima intenção (Compra imediata)",
-  },
-  {
-    stepKey: "TIPO DE QUALIFICAÇÃO",
-    stepNumber: 5,
-    questionText: (data: Record<string, any>) =>
-      "Ótimo! Qual opção melhor descreve o perfil do seu pedido?\n\n1️⃣ Industrial - Recorrência (Já produzimos e precisamos de lotes recorrentes)\n2️⃣ Industrial - Primeira compra (Vamos iniciar a produção)\n3️⃣ Revenda / Distribuição\n4️⃣ Outro",
-  },
-  {
-    stepKey: "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO",
-    stepNumber: 6,
-    questionText: (data: Record<string, any>) =>
-      "Seu atendimento necessita de *Projeto de Engenharia ou Desenvolvimento de Produto*? (Responda *Sim* ou *Não*)",
-  },
-  {
-    stepKey: "QUAL O TIPO DE PRODUTO?",
-    stepNumber: 7,
-    questionText: (data: Record<string, any>) =>
-      "Por fim, qual o *tipo de produto ou equipamento* que você busca? (Ex: Válvulas Aerosol, Seladoras, Embaladoras, Peças de Reposição)",
-  },
-];
+// ── Helper para espelhar a saudação inicial do cliente ────────────────────────
+export function getMirroredGreeting(clientText: string): { greeting: string; remainingText: string } {
+  const lower = clientText.toLowerCase().trim();
 
-// ── Helper para normalizar telefones brasileiros e verificar Whitelist ────────
+  let greeting = "Olá!";
+  if (lower.includes("bom dia")) greeting = "Bom dia!";
+  else if (lower.includes("boa tarde")) greeting = "Boa tarde!";
+  else if (lower.includes("boa noite")) greeting = "Boa noite!";
+  else if (lower.includes("olá") || lower.includes("ola")) greeting = "Olá!";
+  else if (lower.includes("oii") || lower.includes("oi")) greeting = "Oi!";
+  else if (lower.includes("e ai") || lower.includes("e aí")) greeting = "Olá!";
+
+  return { greeting, remainingText: clientText };
+}
+
+// ── Helper para verificar Whitelist por telefone ─────────────────────────────
 export function isPhoneWhitelisted(clientPhone: string, whitelistPhone: string): boolean {
   if (!whitelistPhone) return false;
 
@@ -58,12 +28,9 @@ export function isPhoneWhitelisted(clientPhone: string, whitelistPhone: string):
 
   if (!cleanClient || !cleanWhite) return false;
 
-  // Gerar variações do cliente
   const clientVariants = getPhoneVariants(cleanClient);
-  // Gerar variações da whitelist
   const whiteVariants = getPhoneVariants(cleanWhite);
 
-  // Se qualquer variação cruzar, é um match!
   for (const cVar of clientVariants) {
     if (whiteVariants.includes(cVar)) {
       return true;
@@ -76,21 +43,18 @@ export function isPhoneWhitelisted(clientPhone: string, whitelistPhone: string):
 function getPhoneVariants(phoneDigits: string): string[] {
   const variants: string[] = [phoneDigits];
 
-  // Garantir DDI 55 se parecer telefone BR
   let withDdi = phoneDigits;
   if (!withDdi.startsWith("55") && (withDdi.length === 10 || withDdi.length === 11)) {
     withDdi = `55${withDdi}`;
     variants.push(withDdi);
   }
 
-  // Sem DDI 55
   let withoutDdi = phoneDigits;
   if (withoutDdi.startsWith("55") && withoutDdi.length >= 12) {
     withoutDdi = withoutDdi.slice(2);
     variants.push(withoutDdi);
   }
 
-  // Variantes de 8 vs 9 dígitos para telefones do Brasil
   if (withDdi.startsWith("55")) {
     const ddd = withDdi.slice(2, 4);
     const rest = withDdi.slice(4);
@@ -109,7 +73,13 @@ function getPhoneVariants(phoneDigits: string): string[] {
   return Array.from(new Set(variants));
 }
 
-// ── Classe Principal SdrEngine ────────────────────────────────────────────────
+export interface SdrAiResult {
+  extractedData: Record<string, string>;
+  messagesToSend: string[];
+  isCompleted?: boolean;
+}
+
+// ── Classe Principal SdrEngine (Humanizada & Alavancada por Gemini 2.5 Pro) ─────
 export class SdrEngine {
   private static instance: SdrEngine;
 
@@ -123,7 +93,7 @@ export class SdrEngine {
   }
 
   /**
-   * Processa uma mensagem recebida de cliente e determina se a Valentina SDR responde.
+   * Processa a mensagem do cliente de forma humanizada, usando Gemini 2.5 Pro via Vertex AI.
    */
   public async processIncomingMessage(
     tenantId: string,
@@ -132,111 +102,198 @@ export class SdrEngine {
     messageContent: string
   ): Promise<boolean> {
     try {
-      // 1. Buscar configuração do agente SDR no banco
+      // 1. Buscar configuração do agente SDR
       let dbConfig = await db.query.agentConfigs.findFirst({
         where: (table, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
       });
 
-      // Configuração padrão se não existir ainda no banco
       const enabled = dbConfig ? dbConfig.enabled === 1 : true;
       const config = (dbConfig?.config as Record<string, any>) || {};
       const testMode = config.testMode !== undefined ? Boolean(config.testMode) : true;
-      const whitelistPhone = config.whitelistPhone || "14998364338"; // Número padrão do usuário
+      const whitelistPhone = config.whitelistPhone || "14998364338";
 
-      if (!enabled) {
-        console.log(`[SdrEngine] Agente SDR desativado para o tenant ${tenantId}. Ignorando.`);
-        return false;
-      }
+      if (!enabled) return false;
 
-      // 2. Verificar filtro de Whitelist no modo de testes
+      // 2. Verificar filtro de Whitelist
       if (testMode) {
         const isAllowed = isPhoneWhitelisted(contactPhone, whitelistPhone);
         if (!isAllowed) {
-          console.log(`[SdrEngine] Telefone ${contactPhone} não está na Whitelist (${whitelistPhone}). Ignorando.`);
+          console.log(`[SdrEngine] Telefone ${contactPhone} bloqueado na Whitelist.`);
           return false;
         }
-        console.log(`[SdrEngine] Telefone ${contactPhone} APROVADO na Whitelist! Conduzindo qualificação SDR.`);
+        console.log(`[SdrEngine] Telefone ${contactPhone} APROVADO na Whitelist!`);
       }
 
-      // 3. Buscar ou criar o estado do fluxo SDR para esta conversa
+      // 3. Buscar ou criar o estado do fluxo SDR
       let flowState = await db.query.agentFlowStates.findFirst({
         where: (table, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(table.tenantId, tenantId), dEq(table.conversationId, conversationId)),
       });
 
-      let currentStepIndex = 0;
-      let collectedData: Record<string, { value: string; status: "filled" | "pending" }> = {};
+      if (flowState && (flowState.outcome === "completed" || flowState.outcome === "transferred")) {
+        console.log(`[SdrEngine] Qualificação já concluída para conversa ${conversationId}.`);
+        return false;
+      }
 
-      if (!flowState) {
-        // Criar novo estado inicial no passo 1
-        const now = new Date();
-        const initialCollectedData: Record<string, { value: string; status: "filled" | "pending" }> = {};
-        for (const s of SDR_QUALIFICATION_STEPS) {
-          initialCollectedData[s.stepKey] = { value: "", status: "pending" };
+      const isFirstMessage = !flowState;
+      let existingCollectedData: Record<string, { value: string; status: "filled" | "pending" }> = {};
+
+      if (flowState) {
+        existingCollectedData = (flowState.collectedData as any) || {};
+      } else {
+        const initialFields = [
+          "NOME COMPLETO", "EMPRESA", "CNPJ OU CPF",
+          "QUALIFICAÇÃO (TEMPERATURA)", "TIPO DE QUALIFICAÇÃO",
+          "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO", "QUAL O TIPO DE PRODUTO?"
+        ];
+        for (const f of initialFields) {
+          existingCollectedData[f] = { value: "", status: "pending" };
+        }
+      }
+
+      // 4. Buscar histórico recente de mensagens da conversa no banco
+      const recentMessages = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(asc(messages.sentAt))
+        .limit(20);
+
+      const conversationHistoryText = recentMessages
+        .map((m) => `${m.senderType === "client" ? "Cliente" : "Valentina"}: ${m.content}`)
+        .join("\n");
+
+      // 5. Se for a primeira mensagem, montar saudação espelhada
+      const { greeting } = getMirroredGreeting(messageContent);
+
+      // 6. Consultar o Gemini 2.5 Pro via Vertex AI para raciocínio conversacional
+      let aiResult: SdrAiResult | null = null;
+
+      if (vertexAi.isReady()) {
+        const currentDataSummary: Record<string, string> = {};
+        for (const [k, v] of Object.entries(existingCollectedData)) {
+          currentDataSummary[k] = v.value;
         }
 
+        const prompt = `Você é a Valentina, a consultora comercial pré-vendas (SDR) humana da Valem (empresa de válvulas aerosol/spray, seladoras, embaladoras e componentes industriais).
+
+HISTÓRICO DA CONVERSA:
+${conversationHistoryText}
+
+ÚLTIMA MENSAGEM DO CLIENTE:
+"${messageContent}"
+
+DADOS JÁ COLETADOS ATÉ O MOMENTO:
+${JSON.stringify(currentDataSummary, null, 2)}
+
+ESTA É A PRIMEIRA MENSAGEM DO CLIENTE? ${isFirstMessage ? "SIM" : "NÃO"}
+SAUDAÇÃO ESPELHADA CALCULADA: "${greeting}"
+
+REGRAS OBRIGATÓRIAS DE COMUNICAÇÃO NO WHATSAPP:
+1. SEJA 100% HUMANA, empática e profissional. NUNCA pareça um formulário ou robô de pesquisa.
+2. NUNCA envie listas numéricas de opções como "1️⃣ Frio 2️⃣ Morno". Pergunte de forma conversacional (ex: "Você precisa dessas peças urgente pra essa semana ou tá fazendo uma cotação pro mês que vem?").
+3. FRAGMENTAÇÃO DE MENSAGENS: Divida seu retorno em 1, 2 ou no máximo 3 mensagens CURTAS (cada uma no array \`messagesToSend\`). NUNCA ultrapasse 2 linhas por mensagem!
+4. SE FOR A PRIMEIRA MENSAGEM (${isFirstMessage ? "SIM" : "NÃO"}):
+   - A primeira mensagem DEVE ser a saudação espelhada: "${greeting} Meu nome é Valentina, da Valem 😊"
+   - A segunda mensagem DEVE ser: "Como posso te ajudar hoje?"
+5. SE O CLIENTE FIZER UMA PERGUNTA OU DÚVIDA (ex: "vc tá entendendo?", "quanto custa?", "onde fica?"):
+   - Responda primeiro a dúvida dele de forma clara e atenciosa antes de fazer qualquer pergunta.
+6. SE O CLIENTE RECUSAR PASSAR DADOS (ex: CNPJ "não"):
+   - Seja totalmente empática: "Sem problemas! Deixamos essa parte para o consultor depois 😊" e siga com a conversa.
+7. COLETE OS DADOS: Nome, Empresa, CNPJ/CPF (se aceitar), Urgência, Perfil (recorrência ou primeira compra), Projeto/Desenvolvimento, Produto desejado.
+8. Quando todos os dados necessários forem coletados ou o cliente estiver pronto para o transbordo, marque \`isCompleted: true\`.
+
+Retorne EXCLUSIVAMENTE o JSON no formato:
+{
+  "extractedData": {
+    "NOME COMPLETO": "valor ou vazio",
+    "EMPRESA": "valor ou vazio",
+    "CNPJ OU CPF": "valor ou recusado",
+    "QUALIFICAÇÃO (TEMPERATURA)": "valor ou vazio",
+    "TIPO DE QUALIFICAÇÃO": "valor ou vazio",
+    "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO": "valor ou vazio",
+    "QUAL O TIPO DE PRODUTO?": "valor ou vazio"
+  },
+  "messagesToSend": ["mensagem curta 1", "mensagem curta 2"],
+  "isCompleted": false
+}`;
+
+        aiResult = await vertexAi.generateStructuredJson<SdrAiResult>(prompt, "gemini-2.5-pro");
+      }
+
+      // Fallback gracioso se a IA não retornar ou estiver indisponível
+      if (!aiResult || !aiResult.messagesToSend || aiResult.messagesToSend.length === 0) {
+        if (isFirstMessage) {
+          aiResult = {
+            extractedData: {},
+            messagesToSend: [
+              `${greeting} Meu nome é Valentina, da Valem 😊`,
+              `Como posso te ajudar hoje?`
+            ],
+            isCompleted: false,
+          };
+        } else {
+          aiResult = {
+            extractedData: {},
+            messagesToSend: [
+              `Entendido! Pode me passar mais detalhes do seu produto ou empresa para eu te direcionar pro consultor ideal?`
+            ],
+            isCompleted: false,
+          };
+        }
+      }
+
+      // 7. Atualizar dados coletados no banco
+      const updatedCollectedData = { ...existingCollectedData };
+      if (aiResult.extractedData) {
+        for (const [k, v] of Object.entries(aiResult.extractedData)) {
+          if (v && v.trim() !== "") {
+            updatedCollectedData[k] = { value: v.trim(), status: "filled" };
+          }
+        }
+      }
+
+      const filledCount = Object.values(updatedCollectedData).filter((d) => d.status === "filled").length;
+      const isCompleted = aiResult.isCompleted || filledCount >= 6;
+      const now = new Date();
+
+      if (!flowState) {
         const flowId = `flow-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         await db.insert(agentFlowStates).values({
           id: flowId,
           tenantId,
           conversationId,
           agentType: "sdr",
-          currentStep: SDR_QUALIFICATION_STEPS[0].stepKey,
-          collectedData: initialCollectedData,
-          metadata: { stepNumber: 1, totalSteps: 7 },
+          currentStep: isCompleted ? "Concluído" : "Em Qualificação",
+          collectedData: updatedCollectedData,
+          metadata: { stepNumber: filledCount, totalSteps: 7 },
           startedAt: now,
           lastInteractionAt: now,
-          outcome: "in_progress",
+          outcome: isCompleted ? "completed" : "in_progress",
         });
-
-        collectedData = initialCollectedData;
-        currentStepIndex = 0;
       } else {
-        if (flowState.outcome === "completed" || flowState.outcome === "transferred") {
-          console.log(`[SdrEngine] Qualificação já concluída para conversa ${conversationId}.`);
-          return false;
-        }
-
-        collectedData = (flowState.collectedData as any) || {};
-        const stepName = flowState.currentStep;
-        currentStepIndex = SDR_QUALIFICATION_STEPS.findIndex((s) => s.stepKey === stepName);
-        if (currentStepIndex === -1) currentStepIndex = 0;
-
-        // Salvar a resposta do cliente para a pergunta atual
-        const stepCurrent = SDR_QUALIFICATION_STEPS[currentStepIndex];
-        if (stepCurrent) {
-          collectedData[stepCurrent.stepKey] = {
-            value: messageContent.trim(),
-            status: "filled",
-          };
-          currentStepIndex++;
-        }
-      }
-
-      // 4. Verificar se chegamos ao fim da qualificação (passou do passo 7)
-      if (currentStepIndex >= SDR_QUALIFICATION_STEPS.length) {
-        // Concluir a qualificação
-        const now = new Date();
-        const clientName = collectedData["NOME COMPLETO"]?.value || "Cliente";
-
         await db
           .update(agentFlowStates)
           .set({
-            currentStep: "Concluído",
-            collectedData,
-            completedAt: now,
+            currentStep: isCompleted ? "Concluído" : "Em Qualificação",
+            collectedData: updatedCollectedData,
+            metadata: { stepNumber: filledCount, totalSteps: 7 },
             lastInteractionAt: now,
-            outcome: "completed",
+            completedAt: isCompleted ? now : null,
+            outcome: isCompleted ? "completed" : "in_progress",
           })
-          .where(eq(agentFlowStates.conversationId, conversationId));
+          .where(eq(agentFlowStates.id, flowState.id));
+      }
 
-        const finalMsg = `Perfeito, *${clientName}*! ✅ Sua qualificação foi concluída com sucesso!\n\nEstou transferindo seu atendimento para o consultor especialista humano agora mesmo. Obrigado!`;
-        
-        await this.sendWhatsappBotMessage(tenantId, conversationId, contactPhone, finalMsg);
+      // 8. Envio Humanizado das Mensagens (com presença de digitação 'composing' e delays reais)
+      await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, aiResult.messagesToSend);
 
-        // Notificar o supervisor
+      // 9. Se concluído, criar notificação do Supervisor
+      if (isCompleted) {
         try {
+          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente";
+          const company = updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
           const supervisorNotifId = `notif-${Date.now()}`;
           const firstOp = await db.query.operators.findFirst({
             where: (t, { eq: dEq }) => dEq(t.tenantId, tenantId),
@@ -249,57 +306,33 @@ export class SdrEngine {
               operatorId: firstOp.id,
               direction: "from_agent",
               agentType: "supervisor",
-              content: `🎯 Lead qualificado pelo SDR: *${clientName}* (${collectedData["EMPRESA"]?.value || "Sem empresa"}). Temperatura: ${collectedData["QUALIFICAÇÃO (TEMPERATURA)"]?.value || "N/A"}. Pronto para transbordo!`,
+              content: `🎯 Lead qualificado pelo SDR Valentina com Gemini 2.5 Pro: *${clientName}* (${company}). Pronto para transferência!`,
               metadata: { type: "lead_transfer", conversationId },
               read: 0,
-              createdAt: now,
+              createdAt: new Date(),
             });
           }
         } catch (err: any) {
           console.error("[SdrEngine] Erro ao notificar supervisor:", err?.message);
         }
-
-        return true;
       }
 
-      // 5. Enviar a próxima pergunta da fila
-      const nextStep = SDR_QUALIFICATION_STEPS[currentStepIndex];
-      const dataValues: Record<string, string> = {};
-      for (const [k, v] of Object.entries(collectedData)) {
-        dataValues[k] = v.value;
-      }
-
-      const questionPrompt = nextStep.questionText(dataValues);
-
-      // Atualizar o estado no banco para o próximo passo
-      await db
-        .update(agentFlowStates)
-        .set({
-          currentStep: nextStep.stepKey,
-          collectedData,
-          metadata: { stepNumber: nextStep.stepNumber, totalSteps: 7 },
-          lastInteractionAt: new Date(),
-        })
-        .where(eq(agentFlowStates.conversationId, conversationId));
-
-      // Disparar resposta pelo Baileys
-      await this.sendWhatsappBotMessage(tenantId, conversationId, contactPhone, questionPrompt);
       return true;
 
     } catch (e: any) {
-      console.error("[SdrEngine] Erro ao processar qualificação SDR:", e);
+      console.error("[SdrEngine] Erro no fluxo SDR Valentina:", e);
       return false;
     }
   }
 
   /**
-   * Envia uma mensagem via Baileys WhatsApp e registra no banco como bot
+   * Envia fragmentos de mensagem com efeito de digitação realista e delay humano
    */
-  private async sendWhatsappBotMessage(
+  private async sendHumanizedBotMessages(
     tenantId: string,
     conversationId: string,
     phone: string,
-    text: string
+    messagesArray: string[]
   ): Promise<void> {
     const sock = SessionManager.getInstance().getSession(tenantId);
     if (!sock) {
@@ -308,46 +341,70 @@ export class SdrEngine {
     }
 
     const realJid = await resolveRealJid(sock, phone);
-    const sentMsg = await sock.sendMessage(realJid, { text });
 
-    const botMessageId = sentMsg?.key?.id || `bot-sdr-${Date.now()}`;
+    for (let i = 0; i < messagesArray.length; i++) {
+      const fragmentText = messagesArray[i].trim();
+      if (!fragmentText) continue;
 
-    // Registrar no banco de dados como mensagem do bot
-    await db.insert(conversations).values({
-      id: conversationId,
-      tenantId,
-      contactId: `c-${phone}`,
-      queueState: "automacao",
-      lastMessageText: text,
-      lastMessageTime: new Date(),
-      createdAt: new Date(),
-    }).onConflictDoNothing();
+      // 1. Mostrar caixinha de "digitando..." no WhatsApp
+      try {
+        await sock.sendPresenceUpdate("composing", realJid);
+      } catch { /* silencia erro de presença */ }
 
-    await db.insert(messages).values({
-      id: botMessageId,
-      tenantId,
-      conversationId,
-      senderType: "bot",
-      senderName: "Valentina (SDR)",
-      content: text,
-      isInternalNote: false,
-      sentAt: new Date(),
-    }).onConflictDoNothing();
+      // 2. Delay proporcional ao tamanho da mensagem (simula digitação humana: 1.2s a 2.8s)
+      const typingDelay = Math.min(2800, Math.max(1200, fragmentText.length * 45));
+      await new Promise((resolve) => setTimeout(resolve, typingDelay));
 
-    // Notificar UI via SSE
-    SessionManager.getInstance().notifyPublic(tenantId, {
-      type: "message",
-      message: {
+      // 3. Enviar a mensagem fragmentada
+      const sentMsg = await sock.sendMessage(realJid, { text: fragmentText });
+      const botMessageId = sentMsg?.key?.id || `bot-sdr-${Date.now()}-${i}`;
+
+      // Resetar presença após envio
+      try {
+        await sock.sendPresenceUpdate("paused", realJid);
+      } catch { /* silencia */ }
+
+      // 4. Gravar no banco de dados e notificar UI via SSE
+      await db.insert(conversations).values({
+        id: conversationId,
+        tenantId,
+        contactId: `c-${phone}`,
+        queueState: "automacao",
+        lastMessageText: fragmentText,
+        lastMessageTime: new Date(),
+        createdAt: new Date(),
+      }).onConflictDoNothing();
+
+      await db.insert(messages).values({
         id: botMessageId,
+        tenantId,
         conversationId,
         senderType: "bot",
         senderName: "Valentina (SDR)",
-        content: text,
-        phone,
+        content: fragmentText,
+        isInternalNote: false,
         sentAt: new Date(),
-        queue: "automacao",
-        operatorId: null,
-      },
-    });
+      }).onConflictDoNothing();
+
+      SessionManager.getInstance().notifyPublic(tenantId, {
+        type: "message",
+        message: {
+          id: botMessageId,
+          conversationId,
+          senderType: "bot",
+          senderName: "Valentina (SDR)",
+          content: fragmentText,
+          phone,
+          sentAt: new Date(),
+          queue: "automacao",
+          operatorId: null,
+        },
+      });
+
+      // Pequena pausa natural entre mensagens consecutivas (700ms)
+      if (i < messagesArray.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    }
   }
 }

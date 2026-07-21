@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { agentConfigs, agentFlowStates, conversations, contacts } from "../../../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { agentConfigs, agentFlowStates, conversations, contacts, messages } from "../../../db/schema";
+import { eq, and, desc, asc } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,7 +14,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
-      // ── GET: Configurações do SDR + Lista de Triagens Ativas / Concluídas ───────
+      // ── GET: Configurações do SDR + Lista de Triagens Ativas / Concluídas com Mensagens Reais ───────
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId");
@@ -42,9 +42,11 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           };
 
           // 2. Buscar sessões de triagem reais no banco
-          const flowStates = await db.query.agentFlowStates.findFirst
-            ? await db.select().from(agentFlowStates).where(eq(agentFlowStates.tenantId, tenantId)).orderBy(desc(agentFlowStates.lastInteractionAt)).limit(50)
-            : [];
+          const flowStates = await db.select()
+            .from(agentFlowStates)
+            .where(eq(agentFlowStates.tenantId, tenantId))
+            .orderBy(desc(agentFlowStates.lastInteractionAt))
+            .limit(50);
 
           // Formatar para exibição no frontend (padrão SdrTriageSession)
           const sessions = [];
@@ -58,6 +60,20 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   where: (t, { eq: dEq }) => dEq(t.id, conv.contactId),
                 })
               : null;
+
+            // Buscar histórico REAL de mensagens trocadas nesta conversa
+            const realMsgs = await db
+              .select()
+              .from(messages)
+              .where(eq(messages.conversationId, fs.conversationId))
+              .orderBy(asc(messages.sentAt))
+              .limit(100);
+
+            const formattedMessages = realMsgs.map((m) => ({
+              sender: m.senderType === "client" ? "client" : "bot",
+              text: m.content,
+              time: new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            }));
 
             const collectedData = (fs.collectedData as any) || {};
 
@@ -76,6 +92,9 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               startedAt: fs.startedAt ? new Date(fs.startedAt).toISOString() : new Date().toISOString(),
               status,
               outcome: fs.outcome || undefined,
+              messages: formattedMessages.length > 0 ? formattedMessages : [
+                { sender: "bot", text: "Iniciando atendimento SDR Valentina...", time: "Agora" }
+              ],
             });
           }
 
