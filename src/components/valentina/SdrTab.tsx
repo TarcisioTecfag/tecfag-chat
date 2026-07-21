@@ -57,11 +57,13 @@ export function SdrTab() {
   const [selectedSession, setSelectedSession] = useState<SdrTriageSession | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
   // Carregar dados e configurações REAIS do SDR via API
   const fetchSdrData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/valentina/sdr?tenantId=${tenant}`);
+      const res = await fetch(`${BACKEND_URL}/api/valentina/sdr?tenantId=${tenant}`);
       if (res.ok) {
         const data = await res.json();
         if (data.config) {
@@ -111,7 +113,7 @@ export function SdrTab() {
   const handleSaveConfig = async () => {
     setIsSavingConfig(true);
     try {
-      const res = await fetch("/api/valentina/sdr", {
+      const res = await fetch(`${BACKEND_URL}/api/valentina/sdr`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

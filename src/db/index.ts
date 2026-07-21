@@ -4,9 +4,13 @@ import * as schema from "./schema";
 
 const connectionString = process.env.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/valemchat";
 
+const isCloud = connectionString.includes("railway") || connectionString.includes("neon") || connectionString.includes("supabase") || connectionString.includes("render") || process.env.NODE_ENV === "production";
+
 // Client do PostgreSQL (pool principal)
 const client = postgres(connectionString, {
   max: 10,
+  prepare: false,
+  ssl: isCloud && !connectionString.includes("localhost") ? { rejectUnauthorized: false } : false,
 });
 
 export const db = drizzle(client, { schema });
@@ -14,7 +18,11 @@ export const db = drizzle(client, { schema });
 // ── Auto-Criação das Tabelas de Gestão ────────────────────────────────────────
 // Garante que todas as tabelas de IA/gestão existam no banco de produção (Railway).
 // Usa CREATE TABLE IF NOT EXISTS — seguro de rodar múltiplas vezes sem falhas de FK.
-const setupClient = postgres(connectionString, { max: 1 });
+const setupClient = postgres(connectionString, {
+  max: 1,
+  prepare: false,
+  ssl: isCloud && !connectionString.includes("localhost") ? { rejectUnauthorized: false } : false,
+});
 
 setupClient.unsafe(`
   CREATE TABLE IF NOT EXISTS response_time_logs (

@@ -39,10 +39,12 @@ export function KnowledgeTab() {
   const [dragOverZone, setDragOverZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
   // ── Carregar Dados Reais da API no Inicio ─────────────────────────────────
   React.useEffect(() => {
     setIsLoadingFolders(true);
-    fetch("/api/valentina/knowledge?tenantId=valem")
+    fetch(`${BACKEND_URL}/api/valentina/knowledge?tenantId=valem`)
       .then((res) => res.json())
       .then((data) => {
         if (data.folders) setFolders(data.folders);
