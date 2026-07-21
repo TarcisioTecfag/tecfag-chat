@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   UserPlus, CheckCircle, Clock, XCircle, Bot, User as UserIcon,
   ChevronRight, Circle, Search, ExternalLink, ShieldCheck, Smartphone,
-  Power, Save, RefreshCw, MessageSquare, Square, UserCheck, Calendar, Filter
+  Power, Save, RefreshCw, MessageSquare, Square, UserCheck, Calendar, Filter, X
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { toast } from "sonner";
@@ -28,7 +28,7 @@ export interface SdrTriageSession {
   messages: Array<{ sender: "client" | "bot"; text: string; time: string }>;
 }
 
-const VALENTINA_AVATAR = "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80";
+const VALENTINA_AVATAR = "/valentina.png";
 
 const DEFAULT_SDR_FIELDS = [
   "NOME COMPLETO",
@@ -115,7 +115,11 @@ export function SdrTab() {
   // Filtros
   const [onlyCompletedFilter, setOnlyCompletedFilter] = useState(false);
   const [periodFilter, setPeriodFilter] = useState<"todos" | "hoje" | "7dias" | "30dias">("todos");
+  const [isPeriodDropdownOpen, setIsPeriodDropdownOpen] = useState(false);
   const [isStoppingValentina, setIsStoppingValentina] = useState(false);
+
+  // Modal de visualização em tela cheia da foto de perfil
+  const [previewModalImage, setPreviewModalImage] = useState<{ url: string; title: string } | null>(null);
 
   // ESTADOS REAIS — Sem Mocks!
   const [sessions, setSessions] = useState<SdrTriageSession[]>([]);
@@ -389,18 +393,67 @@ export function SdrTab() {
                 Concluídos
               </button>
 
-              <div className="relative flex items-center">
-                <Calendar className="absolute left-2 h-3 w-3 text-primary pointer-events-none" />
-                <select
-                  value={periodFilter}
-                  onChange={(e) => setPeriodFilter(e.target.value as any)}
-                  className="pl-6 pr-2 py-1 rounded-lg text-[10px] font-extrabold bg-primary-soft text-primary border border-primary/20 focus:outline-none focus:ring-1 focus:ring-primary/30 cursor-pointer"
+              <div className="relative">
+                <button
+                  onClick={() => setIsPeriodDropdownOpen(!isPeriodDropdownOpen)}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-primary-soft text-primary border border-primary/20 hover:bg-primary-soft/80 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
-                  <option value="todos">Período: Todos</option>
-                  <option value="hoje">Período: Hoje</option>
-                  <option value="7dias">Período: 7 dias</option>
-                  <option value="30dias">Período: 30 dias</option>
-                </select>
+                  <Calendar className="h-3 w-3 text-primary" />
+                  <span>
+                    {periodFilter === "todos"
+                      ? "Período: Todos"
+                      : periodFilter === "hoje"
+                      ? "Período: Hoje"
+                      : periodFilter === "7dias"
+                      ? "Período: 7 dias"
+                      : "Período: 30 dias"}
+                  </span>
+                  <ChevronDown className={`h-3 w-3 text-primary transition-transform duration-200 ${isPeriodDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                <AnimatePresence>
+                  {isPeriodDropdownOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-30"
+                        onClick={() => setIsPeriodDropdownOpen(false)}
+                      />
+                      <motion.div
+                        initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -4, scale: 0.96 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute left-0 mt-1.5 z-40 w-44 rounded-xl bg-card border border-border shadow-xl p-1 space-y-0.5 overflow-hidden"
+                      >
+                        {[
+                          { id: "todos", label: "Período: Todos" },
+                          { id: "hoje", label: "Período: Hoje" },
+                          { id: "7dias", label: "Período: 7 dias" },
+                          { id: "30dias", label: "Período: 30 dias" },
+                        ].map((item) => {
+                          const isSelected = periodFilter === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              onClick={() => {
+                                setPeriodFilter(item.id as any);
+                                setIsPeriodDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-between cursor-pointer ${
+                                isSelected
+                                  ? "bg-primary-soft text-primary font-extrabold"
+                                  : "text-foreground hover:bg-muted/60"
+                              }`}
+                            >
+                              <span>{item.label}</span>
+                              {isSelected && <CheckCircle className="h-3 w-3 text-primary shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
@@ -481,9 +534,28 @@ export function SdrTab() {
             <>
               <div className="px-4 py-3 border-b border-line shrink-0">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xs font-extrabold text-foreground">{selectedSession.contactName}</h3>
-                    <p className="text-[10px] text-muted-foreground">{selectedSession.company} · {selectedSession.currentStep}</p>
+                  <div className="flex items-center gap-2.5">
+                    {selectedSession.contactAvatar ? (
+                      <button
+                        onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
+                        className="cursor-pointer group focus:outline-none shrink-0"
+                        title="Clique para ver a foto do cliente em tela cheia"
+                      >
+                        <img
+                          src={selectedSession.contactAvatar}
+                          alt={selectedSession.contactName}
+                          className="h-8 w-8 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-105 group-hover:border-primary transition duration-200"
+                        />
+                      </button>
+                    ) : (
+                      <div className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-primary font-bold text-xs shrink-0 border border-primary/20 shadow-soft">
+                        {selectedSession.contactName[0]?.toUpperCase() || "C"}
+                      </div>
+                    )}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-foreground">{selectedSession.contactName}</h3>
+                      <p className="text-[10px] text-muted-foreground">{selectedSession.company} · {selectedSession.currentStep}</p>
+                    </div>
                   </div>
                   <StatusBadge status={selectedSession.status} />
                 </div>
@@ -501,16 +573,22 @@ export function SdrTab() {
                     >
                       {msg.sender === "client" && (
                         selectedSession.contactAvatar ? (
-                          <img
-                            src={selectedSession.contactAvatar}
-                            alt={selectedSession.contactName}
-                            className="h-6 w-6 rounded-full object-cover shrink-0 mr-2 self-end border border-primary/20 shadow-soft"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = "none";
-                            }}
-                          />
+                          <button
+                            onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
+                            className="shrink-0 mr-2 self-end group cursor-pointer focus:outline-none"
+                            title="Clique para ver a foto do cliente em tela cheia"
+                          >
+                            <img
+                              src={selectedSession.contactAvatar}
+                              alt={selectedSession.contactName}
+                              className="h-7 w-7 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = "none";
+                              }}
+                            />
+                          </button>
                         ) : (
-                          <div className="grid h-6 w-6 place-items-center rounded-full bg-primary/15 text-primary shrink-0 mr-2 self-end font-bold text-[10px] shadow-soft">
+                          <div className="grid h-7 w-7 place-items-center rounded-full bg-primary/15 text-primary shrink-0 mr-2 self-end font-bold text-[10px] shadow-soft border border-primary/20">
                             {selectedSession.contactName[0]?.toUpperCase() || "C"}
                           </div>
                         )
@@ -532,12 +610,17 @@ export function SdrTab() {
                         </span>
                       </div>
                       {msg.sender === "bot" && (
-                        <img
-                          src={VALENTINA_AVATAR}
-                          alt="Valentina"
-                          className="h-6 w-6 rounded-full object-cover shrink-0 ml-2 self-end border border-primary/30 shadow-soft"
-                          title="Valentina IA"
-                        />
+                        <button
+                          onClick={() => setPreviewModalImage({ url: VALENTINA_AVATAR, title: "Valentina IA — Valem" })}
+                          className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
+                          title="Clique para ver a foto da Valentina em tela cheia"
+                        >
+                          <img
+                            src={VALENTINA_AVATAR}
+                            alt="Valentina"
+                            className="h-7 w-7 rounded-full object-cover border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                          />
+                        </button>
                       )}
                     </motion.div>
                   ))}
@@ -684,6 +767,50 @@ export function SdrTab() {
           )}
         </div>
       </div>
+
+      {/* ── MODAL DE VISUALIZAÇÃO EM TELA CHEIA DA FOTO DE PERFIL ────────── */}
+      <AnimatePresence>
+        {previewModalImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPreviewModalImage(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative max-w-md w-full bg-card rounded-3xl border border-border shadow-2xl overflow-hidden p-5 flex flex-col items-center gap-4 text-center"
+            >
+              <button
+                onClick={() => setPreviewModalImage(null)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-muted/80 hover:bg-muted text-foreground transition cursor-pointer"
+                title="Fechar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                <h3 className="text-xs font-extrabold text-foreground">{previewModalImage.title}</h3>
+              </div>
+
+              <div className="relative rounded-2xl overflow-hidden border-2 border-primary/30 shadow-xl bg-black/40 p-1 max-h-[70vh] flex items-center justify-center">
+                <img
+                  src={previewModalImage.url}
+                  alt={previewModalImage.title}
+                  className="max-h-[60vh] max-w-full w-auto object-contain rounded-xl shadow-2xl"
+                />
+              </div>
+
+              <p className="text-[10px] text-muted-foreground">Clique fora ou no X para fechar a visualização.</p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
