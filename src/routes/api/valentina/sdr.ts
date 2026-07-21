@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { agentConfigs, agentFlowStates, conversations, contacts, messages } from "../../../db/schema";
 import { eq, desc, asc } from "drizzle-orm";
-import { isPhoneWhitelisted } from "../../../lib/valentina/sdr-engine";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,14 +40,14 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             whitelistPhone: configData.whitelistPhone || "14998364338",
           };
 
+          const sessions: any[] = [];
+          const addedConvIds = new Set<string>();
+
           // 2. Buscar sessões de triagem registradas na tabela agentFlowStates
           let flowStates = await db.select()
             .from(agentFlowStates)
             .orderBy(desc(agentFlowStates.lastInteractionAt))
             .limit(50);
-
-          const sessions: any[] = [];
-          const addedConvIds = new Set<string>();
 
           for (const fs of flowStates) {
             addedConvIds.add(fs.conversationId);
@@ -94,12 +93,12 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               status,
               outcome: fs.outcome || undefined,
               messages: formattedMessages.length > 0 ? formattedMessages : [
-                { sender: "bot", text: "Atendimento iniciado com a Valentina SDR...", time: "Agora" }
+                { sender: "bot", text: "Atendimento em andamento...", time: "Agora" }
               ],
             });
           }
 
-          // 3. Garantia total: Buscar conversas que tenham mensagens da Valentina, estejam em automação ou no whitelist
+          // 3. Garantia total sem filtros restritivos: Incluir todas as conversas do banco no painel
           const allConvs = await db
             .select()
             .from(conversations)
@@ -108,6 +107,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
 
           for (const c of allConvs) {
             if (!addedConvIds.has(c.id)) {
+              addedConvIds.add(c.id);
+
               const contact = await db.query.contacts.findFirst({
                 where: (t, { eq: dEq }) => dEq(t.id, c.contactId),
               });
@@ -119,34 +120,27 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 .orderBy(asc(messages.sentAt))
                 .limit(100);
 
-              const hasBotMsg = realMsgs.some((m) => m.senderType === "bot" || m.senderName.includes("Valentina"));
-              const isWhitelisted = contact?.phone ? isPhoneWhitelisted(contact.phone, config.whitelistPhone) : false;
+              const formattedMessages = realMsgs.map((m) => ({
+                sender: m.senderType === "client" ? "client" : "bot",
+                text: m.content,
+                time: new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+              }));
 
-              if (c.queueState === "automacao" || hasBotMsg || isWhitelisted) {
-                addedConvIds.add(c.id);
-
-                const formattedMessages = realMsgs.map((m) => ({
-                  sender: m.senderType === "client" ? "client" : "bot",
-                  text: m.content,
-                  time: new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-                }));
-
-                sessions.push({
-                  id: `fs-auto-${c.id}`,
-                  conversationId: c.id,
-                  contactName: contact?.name || "Contato WhatsApp",
-                  company: "Empresa não informada",
-                  phone: contact?.phone || "",
-                  currentStep: "Em Qualificação",
-                  collectedData: {},
-                  startedAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
-                  status: "active",
-                  outcome: "in_progress",
-                  messages: formattedMessages.length > 0 ? formattedMessages : [
-                    { sender: "bot", text: "Atendimento em triagem com Valentina SDR...", time: "Agora" }
-                  ],
-                });
-              }
+              sessions.push({
+                id: `fs-auto-${c.id}`,
+                conversationId: c.id,
+                contactName: contact?.name || "Contato WhatsApp",
+                company: "Empresa não informada",
+                phone: contact?.phone || "",
+                currentStep: "Em Qualificação",
+                collectedData: {},
+                startedAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
+                status: "active",
+                outcome: "in_progress",
+                messages: formattedMessages.length > 0 ? formattedMessages : [
+                  { sender: "bot", text: "Atendimento iniciado...", time: "Agora" }
+                ],
+              });
             }
           }
 
