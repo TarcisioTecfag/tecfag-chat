@@ -75,10 +75,11 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao buscar agentConfigs (usando fallback seguro):", err);
         }
 
-        // 2. Tentar buscar sessões registradas em agentFlowStates
+        // 2. Tentar buscar sessões registradas em agentFlowStates do tenant atual
         try {
           let flowStates = await db.select()
             .from(agentFlowStates)
+            .where(eq(agentFlowStates.tenantId, tenantId))
             .orderBy(desc(agentFlowStates.lastInteractionAt))
             .limit(50);
 
@@ -87,7 +88,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               addedConvIds.add(fs.conversationId);
 
               const conv = await db.query.conversations.findFirst({
-                where: (t, { eq: dEq }) => dEq(t.id, fs.conversationId),
+                where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, fs.conversationId), dEq(t.tenantId, tenantId)),
               });
 
               const contact = conv
@@ -160,11 +161,12 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao buscar agentFlowStates:", err);
         }
 
-        // 3. Tentar buscar todas as conversas ativas do banco
+        // 3. Tentar buscar todas as conversas ativas do tenant atual
         try {
           const allConvs = await db
             .select()
             .from(conversations)
+            .where(eq(conversations.tenantId, tenantId))
             .orderBy(desc(conversations.lastMessageTime))
             .limit(50);
 
