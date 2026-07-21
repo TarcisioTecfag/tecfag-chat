@@ -117,8 +117,29 @@ export const Route = createFileRoute("/api/valentina/messages")({
             createdAt: now,
           });
 
-          // 2. Gerar resposta mock contextual da Valentina
-          const aiContent = generateMockResponse(content);
+          // 2. Gerar resposta inteligente via Vertex AI Gemini 2.5 Pro
+          let aiContent = "";
+          try {
+            const { vertexAi } = await import("../../../lib/vertex-ai");
+            if (vertexAi.isReady()) {
+              const systemPrompt = `Você é a Valentina, a assistente virtual e supervisora inteligente da equipe de vendas da Valem.
+Sua função é auxiliar o operador/vendedor com informações de leads, scripts de vendas, quebra de objeções, análise de metas e dicas para fechar negócios.
+Responda de forma direta, altamente profissional, entusiasmada e útil, utilizando emojis quando apropriado.
+
+Mensagem do operador: "${content}"`;
+
+              const aiRes = await vertexAi.generateText(systemPrompt, "gemini-2.5-pro");
+              if (aiRes) {
+                aiContent = aiRes;
+              }
+            }
+          } catch (aiErr: any) {
+            console.warn("[valentina/messages] Vertex AI fallback:", aiErr?.message);
+          }
+
+          if (!aiContent) {
+            aiContent = generateMockResponse(content);
+          }
           const aiMsgId = `val-ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const aiTimestamp = new Date(now.getTime() + 800); // Simula delay de 800ms
 

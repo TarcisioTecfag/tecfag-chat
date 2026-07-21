@@ -14,6 +14,7 @@ import { db } from "../../db";
 import { channelConfigs, contacts, conversations, messages, mediaFiles, responseTimeLogs } from "../../db/schema";
 import { eq, isNull, and, desc } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
+import { SdrEngine } from "../valentina/sdr-engine";
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connected";
 
@@ -825,6 +826,13 @@ export class SessionManager {
           operatorId: !conversation ? ((!isFromMe && contact?.walletOperatorId) ? contact.walletOperatorId : null) : targetOperatorId,
         }
       });
+
+      // ── Processar mensagem no SdrEngine (Valentina SDR / Whitelist) ─────────
+      if (finalSenderType === "client") {
+        SdrEngine.getInstance()
+          .processIncomingMessage(tenantId, convId, phone, text)
+          .catch((err: any) => console.error("[Baileys/SDR] Erro ao processar SdrEngine:", err?.message));
+      }
 
     } catch (e) {
       console.error(`Erro ao salvar mensagem recebida do Baileys no DB:`, e);

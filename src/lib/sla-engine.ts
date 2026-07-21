@@ -259,57 +259,53 @@ export class SlaEngine {
       const neutralCount = audits.filter((a) => a.clientSentiment === "neutro").length;
       const frustratedCount = audits.filter((a) => a.clientSentiment === "frustrado").length;
 
-      // ── Chamada da LLM (Gemini) para formatar o relatório executivo ──
-      const apiKey = process.env.GEMINI_API_KEY || "";
+      // ── Chamada da LLM (Gemini 2.5 Pro via Vertex AI) para formatar o relatório ──
       let markdownReport = "";
+      try {
+        const { vertexAi } = await import("./vertex-ai");
+        const prompt = `
+          Você é a Inteligência Artificial encarregada de consolidar os relatórios analíticos de BI para a diretoria.
+          Gere um relatório analítico e executivo ${type === "weekly" ? "semanal" : "diário"} completo formatado em Markdown com base nas seguintes estatísticas reais da nossa plataforma de atendimento (Tenant: ${tenantId}, Período: ${period}):
 
-      if (apiKey) {
-        try {
-          const genAI = new GoogleGenerativeAI(apiKey);
-          const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+          Estatísticas do Período:
+          - Total de conversas iniciadas: ${totalChats}
+          - Conversas finalizadas com sucesso: ${closedChats}
+          - Total de interações monitoradas pelo motor de SLA: ${totalSla}
+          - Porcentagem de conformidade de SLA (Respostas em menos de 15 minutos): ${metSlaPct}%
+          - Tempo médio de primeira resposta da equipe: ${avgResponseSeconds} segundos
+          - Score médio de qualidade estimado pela I.A: ${avgScore}/100
+          - Humor final dos clientes: ${satisfiedCount} Satisfeito(s), ${neutralCount} Neutro(s), ${frustratedCount} Frustrado(s).
+          - Alertas de não-conformidade levantados pela I.A.:
+            * Respostas com demora crítica: ${audits.filter(a => a.hadLongResponseGap).length}
+            * Objeções comerciais ignoradas: ${audits.filter(a => a.hadMissedObjection).length}
+            * Tom de linguagem inadequada: ${audits.filter(a => a.hadRudeLanguage).length}
+            * Atendimentos fechados sem agendar próximo passo: ${audits.filter(a => a.hadNoFollowUp).length}
+
+          Formate o relatório em seções claras e estruturadas usando Markdown padrão:
+          ## Relatório Analítico Executivo (${type === "weekly" ? "Semanal" : "Diário"})
           
-          const prompt = `
-            Você é a Inteligência Artificial encarregada de consolidar os relatórios analíticos de BI para a diretoria.
-            Gere um relatório analítico e executivo ${type === "weekly" ? "semanal" : "diário"} completo formatado em Markdown com base nas seguintes estatísticas reais da nossa plataforma de atendimento (Tenant: ${tenantId}, Período: ${period}):
+          ### 1. Visão Geral da Operação
+          (Apresente um resumo dos números agregados com análise profissional)
 
-            Estatísticas do Período:
-            - Total de conversas iniciadas: ${totalChats}
-            - Conversas finalizadas com sucesso: ${closedChats}
-            - Total de interações monitoradas pelo motor de SLA: ${totalSla}
-            - Porcentagem de conformidade de SLA (Respostas em menos de 15 minutos): ${metSlaPct}%
-            - Tempo médio de primeira resposta da equipe: ${avgResponseSeconds} segundos
-            - Score médio de qualidade estimado pela I.A: ${avgScore}/100
-            - Humor final dos clientes: ${satisfiedCount} Satisfeito(s), ${neutralCount} Neutro(s), ${frustratedCount} Frustrado(s).
-            - Alertas de não-conformidade levantados pela I.A.:
-              * Respostas com demora crítica: ${audits.filter(a => a.hadLongResponseGap).length}
-              * Objeções comerciais ignoradas: ${audits.filter(a => a.hadMissedObjection).length}
-              * Tom de linguagem inadequada: ${audits.filter(a => a.hadRudeLanguage).length}
-              * Atendimentos fechados sem agendar próximo passo: ${audits.filter(a => a.hadNoFollowUp).length}
+          ### 2. Destaques Positivos (Pontos Fortes)
+          (Aponte onde a equipe se sobressaiu com base nos dados qualitativos e conformidade)
 
-            Formate o relatório em seções claras e estruturadas usando Markdown padrão:
-            ## Relatório Analítico Executivo (${type === "weekly" ? "Semanal" : "Diário"})
-            
-            ### 1. Visão Geral da Operação
-            (Apresente um resumo dos números agregados com análise profissional)
+          ### 3. Oportunidades de Melhoria (Falhas e Gargalos)
+          (Detone os maiores erros e áreas de fricção observadas pelo motor de IA no período)
 
-            ### 2. Destaques Positivos (Pontos Fortes)
-            (Aponte onde a equipe se sobressaiu com base nos dados qualitativos e conformidade)
+          ### 4. Plano de Ação & Recomendações Críticas da IA
+          (Apresente recomendações práticas para a gerência aplicar na equipe de vendas/suporte.
+          Obrigatório iniciar a recomendação principal usando caixas de destaque do github, por exemplo:
+          > [!NOTE]
+          > Recomendação prioritária do dia...)
+        `;
 
-            ### 3. Oportunidades de Melhoria (Falhas e Gargalos)
-            (Detone os maiores erros e áreas de fricção observadas pelo motor de IA no período)
-
-            ### 4. Plano de Ação & Recomendações Críticas da IA
-            (Apresente recomendações práticas para a gerência aplicar na equipe de vendas/suporte.
-            Obrigatório iniciar a recomendação principal usando caixas de destaque do github, por exemplo:
-            > [!NOTE]
-            > Recomendação prioritária do dia...)
-          `;
-
-          const result = await model.generateContent(prompt);
-          markdownReport = result.response.text();
-        } catch (e: any) {
-          console.error("[SlaEngine] Erro ao chamar LLM para relatório:", e.message);
+        const aiOutput = await vertexAi.generateText(prompt, "gemini-2.5-pro");
+        if (aiOutput) {
+          markdownReport = aiOutput;
         }
+      } catch (e: any) {
+        console.error("[SlaEngine] Erro ao chamar Vertex AI Gemini 2.5 Pro para relatório:", e?.message);
       }
 
       if (!markdownReport) {

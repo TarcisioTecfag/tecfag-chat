@@ -255,41 +255,35 @@ export class AuditService {
   }
 
   /**
-   * Chama o Gemini Flash com retry em caso de erro transitório.
+   * Chama o Gemini 2.5 Pro via Vertex AI com suporte a JSON estruturado.
    */
   private async callGemini(prompt: string, attempt = 1): Promise<AuditResult | null> {
-    if (!this.genAI) return null;
-
     try {
-      const model = this.genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-        generationConfig: {
-          temperature: 0.2,       // Baixa temperatura = mais consistente e menos criativo
-          maxOutputTokens: 1024,
-          responseMimeType: "application/json",
-        },
-      });
-
-      const response = await model.generateContent(prompt);
-      const text = response.response.text().trim();
-
-      // Remove possível markdown wrapper do JSON
-      const clean = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
-      const parsed = JSON.parse(clean) as AuditResult;
-
-      // Valida campos obrigatórios
-      if (typeof parsed.performanceScore !== "number" || !parsed.clientSentiment) {
-        throw new Error("JSON da IA faltando campos obrigatórios.");
+      const { vertexAi } = await import("./vertex-ai");
+      const parsed = await vertexAi.generateStructuredJson<AuditResult>(prompt, "gemini-2.5-pro");
+      if (!parsed) {
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 3000));
+          return this.callGemini(prompt, attempt + 1);
+        }
+        return null;
       }
 
-      // Garante que o score está no range correto
-      parsed.performanceScore = Math.max(0, Math.min(100, parsed.performanceScore));
+      // Valida e sanitiza campos obrigatórios
+      if (typeof parsed.performanceScore === "number") {
+        parsed.performanceScore = Math.max(0, Math.min(100, parsed.performanceScore));
+      } else {
+        parsed.performanceScore = 70;
+      }
+
+      if (!parsed.clientSentiment) {
+        parsed.clientSentiment = "neutro";
+      }
 
       return parsed;
     } catch (e: any) {
       if (attempt < 3) {
-        // Aguarda 5s e tenta novamente (max 3 tentativas)
-        await new Promise((r) => setTimeout(r, 5000));
+        await new Promise((r) => setTimeout(r, 3000));
         return this.callGemini(prompt, attempt + 1);
       }
       throw e;
