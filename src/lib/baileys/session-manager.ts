@@ -824,6 +824,7 @@ export class SessionManager {
           quotedMessageContent,
           queue: !conversation ? (isFromMe ? "meus" : (contact?.walletOperatorId ? "meus" : "fila")) : targetQueue,
           operatorId: !conversation ? ((!isFromMe && contact?.walletOperatorId) ? contact.walletOperatorId : null) : targetOperatorId,
+          walletOperatorId: contact?.walletOperatorId || (conversation as any)?.walletOperatorId || null,
         }
       });
 

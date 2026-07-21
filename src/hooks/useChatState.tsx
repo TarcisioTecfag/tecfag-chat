@@ -1901,8 +1901,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const { message } = data;
 
           // Mostrar notificação Toast customizada
-          // Regra: Notificar APENAS se o contato estiver captado e conosco (queue === "meus" e atribuído ao operador logado).
-          // Se estiver na fila, em bot/automação ou com outro responsável, não exibe notificação.
+          // Regra de Notificação:
+          // 1. Contato captado e conosco (queue === "meus" e operatorId === currentOperatorId)
+          // 2. OU contato encerrado (queue === "finalizados"), porém na carteira do vendedor logado (walletOperatorId === currentOperatorId)
           const currentOperatorId = currentOperatorIdRef.current;
           const selectedChatId = selectedChatIdRef.current;
           const currentConvs = conversationsRef.current;
@@ -1916,11 +1917,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? message.queue
             : (existingConv ? existingConv.queue : null);
 
+          const walletOperatorId = message.walletOperatorId !== undefined
+            ? message.walletOperatorId
+            : (existingConv ? existingConv.walletOperatorId : null);
+
           const isAssignedToMe = !!currentOperatorId && operatorId === currentOperatorId;
+          const isInMyWallet = !!currentOperatorId && walletOperatorId === currentOperatorId;
+
           const isCapturedAndWithMe = isAssignedToMe && queueState === "meus";
+          const isFinalizedInMyWallet = isInMyWallet && queueState === "finalizados";
+
+          const shouldNotify = isCapturedAndWithMe || isFinalizedInMyWallet;
           const isCurrentOpen = message.conversationId === selectedChatId;
 
-          if (isCapturedAndWithMe && message.senderType === "client" && !isCurrentOpen) {
+          if (shouldNotify && message.senderType === "client" && !isCurrentOpen) {
             const clientName = existingConv?.name || message.senderName || "Cliente";
             const clientAvatar = existingConv?.avatar || message.avatar || "";
             const initials = clientName
@@ -2061,6 +2071,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     avatar: message.avatar || c.avatar,
                     queue: message.queue || c.queue,
                     operatorId: message.operatorId !== undefined ? message.operatorId : c.operatorId,
+                    walletOperatorId: message.walletOperatorId !== undefined ? message.walletOperatorId : c.walletOperatorId,
                   };
                 }
                 return c;
@@ -2106,6 +2117,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 channel: "whatsapp",
                 queue: message.queue || "fila",
                 operatorId: message.operatorId || null,
+                walletOperatorId: message.walletOperatorId || null,
                 unreadCount: newUnread,
                 lastMessageTime: timeStr,
                 messages: [incomingMsg],

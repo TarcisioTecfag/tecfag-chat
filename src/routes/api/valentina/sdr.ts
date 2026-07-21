@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { agentConfigs, agentFlowStates, conversations, contacts, messages } from "../../../db/schema";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, desc, asc } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,17 +14,10 @@ export const Route = createFileRoute('/api/valentina/sdr')({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
-      // ── GET: Configurações do SDR + Lista de Triagens Ativas / Concluídas com Mensagens Reais ───────
+      // ── GET: Configurações do SDR + Lista de Triagens Reais do Banco (Sem Mocks) ─────────
       GET: async ({ request }) => {
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-
-        if (!tenantId) {
-          return new Response(
-            JSON.stringify({ error: "tenantId é obrigatório" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
+        const tenantId = url.searchParams.get("tenantId") || "valem";
 
         try {
           // 1. Config do SDR no banco
@@ -32,6 +25,13 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             where: (table, { eq: dEq, and: dAnd }) =>
               dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
           });
+
+          // Se não achar por tenant específico, busca qualquer config SDR
+          if (!dbConfig) {
+            dbConfig = await db.query.agentConfigs.findFirst({
+              where: (table, { eq: dEq }) => dEq(table.agentType, "sdr"),
+            });
+          }
 
           const configData = (dbConfig?.config as Record<string, any>) || {};
 
@@ -42,11 +42,19 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           };
 
           // 2. Buscar sessões de triagem reais no banco
-          const flowStates = await db.select()
+          let flowStates = await db.select()
             .from(agentFlowStates)
             .where(eq(agentFlowStates.tenantId, tenantId))
             .orderBy(desc(agentFlowStates.lastInteractionAt))
             .limit(50);
+
+          // Fallback: Se não houver por tenantId específico, busca todas as triagens registradas
+          if (flowStates.length === 0) {
+            flowStates = await db.select()
+              .from(agentFlowStates)
+              .orderBy(desc(agentFlowStates.lastInteractionAt))
+              .limit(50);
+          }
 
           // Formatar para exibição no frontend (padrão SdrTriageSession)
           const sessions = [];
@@ -55,6 +63,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             const conv = await db.query.conversations.findFirst({
               where: (t, { eq: dEq }) => dEq(t.id, fs.conversationId),
             });
+
             const contact = conv
               ? await db.query.contacts.findFirst({
                   where: (t, { eq: dEq }) => dEq(t.id, conv.contactId),
@@ -84,7 +93,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             sessions.push({
               id: fs.id,
               conversationId: fs.conversationId,
-              contactName: contact?.name || collectedData["NOME COMPLETO"]?.value || "Contato",
+              contactName: contact?.name || collectedData["NOME COMPLETO"]?.value || "Contato WhatsApp",
               company: collectedData["EMPRESA"]?.value || "Empresa não informada",
               phone: contact?.phone || "",
               currentStep: fs.currentStep,
@@ -93,7 +102,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               status,
               outcome: fs.outcome || undefined,
               messages: formattedMessages.length > 0 ? formattedMessages : [
-                { sender: "bot", text: "Iniciando atendimento SDR Valentina...", time: "Agora" }
+                { sender: "bot", text: "Atendimento iniciado com a Valentina SDR...", time: "Agora" }
               ],
             });
           }
@@ -115,14 +124,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { tenantId, enabled, testMode, whitelistPhone } = body;
-
-          if (!tenantId) {
-            return new Response(
-              JSON.stringify({ error: "tenantId é obrigatório" }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
+          const { tenantId = "valem", enabled, testMode, whitelistPhone } = body;
 
           const existingConfig = await db.query.agentConfigs.findFirst({
             where: (table, { eq: dEq, and: dAnd }) =>
