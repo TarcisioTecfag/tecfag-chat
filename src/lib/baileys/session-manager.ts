@@ -712,7 +712,22 @@ export class SessionManager {
             .where(eq(conversations.id, convId));
         }
 
-        // 5. Notificar a UI via SSE
+        // 5. Criar imediatamente um novo agentFlowState limpo para que o contato permaneça sempre no SDR
+        const newFlowId = `fs-sdr-${Date.now()}`;
+        await db.insert(agentFlowStates).values({
+          id: newFlowId,
+          tenantId,
+          conversationId: convId,
+          agentType: "sdr",
+          currentStep: "Em Qualificação",
+          collectedData: {},
+          metadata: { stepNumber: 1, totalSteps: 7 },
+          startedAt: new Date(),
+          lastInteractionAt: new Date(),
+          outcome: "in_progress",
+        });
+
+        // 6. Notificar a UI via SSE
         this.notify(tenantId, {
           type: "queue_update",
           conversationId: convId,

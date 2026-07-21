@@ -254,7 +254,7 @@ export function SdrTab() {
           setSessions(formattedLiveSessions);
           setSelectedSession((prev) => {
             if (!prev) return formattedLiveSessions[0] || null;
-            const match = formattedLiveSessions.find((s) => s.id === prev.id);
+            const match = formattedLiveSessions.find((s) => s.id === prev.id || (s.conversationId && s.conversationId === prev.conversationId));
             return match || formattedLiveSessions[0] || null;
           });
         }
@@ -568,10 +568,28 @@ export function SdrTab() {
                   <Bot className="h-6 w-6 animate-pulse" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-extrabold text-foreground">Aguardando Triagens ao Vivo</h4>
-                  <p className="text-[10px] text-muted-foreground mt-1 max-w-[200px]">
-                    Envie uma mensagem pelo WhatsApp para o número cadastrado (<span className="font-mono text-primary font-bold">{whitelistPhone}</span>) para iniciar o atendimento real!
+                  <h4 className="text-xs font-extrabold text-foreground">
+                    {onlyCompletedFilter ? "Nenhuma Triagem Concluída Encontrada" : "Aguardando Triagens ao Vivo"}
+                  </h4>
+                  <p className="text-[10px] text-muted-foreground mt-1 max-w-[220px]">
+                    {onlyCompletedFilter ? (
+                      <>
+                        Você está filtrando por <span className="font-bold text-primary">Concluídos</span>. Clique no botão abaixo para visualizar a sua triagem em andamento!
+                      </>
+                    ) : (
+                      <>
+                        Envie uma mensagem pelo WhatsApp para o número cadastrado (<span className="font-mono text-primary font-bold">{whitelistPhone}</span>) para iniciar o atendimento real!
+                      </>
+                    )}
                   </p>
+                  {onlyCompletedFilter && (
+                    <button
+                      onClick={() => setOnlyCompletedFilter(false)}
+                      className="mt-3 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-[10px] font-extrabold hover:bg-primary-hover transition cursor-pointer shadow-soft"
+                    >
+                      Ver Triagens Ativas
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
