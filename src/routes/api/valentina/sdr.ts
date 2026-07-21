@@ -31,6 +31,24 @@ function safeFormatIso(dateVal: any): string {
   }
 }
 
+function parseMediaInfo(content: string, mediaUrl?: string | null, mediaType?: string | null, fileName?: string | null) {
+  let url = mediaUrl || undefined;
+  let type = mediaType || undefined;
+  let name = fileName || undefined;
+
+  if (content && content.startsWith("[MEDIA:")) {
+    const match = content.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
+    if (match) {
+      type = match[1];
+      const mediaId = match[2];
+      name = match[3] || name;
+      url = mediaUrl || `/api/media/${mediaId}`;
+    }
+  }
+
+  return { mediaUrl: url, mediaType: type, fileName: name };
+}
+
 export const Route = createFileRoute('/api/valentina/sdr')({
   server: {
     handlers: {
