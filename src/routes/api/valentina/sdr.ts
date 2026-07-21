@@ -39,10 +39,10 @@ function parseMediaInfo(content: string, mediaUrl?: string | null, mediaType?: s
   if (content && content.startsWith("[MEDIA:")) {
     const match = content.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
     if (match) {
-      type = match[1];
+      type = match[1] === "sticker" ? "image" : match[1];
       const mediaId = match[2];
       name = match[3] || name;
-      url = mediaUrl || `/api/media/${mediaId}`;
+      url = `/api/baileys/media?messageId=${mediaId}`;
     }
   }
 

@@ -724,12 +724,17 @@ export function SdrTab() {
                               const fn = match[3];
 
                               mediaType = type === "sticker" ? "image" : type;
-                              if (!mediaUrl) {
+                              if (!mediaUrl || mediaUrl.includes("/api/media/")) {
                                 mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
                               }
                               if (fn && !fileName) {
                                 fileName = fn;
                               }
+                            }
+                          } else if (mediaUrl && mediaUrl.includes("/api/media/")) {
+                            const mediaId = mediaUrl.split("/api/media/")[1];
+                            if (mediaId) {
+                              mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
                             }
                           }
 
