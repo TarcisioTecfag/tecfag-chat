@@ -5,6 +5,7 @@ import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager } from "../baileys/session-manager";
 import { resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
+import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 
 // ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
 export interface SdrAiResult {
@@ -187,21 +188,27 @@ export class SdrEngine {
         })
         .join("\n");
 
-      const firstTextItem = batchItems.find((i) => i.text.trim().length > 0)?.text || "olá";
-      const { greeting } = getMirroredGreeting(firstTextItem);
+      // 5.1 Verificar se o lote contém algum CNPJ para validação matemática e consulta à API (cnpj.ws)
+      let cnpjDirective = "";
+      const combinedBatchText = batchItems.map((i) => i.text).join(" ");
+      const detectedCnpjCandidate = extractCnpjFromText(combinedBatchText);
 
-      // Instrução estrita sobre apresentação inicial vs sequência da conversa
-      const firstMessageRule = isFirstMessage
-        ? `🟢 ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO.
-   - A mensagem 1 DEVE ser exatamente: "${greeting} Meu nome é Valentina, da Valem 😊"
-   - A mensagem 2 DEVE ser: "Como posso te ajudar hoje?"`
-        : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
-   - NUNCA diga "Olá", NUNCA diga "Meu nome é Valentina", NUNCA diga "da Valem", NUNCA volte a se apresentar!
-   - Responda DIRETO ao que o cliente disse no lote de forma fluida e conversacional!`;
+      if (detectedCnpjCandidate) {
+        console.log(`[SdrEngine] CNPJ detectado no lote: ${detectedCnpjCandidate}. Executando validação matemática e consulta à Receita Federal (cnpj.ws)...`);
+        const cnpjInfo = await fetchCnpjInfo(detectedCnpjCandidate);
 
-      const currentDataSummary: Record<string, string> = {};
-      for (const [k, v] of Object.entries(existingCollectedData)) {
-        currentDataSummary[k] = v.value;
+        if (!cnpjInfo.valid) {
+          cnpjDirective = `\n⚠️ ALERTA DE CNPJ INVÁLIDO: O CNPJ enviado pelo cliente (${cnpjInfo.cnpjFormatted}) POSSUI ERRO MATEMÁTICO nos dígitos verificadores. Informe educadamente ao cliente que o CNPJ parece ter algum dígito incorreto e peça para ele conferir e enviar novamente.`;
+        } else if (cnpjInfo.razaoSocial) {
+          cnpjDirective = `\n🟢 CNPJ VÁLIDO E CONSULTADO NA RECEITA FEDERAL (cnpj.ws):
+- CNPJ: ${cnpjInfo.cnpjFormatted}
+- Razão Social/Empresa encontrada na Receita: "${cnpjInfo.razaoSocial}" ${cnpjInfo.nomeFantasia ? `(Fantasia: ${cnpjInfo.nomeFantasia})` : ""}
+INSTRUÇÕES OBRIGATÓRIAS:
+1. Defina em \`extractedData\` o CNPJ OU CPF como "${cnpjInfo.cnpjFormatted}" e EMPRESA como "${cnpjInfo.razaoSocial}".
+2. Pergunte ao cliente para confirmar: "Sua empresa é a ${cnpjInfo.razaoSocial}, certo?"`;
+        } else {
+          cnpjDirective = `\n🟢 CNPJ VÁLIDO (${cnpjInfo.cnpjFormatted}): Os dígitos verificadores estão matematicamente corretos. Defina em \`extractedData\` o CNPJ OU CPF como "${cnpjInfo.cnpjFormatted}".`;
+        }
       }
 
       const promptText = `Você é a Valentina, a consultora comercial pré-vendas (SDR) humana da Valem (empresa de válvulas aerosol/spray, seladoras, embaladoras e componentes industriais).
@@ -214,6 +221,7 @@ ${batchSummary}
 
 DADOS JÁ COLETADOS ATÉ O MOMENTO:
 ${JSON.stringify(currentDataSummary, null, 2)}
+${cnpjDirective}
 
 DIRETRIZ DE APRESENTAÇÃO E CONTINUIDADE:
 ${firstMessageRule}
@@ -233,7 +241,15 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - Se o cliente já informou o Nome (ex: "Tarcisio Pereira da Silva"), REGISTRE O NOME e NUNCA pergunte "qual o seu nome?" de novo!
    - Se o cliente se irritar ou disser que já respondeu, peça desculpas com muita elegância ("Imagina, me desculpe! Já registrei aqui, Tarcísio.") e siga imediatamente.
 
-4. LEITURA E EXTRAÇÃO AUTOMÁTICA DE DOCUMENTOS E PDFS:
+4. FLUXO DE CNPJ E EMPRESA (NUNCA PEDIR O NOME DA EMPRESA DIRETAMENTE!):
+   - NUNCA pergunte "Qual o nome da sua empresa?". Pergunte APENAS o CNPJ (ou CPF).
+   - Quando o cliente enviar o CNPJ, a validação matemática e a API da Receita Federal (cnpj.ws) buscam a Razão Social da empresa automaticamente.
+   - Sua única pergunta de confirmação deve ser: "Sua empresa é a [Nome da Empresa], certo?".
+   - Se o cliente responder "sim", "isso", "exato", "correto", confirme e avança a triagem.
+   - Se o cliente responder "não" ou disser que o nome é outro, aceite a correção do cliente com elegância, registre a empresa corrigida e avança o atendimento.
+   - Se o CNPJ tiver dígitos matematicamente incorretos, avise com elegância ("Ops, parece que esse CNPJ tem algum dígito incorreto. Consegue me enviar novamente?").
+
+5. LEITURA E EXTRAÇÃO AUTOMÁTICA DE DOCUMENTOS E PDFS:
    - Se o cliente enviar um documento ou arquivo PDF (como Cartão CNPJ, Ficha Cadastral, Contrato Social, Nota Fiscal, etc.):
      a) Analise 100% dos dados contidos no arquivo PDF através da sua capacidade multimodal do Gemini 2.5 Pro.
      b) Extraia automaticamente a Razão Social/Empresa, o CNPJ/CPF, o Nome do Contato e o que for relevante.
@@ -241,10 +257,10 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      d) Responda ao cliente confirmando que você leu o documento PDF e registrou as informações da empresa (ex: "Recebi seu PDF! Já registrei o CNPJ e os dados da sua empresa aqui no sistema.").
      e) NUNCA torne a solicitar o CNPJ ou Nome de Empresa se essas informações constavam no PDF!
 
-5. FRAGMENTAÇÃO DE MENSAGENS:
+6. FRAGMENTAÇÃO DE MENSAGENS:
    - Retorne de 1 a no máximo 2 mensagens CURTAS (no array \`messagesToSend\`). NUNCA ultrapasse 2 linhas por mensagem!
 
-6. CONCLUSÃO DA QUALIFICAÇÃO:
+7. CONCLUSÃO DA QUALIFICAÇÃO:
    - Quando tiver Produto, Projeto/Empresa, Nome e CNPJ/CPF (ou se o cliente recusou informar previsão/dados adicionais), marque \`isCompleted: true\`.
 
 Retorne EXCLUSIVAMENTE o JSON no formato:
