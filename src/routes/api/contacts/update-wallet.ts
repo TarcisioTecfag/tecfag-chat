@@ -60,8 +60,9 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
                 .set({
                   operatorId: null,
                   queueState: "automacao",
-                  updatedAt: new Date(),
+                  lastMessageTime: new Date(),
                 })
+
                 .where(eq(conversations.id, conv.id));
 
               // Reseta o estado do fluxo SDR para que a Valentina realize novo atendimento quando o cliente falar

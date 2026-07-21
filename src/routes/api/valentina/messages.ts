@@ -121,12 +121,17 @@ export const Route = createFileRoute("/api/valentina/messages")({
           let aiContent = "";
           try {
             const { vertexAi } = await import("../../../lib/vertex-ai");
+            const { getKnowledgeBaseContext } = await import("../../../lib/valentina/knowledge-service");
             if (vertexAi.isReady()) {
+              const knowledgeContext = await getKnowledgeBaseContext(tenantId);
               const systemPrompt = `Você é a Valentina, a assistente virtual e supervisora inteligente da equipe de vendas da Valem.
-Sua função é auxiliar o operador/vendedor com informações de leads, scripts de vendas, quebra de objeções, análise de metas e dicas para fechar negócios.
+Sua função é auxiliar o operador/vendedor com informações de produtos, catálogo, leads, scripts de vendas, quebra de objeções, análise de metas e dicas para fechar negócios.
+${knowledgeContext}
+
 Responda de forma direta, altamente profissional, entusiasmada e útil, utilizando emojis quando apropriado.
 
 Mensagem do operador: "${content}"`;
+
 
               const aiRes = await vertexAi.generateText(systemPrompt, "gemini-2.5-pro");
               if (aiRes) {

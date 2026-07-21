@@ -368,6 +368,27 @@ export const internalMessages = pgTable("internal_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 19. BASE DE CONHECIMENTO VALENTINA ────────────────────────────────────
+export const knowledgeFolders = pgTable("knowledge_folders", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  parentId: text("parent_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const knowledgeFiles = pgTable("knowledge_files", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  folderId: text("folder_id").references(() => knowledgeFolders.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  size: text("size").notNull(),
+  type: text("type").notNull(), // 'pdf' | 'word' | 'image' | 'txt' | 'md'
+  format: text("format").notNull(), // 'embeddings' | 'real'
+  content: text("content"), // Conteúdo textual extraído para aprendizado da IA
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -387,8 +408,11 @@ export type AiReport = typeof aiReports.$inferSelect;
 export type CallSession = typeof callSessions.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 
-// ── Tipos da Valentina (Agentes I.A.) ──
+// ── Tipos da Valentina (Agentes I.A. & Base de Conhecimento) ──
 export type AgentConfig = typeof agentConfigs.$inferSelect;
 export type AgentFlowState = typeof agentFlowStates.$inferSelect;
 export type RoundRobinState = typeof roundRobinState.$inferSelect;
 export type InternalMessage = typeof internalMessages.$inferSelect;
+export type KnowledgeFolder = typeof knowledgeFolders.$inferSelect;
+export type KnowledgeFileRecord = typeof knowledgeFiles.$inferSelect;
+

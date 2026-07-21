@@ -1,56 +1,32 @@
+import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, messages, internalMessages } from "../../db/schema";
-import { eq, and, asc, desc } from "drizzle-orm";
+import { agentConfigs, agentFlowStates, conversations, contacts, messages, internalMessages } from "../../db/schema";
+import { eq, desc, asc, and, isNull } from "drizzle-orm";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
-import { SessionManager } from "../baileys/session-manager";
-import { resolveRealJid } from "../baileys/session-manager";
+import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
 import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
+import { getKnowledgeBaseContext } from "./knowledge-service";
 
 // ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
 export interface SdrAiResult {
-  extractedData: Record<string, string>;
+  extractedData?: Record<string, any>;
   messagesToSend: string[];
-  isCompleted: boolean;
+  quoteMessageId?: string | null;
+  isCompleted?: boolean;
 }
 
-// ── Helper para validar Whitelist no Modo de Teste ─────────────────────────────────
-export function isPhoneWhitelisted(phone: string, whitelistConfig: string): boolean {
-  if (!whitelistConfig || whitelistConfig.trim() === "") return true;
-
+/**
+ * Função utilitária para verificar se um número de telefone está na whitelist
+ */
+export function isPhoneWhitelisted(phone: string, whitelistPhone: string): boolean {
+  if (!whitelistPhone || !whitelistPhone.trim()) return false;
   const cleanPhone = phone.replace(/\D/g, "");
-  const allowedNumbers = whitelistConfig
-    .split(",")
-    .map((n) => n.replace(/\D/g, "").trim())
-    .filter(Boolean);
-
-  if (allowedNumbers.length === 0) return true;
-
-  return allowedNumbers.some((allowed) => {
-    return cleanPhone.endsWith(allowed) || allowed.endsWith(cleanPhone);
-  });
+  const cleanWhitelist = whitelistPhone.replace(/\D/g, "");
+  if (!cleanWhitelist) return false;
+  return cleanPhone.includes(cleanWhitelist) || cleanWhitelist.includes(cleanPhone);
 }
 
-// ── Helper para Espelhar Saudação Inicial ────────────────────────────────────────
-export function getMirroredGreeting(firstMessageText: string): { greeting: string; cleanRest: string } {
-  const textLower = firstMessageText.toLowerCase().trim();
-
-  let greeting = "Olá!";
-
-  if (/^(bom\s*dia)/i.test(textLower)) {
-    greeting = "Bom dia!";
-  } else if (/^(boa\s*tarde)/i.test(textLower)) {
-    greeting = "Boa tarde!";
-  } else if (/^(boa\s*noite)/i.test(textLower)) {
-    greeting = "Boa noite!";
-  } else if (/^(ol[aá]|oi|hey|opaa?)/i.test(textLower)) {
-    greeting = "Olá!";
-  }
-
-  return { greeting, cleanRest: textLower };
-}
-
-// ── Classe Principal SdrEngine (Humanizada, Anti-Repetição & Gemini 2.5 Pro) ─────
 export class SdrEngine {
   private static instance: SdrEngine;
 
@@ -63,21 +39,8 @@ export class SdrEngine {
     return SdrEngine.instance;
   }
 
-  public async processIncomingMessage(
-    tenantId: string,
-    conversationId: string,
-    contactPhone: string,
-    messageContent: string
-  ): Promise<boolean> {
-    return this.processBatchMessages(tenantId, conversationId, contactPhone, [{
-      text: messageContent,
-      mediaType: "text",
-      receivedAt: new Date(),
-    }]);
-  }
-
   /**
-   * Processa o LOTE CONSOLIDADO de mensagens do cliente acumulado após 15s de debouncers.
+   * Processa um lote consolidado de mensagens de uma conversa com Gemini 2.5 Pro Multimodal
    */
   public async processBatchMessages(
     tenantId: string,
@@ -87,114 +50,103 @@ export class SdrEngine {
     signal?: AbortSignal
   ): Promise<boolean> {
     try {
-      if (signal?.aborted) return false;
+      if (!batchItems || batchItems.length === 0) return false;
 
-      // 1. Buscar configuração do agente SDR
+      // 1. Carregar Configuração do Agente SDR no Banco
       let dbConfig = await db.query.agentConfigs.findFirst({
         where: (table, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
       });
 
-      const enabled = dbConfig ? dbConfig.enabled === 1 : true;
-      const config = (dbConfig?.config as Record<string, any>) || {};
-      const testMode = config.testMode !== undefined ? Boolean(config.testMode) : true;
-      const whitelistPhone = config.whitelistPhone || "14998364338";
+      if (!dbConfig) {
+        dbConfig = await db.query.agentConfigs.findFirst({
+          where: (table, { eq: dEq }) => dEq(table.agentType, "sdr"),
+        });
+      }
 
-      if (!enabled) return false;
+      const configData = (dbConfig?.config as Record<string, any>) || {};
+      const isEnabled = dbConfig ? dbConfig.enabled === 1 : true;
+      const isTestMode = configData.testMode !== undefined ? Boolean(configData.testMode) : true;
+      const whitelistPhone = configData.whitelistPhone || "14998364338";
 
-      // 2. Verificar filtro de Whitelist
-      if (testMode) {
-        const isAllowed = isPhoneWhitelisted(contactPhone, whitelistPhone);
-        if (!isAllowed) {
-          console.log(`[SdrEngine] Telefone ${contactPhone} bloqueado na Whitelist de teste.`);
+      if (!isEnabled) {
+        console.log(`[SdrEngine] SDR Valentina está DESATIVADO para tenant ${tenantId}. Ignorando lote.`);
+        return false;
+      }
+
+      // Se o Modo de Testes estiver ATIVO, Valentina responde EXCLUSIVAMENTE ao número da whitelist!
+      if (isTestMode) {
+        const whitelisted = isPhoneWhitelisted(contactPhone, whitelistPhone);
+        if (!whitelisted) {
+          console.log(`[SdrEngine] 🛡️ Modo de Testes ATIVO: Telefone ${contactPhone} NÃO está na Whitelist (${whitelistPhone}). Ignorando.`);
           return false;
         }
         console.log(`[SdrEngine] Telefone ${contactPhone} APROVADO na Whitelist!`);
       }
 
-      // 3. Buscar ou criar o estado do fluxo SDR (Triagem ao Vivo)
+      // 2. Buscar ou Criar Estado do Fluxo (agentFlowStates)
       let flowState = await db.query.agentFlowStates.findFirst({
-        where: (table, { eq: dEq }) => eq(table.conversationId, conversationId),
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.tenantId, tenantId), dEq(t.conversationId, conversationId)),
       });
 
-      if (flowState && (flowState.outcome === "completed" || flowState.outcome === "transferred")) {
-        console.log(`[SdrEngine] Qualificação já concluída para conversa ${conversationId}.`);
-        return false;
-      }
-
-      const isFirstMessage = !flowState;
-      let existingCollectedData: Record<string, { value: string; status: "filled" | "pending" }> = {};
-
-      if (flowState) {
-        existingCollectedData = (flowState.collectedData as any) || {};
-      } else {
-        const initialFields = [
-          "NOME COMPLETO", "EMPRESA", "CNPJ OU CPF",
-          "QUALIFICAÇÃO (TEMPERATURA)", "TIPO DE QUALIFICAÇÃO",
-          "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO", "QUAL O TIPO DE PRODUTO?"
-        ];
-        for (const f of initialFields) {
-          existingCollectedData[f] = { value: "", status: "pending" };
-        }
-
-        // Criar registro na tabela agentFlowStates IMEDIATAMENTE para aparecer no Painel SDR ao Vivo!
-        const flowId = `flow-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      if (!flowState) {
+        const newFlowId = `fs-sdr-${Date.now()}`;
         await db.insert(agentFlowStates).values({
-          id: flowId,
+          id: newFlowId,
           tenantId,
           conversationId,
           agentType: "sdr",
           currentStep: "Em Qualificação",
-          collectedData: existingCollectedData,
-          metadata: { stepNumber: 0, totalSteps: 7 },
+          collectedData: {},
+          metadata: { stepNumber: 1, totalSteps: 7 },
           startedAt: new Date(),
           lastInteractionAt: new Date(),
           outcome: "in_progress",
         });
 
         flowState = await db.query.agentFlowStates.findFirst({
-          where: (table, { eq: dEq }) => eq(table.id, flowId),
+          where: (t, { eq: dEq }) => dEq(t.id, newFlowId),
         });
       }
 
-      // 4. Buscar histórico recente de mensagens da conversa no banco
-      const recentMessages = await db
+      // 3. Buscar Histórico Recente de Mensagens Reais do Banco
+      const historyMsgs = await db
         .select()
         .from(messages)
         .where(eq(messages.conversationId, conversationId))
         .orderBy(asc(messages.sentAt))
-        .limit(30);
+        .limit(50);
 
-      const conversationHistoryText = recentMessages
-        .map((m) => `${m.senderType === "client" ? "Cliente" : "Valentina"}: ${m.content}`)
-        .join("\n");
-
-      // Verificar se já houve algum emoji enviado anteriormente na conversa
-      const hasPreviousEmoji = recentMessages.some((m) =>
-        m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)
-      );
-
-      // 5. Consolidar as mensagens deste lote de 15 segundos
-      const batchSummary = batchItems
-        .map((item, idx) => {
-          if (item.mediaType === "image") {
-            return `[Mensagem ${idx + 1} do Lote - IMAGEM ENVIADA PELO CLIENTE]: ${item.text || "(imagem sem legenda)"}`;
-          } else if (item.mediaType === "audio") {
-            return `[Mensagem ${idx + 1} do Lote - ÁUDIO ENVIADO PELO CLIENTE]: ${item.text || "(áudio gravado pelo cliente)"}`;
-          } else if (item.mediaType === "document") {
-            return `[Mensagem ${idx + 1} do Lote - DOCUMENTO/PDF ENVIADO PELO CLIENTE]: ${item.text || "(documento PDF em anexo contendo dados cadastrais/CNPJ)"}`;
+      let hasPreviousEmoji = false;
+      const conversationHistoryText = historyMsgs
+        .map((m) => {
+          if (m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)) {
+            hasPreviousEmoji = true;
           }
-          return `[Mensagem ${idx + 1} do Lote]: ${item.text}`;
+          const sender = m.senderType === "client" ? "Cliente" : "Valentina (SDR)";
+          return `[${sender}]: ${m.content}`;
         })
         .join("\n");
 
-      const firstTextItem = batchItems.find((i) => i.text.trim().length > 0)?.text || "olá";
-      const { greeting } = getMirroredGreeting(firstTextItem);
+      // 4. Formatar o Lote Consolidado Atual de Mensagens com IDs
+      const batchSummary = batchItems
+        .map((m) => `[ID MENSAGEM: ${m.messageId || 'msg'}] Cliente (${m.mediaType || 'texto'}): "${m.text}"`)
+        .join("\n");
 
-      // Instrução estrita sobre apresentação inicial vs sequência da conversa
+      // 5. Montar Prompt Estruturado para o Gemini 2.5 Pro
+      const existingCollectedData = (flowState?.collectedData as Record<string, any>) || {};
+
+      const hour = new Date().getHours();
+      let greeting = "Olá, bom dia!";
+      if (hour >= 12 && hour < 18) greeting = "Olá, boa tarde!";
+      if (hour >= 18 || hour < 5) greeting = "Olá, boa noite!";
+
+      const isFirstMessage = historyMsgs.length === 0;
+
       const firstMessageRule = isFirstMessage
-        ? `🟢 ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO.
-   - A mensagem 1 DEVE ser exatamente: "${greeting} Meu nome é Valentina, da Valem 😊"
+        ? `🟢 ATENÇÃO CRÍTICA (ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO!):
+   - A mensagem 1 DEVE ser obrigatoriamente: "${greeting} Meu nome é Valentina, da Valem 😊"
    - A mensagem 2 DEVE ser: "Como posso te ajudar hoje?"`
         : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
    - NUNCA diga "Olá", NUNCA diga "Meu nome é Valentina", NUNCA diga "da Valem", NUNCA volte a se apresentar!
@@ -228,7 +180,10 @@ INSTRUÇÕES OBRIGATÓRIAS:
         }
       }
 
-      const promptText = `Você é a Valentina, a consultora comercial pré-vendas (SDR) humana da Valem (empresa de válvulas aerosol/spray, seladoras, embaladoras e componentes industriais).
+      const knowledgeContext = await getKnowledgeBaseContext(tenantId);
+
+      const promptText = `Você é a Valentina, a consultora comercial pré-vendas (SDR) humana da Valem (empresa de válvulas aerosol/spray, frascos, potes, seladoras, embaladoras e componentes industriais).
+${knowledgeContext}
 
 HISTÓRICO COMPLETO DA CONVERSA ATE AGORA:
 ${conversationHistoryText}
@@ -282,10 +237,21 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      d) Responda ao cliente confirmando que você leu o documento PDF e registrou as informações da empresa (ex: "Recebi seu PDF! Já registrei o CNPJ e os dados da sua empresa aqui no sistema.").
      e) NUNCA torne a solicitar o CNPJ ou Nome de Empresa se essas informações constavam no PDF!
 
-8. FRAGMENTAÇÃO DE MENSAGENS:
+8. REGRAS DE MENSAGENS CITADAS (REPLY / QUOTE NO WHATSAPP):
+   - REGRA 1 (Áudio, Imagem ou PDF enviado pelo cliente): Se o lote contiver algum Áudio, Imagem ou Documento PDF, você DEVE retornar em "quoteMessageId" o ID exato dessa mensagem do cliente.
+   - REGRA 2 (Perguntas Espontâneas do Cliente): Se o cliente fez uma pergunta espontânea do nada e não estava apenas respondendo a uma pergunta sua (ex: "Vocês têm o catálogo pra me mandar?", "Onde vocês ficam???", "Quanto custa o frete?"), você DEVE selecionar o ID exato dessa pergunta em "quoteMessageId".
+   - REGRA 3 (Uso Restrito / Triagem Normal): Em respostas normais do fluxo de qualificação (ex: o cliente apenas informou o nome "Pedro" ou respondeu "Sim" para a confirmação do CNPJ), DEIXE "quoteMessageId": null. NUNCA cite mensagens em triagens simples.
+
+9. FRAGMENTAÇÃO DE MENSAGENS:
    - Retorne de 1 a no máximo 2 mensagens CURTAS (no array \`messagesToSend\`). NUNCA ultrapasse 2 linhas por mensagem!
 
-9. CONCLUSÃO DA QUALIFICAÇÃO:
+10. SOLICITAÇÃO DE CATÁLOGO E INFORMAÇÕES DE PRODUTOS (LINK VALEMPACK):
+   - Sempre que o cliente pedir o CATÁLOGO, quiser ver mais informações sobre os produtos ou quiser conhecer tudo o que a Valem vende:
+     a) Envie o link oficial do site: https://www.valempack.com.br
+     b) Informe com muita simpatia e naturalidade que ele pode conferir diversos tipos, modelos e especificações de produtos e equipamentos lá no site!
+     c) Não se esqueça de citar a mensagem do cliente ("quoteMessageId") já que se trata de uma solicitação espontânea!
+
+11. CONCLUSÃO DA QUALIFICAÇÃO:
    - Quando tiver Produto, Projeto/Empresa, Nome e CNPJ/CPF (ou se o cliente recusou informar previsão/dados adicionais), marque \`isCompleted: true\`.
 
 Retorne EXCLUSIVAMENTE o JSON no formato:
@@ -300,6 +266,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     "QUAL O TIPO DE PRODUTO?": "valor ou mantem anterior"
   },
   "messagesToSend": ["mensagem curta 1", "mensagem curta 2"],
+  "quoteMessageId": "id_da_mensagem_para_citar_ou_null",
   "isCompleted": false
 }`;
 
@@ -353,7 +320,22 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
-      // 7. Atualizar dados coletados no banco
+      // 7. Determinar a Mensagem Citada (Quoted Message) com base nas 3 regras
+      let targetQuoteItem: QueuedMessageItem | null = null;
+
+      // Regra 1 (Programática Garantida): Se o lote contiver Áudio, Imagem ou PDF, cita a mídia!
+      const mediaItem = batchItems.find((i) => i.mediaType === "audio" || i.mediaType === "image" || i.mediaType === "document");
+      if (mediaItem && mediaItem.rawMsg) {
+        targetQuoteItem = mediaItem;
+      } else if (aiResult.quoteMessageId) {
+        // Regra 2 (IA): Citação de pergunta espontânea do cliente
+        const matchedItem = batchItems.find((i) => i.messageId === aiResult.quoteMessageId);
+        if (matchedItem && matchedItem.rawMsg) {
+          targetQuoteItem = matchedItem;
+        }
+      }
+
+      // 8. Atualizar dados coletados no banco
       const updatedCollectedData = { ...existingCollectedData };
       if (aiResult.extractedData) {
         for (const [k, v] of Object.entries(aiResult.extractedData)) {
@@ -383,16 +365,17 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return false;
 
-      // 8. Envio Humanizado das Mensagens com presencia 'composing' longa e checagem de AbortSignal
+      // 9. Envio Humanizado das Mensagens com presencia 'composing' longa, citação no WhatsApp e AbortSignal
       await this.sendHumanizedBotMessages(
         tenantId,
         conversationId,
         contactPhone,
         aiResult.messagesToSend,
-        signal
+        signal,
+        targetQuoteItem
       );
 
-      // 9. Notificar Supervisor se concluído
+      // 10. Notificar Supervisor se concluído
       if (isCompleted && !signal?.aborted) {
         try {
           const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente";
@@ -433,14 +416,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
   }
 
   /**
-   * Envia fragmentos de mensagem com efeito de digitação realista e checagem contínua de AbortSignal
+   * Envia fragmentos de mensagem com efeito de digitação realista, suporte a citação no WhatsApp (Quoted Reply) e checagem de AbortSignal
    */
   private async sendHumanizedBotMessages(
     tenantId: string,
     conversationId: string,
     phone: string,
     messagesArray: string[],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    quoteItem?: QueuedMessageItem | null
   ): Promise<void> {
     const sock = SessionManager.getInstance().getSession(tenantId);
     if (!sock) {
@@ -465,7 +449,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         await sock.sendPresenceUpdate("composing", realJid);
       } catch { /* silencia */ }
 
-      // 2. Delay de digitação humana realista estendido (2.2s a 4.2s) para a caixinha de "digitando..." aparecer com destaque
+      // 2. Delay de digitação humana realista estendido (2.2s a 4.2s)
       const typingDelay = Math.min(4200, Math.max(2200, fragmentText.length * 60));
       
       const startDelay = Date.now();
@@ -479,8 +463,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return;
 
-      // 3. Enviar a mensagem no WhatsApp
-      const sentMsg = await sock.sendMessage(realJid, { text: fragmentText });
+      // 3. Enviar a mensagem no WhatsApp (aplica citação Quoted no 1º fragmento se houver quoteItem)
+      const sendOptions: any = {};
+      if (i === 0 && quoteItem && quoteItem.rawMsg) {
+        sendOptions.quoted = quoteItem.rawMsg;
+        console.log(`[SdrEngine] 💬 Enviando resposta com CITAÇÃO NATIVA do WhatsApp para a mensagem ${quoteItem.messageId || 'mídia'}`);
+      }
+
+      const sentMsg = await sock.sendMessage(realJid, { text: fragmentText }, sendOptions);
       const botMessageId = sentMsg?.key?.id || `bot-sdr-${Date.now()}-${i}`;
 
       try {
@@ -498,6 +488,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         createdAt: new Date(),
       }).onConflictDoNothing();
 
+      const quotedMsgId = (i === 0 && quoteItem) ? (quoteItem.messageId || null) : null;
+      const quotedContent = (i === 0 && quoteItem) ? quoteItem.text : null;
+
       await db.insert(messages).values({
         id: botMessageId,
         tenantId,
@@ -506,6 +499,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         senderName: "Valentina (SDR)",
         content: fragmentText,
         isInternalNote: false,
+        quotedMessageId: quotedMsgId,
+        quotedMessageSender: quotedMsgId ? "Cliente" : null,
+        quotedMessageContent: quotedContent,
         sentAt: new Date(),
       }).onConflictDoNothing();
 
@@ -517,17 +513,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           senderType: "bot",
           senderName: "Valentina (SDR)",
           content: fragmentText,
-          phone,
           sentAt: new Date(),
-          queue: "automacao",
-          operatorId: null,
+          quotedMessageId: quotedMsgId,
+          quotedMessageSender: quotedMsgId ? "Cliente" : null,
+          quotedMessageContent: quotedContent,
         },
       });
-
-      // Pausa natural entre mensagens consecutivas (750ms)
-      if (i < messagesArray.length - 1) {
-        await new Promise((r) => setTimeout(r, 750));
-      }
     }
   }
 }

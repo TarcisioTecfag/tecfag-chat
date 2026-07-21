@@ -173,6 +173,26 @@ setupClient.unsafe(`
     read INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
+
+  CREATE TABLE IF NOT EXISTS knowledge_folders (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    parent_id TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS knowledge_files (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    folder_id TEXT,
+    name TEXT NOT NULL,
+    size TEXT NOT NULL,
+    type TEXT NOT NULL,
+    format TEXT NOT NULL,
+    content TEXT,
+    uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
 `)
   .then(() => {
     console.log("[db] ✓ Tabelas de gestão e agentes verificadas/criadas com sucesso.");

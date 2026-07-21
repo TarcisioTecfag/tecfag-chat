@@ -21,7 +21,7 @@ export function KnowledgeTab() {
   // ── States ──────────────────────────────────────────────────────────────────
   const [folders, setFolders] = useState<FolderType[]>(INITIAL_FOLDERS);
   const [files, setFiles] = useState<FileType[]>(INITIAL_KNOWLEDGE_FILES);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>("f-3");
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>("f-1");
   
   // Modals / Criação / Edição
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -40,35 +40,82 @@ export function KnowledgeTab() {
   const [dragOverZone, setDragOverZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Carregar Dados Reais da API no Inicio ─────────────────────────────────
+  React.useEffect(() => {
+    fetch("/api/valentina/knowledge?tenantId=valem")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.folders) setFolders(data.folders);
+        if (data.files) setFiles(data.files);
+        if (data.folders && data.folders.length > 0 && !selectedFolderId) {
+          setSelectedFolderId(data.folders[0].id);
+        }
+      })
+      .catch((err) => console.warn("[KnowledgeTab] Erro ao carregar do servidor:", err));
+  }, []);
+
   // ── Operações de Pasta ──────────────────────────────────────────────────────
   
-  const handleCreateFolder = () => {
+  const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
     const newId = `f-${Date.now()}`;
     const newFolder: FolderType = {
       id: newId,
       name: newFolderName,
-      parentId: selectedFolderId, // Cria subpasta se houver pasta ativa
+      parentId: selectedFolderId,
     };
+
     setFolders((prev) => [...prev, newFolder]);
     setNewFolderName("");
     setIsCreatingFolder(false);
     setSelectedFolderId(newId);
+
+    try {
+      await fetch("/api/valentina/knowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: "valem",
+          action: "create_folder",
+          id: newId,
+          name: newFolderName,
+          parentId: selectedFolderId,
+        }),
+      });
+    } catch (err) {
+      console.error("[KnowledgeTab] Erro ao criar pasta na API:", err);
+    }
   };
 
-  const handleRenameFolder = (id: string) => {
+  const handleRenameFolder = async (id: string) => {
     if (!editingFolderName.trim()) return;
     setFolders((prev) =>
       prev.map((f) => (f.id === id ? { ...f, name: editingFolderName } : f))
     );
+    const targetFolder = folders.find((f) => f.id === id);
     setEditingFolderId(null);
     setEditingFolderName("");
+
+    try {
+      await fetch("/api/valentina/knowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: "valem",
+          action: "update_folder",
+          id,
+          name: editingFolderName,
+          parentId: targetFolder?.parentId || null,
+        }),
+      });
+    } catch (err) {
+      console.error("[KnowledgeTab] Erro ao renomear pasta na API:", err);
+    }
   };
 
-  const handleDeleteFolder = (id: string) => {
+  const handleDeleteFolder = async (id: string) => {
     if (!confirm("Tem certeza que deseja excluir esta pasta e todos os seus arquivos?")) return;
     
-    // Coleta todos os IDs de pastas descendentes recursivamente
     const getDescendants = (folderId: string): string[] => {
       const children = folders.filter((f) => f.parentId === folderId);
       return [folderId, ...children.flatMap((c) => getDescendants(c.id))];
@@ -76,18 +123,24 @@ export function KnowledgeTab() {
 
     const foldersToDelete = getDescendants(id);
 
-    // Remove pastas e arquivos vinculados
     setFolders((prev) => prev.filter((f) => !foldersToDelete.includes(f.id)));
     setFiles((prev) => prev.filter((file) => !foldersToDelete.includes(file.folderId)));
     
     if (selectedFolderId && foldersToDelete.includes(selectedFolderId)) {
       setSelectedFolderId(null);
     }
+
+    try {
+      await fetch(`/api/valentina/knowledge?type=folder&id=${id}`, {
+        method: "DELETE",
+      });
+    } catch (err) {
+      console.error("[KnowledgeTab] Erro ao deletar pasta na API:", err);
+    }
   };
 
   // ── Drag and Drop Nativo (Pastas & Arquivos) ───────────────────────────────
 
-  // Verifica se targetId é ancestral de folderId (evita loops cíclicos)
   const isAncestor = (targetId: string, folderId: string): boolean => {
     let current = folders.find((f) => f.id === targetId);
     while (current) {
@@ -140,61 +193,99 @@ export function KnowledgeTab() {
     }
   };
 
-  // ── Operações de Arquivo & Upload Simulado ─────────────────────────────────
+  // ── Operações de Arquivo & Upload Real com Extração de Texto ──────────────
 
-  const handleDeleteFile = (id: string) => {
+  const handleDeleteFile = async (id: string) => {
     setFiles((prev) => prev.filter((file) => file.id !== id));
+    try {
+      await fetch(`/api/valentina/knowledge?type=file&id=${id}`, {
+        method: "DELETE",
+      });
+    } catch (err) {
+      console.error("[KnowledgeTab] Erro ao deletar arquivo na API:", err);
+    }
   };
 
-  const handleFileUploadSimulated = (fileName: string, fileSize: number) => {
+  const handleRealFileUpload = async (fileObj: File) => {
     if (!selectedFolderId) {
       alert("Por favor, selecione ou crie uma pasta primeiro.");
       return;
     }
 
     setIsUploading(true);
-    setUploadProgress(0);
+    setUploadProgress(20);
 
-    // Simulação do progresso do upload
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setTimeout(() => {
-            const extension = fileName.split(".").pop()?.toLowerCase();
-            let type: FileType["type"] = "txt";
-            if (extension === "pdf") type = "pdf";
-            else if (["doc", "docx"].includes(extension || "")) type = "word";
-            else if (["png", "jpg", "jpeg", "webp"].includes(extension || "")) type = "image";
+    const fileName = fileObj.name;
+    const fileSize = fileObj.size;
+    const extension = fileName.split(".").pop()?.toLowerCase();
 
-            const formattedSize = fileSize > 1024 * 1024
-              ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
-              : `${(fileSize / 1024).toFixed(0)} KB`;
+    let type: FileType["type"] = "txt";
+    if (extension === "pdf") type = "pdf";
+    else if (["doc", "docx"].includes(extension || "")) type = "word";
+    else if (["png", "jpg", "jpeg", "webp"].includes(extension || "")) type = "image";
 
-            const newFile: FileType = {
-              id: `kf-${Date.now()}`,
-              name: fileName,
-              size: formattedSize,
-              type,
-              format: uploadMode,
-              uploadedAt: new Date().toLocaleDateString("pt-BR"),
-              folderId: selectedFolderId,
-            };
+    const formattedSize = fileSize > 1024 * 1024
+      ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
+      : `${(fileSize / 1024).toFixed(0)} KB`;
 
-            setFiles((prev) => [...prev, newFile]);
-            setIsUploading(false);
-          }, 200);
-          return 100;
-        }
-        return prev + 25;
+    // Leitura do conteúdo de texto do arquivo
+    let fileContent = "";
+    try {
+      fileContent = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve((e.target?.result as string) || "");
+        reader.onerror = () => resolve("");
+        reader.readAsText(fileObj);
       });
-    }, 200);
+    } catch (err) {
+      console.warn("[KnowledgeTab] Erro ao ler arquivo como texto:", err);
+    }
+
+    setUploadProgress(60);
+
+    try {
+      const res = await fetch("/api/valentina/knowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: "valem",
+          action: "upload_file",
+          name: fileName,
+          size: formattedSize,
+          type,
+          format: uploadMode,
+          folderId: selectedFolderId,
+          content: fileContent,
+        }),
+      });
+
+      const data = await res.json();
+      setUploadProgress(100);
+
+      if (data.file) {
+        setFiles((prev) => [...prev, data.file]);
+      } else {
+        const fallbackFile: FileType = {
+          id: `kf-${Date.now()}`,
+          name: fileName,
+          size: formattedSize,
+          type,
+          format: uploadMode,
+          uploadedAt: new Date().toLocaleDateString("pt-BR"),
+          folderId: selectedFolderId,
+        };
+        setFiles((prev) => [...prev, fallbackFile]);
+      }
+    } catch (err) {
+      console.error("[KnowledgeTab] Erro no upload para a API:", err);
+    } finally {
+      setTimeout(() => setIsUploading(false), 300);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      handleFileUploadSimulated(file.name, file.size);
+      handleRealFileUpload(e.target.files[0]);
     }
   };
 
@@ -202,10 +293,10 @@ export function KnowledgeTab() {
     e.preventDefault();
     setDragOverZone(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      handleFileUploadSimulated(file.name, file.size);
+      handleRealFileUpload(e.dataTransfer.files[0]);
     }
   };
+
 
   // ── Render Helpers ──────────────────────────────────────────────────────────
 
@@ -462,7 +553,7 @@ export function KnowledgeTab() {
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt"
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.md,.json,.csv"
               className="hidden"
             />
             {isUploading ? (
@@ -480,8 +571,9 @@ export function KnowledgeTab() {
                 <UploadCloud className="h-8 w-8 text-muted-foreground/60 animate-bounce duration-1000" />
                 <div>
                   <p className="text-xs font-bold text-foreground">Arraste e solte arquivos aqui</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Suporta PDF, Word, TXT e Imagens até 15MB</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Suporta PDF, Word, TXT, Markdown (MD) e Imagens</p>
                 </div>
+
                 <div className="mt-1 px-3 py-1 rounded bg-card border border-border text-[9px] font-black uppercase text-primary">
                   {uploadMode === "embeddings" ? "Modo Ativo: Embedding de IA" : "Modo Ativo: Formato Real de Envio"}
                 </div>

@@ -718,8 +718,10 @@ export class SessionManager {
           conversationId: convId,
           queueState: "automacao",
           operatorId: null,
+          sectorId: null,
           responsibleName: "Valentina IA",
         });
+
 
         // 6. Responder no WhatsApp confirmando o reset
         const sock = this.getSession(tenantId);
@@ -921,11 +923,13 @@ export class SessionManager {
         }
 
         SdrDebouncer.getInstance().pushIncomingMessage(tenantId, convId, phone, {
+          messageId,
           text,
           mediaType,
           mimeType,
           mediaBase64,
           receivedAt: new Date(),
+          rawMsg,
         });
       }
 
