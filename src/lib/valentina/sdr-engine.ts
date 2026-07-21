@@ -269,14 +269,25 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      * Se o cliente buscar itens sob medida, moldes exclusivos ou desenvolvimento personalizado, defina como: "Sim (Desenvolvimento Customizado)".
      * Assim que o produto for identificado no diálogo, preencha este campo automaticamente sem perguntar nada ao cliente!
 
+13. REGRA DE INTERPRETAÇÃO AUTOMÁTICA DO CAMPO "TIPO DE QUALIFICAÇÃO":
+   - NUNCA pergunte ao cliente "Qual o tipo de qualificação?".
+   - NUNCA utilize termos genéricos como "Inbound".
+   - O campo "TIPO DE QUALIFICAÇÃO" em \`extractedData\` DEVE SER EXATAMENTE UMA das 6 opções oficiais da Valem abaixo, interpretada por você com base no pedido e volume do lead:
+     1. "Varejo / Baixo Volume": Se o cliente busca volumes menores (ex: 50 a 500 unidades para e-commerce/revenda inicial).
+     2. "Fora de Portfólio": Quando o cliente pede algo que a Valem não fabrica ou não vende (ex: frascos de vidro se a Valem só trabalha com plásticos/PET).
+     3. "Cotação para Comparação": O lead busca apenas um número/preço para balizar outra compra com concorrente.
+     4. "Industrial – Recorrência": Cliente industrial ativo que já produz e necessita de entregas mensais recorrentes.
+     5. "Industrial – Lançamento": Cliente lançando um produto novo no mercado, necessitando de envio de amostras e venda consultiva.
+     6. "Industrial – Troca de Fornecedor": Oportunidade de migrar cliente insatisfeito com concorrente por atraso, qualidade ou preço.
+
 Retorne EXCLUSIVAMENTE o JSON no formato:
 {
   "extractedData": {
     "NOME COMPLETO": "valor ou mantem anterior",
     "EMPRESA": "valor ou mantem anterior",
     "CNPJ OU CPF": "valor ou mantem anterior",
-    "QUALIFICAÇÃO (TEMPERATURA)": "valor ou mantem anterior",
-    "TIPO DE QUALIFICAÇÃO": "valor ou mantem anterior",
+    "QUALIFICAÇÃO (TEMPERATURA)": "Quente / Morno / Frio",
+    "TIPO DE QUALIFICAÇÃO": "uma das 6 opções oficiais acima",
     "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO": "valor ou mantem anterior",
     "QUAL O TIPO DE PRODUTO?": "valor ou mantem anterior"
   },
@@ -363,6 +374,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       const filledCount = Object.values(updatedCollectedData).filter((d) => d.status === "filled").length;
       const isCompleted = aiResult.isCompleted || filledCount >= 5;
+      const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
 
       if (flowState) {
@@ -373,8 +385,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             collectedData: updatedCollectedData,
             metadata: { stepNumber: filledCount, totalSteps: 7 },
             lastInteractionAt: now,
-            completedAt: isCompleted ? now : null,
-            outcome: isCompleted ? "completed" : "in_progress",
+            completedAt: isCompleted ? (flowState.completedAt || now) : null,
+            outcome: isCompleted ? (wasAlreadyCompleted ? flowState.outcome : "completed") : "in_progress",
           })
           .where(eq(agentFlowStates.id, flowState.id));
       }
@@ -391,8 +403,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         targetQuoteItem
       );
 
-      // 10. Alocar responsável no Rodízio e Notificar Supervisor se concluído
-      if (isCompleted && !signal?.aborted) {
+      // 10. Alocar responsável no Rodízio APENAS se for a PRIMEIRA vez que é concluído
+      if (isCompleted && !wasAlreadyCompleted && !signal?.aborted) {
         try {
           const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp";
           const company = updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
@@ -416,6 +428,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               read: 0,
               createdAt: new Date(),
             });
+
+            await db.update(agentFlowStates).set({ outcome: "transferred" }).where(eq(agentFlowStates.id, flowState!.id));
           }
         } catch (err: any) {
           console.error("[SdrEngine] Erro ao alocar responsável no rodízio:", err?.message);

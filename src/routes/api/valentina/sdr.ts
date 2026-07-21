@@ -104,9 +104,13 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 .limit(100);
 
               const formattedMessages = realMsgs.map((m) => ({
+                id: m.id,
                 sender: m.senderType === "client" ? "client" : "bot",
                 text: m.content,
                 time: safeFormatTime(m.sentAt),
+                mediaUrl: m.mediaUrl || null,
+                mediaType: m.mediaType || null,
+                fileName: m.fileName || null,
               }));
 
               const collectedData = (fs.collectedData as any) || {};
@@ -184,9 +188,13 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   .limit(100);
 
                 const formattedMessages = realMsgs.map((m) => ({
+                  id: m.id,
                   sender: m.senderType === "client" ? "client" : "bot",
                   text: m.content,
                   time: safeFormatTime(m.sentAt),
+                  mediaUrl: m.mediaUrl || null,
+                  mediaType: m.mediaType || null,
+                  fileName: m.fileName || null,
                 }));
 
                 sessions.push({

@@ -12,6 +12,16 @@ import {
 import { useChat } from "@/hooks/useChatState";
 import { toast } from "sonner";
 
+export interface SdrTriageMessage {
+  id?: string;
+  sender: "client" | "bot";
+  text: string;
+  time: string;
+  mediaUrl?: string | null;
+  mediaType?: string | null;
+  fileName?: string | null;
+}
+
 export interface SdrTriageSession {
   id: string;
   conversationId: string;
@@ -25,7 +35,7 @@ export interface SdrTriageSession {
   status: "active" | "completed" | "abandoned";
   outcome?: string;
   responsibleName?: string;
-  messages: Array<{ sender: "client" | "bot"; text: string; time: string }>;
+  messages: SdrTriageMessage[];
 }
 
 const VALENTINA_AVATAR = "/valentina.png";
@@ -69,13 +79,32 @@ function getMergedCollectedData(rawCollected: Record<string, any> = {}) {
 
   for (const [rawKey, rawVal] of Object.entries(rawCollected)) {
     if (!rawVal) continue;
-    const textVal = typeof rawVal === "string" ? rawVal : rawVal.value;
+    let textVal = typeof rawVal === "string" ? rawVal : rawVal.value;
     const isFilled = typeof rawVal === "object" && rawVal.status === "filled" 
       ? true 
       : Boolean(textVal && textVal.trim() !== "" && textVal !== "Aguardando..." && !textVal.toLowerCase().includes("mantem"));
 
     if (isFilled && textVal) {
       const canonicalKey = normalizeKey(rawKey);
+
+      // Normalização das 6 categorias oficiais da Valem para TIPO DE QUALIFICAÇÃO
+      if (canonicalKey === "TIPO DE QUALIFICAÇÃO") {
+        const lower = textVal.toLowerCase();
+        if (lower.includes("varejo") || lower.includes("baixo volume") || lower.includes("pequeno")) {
+          textVal = "Varejo / Baixo Volume";
+        } else if (lower.includes("fora") || lower.includes("portfólio") || lower.includes("vidro")) {
+          textVal = "Fora de Portfólio";
+        } else if (lower.includes("cotação") || lower.includes("comparação") || lower.includes("preço")) {
+          textVal = "Cotação para Comparação";
+        } else if (lower.includes("lançamento") || lower.includes("novo") || lower.includes("amostra")) {
+          textVal = "Industrial – Lançamento";
+        } else if (lower.includes("troca") || lower.includes("fornecedor") || lower.includes("concorrente")) {
+          textVal = "Industrial – Troca de Fornecedor";
+        } else {
+          textVal = "Industrial – Recorrência";
+        }
+      }
+
       merged[canonicalKey] = {
         value: textVal.trim(),
         status: "filled",
@@ -600,7 +629,69 @@ export function SdrTab() {
                             : "bg-muted border border-border text-foreground rounded-bl-[5px]"
                         }`}
                       >
-                        {msg.text}
+                        {(() => {
+                          const text = msg.text || "";
+                          const isImage = msg.mediaType === "image" || text.startsWith("[MEDIA:image]") || (msg.mediaUrl && msg.mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)/i));
+                          const isAudio = msg.mediaType === "audio" || text.startsWith("[MEDIA:audio]");
+                          const isDoc = msg.mediaType === "document" || text.startsWith("[MEDIA:document]") || (msg.mediaUrl && msg.mediaUrl.match(/\.(pdf|doc|docx|xls|xlsx)/i)) || text.match(/\.(pdf|doc|docx|xls|xlsx)/i);
+
+                          if (isImage && msg.mediaUrl) {
+                            return (
+                              <div className="space-y-1">
+                                <button
+                                  onClick={() => setPreviewModalImage({ url: msg.mediaUrl!, title: "Imagem enviada no WhatsApp" })}
+                                  className="overflow-hidden rounded-xl border border-white/20 cursor-pointer block max-w-xs hover:opacity-90 transition my-1"
+                                >
+                                  <img src={msg.mediaUrl} alt="Imagem enviada" className="w-full max-h-48 object-cover rounded-xl" />
+                                </button>
+                                {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                              </div>
+                            );
+                          }
+
+                          if (isAudio && msg.mediaUrl) {
+                            return (
+                              <div className="space-y-1 py-0.5">
+                                <audio controls src={msg.mediaUrl} className="w-full max-w-[210px] h-8 rounded-lg my-1" />
+                                {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                              </div>
+                            );
+                          }
+
+                          if (isDoc && msg.mediaUrl) {
+                            const fileName = msg.fileName || "Documento.pdf";
+                            return (
+                              <div className="space-y-1 my-1">
+                                <a
+                                  href={msg.mediaUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 p-2 rounded-xl bg-black/10 border border-white/10 hover:bg-black/20 transition decoration-none text-current"
+                                >
+                                  <div className="h-8 w-8 rounded-lg bg-primary/20 grid place-items-center shrink-0">
+                                    <span className="font-bold text-[10px] uppercase">PDF</span>
+                                  </div>
+                                  <div className="truncate flex-1">
+                                    <p className="font-bold text-[11px] truncate">{fileName}</p>
+                                    <p className="text-[9px] opacity-80">Clique para abrir / baixar</p>
+                                  </div>
+                                </a>
+                                {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                              </div>
+                            );
+                          }
+
+                          if (text.startsWith("[MEDIA:")) {
+                            const mediaTypeLabel = text.includes("image") ? "📷 Imagem" : text.includes("audio") ? "🎙️ Áudio" : "📄 Documento";
+                            return (
+                              <div className="flex items-center gap-1.5 py-1 px-2 rounded-lg bg-black/10 text-[11px] font-semibold my-0.5">
+                                <span>{mediaTypeLabel} recebido no WhatsApp</span>
+                              </div>
+                            );
+                          }
+
+                          return <span className="whitespace-pre-wrap break-words">{text}</span>;
+                        })()}
                         <span
                           className={`block mt-1 text-[9px] ${
                             msg.sender === "bot" ? "text-white/60" : "text-muted-foreground"
