@@ -20,6 +20,7 @@ import {
   Check,
   UserPlus,
   ArrowRight,
+  Shield,
 } from "lucide-react";
 import { Channel, Conversation } from "@/lib/mockData";
 
@@ -320,14 +321,28 @@ export function ContactsView() {
                     </td>
                     <td className="py-3.5 px-6 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button onClick={() => startEditing(c)} className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer">
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Editar Cadastro</TooltipContent>
-                        </Tooltip>
+                        {(() => {
+                          const isValentina = c.id === "valentina" || c.name.toLowerCase().includes("valentina");
+                          return isValentina ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="grid h-8 w-8 place-items-center rounded-lg border border-primary/20 bg-primary-soft/40 text-primary cursor-not-allowed">
+                                  <Shield className="h-3.5 w-3.5" />
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Assistente IA permanente do sistema</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button onClick={() => startEditing(c)} className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer">
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Editar Cadastro</TooltipContent>
+                            </Tooltip>
+                          );
+                        })()}
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button onClick={() => handleStartChat(c.id)} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">
