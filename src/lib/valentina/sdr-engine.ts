@@ -138,17 +138,20 @@ export class SdrEngine {
       const existingCollectedData = (flowState?.collectedData as Record<string, any>) || {};
 
       const hour = new Date().getHours();
-      let greeting = "Olá, bom dia!";
-      if (hour >= 12 && hour < 18) greeting = "Olá, boa tarde!";
-      if (hour >= 18 || hour < 5) greeting = "Olá, boa noite!";
+      let greeting = "Boa tarde!";
+      if (hour >= 5 && hour < 12) greeting = "Bom dia!";
+      if (hour >= 18 || hour < 5) greeting = "Boa noite!";
 
       const isFirstMessage = historyMsgs.length === 0;
 
       const firstMessageRule = isFirstMessage
         ? `🟢 ATENÇÃO CRÍTICA (ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO!):
-   - VOCÊ É OBRIGADA A SE IDENTIFICAR COMO "VALENTINA DA VALEM" NESSA PRIMEIRA INTERAÇÃO!
-   - NUNCA use frases engessadas ou scripts prontos repetitivos! Personalize e adapte a sua fala dinamicamente com base no que o cliente mandou!
-   - Exemplo natural e fluido: "Boa tarde! Tudo joia por aí? Me chamo Valentina, sou da equipe comercial da Valem. Como posso te ajudar hoje?"`
+   - VOCÊ É OBRIGADA A SE IDENTIFICAR COMO "VALENTINA, AQUI DA VALEM" NESSA PRIMEIRA INTERAÇÃO!
+   - NUNCA use termos corporativos ou formais como "sou consultora comercial", "equipe comercial de pré-vendas", "tudo joia por aí?". Fale simples, leve e 100% humana!
+   - ESTRUTURA OBRIGATÓRIA DA PRIMEIRA ABORDAGEM HUMANIZADA (SEMPRE FRAGMENTADA EM BALÕES CURTOS E LEVES NO ARRAY \`messagesToSend\`):
+     * Balão 1: Saudação simples (ex: "${greeting}" ou "${greeting} Tudo bem?")
+     * Balão 2: Apresentação direta e humana: "Meu nome é Valentina, aqui da Valem" (ou "Me chamo Valentina, aqui da Valem")
+     * Balão 3: Pergunta aberta e amigável: "Como posso te ajudar hoje?"`
         : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
    - NUNCA volte a se apresentar se você já se identificou antes na conversa!
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
@@ -309,7 +312,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           aiResult = {
             extractedData: {},
             messagesToSend: [
-              `${greeting} Meu nome é Valentina, da Valem 😊`,
+              greeting,
+              `Meu nome é Valentina, aqui da Valem`,
               `Como posso te ajudar hoje?`
             ],
             isCompleted: false,
