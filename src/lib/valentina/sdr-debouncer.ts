@@ -34,6 +34,19 @@ export class SdrDebouncer {
   }
 
   /**
+   * Limpa e cancela completamente o estado de debounce de uma conversa (!reset)
+   */
+  public clearSession(conversationId: string): void {
+    const session = this.sessions.get(conversationId);
+    if (session) {
+      if (session.timer) clearTimeout(session.timer);
+      if (session.abortController) session.abortController.abort();
+      this.sessions.delete(conversationId);
+      console.log(`[SdrDebouncer] Sessão zerada com sucesso para conversa ${conversationId} via !reset`);
+    }
+  }
+
+  /**
    * Recebe uma nova mensagem do cliente (texto, áudio ou imagem)
    * Aplica 15s de debounce e Stop & Restart imediato se Valentina estiver processando!
    */

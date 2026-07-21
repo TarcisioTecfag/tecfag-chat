@@ -11,7 +11,7 @@ import fs from "fs";
 import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
 import { db } from "../../db";
-import { channelConfigs, contacts, conversations, messages, mediaFiles, responseTimeLogs } from "../../db/schema";
+import { channelConfigs, contacts, conversations, messages, mediaFiles, responseTimeLogs, agentFlowStates } from "../../db/schema";
 import { eq, isNull, and, desc } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
@@ -684,6 +684,58 @@ export class SessionManager {
 
       const convId = conversation?.id || `conv-${Date.now()}`;
       const isFromMe = !!rawMsg.key.fromMe;
+
+      // ── Comando !reset: Zera a triagem e limpa o histórico para recomeçar do zero ──
+      if (text.trim().toLowerCase() === "!reset") {
+        console.log(`[Baileys/Reset] Comando !reset acionado para a conversa ${convId} (${phone})`);
+
+        // 1. Limpar sessão de debounce ativa
+        SdrDebouncer.getInstance().clearSession(convId);
+
+        // 2. Apagar estado de triagem anterior
+        await db.delete(agentFlowStates).where(eq(agentFlowStates.conversationId, convId));
+
+        // 3. Apagar mensagens registradas no banco para essa conversa
+        await db.delete(messages).where(eq(messages.conversationId, convId));
+
+        // 4. Resetar status da conversa no DB para 'automacao' sem operador
+        if (conversation) {
+          await db
+            .update(conversations)
+            .set({
+              queueState: "automacao",
+              operatorId: null,
+              unreadCount: 0,
+              lastMessageText: "🔄 Atendimento resetado via !reset",
+              lastMessageTime: new Date(),
+            })
+            .where(eq(conversations.id, convId));
+        }
+
+        // 5. Notificar a UI via SSE
+        this.notify(tenantId, {
+          type: "queue_update",
+          conversationId: convId,
+          queueState: "automacao",
+          operatorId: null,
+          responsibleName: "Valentina IA",
+        });
+
+        // 6. Responder no WhatsApp confirmando o reset
+        const sock = this.getSession(tenantId);
+        if (sock) {
+          try {
+            const realJid = await resolveRealJid(sock, phone);
+            await sock.sendMessage(realJid, {
+              text: "🔄 Atendimento resetado com sucesso! Apaguei todo o histórico anterior e a Valentina está pronta para começar do zero.",
+            });
+          } catch (err: any) {
+            console.error("[Baileys/Reset] Erro ao enviar resposta no WA:", err?.message);
+          }
+        }
+
+        return;
+      }
 
       // Se a mensagem veio do próprio operador/WhatsApp conectado (fromMe), zera as mensagens não lidas.
       // Se veio do cliente, incrementa as não lidas.
