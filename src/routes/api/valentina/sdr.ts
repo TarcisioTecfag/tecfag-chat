@@ -9,6 +9,28 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+function safeFormatTime(dateVal: any): string {
+  if (!dateVal) return "Agora";
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return "Agora";
+    return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "Agora";
+  }
+}
+
+function safeFormatIso(dateVal: any): string {
+  if (!dateVal) return new Date().toISOString();
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return new Date().toISOString();
+    return d.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
 export const Route = createFileRoute('/api/valentina/sdr')({
   server: {
     handlers: {
@@ -72,7 +94,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             const formattedMessages = realMsgs.map((m) => ({
               sender: m.senderType === "client" ? "client" : "bot",
               text: m.content,
-              time: new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+              time: safeFormatTime(m.sentAt),
             }));
 
             const collectedData = (fs.collectedData as any) || {};
@@ -89,7 +111,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               phone: contact?.phone || "",
               currentStep: fs.currentStep,
               collectedData,
-              startedAt: fs.startedAt ? new Date(fs.startedAt).toISOString() : new Date().toISOString(),
+              startedAt: safeFormatIso(fs.startedAt),
               status,
               outcome: fs.outcome || undefined,
               messages: formattedMessages.length > 0 ? formattedMessages : [
@@ -123,7 +145,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               const formattedMessages = realMsgs.map((m) => ({
                 sender: m.senderType === "client" ? "client" : "bot",
                 text: m.content,
-                time: new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                time: safeFormatTime(m.sentAt),
               }));
 
               sessions.push({
@@ -134,7 +156,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 phone: contact?.phone || "",
                 currentStep: "Em Qualificação",
                 collectedData: {},
-                startedAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
+                startedAt: safeFormatIso(c.createdAt),
                 status: "active",
                 outcome: "in_progress",
                 messages: formattedMessages.length > 0 ? formattedMessages : [
