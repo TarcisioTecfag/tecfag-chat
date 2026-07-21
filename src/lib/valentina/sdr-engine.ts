@@ -381,6 +381,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
+      // 8. Atualizar dados coletados no banco
+      const updatedCollectedData = { ...existingCollectedData };
+
       // Se o lote enviou um CNPJ matematicamente inválido, expurgar qualquer tentativa da IA de preencher CNPJ ou Empresa
       if (detectedCnpjCandidate) {
         const cnpjCheck = await fetchCnpjInfo(detectedCnpjCandidate);
@@ -392,7 +395,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
-      // 8. Atualizar dados coletados no banco
       if (aiResult.extractedData) {
         for (const [k, v] of Object.entries(aiResult.extractedData)) {
           if (v && v.trim() !== "" && !v.toLowerCase().includes("mantem")) {
