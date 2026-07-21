@@ -410,3 +410,5 @@ Seja justo — considere o contexto e o comportamento do cliente.
 
 ${AUDIT_JSON_SCHEMA}`;
 }
+
+export const auditService = AuditService.getInstance();

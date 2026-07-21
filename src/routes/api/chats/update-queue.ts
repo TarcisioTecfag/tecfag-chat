@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { conversations, messages, contacts, operators } from "../../../db/schema";
+import { conversations, contacts, messages, operators } from "../../../db/schema";
 import { eq } from "drizzle-orm";
-import { AuditService } from "../../../lib/audit-service";
 import { SessionManager } from "../../../lib/baileys/session-manager";
+import { auditService } from "../../../lib/audit-service";
 
 export const Route = createFileRoute("/api/chats/update-queue")({
   server: {
@@ -27,80 +27,77 @@ export const Route = createFileRoute("/api/chats/update-queue")({
 
         try {
           const body = await request.json();
-          const { conversationId, queueState, systemMessageText, operatorId, sectorId, isTransfer } = body;
+          const { conversationId, queueState, operatorId, sectorId } = body;
 
           if (!conversationId || !queueState) {
-            return new Response(JSON.stringify({ error: "conversationId e queueState são obrigatórios" }), {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({ error: "conversationId e queueState são obrigatórios" }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
-          // 1. Obter a conversa atual para validar
+          // 1. Verificar se a conversa existe
           const conv = await db.query.conversations.findFirst({
             where: eq(conversations.id, conversationId),
           });
 
           if (!conv) {
-            return new Response(JSON.stringify({ error: "Conversa não encontrada" }), {
-              status: 404,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-
-          // 2. Lock atômico: impede captura dupla.
-          // Se outra operadora já capturou o chat (operatorId existente e diferente do solicitante),
-          // retorna 409 Conflict para que o frontend possa fazer rollback.
-          if (
-            !isTransfer &&
-            queueState === "meus" &&
-            operatorId &&
-            conv.operatorId &&
-            conv.operatorId !== operatorId &&
-            conv.queueState === "meus"
-          ) {
             return new Response(
-              JSON.stringify({ error: "conflict", currentOperatorId: conv.operatorId }),
-              {
-                status: 409,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              }
+              JSON.stringify({ error: "Conversa não encontrada" }),
+              { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 
-          const targetOpId = operatorId !== undefined ? operatorId : conv.operatorId;
+          // 2. Montar objeto de atualização
+          const updateData: Record<string, any> = {
+            queueState,
+            updatedAt: new Date(),
+          };
 
-          // 3. Atualizar o queueState e operatorId no banco
-          await db
-            .update(conversations)
-            .set({
-              queueState,
-              operatorId: targetOpId,
-              sectorId: sectorId !== undefined ? sectorId : (conv as any).sectorId,
-              lastMessageText: systemMessageText || conv.lastMessageText,
-              lastMessageTime: new Date(),
-            })
-            .where(eq(conversations.id, conversationId));
-
-          // 3.5. Se a conversa foi capturada/transferida, vincula à carteira do contato —
-          // apenas quando não havia dono anterior (captura da fila), para não sobrescrever
-          // a carteira em transferências temporárias.
-          if (queueState === "meus" && targetOpId && conv.contactId && !conv.operatorId) {
-            await db
-              .update(contacts)
-              .set({ walletOperatorId: targetOpId })
-              .where(eq(contacts.id, conv.contactId));
+          if (operatorId !== undefined) {
+            updateData.operatorId = operatorId || null;
+          }
+          if (sectorId !== undefined) {
+            updateData.sectorId = sectorId || null;
           }
 
-          // 3.8. Sincronizar o responsável na tabela do cliente (contacts)
+          // 3. Atualizar a conversa no Banco
+          await db
+            .update(conversations)
+            .set(updateData)
+            .where(eq(conversations.id, conversationId));
+
+          // 3.5. Gerar mensagem de auditoria no chat conforme a transição de fila
+          let systemMessageText = "";
+          const targetOpId = operatorId !== undefined ? operatorId : conv.operatorId;
+
+          if (queueState === "meus" && targetOpId) {
+            const op = await db.query.operators.findFirst({
+              where: eq(operators.id, targetOpId),
+            });
+            const opName = op?.name || "Operador";
+            systemMessageText = `Atendimento assumido por ${opName}.`;
+          } else if (queueState === "fila") {
+            systemMessageText = `Atendimento devolvido para a Fila de Espera.`;
+          } else if (queueState === "finalizados") {
+            systemMessageText = `Atendimento encerrado e encaminhado para os Finalizados.`;
+          } else if (queueState === "automacao") {
+            systemMessageText = `Atendimento direcionado para a Automação (Valentina IA).`;
+          }
+
+          // 3.8. Sincronizar o responsável na tabela do cliente (contacts) sem dessincronia
           let respName = "Na Fila";
-          if (targetOpId && queueState === "meus") {
+          if (targetOpId) {
             const op = await db.query.operators.findFirst({
               where: eq(operators.id, targetOpId),
             });
             if (op) {
               respName = op.name;
             }
+          } else if (queueState === "automacao") {
+            respName = "Valentina IA";
+          } else {
+            respName = "Na Fila";
           }
 
           if (conv.contactId) {
@@ -110,9 +107,8 @@ export const Route = createFileRoute("/api/chats/update-queue")({
               .where(eq(contacts.id, conv.contactId));
           }
 
-          // 4. Se enviou uma mensagem de log do sistema, salvar
+          // 4. Salvar mensagem de sistema se houver
           if (systemMessageText) {
-            // Sufixo aleatório para evitar colisão de IDs se dois eventos ocorrem no mesmo ms
             const messageId = `sys-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
             await db.insert(messages).values({
               id: messageId,
@@ -126,9 +122,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             });
           }
 
-          // 5. Notificar TODOS os clientes SSE conectados via evento específico de fila.
-          // Usar type: "queue_update" — distinto de "message" — para o frontend saber
-          // que é apenas uma mudança de estado, sem criar balões de mensagem falsos.
+          // 5. Notificar TODOS os clientes SSE conectados via evento específico de fila
           const finalOperatorId = operatorId !== undefined ? operatorId : conv.operatorId ?? null;
           const finalSectorId = sectorId !== undefined ? sectorId : (conv as any).sectorId ?? null;
 
@@ -143,36 +137,30 @@ export const Route = createFileRoute("/api/chats/update-queue")({
 
           // 6. Se a conversa foi finalizada, enfileira auditoria de IA
           if (queueState === "finalizados") {
-            // Race-condition fix: enqueueAudit é aguardado antes de qualquer batch rodar.
-            // AuditService já está iniciado no boot (alerts.ts) — start() aqui é apenas fallback.
-            (async () => {
-              try {
-                const rows = await db.select({ name: contacts.name })
-                  .from(contacts)
-                  .where(eq(contacts.id, conv.contactId ?? ""))
-                  .limit(1);
-
-                await AuditService.getInstance().enqueueAudit({
-                  tenantId: conv.tenantId,
-                  conversationId,
-                  operatorId: operatorId ?? conv.operatorId,
-                  contactName: rows[0]?.name ?? null,
-                });
-
-                // Garante que o serviço está rodando (caso o servidor reiniciou
-                // sem ter passado pelo alerts.ts antes desta finalização)
-                AuditService.getInstance().start();
-              } catch (e) {
-                console.error("[AuditService] Erro ao enfileirar auditoria:", e);
-              }
-            })();
+            auditService.enqueueAudit({
+              tenantId: conv.tenantId,
+              conversationId,
+              operatorId: finalOperatorId,
+              contactName: null,
+            }).catch((err) =>
+              console.error("[update-queue] Erro ao enfileirar auditoria:", err)
+            );
           }
 
-          return new Response(JSON.stringify({ success: true }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              success: true,
+              conversationId,
+              queueState,
+              operatorId: finalOperatorId,
+              sectorId: finalSectorId,
+              responsibleName: respName,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+
         } catch (e: any) {
-          console.error("Erro ao atualizar fila da conversa no DB:", e);
+          console.error("[api/chats/update-queue] Erro ao atualizar fila da conversa:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },

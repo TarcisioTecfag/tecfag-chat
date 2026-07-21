@@ -302,16 +302,21 @@ export function ContactsView() {
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      {c.responsibleName === "Na Fila" || !c.responsibleName ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
-                          Na Fila
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 font-bold text-foreground">
-                          <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                          {c.responsibleName}
-                        </span>
-                      )}
+                      {(() => {
+                        const opName = c.operatorId ? operators.find(o => o.id === c.operatorId)?.name : null;
+                        const displayName = opName || (c.responsibleName === "Na Fila" || !c.responsibleName ? "Na Fila" : c.responsibleName);
+                        
+                        return displayName === "Na Fila" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                            Na Fila
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 font-bold text-foreground">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                            {displayName}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="py-3.5 px-6 text-right">
                       <div className="flex items-center justify-end gap-2">
