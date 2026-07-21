@@ -262,6 +262,13 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
 11. CONCLUSÃO DA QUALIFICAÇÃO:
    - Quando tiver Produto, Projeto/Empresa, Nome e CNPJ/CPF (ou se o cliente recusou informar previsão/dados adicionais), marque \`isCompleted: true\`.
 
+12. REGRA DE INTERPRETAÇÃO AUTOMÁTICA DO CAMPO "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO":
+   - NUNCA pergunte ao cliente "É projeto ou desenvolvimento?".
+   - Este campo é uma interpretação EXCLUSIVAMENTE SUA com base no pedido:
+     * Se o cliente buscar itens padrão de linha/estoque (ex: válvulas spray, frascos, potes, seladoras), defina em \`extractedData\` como: "Não (Venda Padrão de Estoque)".
+     * Se o cliente buscar itens sob medida, moldes exclusivos ou desenvolvimento personalizado, defina como: "Sim (Desenvolvimento Customizado)".
+     * Assim que o produto for identificado no diálogo, preencha este campo automaticamente sem perguntar nada ao cliente!
+
 Retorne EXCLUSIVAMENTE o JSON no formato:
 {
   "extractedData": {

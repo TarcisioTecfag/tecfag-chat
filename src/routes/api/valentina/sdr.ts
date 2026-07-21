@@ -113,12 +113,26 @@ export const Route = createFileRoute('/api/valentina/sdr')({
 
               let status: "active" | "completed" | "abandoned" = "active";
               if (fs.outcome === "completed" || fs.outcome === "transferred") status = "completed";
-              if (fs.outcome === "abandoned") status = "abandoned";
+              if (fs.outcome === "abandoned" || fs.outcome === "stopped") status = "abandoned";
+
+              const operator = conv?.operatorId
+                ? await db.query.operators.findFirst({
+                    where: (t, { eq: dEq }) => dEq(t.id, conv.operatorId),
+                  })
+                : null;
+
+              let responsibleName = "Valentina IA (Em Triagem)";
+              if (status === "completed") {
+                responsibleName = operator?.name || "Vendedor Alocado (Rodízio)";
+              } else if (fs.outcome === "stopped") {
+                responsibleName = "Interrompido (Atendimento Manual)";
+              }
 
               sessions.push({
                 id: fs.id,
                 conversationId: fs.conversationId,
                 contactName: contact?.name || collectedData["NOME COMPLETO"]?.value || "Contato WhatsApp",
+                contactAvatar: contact?.avatar || null,
                 company: collectedData["EMPRESA"]?.value || "Empresa não informada",
                 phone: contact?.phone || "",
                 currentStep: fs.currentStep,
@@ -126,6 +140,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 startedAt: safeFormatIso(fs.startedAt),
                 status,
                 outcome: fs.outcome || undefined,
+                responsibleName,
                 messages: formattedMessages.length > 0 ? formattedMessages : [
                   { sender: "bot", text: "Atendimento em andamento...", time: "Agora" }
                 ],
@@ -155,6 +170,12 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   where: (t, { eq: dEq }) => dEq(t.id, c.contactId),
                 });
 
+                const operator = c.operatorId
+                  ? await db.query.operators.findFirst({
+                      where: (t, { eq: dEq }) => dEq(t.id, c.operatorId),
+                    })
+                  : null;
+
                 const realMsgs = await db
                   .select()
                   .from(messages)
@@ -172,6 +193,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   id: `fs-auto-${c.id}`,
                   conversationId: c.id,
                   contactName: contact?.name || "Contato WhatsApp",
+                  contactAvatar: contact?.avatar || null,
                   company: "Empresa não informada",
                   phone: contact?.phone || "",
                   currentStep: "Em Qualificação",
@@ -179,6 +201,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   startedAt: safeFormatIso(c.createdAt),
                   status: "active",
                   outcome: "in_progress",
+                  responsibleName: operator?.name || "Valentina IA (Em Triagem)",
                   messages: formattedMessages.length > 0 ? formattedMessages : [
                     { sender: "bot", text: "Atendimento iniciado...", time: "Agora" }
                   ],
@@ -199,11 +222,41 @@ export const Route = createFileRoute('/api/valentina/sdr')({
         });
       },
 
-      // ── POST: Salvar configurações do SDR (enabled, testMode, whitelistPhone) ──
+      // ── POST: Salvar configurações do SDR ou Interromper Valentina ──
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { tenantId = "valem", enabled, testMode, whitelistPhone } = body;
+          const { action, conversationId, tenantId = "valem", enabled, testMode, whitelistPhone } = body;
+
+          // Ação de Parar a Valentina instantaneamente para um contato específico
+          if (action === "stop" && conversationId) {
+            try {
+              const { SdrDebouncer } = await import("../../../lib/valentina/sdr-debouncer");
+              SdrDebouncer.getInstance().clearSession(conversationId);
+            } catch (err) {
+              console.warn("[api/valentina/sdr] Erro ao limpar debouncer no stop:", err);
+            }
+
+            await db
+              .update(agentFlowStates)
+              .set({
+                outcome: "stopped",
+                currentStep: "Interrompido Manualmente",
+                lastInteractionAt: new Date(),
+              })
+              .where(eq(agentFlowStates.conversationId, conversationId));
+
+            await db
+              .update(conversations)
+              .set({
+                queueState: "fila",
+              })
+              .where(eq(conversations.id, conversationId));
+
+            return new Response(JSON.stringify({ success: true, message: "Valentina interrompida para esta conversa." }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
 
           const existingConfig = await db.query.agentConfigs.findFirst({
             where: (table, { eq: dEq, and: dAnd }) =>
@@ -243,7 +296,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           });
 
         } catch (e: any) {
-          console.error("[api/valentina/sdr] Erro ao salvar config SDR:", e);
+          console.error("[api/valentina/sdr] Erro ao processar POST no SDR:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
