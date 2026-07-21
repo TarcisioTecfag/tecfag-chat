@@ -1,8 +1,7 @@
-import { VertexAI, GenerativeModel } from "@google-cloud/vertexai";
+import { GoogleAuth } from "google-auth-library";
 import fs from "fs";
 import path from "path";
 
-// ── Interface de Configuração do Vertex AI ──────────────────────────────────
 export interface VertexConfig {
   projectId?: string;
   location?: string;
@@ -13,7 +12,9 @@ export interface VertexConfig {
 
 class VertexAiService {
   private static instance: VertexAiService;
-  private vertexAi: VertexAI | null = null;
+  private auth: GoogleAuth | null = null;
+  private projectId: string = "valem-chat";
+  private location: string = "us-central1";
   private defaultModelName: string = "gemini-2.5-pro";
   private isConfigured: boolean = false;
   private configError: string | null = null;
@@ -30,7 +31,7 @@ class VertexAiService {
   }
 
   /**
-   * Inicializa o cliente Vertex AI buscando credenciais do arquivo JSON ou variáveis de ambiente.
+   * Inicializa a autenticação leve (pure JS) via google-auth-library
    */
   public init(customConfig?: VertexConfig): void {
     try {
@@ -61,40 +62,40 @@ class VertexAiService {
       }
 
       // Extrair projectId
-      const projectId = customConfig?.projectId || 
-                        process.env.VERTEX_PROJECT_ID || 
-                        credentialsObj?.project_id || 
-                        "valem-chat";
+      this.projectId = customConfig?.projectId || 
+                      process.env.VERTEX_PROJECT_ID || 
+                      credentialsObj?.project_id || 
+                      "project-d51e2a29-9246-4af9-b80";
 
-      const location = customConfig?.location || process.env.VERTEX_LOCATION || "us-central1";
+      this.location = customConfig?.location || process.env.VERTEX_LOCATION || "us-central1";
       this.defaultModelName = customConfig?.defaultModel || process.env.VERTEX_DEFAULT_MODEL || "gemini-2.5-pro";
 
-      const authOptions: any = {};
+      const authOptions: any = {
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      };
+
       if (credentialsObj) {
         authOptions.credentials = credentialsObj;
       } else if (keyFilePath) {
         authOptions.keyFilename = keyFilePath;
+      } else {
+        // Tenta usar default do ambiente
       }
 
-      this.vertexAi = new VertexAI({
-        project: projectId,
-        location,
-        googleAuthOptions: authOptions,
-      });
-
+      this.auth = new GoogleAuth(authOptions);
       this.isConfigured = true;
       this.configError = null;
-      console.log(`[VertexAI] Inicializado com sucesso! Projeto: ${projectId} | Região: ${location} | Modelo padrão: ${this.defaultModelName}`);
+      console.log(`[VertexAI] Autenticação REST inicializada! Projeto: ${this.projectId} | Região: ${this.location} | Modelo padrão: ${this.defaultModelName}`);
 
     } catch (e: any) {
       this.isConfigured = false;
-      this.configError = e.message || "Erro desconhecido ao inicializar Vertex AI.";
+      this.configError = e.message || "Erro ao inicializar GoogleAuth.";
       console.warn(`[VertexAI] Falha na inicialização: ${this.configError}`);
     }
   }
 
   public isReady(): boolean {
-    return this.isConfigured && this.vertexAi !== null;
+    return this.isConfigured && this.auth !== null;
   }
 
   public getError(): string | null {
@@ -102,39 +103,69 @@ class VertexAiService {
   }
 
   /**
-   * Retorna um GenerativeModel do Vertex AI para o modelo especificado (ex: 'gemini-2.5-pro', 'gemini-2.5-flash').
+   * Obtém token OAuth2 de acesso do Google Cloud
    */
-  public getModel(modelName?: string): GenerativeModel | null {
-    if (!this.vertexAi) {
-      this.init(); // Tenta re-inicializar caso credenciais tenham sido adicionadas
-      if (!this.vertexAi) return null;
-    }
-
-    const targetModel = modelName || this.defaultModelName;
-    return this.vertexAi.getGenerativeModel({
-      model: targetModel,
-    });
-  }
-
-  /**
-   * Executa uma geração de texto simples usando Gemini no Vertex AI.
-   */
-  public async generateText(prompt: string, modelName?: string): Promise<string | null> {
-    const model = this.getModel(modelName);
-    if (!model) {
-      console.warn("[VertexAI] Modelo não disponível. Verifique o arquivo JSON de credenciais.");
-      return null;
+  private async getAccessToken(): Promise<string | null> {
+    if (!this.auth) {
+      this.init();
+      if (!this.auth) return null;
     }
 
     try {
-      const resp = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      const client = await this.auth.getClient();
+      const tokenRes = await client.getAccessToken();
+      return tokenRes.token || null;
+    } catch (e: any) {
+      console.error("[VertexAI] Erro ao obter token de acesso OAuth2:", e?.message || e);
+      return null;
+    }
+  }
+
+  /**
+   * Executa uma geração de texto simples via REST API no Vertex AI (Gemini 2.5 Pro)
+   */
+  public async generateText(prompt: string, modelName?: string): Promise<string | null> {
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) {
+      console.warn("[VertexAI] Não foi possível obter token de acesso. Verifique credenciais.");
+      return null;
+    }
+
+    const model = modelName || this.defaultModelName;
+    const url = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${this.location}/publishers/google/models/${model}:generateContent`;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+          },
+        }),
       });
 
-      const responseText = resp.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error(`[VertexAI] Erro HTTP ${response.status} na API Vertex AI:`, errText);
+        return null;
+      }
+
+      const data: any = await response.json();
+      const responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       return responseText || null;
+
     } catch (e: any) {
-      console.error("[VertexAI] Erro ao chamar generateContent:", e?.message || e);
+      console.error("[VertexAI] Erro na chamada REST Vertex AI:", e?.message || e);
       return null;
     }
   }
@@ -149,7 +180,6 @@ class VertexAiService {
     if (!rawText) return null;
 
     try {
-      // Limpar potenciais marcadores markdown
       const cleaned = rawText
         .replace(/^```json\s*/i, "")
         .replace(/^```\s*/i, "")
@@ -158,7 +188,7 @@ class VertexAiService {
 
       return JSON.parse(cleaned) as T;
     } catch (e: any) {
-      console.error("[VertexAI] Erro ao parsear JSON retornado pelo Gemini 2.5:", e?.message, rawText);
+      console.error("[VertexAI] Erro ao parsear JSON retornado pelo Gemini:", e?.message, rawText);
       return null;
     }
   }
