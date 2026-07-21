@@ -21,6 +21,7 @@ import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
+import { Route as ApiValentinaRodizioRouteImport } from './routes/api/valentina/rodizio'
 import { Route as ApiValentinaMessagesRouteImport } from './routes/api/valentina/messages'
 import { Route as ApiValentinaKnowledgeRouteImport } from './routes/api/valentina/knowledge'
 import { Route as ApiValentinaConfigRouteImport } from './routes/api/valentina/config'
@@ -106,6 +107,11 @@ const ApiCallsRoute = ApiCallsRouteImport.update({
 const ApiValentinaSdrRoute = ApiValentinaSdrRouteImport.update({
   id: '/api/valentina/sdr',
   path: '/api/valentina/sdr',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaRodizioRoute = ApiValentinaRodizioRouteImport.update({
+  id: '/api/valentina/rodizio',
+  path: '/api/valentina/rodizio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiValentinaMessagesRoute = ApiValentinaMessagesRouteImport.update({
@@ -277,6 +283,7 @@ export interface FileRoutesByFullPath {
   '/api/valentina/config': typeof ApiValentinaConfigRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
+  '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -317,6 +324,7 @@ export interface FileRoutesByTo {
   '/api/valentina/config': typeof ApiValentinaConfigRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
+  '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -358,6 +366,7 @@ export interface FileRoutesById {
   '/api/valentina/config': typeof ApiValentinaConfigRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
+  '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -400,6 +409,7 @@ export interface FileRouteTypes {
     | '/api/valentina/config'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
+    | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
@@ -440,6 +450,7 @@ export interface FileRouteTypes {
     | '/api/valentina/config'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
+    | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
@@ -480,6 +491,7 @@ export interface FileRouteTypes {
     | '/api/valentina/config'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
+    | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
@@ -518,6 +530,7 @@ export interface RootRouteChildren {
   ApiValentinaConfigRoute: typeof ApiValentinaConfigRoute
   ApiValentinaKnowledgeRoute: typeof ApiValentinaKnowledgeRoute
   ApiValentinaMessagesRoute: typeof ApiValentinaMessagesRoute
+  ApiValentinaRodizioRoute: typeof ApiValentinaRodizioRoute
   ApiValentinaSdrRoute: typeof ApiValentinaSdrRoute
 }
 
@@ -605,6 +618,13 @@ declare module '@tanstack/react-router' {
       path: '/api/valentina/sdr'
       fullPath: '/api/valentina/sdr'
       preLoaderRoute: typeof ApiValentinaSdrRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/rodizio': {
+      id: '/api/valentina/rodizio'
+      path: '/api/valentina/rodizio'
+      fullPath: '/api/valentina/rodizio'
+      preLoaderRoute: typeof ApiValentinaRodizioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina/messages': {
@@ -874,6 +894,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaConfigRoute: ApiValentinaConfigRoute,
   ApiValentinaKnowledgeRoute: ApiValentinaKnowledgeRoute,
   ApiValentinaMessagesRoute: ApiValentinaMessagesRoute,
+  ApiValentinaRodizioRoute: ApiValentinaRodizioRoute,
   ApiValentinaSdrRoute: ApiValentinaSdrRoute,
 }
 export const routeTree = rootRouteImport

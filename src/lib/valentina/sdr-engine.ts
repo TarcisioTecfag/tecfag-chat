@@ -391,31 +391,34 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         targetQuoteItem
       );
 
-      // 10. Notificar Supervisor se concluído
+      // 10. Alocar responsável no Rodízio e Notificar Supervisor se concluído
       if (isCompleted && !signal?.aborted) {
         try {
-          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente";
+          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp";
           const company = updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
-          const supervisorNotifId = `notif-${Date.now()}`;
-          const firstOp = await db.query.operators.findFirst({
-            where: (t, { eq: dEq }) => dEq(t.tenantId, tenantId),
-          });
 
-          if (firstOp) {
+          // Alocação real do próximo vendedor disponível no rodízio
+          const { RodizioEngine } = await import("./rodizio-engine");
+          const allocatedOp = await RodizioEngine.allocateNextOperator(tenantId, conversationId, clientName);
+
+          const supervisorNotifId = `notif-${Date.now()}`;
+          const targetOpId = allocatedOp?.id;
+
+          if (targetOpId) {
             await db.insert(internalMessages).values({
               id: supervisorNotifId,
               tenantId,
-              operatorId: firstOp.id,
+              operatorId: targetOpId,
               direction: "from_agent",
               agentType: "supervisor",
-              content: `🎯 Lead qualificado pelo SDR Valentina com Gemini 2.5 Pro: *${clientName}* (${company}). Pronto para transferência!`,
+              content: `🎯 Lead qualificado pela Valentina: *${clientName}* (${company}). Atendimento alocado automaticamente para *${allocatedOp.name}* no rodízio!`,
               metadata: { type: "lead_transfer", conversationId },
               read: 0,
               createdAt: new Date(),
             });
           }
         } catch (err: any) {
-          console.error("[SdrEngine] Erro ao notificar supervisor:", err?.message);
+          console.error("[SdrEngine] Erro ao alocar responsável no rodízio:", err?.message);
         }
       }
 
