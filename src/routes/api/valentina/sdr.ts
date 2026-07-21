@@ -75,11 +75,10 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao buscar agentConfigs (usando fallback seguro):", err);
         }
 
-        // 2. Tentar buscar sessões registradas em agentFlowStates do tenant atual
+        // 2. Tentar buscar sessões registradas em agentFlowStates do banco (todos os tenants ativos)
         try {
           let flowStates = await db.select()
             .from(agentFlowStates)
-            .where(eq(agentFlowStates.tenantId, tenantId))
             .orderBy(desc(agentFlowStates.lastInteractionAt))
             .limit(50);
 
@@ -88,7 +87,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               addedConvIds.add(fs.conversationId);
 
               const conv = await db.query.conversations.findFirst({
-                where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, fs.conversationId), dEq(t.tenantId, tenantId)),
+                where: (t, { eq: dEq }) => dEq(t.id, fs.conversationId),
               });
 
               const contact = conv
@@ -161,16 +160,18 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao buscar agentFlowStates:", err);
         }
 
-        // 3. Tentar buscar todas as conversas ativas do tenant atual
+        // 3. Tentar buscar todas as conversas ativas reais do banco (excluindo apenas dados mock de teste tec-1/tec-2)
         try {
           const allConvs = await db
             .select()
             .from(conversations)
-            .where(eq(conversations.tenantId, tenantId))
             .orderBy(desc(conversations.lastMessageTime))
             .limit(50);
 
           for (const c of allConvs) {
+            // Ignorar dados de seed mock antigos (tec-1, tec-2)
+            if (c.id === "tec-1" || c.id === "tec-2") continue;
+
             if (!addedConvIds.has(c.id)) {
               try {
                 addedConvIds.add(c.id);
