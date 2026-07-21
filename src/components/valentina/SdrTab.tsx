@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   UserPlus, CheckCircle, Clock, XCircle, Bot, User as UserIcon,
-  ChevronRight, Circle, Search, ExternalLink, ShieldCheck, Smartphone,
+  ChevronRight, ChevronDown, Circle, Search, ExternalLink, ShieldCheck, Smartphone,
   Power, Save, RefreshCw, MessageSquare, Square, UserCheck, Calendar, Filter, X
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
