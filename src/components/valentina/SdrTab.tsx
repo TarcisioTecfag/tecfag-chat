@@ -36,28 +36,45 @@ const DEFAULT_SDR_FIELDS = [
   "QUALIFICAÇÃO (TEMPERATURA)",
 ];
 
+function normalizeKey(key: string): string {
+  const clean = key.toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]/g, " ")
+    .trim();
+
+  if (clean.includes("NOME")) return "NOME COMPLETO";
+  if (clean.includes("EMPRESA") || clean.includes("RAZAO")) return "EMPRESA";
+  if (clean.includes("CNPJ") || clean.includes("CPF") || clean.includes("DOCUMENTO")) return "CNPJ OU CPF";
+  if (clean.includes("PRODUTO")) return "QUAL O TIPO DE PRODUTO?";
+  if (clean.includes("PROJETO") || clean.includes("DESENVOLVIMENTO")) return "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO";
+  if (clean.includes("TEMPERATURA")) return "QUALIFICAÇÃO (TEMPERATURA)";
+  if (clean.includes("QUALIFICACAO")) return "TIPO DE QUALIFICAÇÃO";
+
+  return key.trim().toUpperCase();
+}
+
 function getMergedCollectedData(rawCollected: Record<string, any> = {}) {
   const merged: Record<string, { value: string; status: "filled" | "pending" }> = {};
   
   for (const field of DEFAULT_SDR_FIELDS) {
-    if (rawCollected[field] && rawCollected[field].value && rawCollected[field].status === "filled") {
-      merged[field] = {
-        value: rawCollected[field].value,
-        status: "filled",
-      };
-    } else {
-      merged[field] = {
-        value: "Aguardando...",
-        status: "pending",
-      };
-    }
+    merged[field] = {
+      value: "Aguardando...",
+      status: "pending",
+    };
   }
 
-  for (const [key, val] of Object.entries(rawCollected)) {
-    if (!merged[key] && val) {
-      merged[key] = {
-        value: typeof val === "string" ? val : val.value || "Aguardando...",
-        status: val.status === "filled" || typeof val === "string" ? "filled" : "pending",
+  for (const [rawKey, rawVal] of Object.entries(rawCollected)) {
+    if (!rawVal) continue;
+    const textVal = typeof rawVal === "string" ? rawVal : rawVal.value;
+    const isFilled = typeof rawVal === "object" && rawVal.status === "filled" 
+      ? true 
+      : Boolean(textVal && textVal.trim() !== "" && textVal !== "Aguardando..." && !textVal.toLowerCase().includes("mantem"));
+
+    if (isFilled && textVal) {
+      const canonicalKey = normalizeKey(rawKey);
+      merged[canonicalKey] = {
+        value: textVal.trim(),
+        status: "filled",
       };
     }
   }
@@ -403,19 +420,25 @@ export function SdrTab() {
                   ))}
                 </AnimatePresence>
 
-                {selectedSession.outcome && (
+                {selectedSession.outcome && selectedSession.outcome !== "in_progress" && (
                   <div className="flex justify-center mt-3 animate-fadeIn">
                     <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold ${
-                      selectedSession.status === "completed"
+                      selectedSession.status === "completed" || selectedSession.outcome === "completed" || selectedSession.outcome === "transferred"
                         ? "bg-emerald-100 text-emerald-700"
                         : "bg-red-100 text-red-600"
                     }`}>
-                      {selectedSession.status === "completed" ? (
+                      {selectedSession.status === "completed" || selectedSession.outcome === "completed" || selectedSession.outcome === "transferred" ? (
                         <CheckCircle className="h-3 w-3" />
                       ) : (
                         <XCircle className="h-3 w-3" />
                       )}
-                      {selectedSession.outcome}
+                      {selectedSession.outcome === "completed"
+                        ? "Triagem Concluída"
+                        : selectedSession.outcome === "transferred"
+                        ? "Transferido para Vendedor"
+                        : selectedSession.outcome === "abandoned"
+                        ? "Atendimento Abandonado"
+                        : selectedSession.outcome}
                     </span>
                   </div>
                 )}
