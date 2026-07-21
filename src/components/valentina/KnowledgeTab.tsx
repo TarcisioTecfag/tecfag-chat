@@ -10,18 +10,17 @@ import {
 import { useChat } from "@/hooks/useChatState";
 import { 
   Folder as FolderType, 
-  KnowledgeFile as FileType, 
-  INITIAL_FOLDERS, 
-  INITIAL_KNOWLEDGE_FILES 
+  KnowledgeFile as FileType,
 } from "./valentina-mock-data";
 
 export function KnowledgeTab() {
   const { setSelectedChatId, setActiveView } = useChat();
 
   // ── States ──────────────────────────────────────────────────────────────────
-  const [folders, setFolders] = useState<FolderType[]>(INITIAL_FOLDERS);
-  const [files, setFiles] = useState<FileType[]>(INITIAL_KNOWLEDGE_FILES);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>("f-1");
+  const [folders, setFolders] = useState<FolderType[]>([]);
+  const [files, setFiles] = useState<FileType[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [isLoadingFolders, setIsLoadingFolders] = useState(true);
   
   // Modals / Criação / Edição
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -42,16 +41,18 @@ export function KnowledgeTab() {
 
   // ── Carregar Dados Reais da API no Inicio ─────────────────────────────────
   React.useEffect(() => {
+    setIsLoadingFolders(true);
     fetch("/api/valentina/knowledge?tenantId=valem")
       .then((res) => res.json())
       .then((data) => {
         if (data.folders) setFolders(data.folders);
         if (data.files) setFiles(data.files);
-        if (data.folders && data.folders.length > 0 && !selectedFolderId) {
+        if (data.folders && data.folders.length > 0) {
           setSelectedFolderId(data.folders[0].id);
         }
       })
-      .catch((err) => console.warn("[KnowledgeTab] Erro ao carregar do servidor:", err));
+      .catch((err) => console.warn("[KnowledgeTab] Erro ao carregar do servidor:", err))
+      .finally(() => setIsLoadingFolders(false));
   }, []);
 
   // ── Operações de Pasta ──────────────────────────────────────────────────────
@@ -476,12 +477,17 @@ export function KnowledgeTab() {
           onDrop={handleRootDrop}
           className="flex-1 overflow-y-auto space-y-0.5 scrollbar-thin pr-1 min-h-0"
         >
-          {folders.filter((f) => f.parentId === null).length === 0 && (
+          {isLoadingFolders ? (
+            <div className="space-y-2 pt-2">
+              {[1,2,3].map(i => (
+                <div key={i} className="h-8 bg-muted/40 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : folders.filter((f) => f.parentId === null).length === 0 ? (
             <div className="text-center text-muted-foreground text-[11px] py-12">
               Nenhuma pasta criada.
             </div>
-          )}
-          {renderFolders(null)}
+          ) : renderFolders(null)}
         </div>
         
         <div className="mt-3 p-2 bg-muted/40 rounded-xl text-[10px] text-muted-foreground text-center border border-border/50">

@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, contacts, messages, internalMessages } from "../../db/schema";
-import { eq, desc, asc, and, isNull } from "drizzle-orm";
+import { agentConfigs, agentFlowStates, conversations, messages, internalMessages } from "../../db/schema";
+import { eq, asc } from "drizzle-orm";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
@@ -146,11 +146,12 @@ export class SdrEngine {
 
       const firstMessageRule = isFirstMessage
         ? `🟢 ATENÇÃO CRÍTICA (ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO!):
-   - A mensagem 1 DEVE ser obrigatoriamente: "${greeting} Meu nome é Valentina, da Valem 😊"
-   - A mensagem 2 DEVE ser: "Como posso te ajudar hoje?"`
+   - VOCÊ É OBRIGADA A SE IDENTIFICAR COMO "VALENTINA DA VALEM" NESSA PRIMEIRA INTERAÇÃO!
+   - NUNCA use frases engessadas ou scripts prontos repetitivos! Personalize e adapte a sua fala dinamicamente com base no que o cliente mandou!
+   - Exemplo natural e fluido: "Boa tarde! Tudo joia por aí? Me chamo Valentina, sou da equipe comercial da Valem. Como posso te ajudar hoje?"`
         : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
-   - NUNCA diga "Olá", NUNCA diga "Meu nome é Valentina", NUNCA diga "da Valem", NUNCA volte a se apresentar!
-   - Responda DIRETO ao que o cliente disse no lote de forma fluida e conversacional!`;
+   - NUNCA volte a se apresentar se você já se identificou antes na conversa!
+   - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
 
       const currentDataSummary: Record<string, string> = {};
       for (const [k, v] of Object.entries(existingCollectedData)) {
@@ -242,8 +243,10 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - REGRA 2 (Perguntas Espontâneas do Cliente): Se o cliente fez uma pergunta espontânea do nada e não estava apenas respondendo a uma pergunta sua (ex: "Vocês têm o catálogo pra me mandar?", "Onde vocês ficam???", "Quanto custa o frete?"), você DEVE selecionar o ID exato dessa pergunta em "quoteMessageId".
    - REGRA 3 (Uso Restrito / Triagem Normal): Em respostas normais do fluxo de qualificação (ex: o cliente apenas informou o nome "Pedro" ou respondeu "Sim" para a confirmação do CNPJ), DEIXE "quoteMessageId": null. NUNCA cite mensagens em triagens simples.
 
-9. FRAGMENTAÇÃO DE MENSAGENS:
-   - Retorne de 1 a no máximo 2 mensagens CURTAS (no array \`messagesToSend\`). NUNCA ultrapasse 2 linhas por mensagem!
+9. LIBERDADE DE FRAGMENTAÇÃO EM MENSAGENS:
+   - Divida sua resposta no array \`messagesToSend\` em balões de mensagem menores para dar fluidez de conversa humana real no WhatsApp.
+   - Se o cliente enviou um lote com várias mensagens ou perguntas picadas, responda de forma fragmentada (ex: 2, 3 ou 4 mensagens curtas separadas no array), sem embolar tudo num balão só!
+   - Mantenha cada fragmento curto e direto (máximo 2 a 3 linhas por balão).
 
 10. SOLICITAÇÃO DE CATÁLOGO E INFORMAÇÕES DE PRODUTOS (LINK VALEMPACK):
    - Sempre que o cliente pedir o CATÁLOGO, quiser ver mais informações sobre os produtos ou quiser conhecer tudo o que a Valem vende:
