@@ -7,7 +7,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   UserPlus, CheckCircle, Clock, XCircle, Bot, User as UserIcon,
   ChevronRight, ChevronDown, Circle, Search, ExternalLink, ShieldCheck, Smartphone,
-  Power, Save, RefreshCw, MessageSquare, Square, UserCheck, Calendar, Filter, X
+  Power, Save, RefreshCw, MessageSquare, Square, UserCheck, Calendar, Filter, X,
+  Play, Pause, FileText, Download
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { toast } from "sonner";
@@ -39,6 +40,68 @@ export interface SdrTriageSession {
 }
 
 const VALENTINA_AVATAR = "/valentina.png";
+
+function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState<number>(0);
+  const [currentTime, setCurrentTime] = useState<number>(0);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play().catch((err) => console.error("Erro ao tocar áudio:", err));
+      setIsPlaying(true);
+    }
+  };
+
+  const formatTime = (secs: number) => {
+    if (isNaN(secs) || secs <= 0) return "0:00";
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
+
+  return (
+    <div className="flex items-center gap-3 py-1 px-1 min-w-[210px] max-w-[250px]">
+      <audio
+        ref={audioRef}
+        src={src}
+        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        }}
+      />
+      <button
+        type="button"
+        onClick={togglePlay}
+        className={`h-9 w-9 rounded-full grid place-items-center shrink-0 transition cursor-pointer shadow-soft ${
+          isBot ? "bg-white text-primary hover:bg-white/90" : "bg-primary text-white hover:bg-primary-hover"
+        }`}
+      >
+        {isPlaying ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current ml-0.5" />}
+      </button>
+
+      <div className="flex-1 space-y-1">
+        <div className="relative w-full h-1.5 rounded-full bg-black/10 overflow-hidden cursor-pointer">
+          <div
+            className={`h-full rounded-full transition-all duration-100 ${isBot ? "bg-white" : "bg-primary"}`}
+            style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+          />
+        </div>
+        <div className="flex justify-between items-center text-[9px] opacity-80 font-mono">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const DEFAULT_SDR_FIELDS = [
   "NOME COMPLETO",
@@ -631,61 +694,76 @@ export function SdrTab() {
                       >
                         {(() => {
                           const text = msg.text || "";
-                          const isImage = msg.mediaType === "image" || text.startsWith("[MEDIA:image]") || (msg.mediaUrl && msg.mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)/i));
-                          const isAudio = msg.mediaType === "audio" || text.startsWith("[MEDIA:audio]");
-                          const isDoc = msg.mediaType === "document" || text.startsWith("[MEDIA:document]") || (msg.mediaUrl && msg.mediaUrl.match(/\.(pdf|doc|docx|xls|xlsx)/i)) || text.match(/\.(pdf|doc|docx|xls|xlsx)/i);
+                          let mediaUrl = msg.mediaUrl || null;
+                          let mediaType = msg.mediaType || null;
+                          let fileName = msg.fileName || null;
 
-                          if (isImage && msg.mediaUrl) {
+                          if (text.startsWith("[MEDIA:")) {
+                            const match = text.match(/^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/);
+                            if (match) {
+                              const type = match[1];
+                              const mediaId = match[2];
+                              const fn = match[3];
+
+                              mediaType = type === "sticker" ? "image" : type;
+                              if (!mediaUrl) {
+                                mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
+                              }
+                              if (fn && !fileName) {
+                                fileName = fn;
+                              }
+                            }
+                          }
+
+                          const isImage = mediaType === "image" || (mediaUrl && mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)/i));
+                          const isAudio = mediaType === "audio" || (mediaUrl && mediaUrl.match(/\.(ogg|mp3|wav|m4a|opus)/i));
+                          const isDoc = mediaType === "document" || (mediaUrl && mediaUrl.match(/\.(pdf|doc|docx|xls|xlsx)/i)) || text.match(/\.(pdf|doc|docx|xls|xlsx)/i);
+
+                          if (isImage && mediaUrl) {
                             return (
-                              <div className="space-y-1">
+                              <div className="space-y-1 my-1">
                                 <button
-                                  onClick={() => setPreviewModalImage({ url: msg.mediaUrl!, title: "Imagem enviada no WhatsApp" })}
-                                  className="overflow-hidden rounded-xl border border-white/20 cursor-pointer block max-w-xs hover:opacity-90 transition my-1"
+                                  onClick={() => setPreviewModalImage({ url: mediaUrl!, title: "Imagem enviada no WhatsApp" })}
+                                  className="overflow-hidden rounded-2xl border border-white/20 cursor-pointer block max-w-xs hover:opacity-95 transition shadow-soft group"
                                 >
-                                  <img src={msg.mediaUrl} alt="Imagem enviada" className="w-full max-h-48 object-cover rounded-xl" />
+                                  <img src={mediaUrl} alt="Imagem enviada" className="w-full max-h-56 object-cover rounded-2xl group-hover:scale-[1.02] transition duration-300" />
                                 </button>
                                 {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
                               </div>
                             );
                           }
 
-                          if (isAudio && msg.mediaUrl) {
+                          if (isAudio && mediaUrl) {
                             return (
                               <div className="space-y-1 py-0.5">
-                                <audio controls src={msg.mediaUrl} className="w-full max-w-[210px] h-8 rounded-lg my-1" />
+                                <AudioPlayerBubble src={mediaUrl} isBot={msg.sender === "bot"} />
                                 {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
                               </div>
                             );
                           }
 
-                          if (isDoc && msg.mediaUrl) {
-                            const fileName = msg.fileName || "Documento.pdf";
+                          if (isDoc && mediaUrl) {
                             return (
                               <div className="space-y-1 my-1">
                                 <a
-                                  href={msg.mediaUrl}
+                                  href={mediaUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="flex items-center gap-2 p-2 rounded-xl bg-black/10 border border-white/10 hover:bg-black/20 transition decoration-none text-current"
+                                  className={`flex items-center gap-3 p-2.5 rounded-2xl border transition decoration-none text-current ${
+                                    msg.sender === "bot" ? "bg-white/10 border-white/20 hover:bg-white/20" : "bg-black/5 border-black/10 hover:bg-black/10"
+                                  }`}
                                 >
-                                  <div className="h-8 w-8 rounded-lg bg-primary/20 grid place-items-center shrink-0">
-                                    <span className="font-bold text-[10px] uppercase">PDF</span>
+                                  <div className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 ${msg.sender === "bot" ? "bg-white/20 text-white" : "bg-primary/20 text-primary"}`}>
+                                    <FileText className="h-5 w-5" />
                                   </div>
                                   <div className="truncate flex-1">
-                                    <p className="font-bold text-[11px] truncate">{fileName}</p>
-                                    <p className="text-[9px] opacity-80">Clique para abrir / baixar</p>
+                                    <p className="font-bold text-[11px] truncate">{fileName || "Documento.pdf"}</p>
+                                    <p className="text-[9px] opacity-80 flex items-center gap-1 mt-0.5">
+                                      <Download className="h-3 w-3 inline" /> Clique para abrir / baixar
+                                    </p>
                                   </div>
                                 </a>
                                 {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
-                              </div>
-                            );
-                          }
-
-                          if (text.startsWith("[MEDIA:")) {
-                            const mediaTypeLabel = text.includes("image") ? "📷 Imagem" : text.includes("audio") ? "🎙️ Áudio" : "📄 Documento";
-                            return (
-                              <div className="flex items-center gap-1.5 py-1 px-2 rounded-lg bg-black/10 text-[11px] font-semibold my-0.5">
-                                <span>{mediaTypeLabel} recebido no WhatsApp</span>
                               </div>
                             );
                           }

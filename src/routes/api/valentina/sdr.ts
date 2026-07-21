@@ -103,15 +103,18 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 .orderBy(asc(messages.sentAt))
                 .limit(100);
 
-              const formattedMessages = realMsgs.map((m) => ({
-                id: m.id,
-                sender: m.senderType === "client" ? "client" : "bot",
-                text: m.content,
-                time: safeFormatTime(m.sentAt),
-                mediaUrl: m.mediaUrl || null,
-                mediaType: m.mediaType || null,
-                fileName: m.fileName || null,
-              }));
+              const formattedMessages = realMsgs.map((m) => {
+                const mediaInfo = parseMediaInfo(m.content, m.mediaUrl, m.mediaType, m.fileName);
+                return {
+                  id: m.id,
+                  sender: m.senderType === "client" ? "client" : "bot",
+                  text: m.content,
+                  time: safeFormatTime(m.sentAt),
+                  mediaUrl: mediaInfo.mediaUrl,
+                  mediaType: mediaInfo.mediaType,
+                  fileName: mediaInfo.fileName,
+                };
+              });
 
               const collectedData = (fs.collectedData as any) || {};
 
@@ -187,15 +190,18 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   .orderBy(asc(messages.sentAt))
                   .limit(100);
 
-                const formattedMessages = realMsgs.map((m) => ({
-                  id: m.id,
-                  sender: m.senderType === "client" ? "client" : "bot",
-                  text: m.content,
-                  time: safeFormatTime(m.sentAt),
-                  mediaUrl: m.mediaUrl || null,
-                  mediaType: m.mediaType || null,
-                  fileName: m.fileName || null,
-                }));
+                const formattedMessages = realMsgs.map((m) => {
+                  const mediaInfo = parseMediaInfo(m.content, m.mediaUrl, m.mediaType, m.fileName);
+                  return {
+                    id: m.id,
+                    sender: m.senderType === "client" ? "client" : "bot",
+                    text: m.content,
+                    time: safeFormatTime(m.sentAt),
+                    mediaUrl: mediaInfo.mediaUrl,
+                    mediaType: mediaInfo.mediaType,
+                    fileName: mediaInfo.fileName,
+                  };
+                });
 
                 sessions.push({
                   id: `fs-auto-${c.id}`,
