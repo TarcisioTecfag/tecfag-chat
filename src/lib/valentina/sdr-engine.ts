@@ -49,7 +49,7 @@ export function getMirroredGreeting(firstMessageText: string): { greeting: strin
   return { greeting, cleanRest: textLower };
 }
 
-// ── Classe Principal SdrEngine (Humanizada, Debounced & Multimodal Gemini 2.5 Pro) ─────
+// ── Classe Principal SdrEngine (Humanizada, Anti-Repetição & Gemini 2.5 Pro) ─────
 export class SdrEngine {
   private static instance: SdrEngine;
 
@@ -62,9 +62,6 @@ export class SdrEngine {
     return SdrEngine.instance;
   }
 
-  /**
-   * Legacy wrapper para chamadas pontuais (redireciona para o fluxo de lote simples)
-   */
   public async processIncomingMessage(
     tenantId: string,
     conversationId: string,
@@ -80,7 +77,6 @@ export class SdrEngine {
 
   /**
    * Processa o LOTE CONSOLIDADO de mensagens do cliente acumulado após 15s de debouncers.
-   * Suporta Stop & Restart (via AbortSignal), texto, áudio e imagens base64.
    */
   public async processBatchMessages(
     tenantId: string,
@@ -172,6 +168,11 @@ export class SdrEngine {
         .map((m) => `${m.senderType === "client" ? "Cliente" : "Valentina"}: ${m.content}`)
         .join("\n");
 
+      // Verificar se já houve algum emoji enviado anteriormente na conversa
+      const hasPreviousEmoji = recentMessages.some((m) =>
+        m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)
+      );
+
       // 5. Consolidar as mensagens deste lote de 15 segundos
       const batchSummary = batchItems
         .map((item, idx) => {
@@ -187,7 +188,15 @@ export class SdrEngine {
       const firstTextItem = batchItems.find((i) => i.text.trim().length > 0)?.text || "olá";
       const { greeting } = getMirroredGreeting(firstTextItem);
 
-      // 6. Montar partes multimodais para o Gemini 2.5 Pro (Texto + Imagens e Áudios em Base64)
+      // Instrução estrita sobre apresentação inicial vs sequência da conversa
+      const firstMessageRule = isFirstMessage
+        ? `🟢 ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO.
+   - A mensagem 1 DEVE ser exatamente: "${greeting} Meu nome é Valentina, da Valem 😊"
+   - A mensagem 2 DEVE ser: "Como posso te ajudar hoje?"`
+        : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
+   - NUNCA diga "Olá", NUNCA diga "Meu nome é Valentina", NUNCA diga "da Valem", NUNCA volte a se apresentar!
+   - Responda DIRETO ao que o cliente disse no lote de forma fluida e conversacional!`;
+
       const currentDataSummary: Record<string, string> = {};
       for (const [k, v] of Object.entries(existingCollectedData)) {
         currentDataSummary[k] = v.value;
@@ -195,44 +204,49 @@ export class SdrEngine {
 
       const promptText = `Você é a Valentina, a consultora comercial pré-vendas (SDR) humana da Valem (empresa de válvulas aerosol/spray, seladoras, embaladoras e componentes industriais).
 
-HISTÓRICO COMPLETO DA CONVERSA:
+HISTÓRICO COMPLETO DA CONVERSA ATE AGORA:
 ${conversationHistoryText}
 
-NOVAS MENSAGENS E ARQUIVOS ENVIADOS PELO CLIENTE NESTE LOTE CONSOLIDADO:
+NOVAS MENSAGENS RECEBIDAS NESTE LOTE CONSOLIDADO:
 ${batchSummary}
 
 DADOS JÁ COLETADOS ATÉ O MOMENTO:
 ${JSON.stringify(currentDataSummary, null, 2)}
 
-ESTA É A PRIMEIRA MENSAGEM DO CLIENTE? ${isFirstMessage ? "SIM" : "NÃO"}
-SAUDAÇÃO ESPELHADA CALCULADA: "${greeting}"
+DIRETRIZ DE APRESENTAÇÃO E CONTINUIDADE:
+${firstMessageRule}
 
-REGRAS CRÍTICAS DE COMUNICAÇÃO NO WHATSAPP:
-1. SEJA 100% HUMANA, empática e profissional. NUNCA pareça um formulário ou robô de pesquisa.
-2. NUNCA envie listas numéricas de opções como "1️⃣ Frio 2️⃣ Morno". Pergunte de forma conversacional (ex: "Você precisa dessas peças urgente pra essa semana ou tá fazendo uma cotação pro mês que vem?").
-3. FRAGMENTAÇÃO DE MENSAGENS: Divida seu retorno em 1, 2 ou no máximo 3 mensagens CURTAS (cada uma no array \`messagesToSend\`). NUNCA ultrapasse 2 linhas por mensagem!
-4. SE FOR A PRIMEIRA MENSAGEM (${isFirstMessage ? "SIM" : "NÃO"}):
-   - A primeira mensagem DEVE ser a saudação espelhada: "${greeting} Meu nome é Valentina, da Valem 😊"
-   - A segunda mensagem DEVE ser: "Como posso te ajudar hoje?"
-5. SE O CLIENTE FIZER UMA PERGUNTA OU DÚVIDA (ex: "quanto custa?", "tem válvula trigger?", "onde fica?"):
-   - Responda primeiro a dúvida dele de forma clara e atenciosa antes de fazer qualquer pergunta.
-6. SE O CLIENTE ENVIAR ÁUDIO OU IMAGEM:
-   - Analise o áudio e a imagem anexados, faça um comentário empático sobre o conteúdo (ex: "Vi a imagem da válvula que você mandou, perfeito!") e dê sequência à qualificação.
-7. SE O CLIENTE RECUSAR PASSAR DADOS (ex: CNPJ "não"):
-   - Seja totalmente empática: "Sem problemas! Deixamos essa parte para o consultor depois 😊" e siga com a conversa.
-8. COLETE OS DADOS: Nome, Empresa, CNPJ/CPF (se aceitar), Urgência, Perfil, Projeto/Desenvolvimento, Produto desejado.
-9. Quando todos os dados necessários forem coletados ou o cliente estiver pronto para o transbordo, marque \`isCompleted: true\`.
+REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
+1. DIVERSIDADE VOCABULAR E VARIABILIDADE (NUNCA REPETIR VÍCIOS DE LINGUAGEM):
+   - NUNCA repita inícios de frase genéricos já usados anteriormente na conversa (ex: "Vi aqui que você...", "Vi que você...", "Deixamos essa parte para o consultor depois").
+   - Varie a linguagem de forma natural (ex: "Perfeito!", "Entendido!", "Excelente!", "Certo, anotado!").
+
+2. REGRA ESTRITA DE EMOJIS:
+   - Valentina pode usar NO MÁXIMO 1 EMOJI em todo o atendimento.
+   - O histórico da conversa já contém emoji enviado? ${hasPreviousEmoji ? "SIM (PROIBIDO ENVIAR QUALQUER EMOJI AGORA!)" : "NÃO (Pode usar no máximo 1 emoji empático se for apropriado)"}.
+   - NUNCA repita um emoji já enviado!
+
+3. RESPEITO TOTAL ÀS RESPOSTAS E NÃO-REPETIÇÃO DE PERGUNTAS:
+   - Se o cliente responder "não" para uma pergunta opcional (como previsão do projeto ou data), REGISTRE "Sem previsão", diga um "Entendido!" ou "Sem problemas!" curto e NUNCA VOLTE A PERGUNTAR SOBRE PREVISÃO!
+   - Se o cliente já informou o Nome (ex: "Tarcisio Pereira da Silva"), REGISTRE O NOME e NUNCA pergunte "qual o seu nome?" de novo!
+   - Se o cliente se irritar ou disser que já respondeu, peça desculpas com muita elegância ("Imagina, me desculpe! Já registrei aqui, Tarcísio.") e siga imediatamente.
+
+4. FRAGMENTAÇÃO DE MENSAGENS:
+   - Retorne de 1 a no máximo 2 mensagens CURTAS (no array \`messagesToSend\`). NUNCA ultrapasse 2 linhas por mensagem!
+
+5. CONCLUSÃO DA QUALIFICAÇÃO:
+   - Quando tiver Produto, Projeto/Empresa, Nome e CNPJ/CPF (ou se o cliente recusou informar previsão/dados adicionais), marque \`isCompleted: true\`.
 
 Retorne EXCLUSIVAMENTE o JSON no formato:
 {
   "extractedData": {
-    "NOME COMPLETO": "valor ou vazio",
-    "EMPRESA": "valor ou vazio",
-    "CNPJ OU CPF": "valor ou recusado",
-    "QUALIFICAÇÃO (TEMPERATURA)": "valor ou vazio",
-    "TIPO DE QUALIFICAÇÃO": "valor ou vazio",
-    "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO": "valor ou vazio",
-    "QUAL O TIPO DE PRODUTO?": "valor ou vazio"
+    "NOME COMPLETO": "valor ou mantem anterior",
+    "EMPRESA": "valor ou mantem anterior",
+    "CNPJ OU CPF": "valor ou mantem anterior",
+    "QUALIFICAÇÃO (TEMPERATURA)": "valor ou mantem anterior",
+    "TIPO DE QUALIFICAÇÃO": "valor ou mantem anterior",
+    "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO": "valor ou mantem anterior",
+    "QUAL O TIPO DE PRODUTO?": "valor ou mantem anterior"
   },
   "messagesToSend": ["mensagem curta 1", "mensagem curta 2"],
   "isCompleted": false
@@ -254,7 +268,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return false;
 
-      // 7. Consultar o Gemini 2.5 Pro via Vertex AI (com cancelamento gracioso por AbortSignal)
+      // 6. Consultar o Gemini 2.5 Pro via Vertex AI
       let aiResult: SdrAiResult | null = null;
       if (vertexAi.isReady()) {
         aiResult = await vertexAi.generateStructuredJson<SdrAiResult>(
@@ -281,25 +295,25 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           aiResult = {
             extractedData: {},
             messagesToSend: [
-              `Entendido! Pode me passar mais detalhes para eu te direcionar pro consultor ideal?`
+              `Entendido! Já estou ajustando as informações aqui para o nosso consultor comercial.`
             ],
             isCompleted: false,
           };
         }
       }
 
-      // 8. Atualizar dados coletados no banco
+      // 7. Atualizar dados coletados no banco
       const updatedCollectedData = { ...existingCollectedData };
       if (aiResult.extractedData) {
         for (const [k, v] of Object.entries(aiResult.extractedData)) {
-          if (v && v.trim() !== "") {
+          if (v && v.trim() !== "" && !v.toLowerCase().includes("mantem")) {
             updatedCollectedData[k] = { value: v.trim(), status: "filled" };
           }
         }
       }
 
       const filledCount = Object.values(updatedCollectedData).filter((d) => d.status === "filled").length;
-      const isCompleted = aiResult.isCompleted || filledCount >= 6;
+      const isCompleted = aiResult.isCompleted || filledCount >= 5;
       const now = new Date();
 
       if (flowState) {
@@ -318,7 +332,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return false;
 
-      // 9. Envio Humanizado das Mensagens com presencia 'composing' e AbortSignal check
+      // 8. Envio Humanizado das Mensagens com presencia 'composing' longa e checagem de AbortSignal
       await this.sendHumanizedBotMessages(
         tenantId,
         conversationId,
@@ -327,7 +341,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         signal
       );
 
-      // 10. Notificar Supervisor se concluído
+      // 9. Notificar Supervisor se concluído
       if (isCompleted && !signal?.aborted) {
         try {
           const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente";
@@ -395,15 +409,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const fragmentText = messagesArray[i].trim();
       if (!fragmentText) continue;
 
-      // 1. Mostrar caixinha de "digitando..." no WhatsApp
+      // 1. Manter presença de "digitando..." visível no WhatsApp
       try {
         await sock.sendPresenceUpdate("composing", realJid);
-      } catch { /* silencia erro de presença */ }
+      } catch { /* silencia */ }
 
-      // 2. Delay proporcional ao tamanho da mensagem (simula digitação humana: 1.2s a 2.5s)
-      const typingDelay = Math.min(2500, Math.max(1200, fragmentText.length * 40));
+      // 2. Delay de digitação humana realista estendido (2.2s a 4.2s) para a caixinha de "digitando..." aparecer com destaque
+      const typingDelay = Math.min(4200, Math.max(2200, fragmentText.length * 60));
       
-      // Checagem durante o delay
       const startDelay = Date.now();
       while (Date.now() - startDelay < typingDelay) {
         if (signal?.aborted) {
@@ -415,7 +428,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return;
 
-      // 3. Enviar a mensagem fragmentada no WhatsApp
+      // 3. Enviar a mensagem no WhatsApp
       const sentMsg = await sock.sendMessage(realJid, { text: fragmentText });
       const botMessageId = sentMsg?.key?.id || `bot-sdr-${Date.now()}-${i}`;
 
@@ -460,9 +473,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         },
       });
 
-      // Pausa entre mensagens consecutivas (600ms)
+      // Pausa natural entre mensagens consecutivas (750ms)
       if (i < messagesArray.length - 1) {
-        await new Promise((r) => setTimeout(r, 600));
+        await new Promise((r) => setTimeout(r, 750));
       }
     }
   }

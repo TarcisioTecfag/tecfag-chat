@@ -1125,8 +1125,8 @@ export function ChatPanel() {
                 </span>
               )}
               {activeChat.queue === "automacao" && (
-                <span className="flex items-center gap-1 text-blue-500 animate-pulse">
-                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> Automação (I.A)
+                <span className="flex items-center gap-1 text-primary font-bold animate-pulse">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Com Valentina (I.A)
                 </span>
               )}
               {activeChat.queue === "finalizados" && (
@@ -2012,20 +2012,28 @@ export function ChatPanel() {
             </div>
           ) : activeChat.queue === "automacao" ? (
             /* ── BLOQUEIO: automação ── */
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-700 text-center">
-              <div className="h-12 w-12 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900">
-                <Bot className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-primary/20 bg-primary-soft/30 dark:bg-primary/10 text-center">
+              <div className="h-12 w-12 rounded-full overflow-hidden border-2 border-primary/30 bg-primary-soft flex items-center justify-center shadow-soft">
+                <img
+                  src="/valentina.png"
+                  alt="Valentina IA"
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = "none";
+                  }}
+                />
+                <Bot className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-sm font-bold text-blue-800 dark:text-blue-300">Em Automação (I.A)</p>
+                <p className="text-sm font-bold text-foreground">Com Valentina (I.A)</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  A I.A está conduzindo este atendimento. Capture para assumir o controle.
+                  Valentina está conduzindo este atendimento. Capture para assumir o controle.
                 </p>
               </div>
               {canCapture && (
                 <button
                   onClick={() => captureChat(activeChat.id)}
-                  className="mt-1 h-9 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-6 transition cursor-pointer"
+                  className="mt-1 h-9 rounded-xl bg-primary hover:opacity-95 text-white text-xs font-bold px-6 transition cursor-pointer shadow-soft"
                 >
                   Assumir Atendimento
                 </button>

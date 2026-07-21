@@ -1,4 +1,5 @@
 import { SdrEngine } from "./sdr-engine";
+import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 
 export interface QueuedMessageItem {
   text: string;
@@ -95,6 +96,15 @@ export class SdrDebouncer {
     const abortController = new AbortController();
     session.abortController = abortController;
     session.isProcessing = true;
+
+    // 1. Mostrar caixinha de "digitando..." no WhatsApp imediatamente ao iniciar raciocínio
+    try {
+      const sock = SessionManager.getInstance().getSession(session.tenantId);
+      if (sock) {
+        const realJid = await resolveRealJid(sock, session.phone);
+        await sock.sendPresenceUpdate("composing", realJid);
+      }
+    } catch { /* silencia */ }
 
     // Extrair lote atual e esvaziar a fila
     const batchToProcess = [...session.messagesQueue];
