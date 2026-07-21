@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { agentConfigs, agentFlowStates, conversations, contacts, messages } from "../../../db/schema";
 import { eq, desc, asc } from "drizzle-orm";
+import { isPhoneWhitelisted } from "../../../lib/valentina/sdr-engine";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,18 +99,15 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             });
           }
 
-          // 3. Garantia: buscar todas as conversas na fila 'automacao' (Valentina IA) que ainda não foram catalogadas
-          const automacaoConvs = await db
+          // 3. Garantia total: Buscar conversas que tenham mensagens da Valentina, estejam em automação ou no whitelist
+          const allConvs = await db
             .select()
             .from(conversations)
-            .where(eq(conversations.queueState, "automacao"))
             .orderBy(desc(conversations.lastMessageTime))
-            .limit(20);
+            .limit(50);
 
-          for (const c of automacaoConvs) {
+          for (const c of allConvs) {
             if (!addedConvIds.has(c.id)) {
-              addedConvIds.add(c.id);
-
               const contact = await db.query.contacts.findFirst({
                 where: (t, { eq: dEq }) => dEq(t.id, c.contactId),
               });
@@ -121,27 +119,34 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 .orderBy(asc(messages.sentAt))
                 .limit(100);
 
-              const formattedMessages = realMsgs.map((m) => ({
-                sender: m.senderType === "client" ? "client" : "bot",
-                text: m.content,
-                time: new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-              }));
+              const hasBotMsg = realMsgs.some((m) => m.senderType === "bot" || m.senderName.includes("Valentina"));
+              const isWhitelisted = contact?.phone ? isPhoneWhitelisted(contact.phone, config.whitelistPhone) : false;
 
-              sessions.push({
-                id: `fs-auto-${c.id}`,
-                conversationId: c.id,
-                contactName: contact?.name || "Contato WhatsApp",
-                company: "Empresa não informada",
-                phone: contact?.phone || "",
-                currentStep: "Em Qualificação",
-                collectedData: {},
-                startedAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
-                status: "active",
-                outcome: "in_progress",
-                messages: formattedMessages.length > 0 ? formattedMessages : [
-                  { sender: "bot", text: "Atendimento iniciado com a Valentina SDR...", time: "Agora" }
-                ],
-              });
+              if (c.queueState === "automacao" || hasBotMsg || isWhitelisted) {
+                addedConvIds.add(c.id);
+
+                const formattedMessages = realMsgs.map((m) => ({
+                  sender: m.senderType === "client" ? "client" : "bot",
+                  text: m.content,
+                  time: new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                }));
+
+                sessions.push({
+                  id: `fs-auto-${c.id}`,
+                  conversationId: c.id,
+                  contactName: contact?.name || "Contato WhatsApp",
+                  company: "Empresa não informada",
+                  phone: contact?.phone || "",
+                  currentStep: "Em Qualificação",
+                  collectedData: {},
+                  startedAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
+                  status: "active",
+                  outcome: "in_progress",
+                  messages: formattedMessages.length > 0 ? formattedMessages : [
+                    { sender: "bot", text: "Atendimento em triagem com Valentina SDR...", time: "Agora" }
+                  ],
+                });
+              }
             }
           }
 

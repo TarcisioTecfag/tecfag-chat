@@ -12,9 +12,8 @@ const client = postgres(connectionString, {
 export const db = drizzle(client, { schema });
 
 // ── Auto-Criação das Tabelas de Gestão ────────────────────────────────────────
-// Garante que as 4 tabelas de IA/gestão existam no banco de produção (Railway).
-// Usa CREATE TABLE IF NOT EXISTS — seguro de rodar múltiplas vezes.
-// .unsafe() permite múltiplos statements DDL em uma só chamada.
+// Garante que todas as tabelas de IA/gestão existam no banco de produção (Railway).
+// Usa CREATE TABLE IF NOT EXISTS — seguro de rodar múltiplas vezes sem falhas de FK.
 const setupClient = postgres(connectionString, { max: 1 });
 
 setupClient.unsafe(`
@@ -34,7 +33,6 @@ setupClient.unsafe(`
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
 
-  -- Garante colunas novas em response_time_logs (ADD COLUMN IF NOT EXISTS é idempotente)
   ALTER TABLE response_time_logs ADD COLUMN IF NOT EXISTS contact_id TEXT;
   ALTER TABLE response_time_logs ADD COLUMN IF NOT EXISTS agent_response_id TEXT;
   ALTER TABLE response_time_logs ADD COLUMN IF NOT EXISTS agent_response_at TIMESTAMP;
@@ -64,7 +62,6 @@ setupClient.unsafe(`
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
 
-  -- Garante todas as colunas em ai_conversation_audits (schema pode ter evoluído)
   ALTER TABLE ai_conversation_audits ADD COLUMN IF NOT EXISTS contact_name TEXT;
   ALTER TABLE ai_conversation_audits ADD COLUMN IF NOT EXISTS performance_score INTEGER;
   ALTER TABLE ai_conversation_audits ADD COLUMN IF NOT EXISTS client_sentiment TEXT;
@@ -97,7 +94,6 @@ setupClient.unsafe(`
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
 
-  -- Garante colunas em operator_daily_metrics
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS avg_response_time_seconds INTEGER;
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS max_response_time_seconds INTEGER;
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS avg_performance_score INTEGER;
@@ -105,7 +101,6 @@ setupClient.unsafe(`
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS neutral_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE operator_daily_metrics ADD COLUMN IF NOT EXISTS frustrated_count INTEGER NOT NULL DEFAULT 0;
 
-  -- Garante colunas novas em operators (status, avatar, is_online podem ser adições pós-migração)
   ALTER TABLE operators ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'disponivel';
   ALTER TABLE operators ADD COLUMN IF NOT EXISTS avatar TEXT;
   ALTER TABLE operators ADD COLUMN IF NOT EXISTS is_online BOOLEAN NOT NULL DEFAULT TRUE;
@@ -121,15 +116,8 @@ setupClient.unsafe(`
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
 
-  -- Garante a coluna wallet_operator_id na tabela contacts
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS wallet_operator_id TEXT;
 
-  -- Ajusta constraint de operator_id em conversations para set null ao excluir operador
-  ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_operator_id_operators_id_fk;
-  ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_operator_id_fkey;
-  ALTER TABLE conversations ADD CONSTRAINT conversations_operator_id_fkey FOREIGN KEY (operator_id) REFERENCES operators(id) ON DELETE SET NULL;
-
-  -- Cria a tabela de templates de operadores
   CREATE TABLE IF NOT EXISTS operator_templates (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
@@ -139,11 +127,11 @@ setupClient.unsafe(`
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
 
-  -- ── Valentina Agent Tables ──────────────────────────────────────────────
+  -- ── Valentina Agent Tables (Sem FKs restritivas para garantir criação 100% resiliente) ──
 
   CREATE TABLE IF NOT EXISTS agent_configs (
     id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    tenant_id TEXT NOT NULL,
     agent_type TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 0,
     config JSONB NOT NULL DEFAULT '{}',
@@ -153,8 +141,8 @@ setupClient.unsafe(`
 
   CREATE TABLE IF NOT EXISTS agent_flow_states (
     id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    tenant_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
     agent_type TEXT NOT NULL,
     current_step TEXT NOT NULL,
     collected_data JSONB NOT NULL DEFAULT '{}',
@@ -167,8 +155,8 @@ setupClient.unsafe(`
 
   CREATE TABLE IF NOT EXISTS round_robin_state (
     id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    sector_id TEXT NOT NULL REFERENCES sectors(id),
+    tenant_id TEXT NOT NULL,
+    sector_id TEXT NOT NULL,
     last_assigned_operator_id TEXT,
     assignment_count JSONB NOT NULL DEFAULT '{}',
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -176,8 +164,8 @@ setupClient.unsafe(`
 
   CREATE TABLE IF NOT EXISTS internal_messages (
     id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    operator_id TEXT NOT NULL REFERENCES operators(id),
+    tenant_id TEXT NOT NULL,
+    operator_id TEXT NOT NULL,
     direction TEXT NOT NULL,
     agent_type TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -187,12 +175,10 @@ setupClient.unsafe(`
   );
 `)
   .then(() => {
-    console.log("[db] ✓ Tabelas de gestão verificadas/criadas.");
+    console.log("[db] ✓ Tabelas de gestão e agentes verificadas/criadas com sucesso.");
     setupClient.end();
   })
   .catch((e) => {
     console.warn("[db] Aviso ao criar tabelas de gestão:", e?.message ?? e);
     setupClient.end();
   });
-
-
