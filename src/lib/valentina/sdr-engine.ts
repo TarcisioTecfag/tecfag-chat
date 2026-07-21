@@ -180,6 +180,8 @@ export class SdrEngine {
             return `[Mensagem ${idx + 1} do Lote - IMAGEM ENVIADA PELO CLIENTE]: ${item.text || "(imagem sem legenda)"}`;
           } else if (item.mediaType === "audio") {
             return `[Mensagem ${idx + 1} do Lote - ÁUDIO ENVIADO PELO CLIENTE]: ${item.text || "(áudio gravado pelo cliente)"}`;
+          } else if (item.mediaType === "document") {
+            return `[Mensagem ${idx + 1} do Lote - DOCUMENTO/PDF ENVIADO PELO CLIENTE]: ${item.text || "(documento PDF em anexo contendo dados cadastrais/CNPJ)"}`;
           }
           return `[Mensagem ${idx + 1} do Lote]: ${item.text}`;
         })
@@ -231,10 +233,18 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - Se o cliente já informou o Nome (ex: "Tarcisio Pereira da Silva"), REGISTRE O NOME e NUNCA pergunte "qual o seu nome?" de novo!
    - Se o cliente se irritar ou disser que já respondeu, peça desculpas com muita elegância ("Imagina, me desculpe! Já registrei aqui, Tarcísio.") e siga imediatamente.
 
-4. FRAGMENTAÇÃO DE MENSAGENS:
+4. LEITURA E EXTRAÇÃO AUTOMÁTICA DE DOCUMENTOS E PDFS:
+   - Se o cliente enviar um documento ou arquivo PDF (como Cartão CNPJ, Ficha Cadastral, Contrato Social, Nota Fiscal, etc.):
+     a) Analise 100% dos dados contidos no arquivo PDF através da sua capacidade multimodal do Gemini 2.5 Pro.
+     b) Extraia automaticamente a Razão Social/Empresa, o CNPJ/CPF, o Nome do Contato e o que for relevante.
+     c) Preencha com exatidão os campos em \`extractedData\` (CNPJ OU CPF, EMPRESA, NOME COMPLETO).
+     d) Responda ao cliente confirmando que você leu o documento PDF e registrou as informações da empresa (ex: "Recebi seu PDF! Já registrei o CNPJ e os dados da sua empresa aqui no sistema.").
+     e) NUNCA torne a solicitar o CNPJ ou Nome de Empresa se essas informações constavam no PDF!
+
+5. FRAGMENTAÇÃO DE MENSAGENS:
    - Retorne de 1 a no máximo 2 mensagens CURTAS (no array \`messagesToSend\`). NUNCA ultrapasse 2 linhas por mensagem!
 
-5. CONCLUSÃO DA QUALIFICAÇÃO:
+6. CONCLUSÃO DA QUALIFICAÇÃO:
    - Quando tiver Produto, Projeto/Empresa, Nome e CNPJ/CPF (ou se o cliente recusou informar previsão/dados adicionais), marque \`isCompleted: true\`.
 
 Retorne EXCLUSIVAMENTE o JSON no formato:

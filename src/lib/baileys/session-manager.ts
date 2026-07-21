@@ -883,7 +883,7 @@ export class SessionManager {
 
       // ── Processar mensagem no SdrDebouncer (Valentina SDR / 15s Debounce & Multimodal) ─────
       if (finalSenderType === "client") {
-        let mediaType: "text" | "image" | "audio" = "text";
+        let mediaType: "text" | "image" | "audio" | "document" = "text";
         let mediaBase64: string | undefined = undefined;
         let mimeType: string | undefined = undefined;
 
@@ -906,6 +906,16 @@ export class SessionManager {
               mediaBase64 = buffer.toString("base64");
             } catch (e: any) {
               console.error("[Baileys/Media] Erro ao baixar áudio do WhatsApp:", e?.message);
+            }
+          } else if (msgObj.documentMessage) {
+            mediaType = "document";
+            mimeType = msgObj.documentMessage.mimetype || "application/pdf";
+            try {
+              const buffer = await downloadMediaMessage(rawMsg, "buffer", {});
+              mediaBase64 = buffer.toString("base64");
+              console.log(`[Baileys/Media] Documento PDF baixado com sucesso do WhatsApp! Mime: ${mimeType}`);
+            } catch (e: any) {
+              console.error("[Baileys/Media] Erro ao baixar documento/PDF do WhatsApp:", e?.message);
             }
           }
         }

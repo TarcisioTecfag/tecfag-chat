@@ -3,7 +3,7 @@ import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 
 export interface QueuedMessageItem {
   text: string;
-  mediaType?: "text" | "image" | "audio";
+  mediaType?: "text" | "image" | "audio" | "document";
   mimeType?: string;
   mediaBase64?: string;
   receivedAt: Date;
