@@ -1900,7 +1900,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (data.type === "message") {
           const { message } = data;
 
-          // Mostrar notificação Toast customizada (apenas para o operador atribuído e se o chat não estiver atualmente aberto)
+          // Mostrar notificação Toast customizada
+          // Regra: Notificar APENAS se o contato estiver captado e conosco (queue === "meus" e atribuído ao operador logado).
+          // Se estiver na fila, em bot/automação ou com outro responsável, não exibe notificação.
           const currentOperatorId = currentOperatorIdRef.current;
           const selectedChatId = selectedChatIdRef.current;
           const currentConvs = conversationsRef.current;
@@ -1910,10 +1912,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? message.operatorId
             : (existingConv ? existingConv.operatorId : null);
 
-          const isAssignedToMe = operatorId === currentOperatorId;
+          const queueState = message.queue !== undefined
+            ? message.queue
+            : (existingConv ? existingConv.queue : null);
+
+          const isAssignedToMe = !!currentOperatorId && operatorId === currentOperatorId;
+          const isCapturedAndWithMe = isAssignedToMe && queueState === "meus";
           const isCurrentOpen = message.conversationId === selectedChatId;
 
-          if (isAssignedToMe && message.senderType === "client" && !isCurrentOpen) {
+          if (isCapturedAndWithMe && message.senderType === "client" && !isCurrentOpen) {
             const clientName = existingConv?.name || message.senderName || "Cliente";
             const clientAvatar = existingConv?.avatar || message.avatar || "";
             const initials = clientName
