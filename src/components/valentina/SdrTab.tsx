@@ -26,6 +26,45 @@ export interface SdrTriageSession {
   messages: Array<{ sender: "client" | "bot"; text: string; time: string }>;
 }
 
+const DEFAULT_SDR_FIELDS = [
+  "NOME COMPLETO",
+  "EMPRESA",
+  "CNPJ OU CPF",
+  "QUAL O TIPO DE PRODUTO?",
+  "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO",
+  "TIPO DE QUALIFICAÇÃO",
+  "QUALIFICAÇÃO (TEMPERATURA)",
+];
+
+function getMergedCollectedData(rawCollected: Record<string, any> = {}) {
+  const merged: Record<string, { value: string; status: "filled" | "pending" }> = {};
+  
+  for (const field of DEFAULT_SDR_FIELDS) {
+    if (rawCollected[field] && rawCollected[field].value && rawCollected[field].status === "filled") {
+      merged[field] = {
+        value: rawCollected[field].value,
+        status: "filled",
+      };
+    } else {
+      merged[field] = {
+        value: "Aguardando...",
+        status: "pending",
+      };
+    }
+  }
+
+  for (const [key, val] of Object.entries(rawCollected)) {
+    if (!merged[key] && val) {
+      merged[key] = {
+        value: typeof val === "string" ? val : val.value || "Aguardando...",
+        status: val.status === "filled" || typeof val === "string" ? "filled" : "pending",
+      };
+    }
+  }
+
+  return merged;
+}
+
 function StatusBadge({ status }: { status: SdrTriageSession["status"] }) {
   const styles = {
     active: "bg-primary-soft text-primary border-primary/20",
@@ -394,74 +433,81 @@ export function SdrTab() {
         {/* ── PAINEL DIREITO — Dados Coletados Reais (25%) ─────────────────────── */}
         <div className="w-[25%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
           {selectedSession ? (
-            <>
-              <div className="px-4 py-3 border-b border-line shrink-0 flex items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
-                    <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0" />
-                    Dados Coletados
-                  </h3>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {Object.values(selectedSession.collectedData || {}).filter((d) => d.status === "filled").length} de{" "}
-                    {Object.keys(selectedSession.collectedData || {}).length} campos
-                  </p>
-                </div>
+            (() => {
+              const mergedData = getMergedCollectedData(selectedSession.collectedData);
+              const filledCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
+              const totalCount = Object.keys(mergedData).length;
 
-                <button
-                  onClick={() => {
-                    const targetChatId = selectedSession.conversationId;
-                    setSelectedChatId(targetChatId);
-                    setActiveView("chat");
-                    toast.info("Redirecionando para o chat...");
-                  }}
-                  className="text-[10px] font-black text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0"
-                  title="Abrir atendimento correspondente"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Abrir
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
-                {Object.entries(selectedSession.collectedData || {}).map(([key, data]) => (
-                  <div
-                    key={key}
-                    className={`rounded-xl border p-3 transition ${
-                      data.status === "filled"
-                        ? "border-primary/20 bg-primary-soft/30"
-                        : "border-border bg-muted/30"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        {key}
-                      </span>
-                      {data.status === "filled" ? (
-                        <CheckCircle className="h-3 w-3 text-primary" />
-                      ) : (
-                        <Clock className="h-3 w-3 text-muted-foreground/50" />
-                      )}
+              return (
+                <>
+                  <div className="px-4 py-3 border-b border-line shrink-0 flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
+                        <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0" />
+                        Dados Coletados
+                      </h3>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {filledCount} de {totalCount} campos
+                      </p>
                     </div>
-                    <p className={`text-xs font-bold ${
-                      data.status === "filled" ? "text-foreground" : "text-muted-foreground/40 italic"
-                    }`}>
-                      {data.status === "filled" ? data.value : "Aguardando..."}
-                    </p>
-                  </div>
-                ))}
-              </div>
 
-              <div className="px-4 py-3 border-t border-line shrink-0 space-y-1">
-                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  Início: {selectedSession.startedAt ? new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <ChevronRight className="h-3 w-3" />
-                  Etapa atual: <span className="font-semibold text-foreground truncate block max-w-[150px]">{selectedSession.currentStep || "—"}</span>
-                </div>
-              </div>
-            </>
+                    <button
+                      onClick={() => {
+                        const targetChatId = selectedSession.conversationId;
+                        setSelectedChatId(targetChatId);
+                        setActiveView("chat");
+                        toast.info("Redirecionando para o chat...");
+                      }}
+                      className="text-[10px] font-black text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0"
+                      title="Abrir atendimento correspondente"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Abrir
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
+                    {Object.entries(mergedData).map(([key, data]) => (
+                      <div
+                        key={key}
+                        className={`rounded-xl border p-3 transition ${
+                          data.status === "filled"
+                            ? "border-primary/20 bg-primary-soft/30"
+                            : "border-border bg-muted/30"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                            {key}
+                          </span>
+                          {data.status === "filled" ? (
+                            <CheckCircle className="h-3 w-3 text-primary" />
+                          ) : (
+                            <Clock className="h-3 w-3 text-muted-foreground/50" />
+                          )}
+                        </div>
+                        <p className={`text-xs font-bold ${
+                          data.status === "filled" ? "text-foreground" : "text-muted-foreground/40 italic"
+                        }`}>
+                          {data.status === "filled" ? data.value : "Aguardando..."}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="px-4 py-3 border-t border-line shrink-0 space-y-1">
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      Início: {selectedSession.startedAt ? new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <ChevronRight className="h-3 w-3" />
+                      Etapa atual: <span className="font-semibold text-foreground truncate block max-w-[150px]">{selectedSession.currentStep || "—"}</span>
+                    </div>
+                  </div>
+                </>
+              );
+            })()
           ) : (
             <div className="flex flex-col items-center justify-center h-full p-6 text-center">
               <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
