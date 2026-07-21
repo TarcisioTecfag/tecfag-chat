@@ -15,6 +15,7 @@ import { channelConfigs, contacts, conversations, messages, mediaFiles, response
 import { eq, isNull, and, desc } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
+import { SdrDebouncer } from "../valentina/sdr-debouncer";
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connected";
 
@@ -828,11 +829,42 @@ export class SessionManager {
         }
       });
 
-      // ── Processar mensagem no SdrEngine (Valentina SDR / Whitelist) ─────────
+      // ── Processar mensagem no SdrDebouncer (Valentina SDR / 15s Debounce & Multimodal) ─────
       if (finalSenderType === "client") {
-        SdrEngine.getInstance()
-          .processIncomingMessage(tenantId, convId, phone, text)
-          .catch((err: any) => console.error("[Baileys/SDR] Erro ao processar SdrEngine:", err?.message));
+        let mediaType: "text" | "image" | "audio" = "text";
+        let mediaBase64: string | undefined = undefined;
+        let mimeType: string | undefined = undefined;
+
+        const msgObj = rawMsg.message;
+        if (msgObj) {
+          if (msgObj.imageMessage) {
+            mediaType = "image";
+            mimeType = msgObj.imageMessage.mimetype || "image/jpeg";
+            try {
+              const buffer = await downloadMediaMessage(rawMsg, "buffer", {});
+              mediaBase64 = buffer.toString("base64");
+            } catch (e: any) {
+              console.error("[Baileys/Media] Erro ao baixar imagem do WhatsApp:", e?.message);
+            }
+          } else if (msgObj.audioMessage) {
+            mediaType = "audio";
+            mimeType = msgObj.audioMessage.mimetype || "audio/ogg";
+            try {
+              const buffer = await downloadMediaMessage(rawMsg, "buffer", {});
+              mediaBase64 = buffer.toString("base64");
+            } catch (e: any) {
+              console.error("[Baileys/Media] Erro ao baixar áudio do WhatsApp:", e?.message);
+            }
+          }
+        }
+
+        SdrDebouncer.getInstance().pushIncomingMessage(tenantId, convId, phone, {
+          text,
+          mediaType,
+          mimeType,
+          mediaBase64,
+          receivedAt: new Date(),
+        });
       }
 
     } catch (e) {

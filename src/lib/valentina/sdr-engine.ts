@@ -1,85 +1,55 @@
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, contacts, internalMessages, operators, messages } from "../../db/schema";
-import { eq, and, asc } from "drizzle-orm";
-import { SessionManager, resolveRealJid } from "../baileys/session-manager";
-import { vertexAi } from "../vertex-ai";
+import { agentConfigs, agentFlowStates, conversations, messages, internalMessages } from "../../db/schema";
+import { eq, and, asc, desc } from "drizzle-orm";
+import { vertexAi, MultimodalPart } from "../vertex-ai";
+import { SessionManager } from "../baileys/session-manager";
+import { resolveRealJid } from "../baileys/session-manager";
+import { QueuedMessageItem } from "./sdr-debouncer";
 
-// ── Helper para espelhar a saudação inicial do cliente ────────────────────────
-export function getMirroredGreeting(clientText: string): { greeting: string; remainingText: string } {
-  const lower = clientText.toLowerCase().trim();
-
-  let greeting = "Olá!";
-  if (lower.includes("bom dia")) greeting = "Bom dia!";
-  else if (lower.includes("boa tarde")) greeting = "Boa tarde!";
-  else if (lower.includes("boa noite")) greeting = "Boa noite!";
-  else if (lower.includes("olá") || lower.includes("ola")) greeting = "Olá!";
-  else if (lower.includes("oii") || lower.includes("oi")) greeting = "Oi!";
-  else if (lower.includes("e ai") || lower.includes("e aí")) greeting = "Olá!";
-
-  return { greeting, remainingText: clientText };
-}
-
-// ── Helper para verificar Whitelist por telefone ─────────────────────────────
-export function isPhoneWhitelisted(clientPhone: string, whitelistPhone: string): boolean {
-  if (!whitelistPhone) return false;
-
-  const cleanClient = clientPhone.replace(/\D/g, "");
-  const cleanWhite = whitelistPhone.replace(/\D/g, "");
-
-  if (!cleanClient || !cleanWhite) return false;
-
-  const clientVariants = getPhoneVariants(cleanClient);
-  const whiteVariants = getPhoneVariants(cleanWhite);
-
-  for (const cVar of clientVariants) {
-    if (whiteVariants.includes(cVar)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function getPhoneVariants(phoneDigits: string): string[] {
-  const variants: string[] = [phoneDigits];
-
-  let withDdi = phoneDigits;
-  if (!withDdi.startsWith("55") && (withDdi.length === 10 || withDdi.length === 11)) {
-    withDdi = `55${withDdi}`;
-    variants.push(withDdi);
-  }
-
-  let withoutDdi = phoneDigits;
-  if (withoutDdi.startsWith("55") && withoutDdi.length >= 12) {
-    withoutDdi = withoutDdi.slice(2);
-    variants.push(withoutDdi);
-  }
-
-  if (withDdi.startsWith("55")) {
-    const ddd = withDdi.slice(2, 4);
-    const rest = withDdi.slice(4);
-
-    if (rest.length === 9 && rest.startsWith("9")) {
-      const eightDigit = `55${ddd}${rest.slice(1)}`;
-      variants.push(eightDigit);
-      variants.push(`${ddd}${rest.slice(1)}`);
-    } else if (rest.length === 8) {
-      const nineDigit = `55${ddd}9${rest}`;
-      variants.push(nineDigit);
-      variants.push(`${ddd}9${rest}`);
-    }
-  }
-
-  return Array.from(new Set(variants));
-}
-
+// ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
 export interface SdrAiResult {
   extractedData: Record<string, string>;
   messagesToSend: string[];
-  isCompleted?: boolean;
+  isCompleted: boolean;
 }
 
-// ── Classe Principal SdrEngine (Humanizada & Alavancada por Gemini 2.5 Pro) ─────
+// ── Helper para validar Whitelist no Modo de Teste ─────────────────────────────────
+export function isPhoneWhitelisted(phone: string, whitelistConfig: string): boolean {
+  if (!whitelistConfig || whitelistConfig.trim() === "") return true;
+
+  const cleanPhone = phone.replace(/\D/g, "");
+  const allowedNumbers = whitelistConfig
+    .split(",")
+    .map((n) => n.replace(/\D/g, "").trim())
+    .filter(Boolean);
+
+  if (allowedNumbers.length === 0) return true;
+
+  return allowedNumbers.some((allowed) => {
+    return cleanPhone.endsWith(allowed) || allowed.endsWith(cleanPhone);
+  });
+}
+
+// ── Helper para Espelhar Saudação Inicial ────────────────────────────────────────
+export function getMirroredGreeting(firstMessageText: string): { greeting: string; cleanRest: string } {
+  const textLower = firstMessageText.toLowerCase().trim();
+
+  let greeting = "Olá!";
+
+  if (/^(bom\s*dia)/i.test(textLower)) {
+    greeting = "Bom dia!";
+  } else if (/^(boa\s*tarde)/i.test(textLower)) {
+    greeting = "Boa tarde!";
+  } else if (/^(boa\s*noite)/i.test(textLower)) {
+    greeting = "Boa noite!";
+  } else if (/^(ol[aá]|oi|hey|opaa?)/i.test(textLower)) {
+    greeting = "Olá!";
+  }
+
+  return { greeting, cleanRest: textLower };
+}
+
+// ── Classe Principal SdrEngine (Humanizada, Debounced & Multimodal Gemini 2.5 Pro) ─────
 export class SdrEngine {
   private static instance: SdrEngine;
 
@@ -93,7 +63,7 @@ export class SdrEngine {
   }
 
   /**
-   * Processa a mensagem do cliente de forma humanizada, usando Gemini 2.5 Pro via Vertex AI.
+   * Legacy wrapper para chamadas pontuais (redireciona para o fluxo de lote simples)
    */
   public async processIncomingMessage(
     tenantId: string,
@@ -101,7 +71,27 @@ export class SdrEngine {
     contactPhone: string,
     messageContent: string
   ): Promise<boolean> {
+    return this.processBatchMessages(tenantId, conversationId, contactPhone, [{
+      text: messageContent,
+      mediaType: "text",
+      receivedAt: new Date(),
+    }]);
+  }
+
+  /**
+   * Processa o LOTE CONSOLIDADO de mensagens do cliente acumulado após 15s de debouncers.
+   * Suporta Stop & Restart (via AbortSignal), texto, áudio e imagens base64.
+   */
+  public async processBatchMessages(
+    tenantId: string,
+    conversationId: string,
+    contactPhone: string,
+    batchItems: QueuedMessageItem[],
+    signal?: AbortSignal
+  ): Promise<boolean> {
     try {
+      if (signal?.aborted) return false;
+
       // 1. Buscar configuração do agente SDR
       let dbConfig = await db.query.agentConfigs.findFirst({
         where: (table, { eq: dEq, and: dAnd }) =>
@@ -119,16 +109,15 @@ export class SdrEngine {
       if (testMode) {
         const isAllowed = isPhoneWhitelisted(contactPhone, whitelistPhone);
         if (!isAllowed) {
-          console.log(`[SdrEngine] Telefone ${contactPhone} bloqueado na Whitelist.`);
+          console.log(`[SdrEngine] Telefone ${contactPhone} bloqueado na Whitelist de teste.`);
           return false;
         }
         console.log(`[SdrEngine] Telefone ${contactPhone} APROVADO na Whitelist!`);
       }
 
-      // 3. Buscar ou criar o estado do fluxo SDR
+      // 3. Buscar ou criar o estado do fluxo SDR (Triagem ao Vivo)
       let flowState = await db.query.agentFlowStates.findFirst({
-        where: (table, { eq: dEq, and: dAnd }) =>
-          dAnd(dEq(table.tenantId, tenantId), dEq(table.conversationId, conversationId)),
+        where: (table, { eq: dEq }) => eq(table.conversationId, conversationId),
       });
 
       if (flowState && (flowState.outcome === "completed" || flowState.outcome === "transferred")) {
@@ -150,6 +139,25 @@ export class SdrEngine {
         for (const f of initialFields) {
           existingCollectedData[f] = { value: "", status: "pending" };
         }
+
+        // Criar registro na tabela agentFlowStates IMEDIATAMENTE para aparecer no Painel SDR ao Vivo!
+        const flowId = `flow-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        await db.insert(agentFlowStates).values({
+          id: flowId,
+          tenantId,
+          conversationId,
+          agentType: "sdr",
+          currentStep: "Em Qualificação",
+          collectedData: existingCollectedData,
+          metadata: { stepNumber: 0, totalSteps: 7 },
+          startedAt: new Date(),
+          lastInteractionAt: new Date(),
+          outcome: "in_progress",
+        });
+
+        flowState = await db.query.agentFlowStates.findFirst({
+          where: (table, { eq: dEq }) => eq(table.id, flowId),
+        });
       }
 
       // 4. Buscar histórico recente de mensagens da conversa no banco
@@ -158,31 +166,40 @@ export class SdrEngine {
         .from(messages)
         .where(eq(messages.conversationId, conversationId))
         .orderBy(asc(messages.sentAt))
-        .limit(20);
+        .limit(30);
 
       const conversationHistoryText = recentMessages
         .map((m) => `${m.senderType === "client" ? "Cliente" : "Valentina"}: ${m.content}`)
         .join("\n");
 
-      // 5. Se for a primeira mensagem, montar saudação espelhada
-      const { greeting } = getMirroredGreeting(messageContent);
+      // 5. Consolidar as mensagens deste lote de 15 segundos
+      const batchSummary = batchItems
+        .map((item, idx) => {
+          if (item.mediaType === "image") {
+            return `[Mensagem ${idx + 1} do Lote - IMAGEM ENVIADA PELO CLIENTE]: ${item.text || "(imagem sem legenda)"}`;
+          } else if (item.mediaType === "audio") {
+            return `[Mensagem ${idx + 1} do Lote - ÁUDIO ENVIADO PELO CLIENTE]: ${item.text || "(áudio gravado pelo cliente)"}`;
+          }
+          return `[Mensagem ${idx + 1} do Lote]: ${item.text}`;
+        })
+        .join("\n");
 
-      // 6. Consultar o Gemini 2.5 Pro via Vertex AI para raciocínio conversacional
-      let aiResult: SdrAiResult | null = null;
+      const firstTextItem = batchItems.find((i) => i.text.trim().length > 0)?.text || "olá";
+      const { greeting } = getMirroredGreeting(firstTextItem);
 
-      if (vertexAi.isReady()) {
-        const currentDataSummary: Record<string, string> = {};
-        for (const [k, v] of Object.entries(existingCollectedData)) {
-          currentDataSummary[k] = v.value;
-        }
+      // 6. Montar partes multimodais para o Gemini 2.5 Pro (Texto + Imagens e Áudios em Base64)
+      const currentDataSummary: Record<string, string> = {};
+      for (const [k, v] of Object.entries(existingCollectedData)) {
+        currentDataSummary[k] = v.value;
+      }
 
-        const prompt = `Você é a Valentina, a consultora comercial pré-vendas (SDR) humana da Valem (empresa de válvulas aerosol/spray, seladoras, embaladoras e componentes industriais).
+      const promptText = `Você é a Valentina, a consultora comercial pré-vendas (SDR) humana da Valem (empresa de válvulas aerosol/spray, seladoras, embaladoras e componentes industriais).
 
-HISTÓRICO DA CONVERSA:
+HISTÓRICO COMPLETO DA CONVERSA:
 ${conversationHistoryText}
 
-ÚLTIMA MENSAGEM DO CLIENTE:
-"${messageContent}"
+NOVAS MENSAGENS E ARQUIVOS ENVIADOS PELO CLIENTE NESTE LOTE CONSOLIDADO:
+${batchSummary}
 
 DADOS JÁ COLETADOS ATÉ O MOMENTO:
 ${JSON.stringify(currentDataSummary, null, 2)}
@@ -190,19 +207,21 @@ ${JSON.stringify(currentDataSummary, null, 2)}
 ESTA É A PRIMEIRA MENSAGEM DO CLIENTE? ${isFirstMessage ? "SIM" : "NÃO"}
 SAUDAÇÃO ESPELHADA CALCULADA: "${greeting}"
 
-REGRAS OBRIGATÓRIAS DE COMUNICAÇÃO NO WHATSAPP:
+REGRAS CRÍTICAS DE COMUNICAÇÃO NO WHATSAPP:
 1. SEJA 100% HUMANA, empática e profissional. NUNCA pareça um formulário ou robô de pesquisa.
 2. NUNCA envie listas numéricas de opções como "1️⃣ Frio 2️⃣ Morno". Pergunte de forma conversacional (ex: "Você precisa dessas peças urgente pra essa semana ou tá fazendo uma cotação pro mês que vem?").
 3. FRAGMENTAÇÃO DE MENSAGENS: Divida seu retorno em 1, 2 ou no máximo 3 mensagens CURTAS (cada uma no array \`messagesToSend\`). NUNCA ultrapasse 2 linhas por mensagem!
 4. SE FOR A PRIMEIRA MENSAGEM (${isFirstMessage ? "SIM" : "NÃO"}):
    - A primeira mensagem DEVE ser a saudação espelhada: "${greeting} Meu nome é Valentina, da Valem 😊"
    - A segunda mensagem DEVE ser: "Como posso te ajudar hoje?"
-5. SE O CLIENTE FIZER UMA PERGUNTA OU DÚVIDA (ex: "vc tá entendendo?", "quanto custa?", "onde fica?"):
+5. SE O CLIENTE FIZER UMA PERGUNTA OU DÚVIDA (ex: "quanto custa?", "tem válvula trigger?", "onde fica?"):
    - Responda primeiro a dúvida dele de forma clara e atenciosa antes de fazer qualquer pergunta.
-6. SE O CLIENTE RECUSAR PASSAR DADOS (ex: CNPJ "não"):
+6. SE O CLIENTE ENVIAR ÁUDIO OU IMAGEM:
+   - Analise o áudio e a imagem anexados, faça um comentário empático sobre o conteúdo (ex: "Vi a imagem da válvula que você mandou, perfeito!") e dê sequência à qualificação.
+7. SE O CLIENTE RECUSAR PASSAR DADOS (ex: CNPJ "não"):
    - Seja totalmente empática: "Sem problemas! Deixamos essa parte para o consultor depois 😊" e siga com a conversa.
-7. COLETE OS DADOS: Nome, Empresa, CNPJ/CPF (se aceitar), Urgência, Perfil (recorrência ou primeira compra), Projeto/Desenvolvimento, Produto desejado.
-8. Quando todos os dados necessários forem coletados ou o cliente estiver pronto para o transbordo, marque \`isCompleted: true\`.
+8. COLETE OS DADOS: Nome, Empresa, CNPJ/CPF (se aceitar), Urgência, Perfil, Projeto/Desenvolvimento, Produto desejado.
+9. Quando todos os dados necessários forem coletados ou o cliente estiver pronto para o transbordo, marque \`isCompleted: true\`.
 
 Retorne EXCLUSIVAMENTE o JSON no formato:
 {
@@ -219,10 +238,35 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
   "isCompleted": false
 }`;
 
-        aiResult = await vertexAi.generateStructuredJson<SdrAiResult>(prompt, "gemini-2.5-pro");
+      const multimodalParts: MultimodalPart[] = [{ text: promptText }];
+
+      // Anexar buffers de imagem e áudio recebidos no lote
+      for (const item of batchItems) {
+        if (item.mediaBase64 && item.mimeType) {
+          multimodalParts.push({
+            inlineData: {
+              mimeType: item.mimeType,
+              data: item.mediaBase64,
+            },
+          });
+        }
       }
 
-      // Fallback gracioso se a IA não retornar ou estiver indisponível
+      if (signal?.aborted) return false;
+
+      // 7. Consultar o Gemini 2.5 Pro via Vertex AI (com cancelamento gracioso por AbortSignal)
+      let aiResult: SdrAiResult | null = null;
+      if (vertexAi.isReady()) {
+        aiResult = await vertexAi.generateStructuredJson<SdrAiResult>(
+          multimodalParts,
+          "gemini-2.5-pro",
+          signal
+        );
+      }
+
+      if (signal?.aborted) return false;
+
+      // Fallback gracioso se a IA não retornar ou se interrompida
       if (!aiResult || !aiResult.messagesToSend || aiResult.messagesToSend.length === 0) {
         if (isFirstMessage) {
           aiResult = {
@@ -237,14 +281,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           aiResult = {
             extractedData: {},
             messagesToSend: [
-              `Entendido! Pode me passar mais detalhes do seu produto ou empresa para eu te direcionar pro consultor ideal?`
+              `Entendido! Pode me passar mais detalhes para eu te direcionar pro consultor ideal?`
             ],
             isCompleted: false,
           };
         }
       }
 
-      // 7. Atualizar dados coletados no banco
+      // 8. Atualizar dados coletados no banco
       const updatedCollectedData = { ...existingCollectedData };
       if (aiResult.extractedData) {
         for (const [k, v] of Object.entries(aiResult.extractedData)) {
@@ -258,21 +302,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const isCompleted = aiResult.isCompleted || filledCount >= 6;
       const now = new Date();
 
-      if (!flowState) {
-        const flowId = `flow-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        await db.insert(agentFlowStates).values({
-          id: flowId,
-          tenantId,
-          conversationId,
-          agentType: "sdr",
-          currentStep: isCompleted ? "Concluído" : "Em Qualificação",
-          collectedData: updatedCollectedData,
-          metadata: { stepNumber: filledCount, totalSteps: 7 },
-          startedAt: now,
-          lastInteractionAt: now,
-          outcome: isCompleted ? "completed" : "in_progress",
-        });
-      } else {
+      if (flowState) {
         await db
           .update(agentFlowStates)
           .set({
@@ -286,11 +316,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           .where(eq(agentFlowStates.id, flowState.id));
       }
 
-      // 8. Envio Humanizado das Mensagens (com presença de digitação 'composing' e delays reais)
-      await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, aiResult.messagesToSend);
+      if (signal?.aborted) return false;
 
-      // 9. Se concluído, criar notificação do Supervisor
-      if (isCompleted) {
+      // 9. Envio Humanizado das Mensagens com presencia 'composing' e AbortSignal check
+      await this.sendHumanizedBotMessages(
+        tenantId,
+        conversationId,
+        contactPhone,
+        aiResult.messagesToSend,
+        signal
+      );
+
+      // 10. Notificar Supervisor se concluído
+      if (isCompleted && !signal?.aborted) {
         try {
           const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente";
           const company = updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
@@ -320,19 +358,24 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       return true;
 
     } catch (e: any) {
+      if (e?.name === "AbortError" || signal?.aborted) {
+        console.log(`[SdrEngine] Processamento abortado por nova mensagem do cliente (Stop & Restart).`);
+        return false;
+      }
       console.error("[SdrEngine] Erro no fluxo SDR Valentina:", e);
       return false;
     }
   }
 
   /**
-   * Envia fragmentos de mensagem com efeito de digitação realista e delay humano
+   * Envia fragmentos de mensagem com efeito de digitação realista e checagem contínua de AbortSignal
    */
   private async sendHumanizedBotMessages(
     tenantId: string,
     conversationId: string,
     phone: string,
-    messagesArray: string[]
+    messagesArray: string[],
+    signal?: AbortSignal
   ): Promise<void> {
     const sock = SessionManager.getInstance().getSession(tenantId);
     if (!sock) {
@@ -343,6 +386,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     const realJid = await resolveRealJid(sock, phone);
 
     for (let i = 0; i < messagesArray.length; i++) {
+      if (signal?.aborted) {
+        console.log("[SdrEngine] Envio de mensagens interrompido por AbortSignal.");
+        try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+        return;
+      }
+
       const fragmentText = messagesArray[i].trim();
       if (!fragmentText) continue;
 
@@ -351,15 +400,25 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         await sock.sendPresenceUpdate("composing", realJid);
       } catch { /* silencia erro de presença */ }
 
-      // 2. Delay proporcional ao tamanho da mensagem (simula digitação humana: 1.2s a 2.8s)
-      const typingDelay = Math.min(2800, Math.max(1200, fragmentText.length * 45));
-      await new Promise((resolve) => setTimeout(resolve, typingDelay));
+      // 2. Delay proporcional ao tamanho da mensagem (simula digitação humana: 1.2s a 2.5s)
+      const typingDelay = Math.min(2500, Math.max(1200, fragmentText.length * 40));
+      
+      // Checagem durante o delay
+      const startDelay = Date.now();
+      while (Date.now() - startDelay < typingDelay) {
+        if (signal?.aborted) {
+          try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
 
-      // 3. Enviar a mensagem fragmentada
+      if (signal?.aborted) return;
+
+      // 3. Enviar a mensagem fragmentada no WhatsApp
       const sentMsg = await sock.sendMessage(realJid, { text: fragmentText });
       const botMessageId = sentMsg?.key?.id || `bot-sdr-${Date.now()}-${i}`;
 
-      // Resetar presença após envio
       try {
         await sock.sendPresenceUpdate("paused", realJid);
       } catch { /* silencia */ }
@@ -401,9 +460,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         },
       });
 
-      // Pequena pausa natural entre mensagens consecutivas (700ms)
+      // Pausa entre mensagens consecutivas (600ms)
       if (i < messagesArray.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 700));
+        await new Promise((r) => setTimeout(r, 600));
       }
     }
   }

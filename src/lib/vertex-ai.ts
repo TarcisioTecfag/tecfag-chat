@@ -10,6 +10,10 @@ export interface VertexConfig {
   defaultModel?: string;
 }
 
+export type MultimodalPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
+
 class VertexAiService {
   private static instance: VertexAiService;
   private auth: GoogleAuth | null = null;
@@ -78,8 +82,6 @@ class VertexAiService {
         authOptions.credentials = credentialsObj;
       } else if (keyFilePath) {
         authOptions.keyFilename = keyFilePath;
-      } else {
-        // Tenta usar default do ambiente
       }
 
       this.auth = new GoogleAuth(authOptions);
@@ -122,9 +124,14 @@ class VertexAiService {
   }
 
   /**
-   * Executa uma geração de texto simples via REST API no Vertex AI (Gemini 2.5 Pro)
+   * Executa uma geração multimodal (texto, imagens, áudio) via REST API no Vertex AI (Gemini 2.5 Pro)
+   * Suporta cancelamento por AbortSignal (Stop & Restart)
    */
-  public async generateText(prompt: string, modelName?: string): Promise<string | null> {
+  public async generateText(
+    promptInput: string | MultimodalPart[],
+    modelName?: string,
+    signal?: AbortSignal
+  ): Promise<string | null> {
     const accessToken = await this.getAccessToken();
     if (!accessToken) {
       console.warn("[VertexAI] Não foi possível obter token de acesso. Verifique credenciais.");
@@ -133,6 +140,8 @@ class VertexAiService {
 
     const model = modelName || this.defaultModelName;
     const url = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${this.location}/publishers/google/models/${model}:generateContent`;
+
+    const parts: MultimodalPart[] = typeof promptInput === "string" ? [{ text: promptInput }] : promptInput;
 
     try {
       const response = await fetch(url, {
@@ -145,13 +154,14 @@ class VertexAiService {
           contents: [
             {
               role: "user",
-              parts: [{ text: prompt }],
+              parts,
             },
           ],
           generationConfig: {
             temperature: 0.2,
           },
         }),
+        signal,
       });
 
       if (!response.ok) {
@@ -165,6 +175,10 @@ class VertexAiService {
       return responseText || null;
 
     } catch (e: any) {
+      if (e.name === "AbortError" || signal?.aborted) {
+        console.log("[VertexAI] Chamada cancelada via AbortSignal (Stop & Restart).");
+        return null;
+      }
       console.error("[VertexAI] Erro na chamada REST Vertex AI:", e?.message || e);
       return null;
     }
@@ -172,11 +186,23 @@ class VertexAiService {
 
   /**
    * Gera uma resposta estruturada em JSON parseada garantida.
+   * Suporta partes multimodais e AbortSignal.
    */
-  public async generateStructuredJson<T>(prompt: string, modelName?: string): Promise<T | null> {
-    const jsonPrompt = `${prompt}\n\nREGRAS CRÍTICAS: Retorne EXCLUSIVAMENTE um objeto JSON válido. Não inclua blocos de markdown (\`\`\`json), nem texto explicativo antes ou depois.`;
+  public async generateStructuredJson<T>(
+    promptInput: string | MultimodalPart[],
+    modelName?: string,
+    signal?: AbortSignal
+  ): Promise<T | null> {
+    let parts: MultimodalPart[];
+    const jsonInstruction = `\n\nREGRAS CRÍTICAS DE RETORNO: Retorne EXCLUSIVAMENTE um objeto JSON válido. Não inclua blocos de markdown (\`\`\`json), nem texto explicativo antes ou depois.`;
 
-    const rawText = await this.generateText(jsonPrompt, modelName);
+    if (typeof promptInput === "string") {
+      parts = [{ text: promptInput + jsonInstruction }];
+    } else {
+      parts = [...promptInput, { text: jsonInstruction }];
+    }
+
+    const rawText = await this.generateText(parts, modelName, signal);
     if (!rawText) return null;
 
     try {

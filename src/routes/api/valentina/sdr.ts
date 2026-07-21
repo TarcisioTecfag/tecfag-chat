@@ -14,7 +14,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
-      // ── GET: Configurações do SDR + Lista de Triagens Reais do Banco (Sem Mocks) ─────────
+      // ── GET: Configurações do SDR + Lista de Triagens Reais do Banco ─────────
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId") || "valem";
@@ -26,7 +26,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
           });
 
-          // Se não achar por tenant específico, busca qualquer config SDR
           if (!dbConfig) {
             dbConfig = await db.query.agentConfigs.findFirst({
               where: (table, { eq: dEq }) => dEq(table.agentType, "sdr"),
@@ -41,25 +40,18 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             whitelistPhone: configData.whitelistPhone || "14998364338",
           };
 
-          // 2. Buscar sessões de triagem reais no banco
+          // 2. Buscar sessões de triagem registradas na tabela agentFlowStates
           let flowStates = await db.select()
             .from(agentFlowStates)
-            .where(eq(agentFlowStates.tenantId, tenantId))
             .orderBy(desc(agentFlowStates.lastInteractionAt))
             .limit(50);
 
-          // Fallback: Se não houver por tenantId específico, busca todas as triagens registradas
-          if (flowStates.length === 0) {
-            flowStates = await db.select()
-              .from(agentFlowStates)
-              .orderBy(desc(agentFlowStates.lastInteractionAt))
-              .limit(50);
-          }
+          const sessions: any[] = [];
+          const addedConvIds = new Set<string>();
 
-          // Formatar para exibição no frontend (padrão SdrTriageSession)
-          const sessions = [];
           for (const fs of flowStates) {
-            // Buscar conversa e contato correspondente
+            addedConvIds.add(fs.conversationId);
+
             const conv = await db.query.conversations.findFirst({
               where: (t, { eq: dEq }) => dEq(t.id, fs.conversationId),
             });
@@ -70,7 +62,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 })
               : null;
 
-            // Buscar histórico REAL de mensagens trocadas nesta conversa
             const realMsgs = await db
               .select()
               .from(messages)
@@ -107,6 +98,53 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             });
           }
 
+          // 3. Garantia: buscar todas as conversas na fila 'automacao' (Valentina IA) que ainda não foram catalogadas
+          const automacaoConvs = await db
+            .select()
+            .from(conversations)
+            .where(eq(conversations.queueState, "automacao"))
+            .orderBy(desc(conversations.lastMessageTime))
+            .limit(20);
+
+          for (const c of automacaoConvs) {
+            if (!addedConvIds.has(c.id)) {
+              addedConvIds.add(c.id);
+
+              const contact = await db.query.contacts.findFirst({
+                where: (t, { eq: dEq }) => dEq(t.id, c.contactId),
+              });
+
+              const realMsgs = await db
+                .select()
+                .from(messages)
+                .where(eq(messages.conversationId, c.id))
+                .orderBy(asc(messages.sentAt))
+                .limit(100);
+
+              const formattedMessages = realMsgs.map((m) => ({
+                sender: m.senderType === "client" ? "client" : "bot",
+                text: m.content,
+                time: new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+              }));
+
+              sessions.push({
+                id: `fs-auto-${c.id}`,
+                conversationId: c.id,
+                contactName: contact?.name || "Contato WhatsApp",
+                company: "Empresa não informada",
+                phone: contact?.phone || "",
+                currentStep: "Em Qualificação",
+                collectedData: {},
+                startedAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
+                status: "active",
+                outcome: "in_progress",
+                messages: formattedMessages.length > 0 ? formattedMessages : [
+                  { sender: "bot", text: "Atendimento iniciado com a Valentina SDR...", time: "Agora" }
+                ],
+              });
+            }
+          }
+
           return new Response(JSON.stringify({ config, sessions }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -138,44 +176,33 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             whitelistPhone: whitelistPhone !== undefined ? String(whitelistPhone).trim() : "14998364338",
           };
 
-          const isEnabledNum = enabled !== undefined ? (enabled ? 1 : 0) : 1;
-
           if (existingConfig) {
             await db
               .update(agentConfigs)
               .set({
-                enabled: isEnabledNum,
+                enabled: enabled !== undefined ? (enabled ? 1 : 0) : existingConfig.enabled,
                 config: updatedJson,
                 updatedAt: new Date(),
               })
               .where(eq(agentConfigs.id, existingConfig.id));
           } else {
-            const configId = `cfg-sdr-${Date.now()}`;
             await db.insert(agentConfigs).values({
-              id: configId,
+              id: `cfg-sdr-${Date.now()}`,
               tenantId,
               agentType: "sdr",
-              enabled: isEnabledNum,
+              enabled: enabled ? 1 : 0,
               config: updatedJson,
               createdAt: new Date(),
               updatedAt: new Date(),
             });
           }
 
-          return new Response(
-            JSON.stringify({
-              success: true,
-              config: {
-                enabled: Boolean(isEnabledNum),
-                testMode: updatedJson.testMode,
-                whitelistPhone: updatedJson.whitelistPhone,
-              },
-            }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          return new Response(JSON.stringify({ success: true }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
 
         } catch (e: any) {
-          console.error("[api/valentina/sdr] Erro ao salvar config do SDR:", e);
+          console.error("[api/valentina/sdr] Erro ao salvar config SDR:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
