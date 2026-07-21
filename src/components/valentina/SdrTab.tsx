@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { toast } from "sonner";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
 export interface SdrTriageMessage {
   id?: string;
@@ -865,29 +866,43 @@ export function SdrTab() {
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={handleStopValentina}
-                        disabled={isStoppingValentina || selectedSession.status === "abandoned" || selectedSession.outcome === "stopped"}
-                        className="text-[10px] font-extrabold text-primary hover:text-primary-hover bg-primary-soft hover:bg-primary-soft/80 border border-primary/20 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-40"
-                        title="Interromper instantaneamente as ações da Valentina para este contato"
-                      >
-                        <Square className="h-3 w-3 text-primary fill-primary/30" />
-                        {isStoppingValentina ? "Parando..." : "Parar Valentina"}
-                      </button>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={handleStopValentina}
+                              disabled={isStoppingValentina || selectedSession.status === "abandoned" || selectedSession.outcome === "stopped"}
+                              className="text-[10px] font-extrabold text-primary hover:text-primary-hover bg-primary-soft hover:bg-primary-soft/80 border border-primary/20 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                            >
+                              <Square className="h-3 w-3 text-primary fill-primary/30" />
+                              {isStoppingValentina ? "Parando..." : "Parar Valentina"}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            Interromper instantaneamente as ações da Valentina para este contato
+                          </TooltipContent>
+                        </Tooltip>
 
-                      <button
-                        onClick={() => {
-                          const targetChatId = selectedSession.conversationId;
-                          setSelectedChatId(targetChatId);
-                          setActiveView("chat");
-                          toast.info("Redirecionando para o chat...");
-                        }}
-                        className="text-[10px] font-black text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0"
-                        title="Abrir atendimento correspondente"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        Abrir
-                      </button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => {
+                                const targetChatId = selectedSession.conversationId;
+                                setSelectedChatId(targetChatId);
+                                setActiveView("chat");
+                                toast.info("Redirecionando para o chat...");
+                              }}
+                              className="text-[10px] font-black text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Abrir
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            Abrir atendimento correspondente
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
                   </div>
 

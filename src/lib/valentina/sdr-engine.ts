@@ -110,6 +110,23 @@ export class SdrEngine {
         });
       }
 
+      // 🛑 TRAVA DE OPERADOR: Se a conversa possui um operador humano alocado, está na aba 'meus'/'finalizados' ou a triagem terminou/parou, Valentina SILENCIA IMEDIATAMENTE!
+      const convCheck = await db.query.conversations.findFirst({
+        where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+      });
+
+      if (
+        convCheck?.operatorId ||
+        convCheck?.queueState === "meus" ||
+        convCheck?.queueState === "finalizados" ||
+        flowState?.outcome === "completed" ||
+        flowState?.outcome === "transferred" ||
+        flowState?.outcome === "stopped"
+      ) {
+        console.log(`[SdrEngine] 🛑 TRAVA DE OPERADOR ATIVA: Conversa ${conversationId} (Cliente ${contactPhone}) possui operador alocado (${convCheck?.operatorId || 'Sim'}) ou status ${flowState?.outcome}. Valentina SILENCIADA.`);
+        return false;
+      }
+
       // 3. Buscar Histórico Recente de Mensagens Reais do Banco
       const historyMsgs = await db
         .select()
@@ -167,15 +184,18 @@ export class SdrEngine {
       const detectedCnpjCandidate = extractCnpjFromText(combinedBatchText);
 
       if (detectedCnpjCandidate) {
-        console.log(`[SdrEngine] CNPJ detectado no lote: ${detectedCnpjCandidate}. Executando validação matemática e consulta à Receita Federal (cnpj.ws)...`);
+        console.log(`[SdrEngine] CNPJ detectado no lote: ${detectedCnpjCandidate}. Executando validação matemática...`);
         const cnpjInfo = await fetchCnpjInfo(detectedCnpjCandidate);
 
         if (!cnpjInfo.valid) {
-          cnpjDirective = `\n⚠️ ALERTA DE CNPJ INVÁLIDO: O CNPJ enviado pelo cliente (${cnpjInfo.cnpjFormatted}) POSSUI ERRO MATEMÁTICO nos dígitos verificadores. Informe educadamente ao cliente que o CNPJ parece ter algum dígito incorreto e peça para ele conferir e enviar novamente.`;
+          cnpjDirective = `\n⚠️ ALERTA DE CNPJ INVÁLIDO (${cnpjInfo.cnpjFormatted}): O CNPJ enviado pelo cliente POSSUI ERRO MATEMÁTICO nos dígitos verificadores ou está incompleto.
+É ESTRITAMENTE PROIBIDO INVENTAR NOME DE EMPRESA OU MARCAR 'CNPJ OU CPF' OU 'EMPRESA' COMO PREENCHIDOS!
+- NÃO inclua 'CNPJ OU CPF' nem 'EMPRESA' em \`extractedData\`.
+- Informe o cliente com extrema simpatia humana que o CNPJ parece ter algum dígito faltando ou incorreto e peça a gentileza de conferir e enviar novamente.`;
         } else if (cnpjInfo.razaoSocial) {
-          cnpjDirective = `\n🟢 CNPJ VÁLIDO E CONSULTADO NA RECEITA FEDERAL (cnpj.ws):
+          cnpjDirective = `\n🟢 CNPJ VÁLIDO ENCONTRADO:
 - CNPJ: ${cnpjInfo.cnpjFormatted}
-- Razão Social/Empresa encontrada na Receita: "${cnpjInfo.razaoSocial}" ${cnpjInfo.nomeFantasia ? `(Fantasia: ${cnpjInfo.nomeFantasia})` : ""}
+- Razão Social/Empresa: "${cnpjInfo.razaoSocial}" ${cnpjInfo.nomeFantasia ? `(Fantasia: ${cnpjInfo.nomeFantasia})` : ""}
 INSTRUÇÕES OBRIGATÓRIAS:
 1. Defina em \`extractedData\` o CNPJ OU CPF como "${cnpjInfo.cnpjFormatted}" e EMPRESA como "${cnpjInfo.razaoSocial}".
 2. Pergunte ao cliente para confirmar: "Sua empresa é a ${cnpjInfo.razaoSocial}, certo?"`;
@@ -226,13 +246,12 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - Se o cliente já informou o Nome (ex: "Tarcisio Pereira da Silva"), REGISTRE O NOME e NUNCA pergunte "qual o seu nome?" de novo!
    - Se o cliente se irritar ou disser que já respondeu, peça desculpas com muita elegância ("Imagina, me desculpe! Já registrei aqui, Tarcísio.") e siga imediatamente.
 
-6. FLUXO DE CNPJ E EMPRESA (NUNCA PEDIR O NOME DA EMPRESA DIRETAMENTE!):
+6. FLUXO DE CNPJ E EMPRESA E PROIBIÇÃO ABSOLUTA DA MENÇÃO À RECEITA FEDERAL:
+   - 🛑 É PROIBIDO NAVEGAR OU CITAR OS TERMOS: "Receita Federal", "sistema da Receita", "cnpj.ws", "banco de dados", "consulta do sistema"! NUNCA use essas justificativas.
    - NUNCA pergunte "Qual o nome da sua empresa?". Pergunte APENAS o CNPJ (ou CPF).
-   - Quando o cliente enviar o CNPJ, a validação matemática e a API da Receita Federal (cnpj.ws) buscam a Razão Social da empresa automaticamente.
-   - Sua única pergunta de confirmação deve ser: "Sua empresa é a [Nome da Empresa], certo?".
-   - Se o cliente responder "sim", "isso", "exato", "correto", confirme e avança a triagem.
-   - Se o cliente responder "não" ou disser que o nome é outro, aceite a correção do cliente com elegância ("Entendido! Já registrei o nome correto aqui."), grave a empresa e avança.
-   - Se o CNPJ tiver dígitos matematicamente incorretos, avise com elegância ("Ops, parece que esse CNPJ tem algum dígito incorreto. Consegue me enviar novamente?").
+   - Quando o cliente enviar o CNPJ, sua única pergunta de confirmação deve ser: "Sua empresa é a [Nome da Empresa], certo?".
+   - Se o cliente responder que o nome não é esse ou corrigir, aceite o nome digitado pelo cliente IMEDIATAMENTE com muita elegância humana: "Ah, me desculpe pelo equívoco! Qual é o nome correto da sua empresa para eu registrar aqui?".
+   - Se o CNPJ for inválido ou tiver erro nos dígitos, diga educadamente: "Ops, parece que esse CNPJ tem algum dígito incorreto ou faltando. Consegue me enviar novamente por favor?". NUNCA invente nome de empresa nem preencha CNPJ inválido.
 
 7. LEITURA E EXTRAÇÃO AUTOMÁTICA DE DOCUMENTOS E PDFS:
    - Se o cliente enviar um documento ou arquivo PDF (como Cartão CNPJ, Ficha Cadastral, Contrato Social, Nota Fiscal, etc.):
@@ -362,8 +381,18 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
+      // Se o lote enviou um CNPJ matematicamente inválido, expurgar qualquer tentativa da IA de preencher CNPJ ou Empresa
+      if (detectedCnpjCandidate) {
+        const cnpjCheck = await fetchCnpjInfo(detectedCnpjCandidate);
+        if (!cnpjCheck.valid && aiResult.extractedData) {
+          delete aiResult.extractedData["CNPJ OU CPF"];
+          delete aiResult.extractedData["EMPRESA"];
+          delete updatedCollectedData["CNPJ OU CPF"];
+          delete updatedCollectedData["EMPRESA"];
+        }
+      }
+
       // 8. Atualizar dados coletados no banco
-      const updatedCollectedData = { ...existingCollectedData };
       if (aiResult.extractedData) {
         for (const [k, v] of Object.entries(aiResult.extractedData)) {
           if (v && v.trim() !== "" && !v.toLowerCase().includes("mantem")) {
@@ -373,7 +402,22 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       const filledCount = Object.values(updatedCollectedData).filter((d) => d.status === "filled").length;
-      const isCompleted = aiResult.isCompleted || filledCount >= 5;
+
+      // TRAVA ESTRITA DE CONCLUSÃO: A triagem SÓ pode ser concluída se TODOS os 4 dados vitais forem realmente informados:
+      const nameVal = updatedCollectedData["NOME COMPLETO"]?.value || "";
+      const companyVal = updatedCollectedData["EMPRESA"]?.value || "";
+      const cnpjVal = updatedCollectedData["CNPJ OU CPF"]?.value || "";
+      const productVal = updatedCollectedData["QUAL O TIPO DE PRODUTO?"]?.value || "";
+
+      const hasName = Boolean(nameVal && nameVal.trim() !== "" && !nameVal.includes("Aguardando"));
+      const hasCompany = Boolean(companyVal && companyVal.trim() !== "" && !companyVal.includes("Aguardando"));
+      const hasCnpj = Boolean(cnpjVal && cnpjVal.trim() !== "" && !cnpjVal.includes("Aguardando") && !cnpjVal.includes("Invalido"));
+      const hasProduct = Boolean(productVal && productVal.trim() !== "" && !productVal.includes("Aguardando"));
+
+      const isTriageFullyReady = hasName && hasCompany && hasCnpj && hasProduct;
+
+      // NUNCA conclui prematuramente se faltar qualquer um dos 4 campos vitais!
+      const isCompleted = isTriageFullyReady && (aiResult.isCompleted || filledCount >= 6);
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
 

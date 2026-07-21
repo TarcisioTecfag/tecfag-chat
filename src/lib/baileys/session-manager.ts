@@ -899,7 +899,22 @@ export class SessionManager {
       });
 
       // ── Processar mensagem no SdrDebouncer (Valentina SDR / 15s Debounce & Multimodal) ─────
-      if (finalSenderType === "client") {
+      // 🛑 TRAVA DE OPERADOR: Valentina só atende clientes não captados por operadores humanos
+      const currentFlow = await db.query.agentFlowStates.findFirst({
+        where: (t, { eq: dEq }) => dEq(t.conversationId, convId)
+      });
+
+      const isHandledByOperator = Boolean(
+        targetOperatorId !== null ||
+        targetQueue === "meus" ||
+        targetQueue === "finalizados" ||
+        contact?.walletOperatorId ||
+        currentFlow?.outcome === "completed" ||
+        currentFlow?.outcome === "transferred" ||
+        currentFlow?.outcome === "stopped"
+      );
+
+      if (finalSenderType === "client" && !isHandledByOperator) {
         let mediaType: "text" | "image" | "audio" | "document" = "text";
         let mediaBase64: string | undefined = undefined;
         let mimeType: string | undefined = undefined;
@@ -946,6 +961,8 @@ export class SessionManager {
           receivedAt: new Date(),
           rawMsg,
         });
+      } else if (isHandledByOperator) {
+        console.log(`[Baileys/SDR] 🛑 TRAVA DE OPERADOR ATIVA: Cliente ${phone} em atendimento humano ou triagem finalizada. Valentina silenciada.`);
       }
 
     } catch (e) {
