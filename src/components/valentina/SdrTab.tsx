@@ -206,7 +206,7 @@ export function SdrTab() {
   const [isLoading, setIsLoading] = useState(false);
 
   // Filtros
-  const [onlyCompletedFilter, setOnlyCompletedFilter] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "completed">("all");
   const [periodFilter, setPeriodFilter] = useState<"todos" | "hoje" | "7dias" | "30dias">("todos");
   const [isPeriodDropdownOpen, setIsPeriodDropdownOpen] = useState(false);
   const [isStoppingValentina, setIsStoppingValentina] = useState(false);
@@ -351,7 +351,9 @@ export function SdrTab() {
   };
 
   const filteredSessions = sessions.filter((session) => {
-    if (onlyCompletedFilter) {
+    if (statusFilter === "active") {
+      if (session.status !== "active") return false;
+    } else if (statusFilter === "completed") {
       const isCompleted = session.status === "completed" || session.outcome === "completed" || session.outcome === "transferred";
       if (!isCompleted) return false;
     }
@@ -472,12 +474,24 @@ export function SdrTab() {
               </button>
             </div>
 
-            {/* ── BOTÕES DE FILTRO DE HARMONIA VERDE: CONCLUÍDOS E PERÍODO ───────── */}
+            {/* ── BOTÕES DE FILTRO DE HARMONIA VERDE: ATIVOS, CONCLUÍDOS E PERÍODO ───────── */}
             <div className="flex items-center gap-2 pt-0.5 flex-wrap">
               <button
-                onClick={() => setOnlyCompletedFilter(!onlyCompletedFilter)}
+                onClick={() => setStatusFilter(statusFilter === "active" ? "all" : "active")}
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 cursor-pointer border ${
-                  onlyCompletedFilter
+                  statusFilter === "active"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
+                }`}
+              >
+                <Circle className="h-2.5 w-2.5 fill-current" />
+                Ativos
+              </button>
+
+              <button
+                onClick={() => setStatusFilter(statusFilter === "completed" ? "all" : "completed")}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 cursor-pointer border ${
+                  statusFilter === "completed"
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
                 }`}
@@ -514,7 +528,7 @@ export function SdrTab() {
                       <motion.div
                         initial={{ opacity: 0, y: -4, scale: 0.96 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4, scale: 0.96 }}
+                        exit={{ opacity: 0, y: -4, scale: 1 }}
                         transition={{ duration: 0.15 }}
                         className="absolute left-0 mt-1.5 z-40 w-44 rounded-xl bg-card border border-border shadow-xl p-1 space-y-0.5 overflow-hidden"
                       >
@@ -570,12 +584,16 @@ export function SdrTab() {
                 </div>
                 <div>
                   <h4 className="text-xs font-extrabold text-foreground">
-                    {onlyCompletedFilter ? "Nenhuma Triagem Concluída Encontrada" : "Aguardando Triagens ao Vivo"}
+                    {statusFilter === "completed"
+                      ? "Nenhuma Triagem Concluída Encontrada"
+                      : statusFilter === "active"
+                      ? "Nenhuma Triagem Ativa Encontrada"
+                      : "Aguardando Triagens ao Vivo"}
                   </h4>
                   <p className="text-[10px] text-muted-foreground mt-1 max-w-[220px]">
-                    {onlyCompletedFilter ? (
+                    {statusFilter !== "all" ? (
                       <>
-                        Você está filtrando por <span className="font-bold text-primary">Concluídos</span>. Clique no botão abaixo para visualizar a sua triagem em andamento!
+                        Você está filtrando por <span className="font-bold text-primary">{statusFilter === "completed" ? "Concluídos" : "Ativos"}</span>. Clique no botão abaixo para ver todas as triagens!
                       </>
                     ) : (
                       <>
@@ -583,12 +601,12 @@ export function SdrTab() {
                       </>
                     )}
                   </p>
-                  {onlyCompletedFilter && (
+                  {statusFilter !== "all" && (
                     <button
-                      onClick={() => setOnlyCompletedFilter(false)}
+                      onClick={() => setStatusFilter("all")}
                       className="mt-3 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-[10px] font-extrabold hover:bg-primary-hover transition cursor-pointer shadow-soft"
                     >
-                      Ver Triagens Ativas
+                      Ver Todas as Triagens
                     </button>
                   )}
                 </div>
@@ -955,7 +973,7 @@ export function SdrTab() {
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5">
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3 text-primary" />
-                        Início: {selectedSession.startedAt ? new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                        Início: {selectedSession.startedAt ? new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : "—"}
                       </span>
                       <span className="flex items-center gap-1 truncate max-w-[140px]">
                         <ChevronRight className="h-3 w-3 text-primary" />
