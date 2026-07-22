@@ -52,13 +52,19 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
 
           const tenantId = contact.tenantId;
 
-          // Busca os campos customizados configurados no CRM
-          const allCrmFields = await rdRequest<any[]>(tenantId, "GET", "/custom_fields").catch((err) => {
+          // Busca os campos customizados configurados oficialmente no RD CRM via API
+          const rawFieldsRes = await rdRequest<any>(tenantId, "GET", "/custom_fields?limit=100").catch((err) => {
             console.error("[RD Deal API] Erro ao buscar custom_fields:", err.message);
             return [];
           });
 
-          console.log("[RD Deal API] Quantidade de campos recuperados:", allCrmFields.length);
+          const allCrmFields: any[] = Array.isArray(rawFieldsRes)
+            ? rawFieldsRes
+            : (rawFieldsRes && Array.isArray(rawFieldsRes.custom_fields)
+                ? rawFieldsRes.custom_fields
+                : (rawFieldsRes && Array.isArray(rawFieldsRes.data) ? rawFieldsRes.data : []));
+
+          console.log("[RD Deal API] Quantidade de campos recuperados da API do CRM:", allCrmFields.length);
 
           // Busca o negócio na API do RD CRM
           try {
@@ -86,7 +92,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
               }
             }
 
-            // Normalização flexível para encontrar os campos sem depender de acentos, maiúsculas ou espaços exatos
+            // Normalização flexível apenas para ligar o nome do campo ao objeto exato retornado da API
             const normalizeStr = (str: string) => {
               return str
                 ? str
@@ -98,19 +104,19 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
             };
 
             const findField = (configuredId: string, labelPattern: string) => {
-              // 1. Tenta buscar pelo ID configurado na constante
-              const foundById = allCrmFields.find((f) => f.id === configuredId);
+              // 1. Tenta buscar pelo ID configurado
+              const foundById = allCrmFields.find((f) => f.id === configuredId || f._id === configuredId);
               if (foundById) return foundById;
 
-              // 2. Se não encontrar pelo ID, cai no algoritmo de busca por texto do rótulo
+              // 2. Busca pelo nome exato do campo vindo da API do RD CRM
               const target = normalizeStr(labelPattern);
               return allCrmFields.find((f) => {
-                const normLabel = normalizeStr(f.label || f.name || "");
-                return normLabel.includes(target) || target.includes(normLabel);
+                const normLabel = normalizeStr(f.label || f.name || f.api_identifier || f.slug || "");
+                return normLabel === target || normLabel.includes(target) || target.includes(normLabel);
               });
             };
 
-            // Define os slugs conhecidos para fallbacks
+            // Slugs de fallback padrão do Valem
             const VALEM_FIELD_SLUGS = {
               qualificadoSdr: "qualificado-por-sdr-valem",
               projetosDesenvolvimento: "projetos-desenvolvimento",
@@ -119,14 +125,20 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
               feitoPor: "feito-por",
             };
 
-            // Resolve os IDs dos campos com base no ID configurado ou no label usando normalização.
+            // Associa cada campo ao objeto exato retornado pelo endpoint oficial
             const getFieldWithFallback = (key: keyof typeof VALEM_FIELD_IDS, label: string) => {
               const id = VALEM_FIELD_IDS[key];
               const found = findField(id, label);
               const slug = VALEM_FIELD_SLUGS[key];
               return found 
-                ? { ...found, slug: found.slug || found.api_identifier || slug }
-                : { id, label, slug, type: key === "infoComplementar" ? "text" : "multiple_choice" };
+                ? { 
+                    id: found.id || found._id || id,
+                    label: found.label || found.name || label,
+                    slug: found.slug || found.api_identifier || slug,
+                    type: found.type || (key === "infoComplementar" ? "text" : "multiple_choice"),
+                    options: found.options || found.custom_field_options || []
+                  }
+                : { id, label, slug, type: key === "infoComplementar" ? "text" : "multiple_choice", options: [] };
             };
 
             const fieldsSchema = {
