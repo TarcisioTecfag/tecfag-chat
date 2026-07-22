@@ -143,7 +143,7 @@ export class SdrEngine {
             hasPreviousEmoji = true;
           }
           const sender = m.senderType === "client" ? "Cliente" : "Valentina (SDR)";
-          return `[${sender}]: ${m.content}`;
+          return `[ID MENSAGEM: ${m.id}] [${sender}]: ${m.content}`;
         })
         .join("\n");
 
@@ -280,7 +280,12 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
 8. REGRAS DE MENSAGENS CITADAS (REPLY / QUOTE NO WHATSAPP):
    - REGRA 1 (Áudio, Imagem ou PDF enviado pelo cliente): Se o lote contiver algum Áudio, Imagem ou Documento PDF, você DEVE retornar em "quoteMessageId" o ID exato dessa mensagem do cliente.
    - REGRA 2 (Perguntas Espontâneas do Cliente): Se o cliente fez uma pergunta espontânea do nada e não estava apenas respondendo a uma pergunta sua (ex: "Vocês têm o catálogo pra me mandar?", "Onde vocês ficam???", "Quanto custa o frete?"), você DEVE selecionar o ID exato dessa pergunta em "quoteMessageId".
-   - REGRA 3 (Uso Restrito / Triagem Normal): Em respostas normais do fluxo de qualificação (ex: o cliente apenas informou o nome "Pedro" ou respondeu "Sim" para a confirmação do CNPJ), DEIXE "quoteMessageId": null. NUNCA cite mensagens em triagens simples.
+   - REGRA 3 (CRÍTICA — CLIENTE NÃO RESPONDEU A SUA PERGUNTA / FUGA DE PERGUNTA): Se você (Valentina) fez uma pergunta na sua mensagem anterior (ex: pediu CNPJ/CPF, Nome, Produto ou Quantidade) e o cliente NÃO respondeu a essa pergunta no novo lote, mas apenas comentou outro assunto (ex: concordou com uma explicação ou continuou falando do produto):
+     a) NUNCA REPITA A PERGUNTA POR EXTENSO! Fica chato, repetitivo e robótico.
+     b) Responda ou confirme o comentário do cliente normalmente nos primeiros balões (ex: "Isso mesmo, Tarcísio! Exatamente essa a diferença.", "Que bom que fez sentido! Vamos seguir com a opção para perfume...").
+     c) Em \`quoteMessageId\`: RETORNE O ID EXATO DA SUA MENSAGEM ANTERIOR (da Valentina) ONDE VOCÊ FEZ A PERGUNTA PENDENTE (ex: o ID da mensagem onde pediu o CNPJ/CPF ou Nome)!
+     d) No último balão do array \`messagesToSend\`, envie EXCLUSIVAMENTE a frase curta e simpática: "Só me responde isso rapidinho 😊" (ou "Só me responde isso aqui rapidinho").
+   - REGRA 4 (Uso Restrito / Triagem Normal): Em respostas normais do fluxo de qualificação onde o cliente respondeu o que foi perguntado, DEIXE "quoteMessageId": null. NUNCA cite mensagens em triagens simples.
 
 9. LIBERDADE DE FRAGMENTAÇÃO EM MENSAGENS:
    - Divida sua resposta no array \`messagesToSend\` em balões de mensagem menores para dar fluidez de conversa humana real no WhatsApp.
@@ -462,7 +467,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         contactPhone,
         aiResult.messagesToSend,
         signal,
-        targetQuoteItem
+        targetQuoteItem,
+        aiResult.quoteMessageId
       );
 
       // 10. Alocar responsável no Rodízio APENAS se for a PRIMEIRA vez que é concluído
@@ -531,7 +537,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     phone: string,
     messagesArray: string[],
     signal?: AbortSignal,
-    quoteItem?: QueuedMessageItem | null
+    quoteItem?: QueuedMessageItem | null,
+    targetQuoteMessageId?: string | null
   ): Promise<void> {
     const sock = SessionManager.getInstance().getSession(tenantId);
     if (!sock) {
@@ -540,6 +547,38 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     }
 
     const realJid = await resolveRealJid(sock, phone);
+
+    // Resolver a mensagem a ser citada no WhatsApp (Quoted Reply)
+    let finalQuoteObj: any = null;
+
+    if (targetQuoteMessageId) {
+      try {
+        const [dbMsg] = await db
+          .select()
+          .from(messages)
+          .where(eq(messages.id, targetQuoteMessageId));
+
+        if (dbMsg) {
+          finalQuoteObj = {
+            key: {
+              remoteJid: realJid,
+              fromMe: dbMsg.senderType === "bot",
+              id: dbMsg.id,
+            },
+            message: {
+              conversation: dbMsg.content,
+            },
+          };
+          console.log(`[SdrEngine] 💬 Citação configurada para a mensagem ${dbMsg.id} (${dbMsg.senderType === "bot" ? "Valentina" : "Cliente"}): "${dbMsg.content.slice(0, 35)}..."`);
+        }
+      } catch (err: any) {
+        console.warn("[SdrEngine] Falha ao buscar mensagem citada no banco:", err?.message);
+      }
+    }
+
+    if (!finalQuoteObj && quoteItem && quoteItem.rawMsg) {
+      finalQuoteObj = quoteItem.rawMsg;
+    }
 
     for (let i = 0; i < messagesArray.length; i++) {
       if (signal?.aborted) {
@@ -570,11 +609,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return;
 
-      // 3. Enviar a mensagem no WhatsApp (aplica citação Quoted no 1º fragmento se houver quoteItem)
+      // 3. Determinar se este balão deve conter a CITAÇÃO (Quoted Reply):
+      // - Se o balão contiver a frase "só me responde", aplica NELA!
+      // - Senão, se não houver re-quote em nenhum outro balão, aplica no 1º balão.
+      const isRequoteFragment = /só me responde/i.test(fragmentText) || /me responde isso/i.test(fragmentText);
+      const hasRequoteInArray = messagesArray.some((m) => /só me responde/i.test(m) || /me responde isso/i.test(m));
+
+      const shouldQuoteThisFragment = isRequoteFragment
+        ? Boolean(finalQuoteObj)
+        : (i === 0 && Boolean(finalQuoteObj) && !hasRequoteInArray);
+
       const sendOptions: any = {};
-      if (i === 0 && quoteItem && quoteItem.rawMsg) {
-        sendOptions.quoted = quoteItem.rawMsg;
-        console.log(`[SdrEngine] 💬 Enviando resposta com CITAÇÃO NATIVA do WhatsApp para a mensagem ${quoteItem.messageId || 'mídia'}`);
+      if (shouldQuoteThisFragment && finalQuoteObj) {
+        sendOptions.quoted = finalQuoteObj;
+        console.log(`[SdrEngine] 💬 Aplicando CITAÇÃO NATIVA do WhatsApp no balão ${i + 1}: "${fragmentText.slice(0, 35)}..."`);
       }
 
       const sentMsg = await sock.sendMessage(realJid, { text: fragmentText }, sendOptions);
