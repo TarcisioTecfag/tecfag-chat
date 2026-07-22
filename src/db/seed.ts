@@ -17,6 +17,10 @@ async function main() {
     console.log("🔍 Verificando/Criando coluna responsible_name...");
     await client`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS responsible_name text DEFAULT 'Na Fila' NOT NULL;`;
     
+    // Limpar qualquer operador órfão com group_id inexistente (evita FK constraint violation 23503)
+    console.log("🧹 Verificando/Limpando grupos de acesso órfãos em operadores...");
+    await client`UPDATE operators SET group_id = NULL WHERE group_id IS NOT NULL AND group_id NOT IN (SELECT id FROM access_groups);`;
+
     // Se o banco já possuir operadores, não rodar seeding para evitar recriação de registros deletados
     const allOps = await db.select().from(operators).limit(1);
     if (allOps.length > 0) {

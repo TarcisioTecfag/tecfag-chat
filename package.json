@@ -13,9 +13,9 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "start": "node .output/server/index.mjs",
-    "db:seed": "tsx src/db/seed.ts",
+    "db:seed": "tsx src/db/cleanup.ts && tsx src/db/seed.ts",
     "db:migrate": "bun run src/db/migrate.ts",
-    "db:push": "drizzle-kit push",
+    "db:push": "tsx src/db/cleanup.ts && drizzle-kit push",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
