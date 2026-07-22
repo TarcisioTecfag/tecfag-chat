@@ -758,8 +758,9 @@ export function SdrTab() {
                           }
 
                           const isImage = mediaType === "image" || (mediaUrl && mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)/i));
+                          const isVideo = mediaType === "video" || (mediaUrl && mediaUrl.match(/\.(mp4|webm|mov|avi|mkv)/i));
                           const isAudio = mediaType === "audio" || (mediaUrl && mediaUrl.match(/\.(ogg|mp3|wav|m4a|opus)/i));
-                          const isDoc = mediaType === "document" || (mediaUrl && mediaUrl.match(/\.(pdf|doc|docx|xls|xlsx)/i)) || text.match(/\.(pdf|doc|docx|xls|xlsx)/i);
+                          const isDoc = mediaType === "document" || (mediaUrl && mediaUrl.match(/\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i)) || text.match(/\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i);
 
                           if (isImage && mediaUrl) {
                             return (
@@ -770,6 +771,25 @@ export function SdrTab() {
                                 >
                                   <img src={mediaUrl} alt="Imagem enviada" className="w-full max-h-56 object-cover rounded-2xl group-hover:scale-[1.02] transition duration-300" />
                                 </button>
+                                {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                              </div>
+                            );
+                          }
+
+                          if (isVideo && mediaUrl) {
+                            return (
+                              <div className="space-y-1 my-1">
+                                <div
+                                  className="relative group max-w-xs rounded-2xl overflow-hidden border border-white/20 bg-black/10 cursor-pointer flex items-center justify-center shadow-soft"
+                                  onClick={() => setPreviewModalImage({ url: mediaUrl!, title: "Vídeo enviado no WhatsApp" })}
+                                >
+                                  <video src={mediaUrl} className="max-h-56 w-full object-contain rounded-2xl pointer-events-none" />
+                                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/35 transition rounded-2xl">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-110">
+                                      <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
+                                    </div>
+                                  </div>
+                                </div>
                                 {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
                               </div>
                             );
@@ -1023,12 +1043,21 @@ export function SdrTab() {
                 <h3 className="text-xs font-extrabold text-foreground">{previewModalImage.title}</h3>
               </div>
 
-              <div className="relative rounded-2xl overflow-hidden border-2 border-primary/30 shadow-xl bg-black/40 p-1 max-h-[70vh] flex items-center justify-center">
-                <img
-                  src={previewModalImage.url}
-                  alt={previewModalImage.title}
-                  className="max-h-[60vh] max-w-full w-auto object-contain rounded-xl shadow-2xl"
-                />
+              <div className="relative rounded-2xl overflow-hidden border-2 border-primary/30 shadow-xl bg-black/40 p-1 max-h-[70vh] flex items-center justify-center w-full">
+                {previewModalImage.url.match(/\.(mp4|webm|mov|avi|mkv)/i) || previewModalImage.title.toLowerCase().includes("vídeo") ? (
+                  <video
+                    src={previewModalImage.url}
+                    controls
+                    autoPlay
+                    className="max-h-[60vh] max-w-full w-auto object-contain rounded-xl shadow-2xl"
+                  />
+                ) : (
+                  <img
+                    src={previewModalImage.url}
+                    alt={previewModalImage.title}
+                    className="max-h-[60vh] max-w-full w-auto object-contain rounded-xl shadow-2xl"
+                  />
+                )}
               </div>
 
               <p className="text-[10px] text-muted-foreground">Clique fora ou no X para fechar a visualização.</p>
