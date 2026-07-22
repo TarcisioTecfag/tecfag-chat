@@ -160,7 +160,8 @@ export class SdrEngine {
       if (hour >= 5 && hour < 12) greeting = "Bom dia!";
       if (hour >= 18 || hour < 5) greeting = "Boa noite!";
 
-      const isFirstMessage = historyMsgs.length === 0;
+      const hasBotRespondedBefore = historyMsgs.some((m) => m.senderType === "bot");
+      const isFirstMessage = !hasBotRespondedBefore;
 
       const firstMessageRule = isFirstMessage
         ? `🟢 ATENÇÃO CRÍTICA (ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO!):
