@@ -425,29 +425,35 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // 8.1 Verificação da confirmação do Nome da Empresa pelo cliente
       const batchTextCombined = batchItems.map((i) => i.text.toLowerCase()).join(" ");
-      const isConfirmationReply = /\b(sim|certo|correto|é essa|isso mesmo|exato|com certeza|uhum|é sim|confirmo|pode ser)\b/i.test(batchTextCombined);
+      const isConfirmationReply = /\b(sim|certo|correto|é essa|isso mesmo|exato|com certeza|uhum|é sim|confirmo|pode ser|essa mesma)\b/i.test(batchTextCombined);
 
       // Verificar se Valentina já havia perguntado a confirmação da empresa em algum balão do histórico
-      const botAskedCompanyConfirmation = historyMsgs.some((m) => m.senderType === "bot" && (m.content.toLowerCase().includes("sua empresa é") || m.content.toLowerCase().includes("empresa é a")));
+      const botAskedCompanyConfirmation = historyMsgs.some((m) => {
+        const lower = m.content.toLowerCase();
+        return lower.includes("sua empresa") || lower.includes("empresa é") || lower.includes("empresa cadastrada");
+      });
 
       // Se Valentina está fazendo essa pergunta neste exato lote:
-      const isAskingConfirmationNow = aiResult.messagesToSend.some((m) => m.toLowerCase().includes("sua empresa é") || m.toLowerCase().includes("empresa é a"));
+      const isAskingConfirmationNow = aiResult.messagesToSend.some((m) => {
+        const lower = m.toLowerCase();
+        return lower.includes("sua empresa") || lower.includes("empresa é") || lower.includes("empresa cadastrada") || (lower.includes("empresa") && lower.includes("certo?"));
+      });
 
       let isCompanyConfirmed = false;
 
+      // Se o cliente já confirmou anteriormente:
       if (existingCollectedData["EMPRESA_CONFIRMED"]?.value === "true") {
         isCompanyConfirmed = true;
       } else if (botAskedCompanyConfirmation && isConfirmationReply) {
+        // Cliente acabou de responder "Sim/Certo" para a pergunta da Valentina
         isCompanyConfirmed = true;
         updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "true", status: "filled" };
-      } else if (!botAskedCompanyConfirmation && updatedCollectedData["EMPRESA"]?.value && !isAskingConfirmationNow) {
-        // Se a empresa veio direta por texto digitado pelo cliente ou PDF (sem ter perguntado a confirmação de CNPJ)
+      } else if (!detectedCnpjCandidate && !botAskedCompanyConfirmation && updatedCollectedData["EMPRESA"]?.value && !isAskingConfirmationNow) {
+        // Se a empresa foi digitada diretamente pelo cliente por extenso (sem ser busca por CNPJ na Receita)
         isCompanyConfirmed = true;
         updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "true", status: "filled" };
-      }
-
-      // Se Valentina está apenas PERGUNTANDO a confirmação agora, NUNCA considera confirmada nesta mesma rodada!
-      if (isAskingConfirmationNow) {
+      } else {
+        // Busca de CNPJ da Receita Federal SEMPRE exige confirmação posterior do cliente!
         isCompanyConfirmed = false;
         updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "false", status: "pending" };
       }
