@@ -152,38 +152,49 @@ export function SharedFiles() {
   });
 
   const [cnpjDetails, setCnpjDetails] = useState<CnpjFullDetails>({});
-  const [isSavingCnpj, setIsSavingCnpj] = useState(false);
   const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "idle">("idle");
+  const isFirstCnpjRender = React.useRef(true);
 
   useEffect(() => {
+    isFirstCnpjRender.current = true;
     if (activeChat) {
       setCnpjDetails((activeChat as any).cnpjDetails || {});
+      setAutoSaveStatus("idle");
     }
-  }, [activeChat?.id, (activeChat as any)?.cnpjDetails]);
+  }, [activeChat?.id]);
 
-  const handleSaveCnpjDetails = async () => {
-    if (!activeChat) return;
-    setIsSavingCnpj(true);
-    try {
-      const contactId = activeChat.contactId || activeChat.id;
-      const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cnpjDetails }),
-      });
-      if (res.ok) {
-        toast.success("Ficha da Receita Federal salva com sucesso!");
-        (activeChat as any).cnpjDetails = cnpjDetails;
-      } else {
-        toast.error("Erro ao salvar dados da Receita.");
-      }
-    } catch (err) {
-      console.error("Erro ao salvar dados da Receita:", err);
-      toast.error("Falha ao comunicar com o servidor.");
-    } finally {
-      setIsSavingCnpj(false);
+  // Auto-Save silencioso: salva sozinho no banco 600ms apos digitar
+  useEffect(() => {
+    if (isFirstCnpjRender.current) {
+      isFirstCnpjRender.current = false;
+      return;
     }
-  };
+    if (!activeChat) return;
+
+    setAutoSaveStatus("saving");
+    const timer = setTimeout(async () => {
+      try {
+        const contactId = activeChat.contactId || activeChat.id;
+        const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cnpjDetails }),
+        });
+        if (res.ok) {
+          (activeChat as any).cnpjDetails = cnpjDetails;
+          setAutoSaveStatus("saved");
+        } else {
+          setAutoSaveStatus("idle");
+        }
+      } catch (err) {
+        console.error("Erro no auto-save de cnpjDetails:", err);
+        setAutoSaveStatus("idle");
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [cnpjDetails]);
 
   const handleQueryCnpjLive = async () => {
     const cnpjToQuery = activeChat?.cnpj || cnpjDetails.cleanCnpj || cnpjDetails.cnpjFormatted;
@@ -1069,12 +1080,23 @@ export function SharedFiles() {
             {/* FICHA CADASTRAL DA RECEITA FEDERAL (DIRETAMENTE NA ABA DE ARQUIVOS) */}
             <div className="mt-5 pt-4 border-t border-line space-y-3 pb-6">
               <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                <div className="flex items-center gap-2">
-                  <Building className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                  <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
-                    Dados da Receita Federal
-                  </span>
-                </div>
+                  <div className="flex items-center gap-1.5">
+                    <Building className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    <div>
+                      <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200 block">
+                        Dados da Receita Federal
+                      </span>
+                      {autoSaveStatus === "saving" ? (
+                        <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 block animate-pulse">
+                          Salvando alterações...
+                        </span>
+                      ) : autoSaveStatus === "saved" ? (
+                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 block">
+                          ✓ Salvo automaticamente
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
                 <button
                   onClick={handleQueryCnpjLive}
                   disabled={isSearchingCnpj}
@@ -1312,18 +1334,6 @@ export function SharedFiles() {
                       className="w-full rounded-lg bg-card p-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary resize-none"
                     />
                   </div>
-                </div>
-
-                {/* Botão de Salvar */}
-                <div className="pt-2">
-                  <button
-                    onClick={handleSaveCnpjDetails}
-                    disabled={isSavingCnpj}
-                    className="w-full flex items-center justify-center gap-2 h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow-soft cursor-pointer disabled:opacity-50"
-                  >
-                    <Save className="h-4 w-4" />
-                    {isSavingCnpj ? "Salvando Ficha..." : "Salvar Dados da Receita"}
-                  </button>
                 </div>
               </div>
             </div>

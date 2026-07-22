@@ -71,6 +71,19 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
                            (deal.price !== undefined ? deal.price : 
                            (deal.amount_total !== undefined ? deal.amount_total : 0)));
               deal.deal_custom_fields = deal.deal_custom_fields || deal.custom_fields || [];
+
+              // Se a organizacao for uma string (ID) ou tiver organization_id mas nao tiver .name, busca na API de organizacao
+              const orgId = deal.organization_id || (typeof deal.organization === "string" ? deal.organization : deal.organization?.id);
+              if (orgId && !deal.organization?.name) {
+                try {
+                  const orgData = await rdRequest<any>(tenantId, "GET", `/organizations/${orgId}`);
+                  if (orgData && orgData.name) {
+                    deal.organization = { id: orgId, name: orgData.name };
+                  }
+                } catch (e: any) {
+                  console.warn("[RD Deal API] Aviso ao buscar organização:", e?.message);
+                }
+              }
             }
 
             // Normalização flexível para encontrar os campos sem depender de acentos, maiúsculas ou espaços exatos
@@ -92,7 +105,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
               // 2. Se não encontrar pelo ID, cai no algoritmo de busca por texto do rótulo
               const target = normalizeStr(labelPattern);
               return allCrmFields.find((f) => {
-                const normLabel = normalizeStr(f.label || "");
+                const normLabel = normalizeStr(f.label || f.name || "");
                 return normLabel.includes(target) || target.includes(normLabel);
               });
             };
@@ -107,7 +120,6 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
             };
 
             // Resolve os IDs dos campos com base no ID configurado ou no label usando normalização.
-            // Para garantir que sempre retornemos um objeto com o ID correto, fazemos fallback de segurança.
             const getFieldWithFallback = (key: keyof typeof VALEM_FIELD_IDS, label: string) => {
               const id = VALEM_FIELD_IDS[key];
               const found = findField(id, label);

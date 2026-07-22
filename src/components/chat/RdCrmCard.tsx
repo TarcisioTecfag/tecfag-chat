@@ -193,71 +193,91 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
     }
   };
 
-  // Helper robusto para extrair o valor do campo do deal, seja ele Array ou Objeto
-  const getCustomFieldValueFromDeal = (dealObj: any, fieldId: string, fieldSlug?: string): string => {
+  // Helper ultra-robusto para extrair o valor do campo do deal (suporta Array ou Objeto, ID, Slug ou Rótulo)
+  const getCustomFieldValueFromDeal = (dealObj: any, fieldId?: string, fieldSlug?: string, fieldLabel?: string): string => {
     if (!dealObj) return "";
-    const cf = dealObj.deal_custom_fields !== undefined ? dealObj.deal_custom_fields : dealObj.custom_fields;
+    const cf = dealObj.deal_custom_fields !== undefined 
+      ? dealObj.deal_custom_fields 
+      : (dealObj.custom_fields !== undefined ? dealObj.custom_fields : null);
+
     if (!cf) return "";
 
-    // Se for Array
-    if (Array.isArray(cf)) {
-      const found = cf.find((item: any) => {
-        if (!item) return false;
-        
-        // 1. Caso venha no padrão { custom_field_id: "..." }
-        if (item.custom_field_id === fieldId) return true;
-        
-        // 2. Caso venha no padrão { custom_field: { _id: "..." } } ou { custom_field: { id: "..." } }
-        if (item.custom_field && typeof item.custom_field === "object") {
-          const cfId = item.custom_field._id || item.custom_field.id;
-          if (cfId === fieldId) return true;
-          if (fieldSlug && (item.custom_field.slug === fieldSlug || item.custom_field.api_identifier === fieldSlug)) return true;
-        }
-        
-        // 3. Caso venha no padrão { id: "..." }
-        if (item.id === fieldId) return true;
-        if (fieldSlug && (item.slug === fieldSlug || item.api_identifier === fieldSlug)) return true;
-        
-        return false;
-      });
+    const normalize = (str: string) =>
+      str
+        ? str
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]/g, "")
+        : "";
 
-      if (found && typeof found === "object") {
-        const val = found.value !== undefined && found.value !== null ? found.value : "";
-        return Array.isArray(val) ? val.join(", ") : String(val);
-      }
-      return found !== undefined && found !== null ? String(found) : "";
+    const normId = fieldId ? normalize(fieldId) : "";
+    const normSlug = fieldSlug ? normalize(fieldSlug) : "";
+    const normLabel = fieldLabel ? normalize(fieldLabel) : "";
+
+    // Slugs e rótulos conhecidos do CRM Valem para cruzamento resiliente
+    const altSlugs: string[] = [];
+    if (normSlug.includes("feitopor") || normLabel.includes("feitopor")) {
+      altSlugs.push("feitopor", "feitopor6eba");
+    }
+    if (normSlug.includes("infocomplementar") || normLabel.includes("informacoescomplementares") || normSlug.includes("estudodecasoescopodoprojeto")) {
+      altSlugs.push("informacoescomplementares", "informacaocomplementar", "estudodecasoescopodoprojeto", "descricao");
+    }
+    if (normSlug.includes("qualificadoporsdr") || normLabel.includes("qualificadoporsdr")) {
+      altSlugs.push("qualificadoporsdrvalem", "qualificadoporsdr", "qualificadoporsdrvalemt");
+    }
+    if (normSlug.includes("tipodeproduto") || normLabel.includes("qualotipodeproduto")) {
+      altSlugs.push("qualotipodeprodutovalem", "qualotipodeproduto", "qualotipodeproduto72c8");
+    }
+    if (normSlug.includes("projetosdesenvolvimento") || normLabel.includes("projetosdesenvolvimento")) {
+      altSlugs.push("projetosdesenvolvimento", "projetosdesenvolvimentot");
     }
 
-    // Se for Objeto (dicionário chave-valor)
-    if (typeof cf === "object") {
-      // 1. Tenta buscar diretamente pela chave sendo o slug
-      if (fieldSlug && cf[fieldSlug] !== undefined) {
-        const val = cf[fieldSlug];
-        return Array.isArray(val) ? val.join(", ") : (val !== null ? String(val) : "");
-      }
-      
-      // 2. Tenta buscar pela chave sendo o ID
-      if (cf[fieldId] !== undefined) {
-        const val = cf[fieldId];
-        return Array.isArray(val) ? val.join(", ") : (val !== null ? String(val) : "");
+    const isMatch = (keyCandidate: string, itemObj?: any) => {
+      const kNorm = normalize(keyCandidate);
+      if (normId && kNorm === normId) return true;
+      if (normSlug && (kNorm === normSlug || kNorm.includes(normSlug) || normSlug.includes(kNorm))) return true;
+      if (normLabel && (kNorm === normLabel || kNorm.includes(normLabel) || normLabel.includes(kNorm))) return true;
+      if (altSlugs.some((alt) => kNorm === alt || kNorm.includes(alt) || alt.includes(kNorm))) return true;
+
+      if (itemObj && typeof itemObj === "object") {
+        const objId = normalize(itemObj.custom_field_id || itemObj.id || itemObj._id || itemObj.custom_field?.id || itemObj.custom_field?._id || "");
+        const objSlug = normalize(itemObj.slug || itemObj.api_identifier || itemObj.custom_field?.slug || itemObj.custom_field?.api_identifier || "");
+        const objLabel = normalize(itemObj.label || itemObj.custom_field?.label || "");
+
+        if (normId && objId === normId) return true;
+        if (normSlug && (objSlug === normSlug || objSlug.includes(normSlug) || normSlug.includes(objSlug))) return true;
+        if (normLabel && (objLabel === normLabel || objLabel.includes(normLabel) || normLabel.includes(objLabel))) return true;
+        if (altSlugs.some((alt) => objSlug === alt || objLabel === alt)) return true;
       }
 
-      // 3. Fallback: varre chaves comparando com ID ou slug
-      const keys = Object.keys(cf);
-      for (const k of keys) {
-        if (k === fieldId || (fieldSlug && k === fieldSlug)) {
-          const val = cf[k];
-          return Array.isArray(val) ? val.join(", ") : (val !== null ? String(val) : "");
+      return false;
+    };
+
+    // 1. Se cf for Array: [ { custom_field_id: "...", value: "..." } ]
+    if (Array.isArray(cf)) {
+      for (const item of cf) {
+        if (!item) continue;
+        const key = item.custom_field_id || item.id || item.slug || item.label || "";
+        if (isMatch(key, item)) {
+          const val = item.value !== undefined && item.value !== null ? item.value : "";
+          const str = Array.isArray(val) ? val.join(", ") : String(val);
+          if (str.trim() !== "") return str;
         }
-        
-        const item = cf[k];
-        if (item && typeof item === "object") {
-          const itemId = item.custom_field_id || item.id || (item.custom_field && (item.custom_field._id || item.custom_field.id));
-          const itemSlug = item.slug || item.api_identifier || (item.custom_field && (item.custom_field.slug || item.custom_field.api_identifier));
-          if (itemId === fieldId || (fieldSlug && itemSlug === fieldSlug)) {
-            const val = item.value !== undefined && item.value !== null ? item.value : "";
-            return Array.isArray(val) ? val.join(", ") : String(val);
+      }
+    }
+
+    // 2. Se cf for Objeto: { "feito-por": "VENDEDOR", ... }
+    if (typeof cf === "object") {
+      for (const [key, val] of Object.entries(cf)) {
+        if (isMatch(key, val)) {
+          let actualVal = val;
+          if (val && typeof val === "object" && !Array.isArray(val) && "value" in val) {
+            actualVal = (val as any).value;
           }
+          if (actualVal === undefined || actualVal === null) continue;
+          const strVal = Array.isArray(actualVal) ? actualVal.join(", ") : String(actualVal);
+          if (strVal.trim() !== "") return strVal;
         }
       }
     }
@@ -265,11 +285,24 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
     return "";
   };
 
-  // Helper para ler valor de campo personalizado
+  // Helper para ler valor de campo personalizado com rótulo de fallback
   const getCustomFieldValue = (fieldKey: string) => {
     const field = fieldsSchema?.[fieldKey];
-    if (!field) return "Não configurado";
-    const val = getCustomFieldValueFromDeal(deal, field.id, field.slug);
+    const defaultLabels: Record<string, string> = {
+      qualificadoSdr: "QUALIFICADO POR SDR (VALEM)",
+      projetosDesenvolvimento: "PROJETOS / DESENVOLVIMENTO",
+      tipoProduto: "QUAL O TIPO DE PRODUTO (VALEM)",
+      feitoPor: "FEITO POR",
+      infoComplementar: "INFORMAÇÕES COMPLEMENTARES",
+    };
+
+    const val = getCustomFieldValueFromDeal(
+      deal,
+      field?.id,
+      field?.slug,
+      field?.label || defaultLabels[fieldKey]
+    );
+
     return val !== "" ? val : "Não informado";
   };
 
@@ -486,7 +519,7 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                       <Building className="h-3 w-3 shrink-0" /> Empresa
                     </span>
                     <div className="text-xs font-semibold text-foreground truncate">
-                      {deal?.organization?.name || "Não informada"}
+                      {deal?.organization?.name || deal?.organization_name || deal?.company_name || (typeof deal?.organization === "string" ? deal.organization : null) || "Não informada"}
                     </div>
                   </div>
                   <div className="space-y-0.5">
