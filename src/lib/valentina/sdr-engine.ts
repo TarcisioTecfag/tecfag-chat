@@ -7,6 +7,7 @@ import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
 import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 import { getKnowledgeBaseContext } from "./knowledge-service";
+import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 
 // ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
 export interface SdrAiResult {
@@ -492,6 +493,18 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             });
 
             await db.update(agentFlowStates).set({ outcome: "transferred" }).where(eq(agentFlowStates.id, flowState!.id));
+          }
+
+          // Automação: Cria e vincula o Card no RD Station CRM com os dados coletados na triagem da Valentina
+          try {
+            await autoCreateOrUpdateRdCrmDeal({
+              tenantId,
+              conversationId,
+              contactPhone,
+              collectedData: updatedCollectedData,
+            });
+          } catch (crmErr: any) {
+            console.error("[SdrEngine] Erro na automação de criação/atualização de card no RD CRM:", crmErr?.message);
           }
         } catch (err: any) {
           console.error("[SdrEngine] Erro ao alocar responsável no rodízio:", err?.message);
