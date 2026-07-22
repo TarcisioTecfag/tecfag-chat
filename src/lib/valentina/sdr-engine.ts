@@ -267,6 +267,7 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - 🛑 É PROIBIDO NAVEGAR OU CITAR OS TERMOS: "Receita Federal", "sistema da Receita", "cnpj.ws", "banco de dados", "consulta do sistema"! NUNCA use essas justificativas.
    - NUNCA pergunte "Qual o nome da sua empresa?". Pergunte APENAS o CNPJ (ou CPF).
    - Quando o cliente enviar o CNPJ, sua única pergunta de confirmação deve ser: "Sua empresa é a [Nome da Empresa], certo?".
+   - 🛑 ATENÇÃO CRÍTICA SOBRE CONFIRMAÇÃO: Quando você perguntar "Sua empresa é a [Nome da Empresa], certo?", MANTENHA \`isCompleted: false\`! Você É OBRIGADA a aguardar o cliente responder confirmando ("Sim", "Certo", "Correto") ou corrigindo antes de concluir o atendimento!
    - Se o cliente responder que o nome não é esse ou corrigir, aceite o nome digitado pelo cliente IMEDIATAMENTE com muita elegância humana: "Ah, me desculpe pelo equívoco! Qual é o nome correto da sua empresa para eu registrar aqui?".
    - Se o CNPJ for inválido ou tiver erro nos dígitos, diga educadamente: "Ops, parece que esse CNPJ tem algum dígito incorreto ou faltando. Consegue me enviar novamente por favor?". NUNCA invente nome de empresa nem preencha CNPJ inválido.
 
@@ -422,9 +423,38 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
+      // 8.1 Verificação da confirmação do Nome da Empresa pelo cliente
+      const batchTextCombined = batchItems.map((i) => i.text.toLowerCase()).join(" ");
+      const isConfirmationReply = /\b(sim|certo|correto|é essa|isso mesmo|exato|com certeza|uhum|é sim|confirmo|pode ser)\b/i.test(batchTextCombined);
+
+      // Verificar se Valentina já havia perguntado a confirmação da empresa em algum balão do histórico
+      const botAskedCompanyConfirmation = historyMsgs.some((m) => m.senderType === "bot" && (m.content.toLowerCase().includes("sua empresa é") || m.content.toLowerCase().includes("empresa é a")));
+
+      // Se Valentina está fazendo essa pergunta neste exato lote:
+      const isAskingConfirmationNow = aiResult.messagesToSend.some((m) => m.toLowerCase().includes("sua empresa é") || m.toLowerCase().includes("empresa é a"));
+
+      let isCompanyConfirmed = false;
+
+      if (existingCollectedData["EMPRESA_CONFIRMED"]?.value === "true") {
+        isCompanyConfirmed = true;
+      } else if (botAskedCompanyConfirmation && isConfirmationReply) {
+        isCompanyConfirmed = true;
+        updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "true", status: "filled" };
+      } else if (!botAskedCompanyConfirmation && updatedCollectedData["EMPRESA"]?.value && !isAskingConfirmationNow) {
+        // Se a empresa veio direta por texto digitado pelo cliente ou PDF (sem ter perguntado a confirmação de CNPJ)
+        isCompanyConfirmed = true;
+        updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "true", status: "filled" };
+      }
+
+      // Se Valentina está apenas PERGUNTANDO a confirmação agora, NUNCA considera confirmada nesta mesma rodada!
+      if (isAskingConfirmationNow) {
+        isCompanyConfirmed = false;
+        updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "false", status: "pending" };
+      }
+
       const filledCount = Object.values(updatedCollectedData).filter((d) => d.status === "filled").length;
 
-      // TRAVA ESTRITA DE CONCLUSÃO: A triagem SÓ pode ser concluída se TODOS os 4 dados vitais forem realmente informados:
+      // TRAVA ESTRITA DE CONCLUSÃO: A triagem SÓ pode ser concluída se TODOS os dados vitais forem preenchidos E a empresa confirmada:
       const nameVal = updatedCollectedData["NOME COMPLETO"]?.value || "";
       const companyVal = updatedCollectedData["EMPRESA"]?.value || "";
       const cnpjVal = updatedCollectedData["CNPJ OU CPF"]?.value || "";
@@ -435,41 +465,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const hasCnpj = Boolean(cnpjVal && cnpjVal.trim() !== "" && !cnpjVal.includes("Aguardando") && !cnpjVal.includes("Invalido"));
       const hasProduct = Boolean(productVal && productVal.trim() !== "" && !productVal.includes("Aguardando"));
 
-      const isTriageFullyReady = hasName && hasCompany && hasCnpj && hasProduct;
+      const isTriageFullyReady = hasName && hasCompany && hasCnpj && hasProduct && isCompanyConfirmed;
 
-      // NUNCA conclui prematuramente se faltar qualquer um dos 4 campos vitais!
+      // NUNCA conclui prematuramente se faltar a confirmação ou qualquer um dos campos vitais!
       const isCompleted = isTriageFullyReady && (aiResult.isCompleted || filledCount >= 6);
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
 
-      if (flowState) {
-        await db
-          .update(agentFlowStates)
-          .set({
-            currentStep: isCompleted ? "Concluído" : "Em Qualificação",
-            collectedData: updatedCollectedData,
-            metadata: { stepNumber: filledCount, totalSteps: 7 },
-            lastInteractionAt: now,
-            completedAt: isCompleted ? (flowState.completedAt || now) : null,
-            outcome: isCompleted ? (wasAlreadyCompleted ? flowState.outcome : "completed") : "in_progress",
-          })
-          .where(eq(agentFlowStates.id, flowState.id));
-      }
-
-      if (signal?.aborted) return false;
-
-      // 9. Envio Humanizado das Mensagens com presencia 'composing' longa, citação no WhatsApp e AbortSignal
-      await this.sendHumanizedBotMessages(
-        tenantId,
-        conversationId,
-        contactPhone,
-        aiResult.messagesToSend,
-        signal,
-        targetQuoteItem,
-        aiResult.quoteMessageId
-      );
-
-      // 10. Alocar responsável no Rodízio APENAS se for a PRIMEIRA vez que é concluído
+      // 9. Alocar responsável no Rodízio SE a qualificação acabou de ser concluída
+      let allocatedOp: any = null;
       if (isCompleted && !wasAlreadyCompleted && !signal?.aborted) {
         try {
           const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp";
@@ -477,7 +481,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           // Alocação real do próximo vendedor disponível no rodízio
           const { RodizioEngine } = await import("./rodizio-engine");
-          const allocatedOp = await RodizioEngine.allocateNextOperator(tenantId, conversationId, clientName);
+          allocatedOp = await RodizioEngine.allocateNextOperator(tenantId, conversationId, clientName);
 
           const supervisorNotifId = `notif-${Date.now()}`;
           const targetOpId = allocatedOp?.id;
@@ -494,8 +498,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               read: 0,
               createdAt: new Date(),
             });
-
-            await db.update(agentFlowStates).set({ outcome: "transferred" }).where(eq(agentFlowStates.id, flowState!.id));
           }
 
           // Automação: Cria e vincula o Card no RD Station CRM com os dados coletados na triagem da Valentina
@@ -509,10 +511,58 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           } catch (crmErr: any) {
             console.error("[SdrEngine] Erro na automação de criação/atualização de card no RD CRM:", crmErr?.message);
           }
-        } catch (err: any) {
-          console.error("[SdrEngine] Erro ao alocar responsável no rodízio:", err?.message);
+        } catch (rErr: any) {
+          console.error("[SdrEngine] Erro ao alocar no rodízio:", rErr?.message);
         }
       }
+
+      // 10. Se a qualificação foi concluída agora, ANUNCIAR A TRANSFERÊNCIA PERSONALIZADA no WhatsApp!
+      if (isCompleted && !wasAlreadyCompleted) {
+        const sellerFirstName = allocatedOp?.name ? allocatedOp.name.split(" ")[0] : null;
+
+        const hasAlreadyTransferMsg = aiResult.messagesToSend.some(
+          (m) => m.toLowerCase().includes("transferindo") || m.toLowerCase().includes("especialista") || m.toLowerCase().includes("vendedor")
+        );
+
+        if (!hasAlreadyTransferMsg) {
+          if (sellerFirstName) {
+            aiResult.messagesToSend.push(
+              `Estou te transferindo agora para o(a) ${sellerFirstName}, nosso(a) especialista comercial! Ele(a) já vai dar continuidade ao seu atendimento 😊`
+            );
+          } else {
+            aiResult.messagesToSend.push(
+              `Estou te transferindo agora para a nossa equipe de atendimento comercial! Um consultor especialista já vai dar continuidade ao seu atendimento 😊`
+            );
+          }
+        }
+      }
+
+      if (flowState) {
+        await db
+          .update(agentFlowStates)
+          .set({
+            currentStep: isCompleted ? "Concluído" : "Em Qualificação",
+            collectedData: updatedCollectedData,
+            metadata: { stepNumber: filledCount, totalSteps: 7 },
+            lastInteractionAt: now,
+            completedAt: isCompleted ? (flowState.completedAt || now) : null,
+            outcome: isCompleted ? (wasAlreadyCompleted ? flowState.outcome : "transferred") : "in_progress",
+          })
+          .where(eq(agentFlowStates.id, flowState.id));
+      }
+
+      if (signal?.aborted) return false;
+
+      // 11. Envio Humanizado das Mensagens com presencia 'composing' longa, citação no WhatsApp e AbortSignal
+      await this.sendHumanizedBotMessages(
+        tenantId,
+        conversationId,
+        contactPhone,
+        aiResult.messagesToSend,
+        signal,
+        targetQuoteItem,
+        aiResult.quoteMessageId
+      );
 
       return true;
 
