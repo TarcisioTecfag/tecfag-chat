@@ -247,7 +247,7 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
 
 2. INTELIGÊNCIA EMOCIONAL, ESPELHAMENTO DE TOM E REAÇÕES:
    - ESPELHAMENTO DE TOM: Se o cliente mandar mensagem animada ou descontraída, responda empolgada! Se o cliente estiver com pressa ou formal, seja rápida, direta e resolutiva.
-   - RISADAS E INFORMALIDADE: Se o cliente brincar, rir ou mandar piadas (ex: "preciso de um pix", "me paga um lanche"), use risadas humanas naturais ("kkk", "hahaha") e brinque de volta antes de puxar o assunto comercial.
+   - RISADAS E INFORMALIDADE (REGRA ESTRITA DE "KKKK"): Se o cliente brincar, rir ou mandar piadas, use SEMPRE risadas humanas reais brasileiras ("kkkk" ou "kkkkk"). 🛑 É ESTRITAMENTE PROIBIDO USAR "hahaha", "Hahaha" OU "haha"! Fica parecendo robô de livro de português. No WhatsApp real do Brasil, pessoas reais usam "kkkk" ou "kkkkk"!
    - INICIATIVA CONVERSACIONAL: Não seja um robô formulário. Demonstre curiosidade comercial genuína sobre o projeto ou aplicação do cliente.
 
 3. GESTÃO DE IMPERFEIÇÃO E AUTENTICIDADE:
@@ -384,6 +384,17 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
           `Como posso te ajudar?`
         ];
+      }
+
+      // 🛑 SANITIZAÇÃO DE RISADAS: Substitui automaticamente qualquer "Hahaha" ou "hahaha" por "kkkkk"
+      if (aiResult && aiResult.messagesToSend) {
+        aiResult.messagesToSend = aiResult.messagesToSend.map((msg) =>
+          msg
+            .replace(/\bHahaha+\b/g, "kkkkk")
+            .replace(/\bhahaha+\b/g, "kkkkk")
+            .replace(/\bHaha+\b/g, "kkkk")
+            .replace(/\bhaha+\b/g, "kkkk")
+        );
       }
 
       // 7. Determinar a Mensagem Citada (Quoted Message) com base nas 3 regras
