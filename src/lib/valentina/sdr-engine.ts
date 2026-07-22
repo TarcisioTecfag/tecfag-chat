@@ -366,25 +366,22 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // Fallback gracioso se a IA não retornar ou se interrompida
       if (!aiResult || !aiResult.messagesToSend || aiResult.messagesToSend.length === 0) {
-        if (isFirstMessage) {
-          aiResult = {
-            extractedData: {},
-            messagesToSend: [
-              greeting,
-              `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
-              `Como posso te ajudar?`
-            ],
-            isCompleted: false,
-          };
-        } else {
-          aiResult = {
-            extractedData: {},
-            messagesToSend: [
-              `Entendido! Já estou ajustando as informações aqui para o nosso consultor comercial.`
-            ],
-            isCompleted: false,
-          };
-        }
+        aiResult = {
+          extractedData: {},
+          messagesToSend: [
+            `Entendido! Já estou ajustando as informações aqui para o nosso consultor comercial.`
+          ],
+          isCompleted: false,
+        };
+      }
+
+      // 🛑 GARANTIA PROGRAMÁTICA: Se for a PRIMEIRA mensagem do atendimento, FORÇA as 3 mensagens exatas sem variação da IA!
+      if (isFirstMessage) {
+        aiResult.messagesToSend = [
+          greeting,
+          `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
+          `Como posso te ajudar?`
+        ];
       }
 
       // 7. Determinar a Mensagem Citada (Quoted Message) com base nas 3 regras
