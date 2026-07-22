@@ -7,8 +7,9 @@ async function main() {
   const client = postgres(connectionString, { max: 1 });
 
   try {
-    // 1. Garantir coluna responsible_name em contacts
+    // 1. Garantir colunas essenciais em contacts
     await client`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS responsible_name text DEFAULT 'Na Fila' NOT NULL;`;
+    await client`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS cnpj_details jsonb DEFAULT '{}'::jsonb NOT NULL;`;
 
     // 2. Limpar qualquer group_id órfão em operators que não exista mais em access_groups (evita erro FK 23503)
     await client`UPDATE operators SET group_id = NULL WHERE group_id IS NOT NULL AND group_id NOT IN (SELECT id FROM access_groups);`;

@@ -113,6 +113,7 @@ export const contacts = pgTable("contacts", {
   responsibleName: text("responsible_name").default("Na Fila").notNull(),
   rdCrmDealId: text("rd_crm_deal_id"),
   rdCrmDealLink: text("rd_crm_deal_link"),
+  cnpjDetails: jsonb("cnpj_details").default({}).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

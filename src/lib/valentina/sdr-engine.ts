@@ -187,6 +187,22 @@ export class SdrEngine {
         console.log(`[SdrEngine] CNPJ detectado no lote: ${detectedCnpjCandidate}. Executando validação matemática...`);
         const cnpjInfo = await fetchCnpjInfo(detectedCnpjCandidate);
 
+        if (cnpjInfo.valid && cnpjInfo.details) {
+          try {
+            const conv = await db.query.conversations.findFirst({
+              where: (t, { eq: dEq }) => dEq(t.id, conversationId)
+            });
+            if (conv?.contactId) {
+              await db.update(contacts)
+                .set({ cnpjDetails: cnpjInfo.details, cnpj: cnpjInfo.cnpjFormatted })
+                .where(eq(contacts.id, conv.contactId));
+              console.log(`[SdrEngine] 🏛️ Ficha Cadastral da Receita Federal salva com sucesso no Contato ${conv.contactId}!`);
+            }
+          } catch (e: any) {
+            console.error("[SdrEngine] Erro ao salvar cnpjDetails no contato:", e?.message);
+          }
+        }
+
         if (!cnpjInfo.valid) {
           cnpjDirective = `\n⚠️ ALERTA DE CNPJ INVÁLIDO (${cnpjInfo.cnpjFormatted}): O CNPJ enviado pelo cliente POSSUI ERRO MATEMÁTICO nos dígitos verificadores ou está incompleto.
 É ESTRITAMENTE PROIBIDO INVENTAR NOME DE EMPRESA OU MARCAR 'CNPJ OU CPF' OU 'EMPRESA' COMO PREENCHIDOS!

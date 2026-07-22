@@ -1,5 +1,7 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { fetchCnpjInfo, CnpjFullDetails } from "@/lib/valentina/cnpj-service";
 import { useChat } from "@/hooks/useChatState";
 import { RdCrmCard } from "./RdCrmCard";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
@@ -31,6 +33,9 @@ import {
   CheckCircle2,
   XCircle,
   PhoneCall,
+  Save,
+  Search,
+  Check,
 } from "lucide-react";
 
 interface HistoryEventInfo {
@@ -146,6 +151,64 @@ export function SharedFiles() {
     cpf: "",
   });
 
+  const [cnpjDetails, setCnpjDetails] = useState<CnpjFullDetails>({});
+  const [isSavingCnpj, setIsSavingCnpj] = useState(false);
+  const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
+
+  useEffect(() => {
+    if (activeChat) {
+      setCnpjDetails((activeChat as any).cnpjDetails || {});
+    }
+  }, [activeChat?.id, (activeChat as any)?.cnpjDetails]);
+
+  const handleSaveCnpjDetails = async () => {
+    if (!activeChat) return;
+    setIsSavingCnpj(true);
+    try {
+      const contactId = activeChat.contactId || activeChat.id;
+      const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cnpjDetails }),
+      });
+      if (res.ok) {
+        toast.success("Ficha da Receita Federal salva com sucesso!");
+        (activeChat as any).cnpjDetails = cnpjDetails;
+      } else {
+        toast.error("Erro ao salvar dados da Receita.");
+      }
+    } catch (err) {
+      console.error("Erro ao salvar dados da Receita:", err);
+      toast.error("Falha ao comunicar com o servidor.");
+    } finally {
+      setIsSavingCnpj(false);
+    }
+  };
+
+  const handleQueryCnpjLive = async () => {
+    const cnpjToQuery = activeChat?.cnpj || cnpjDetails.cleanCnpj || cnpjDetails.cnpjFormatted;
+    if (!cnpjToQuery) {
+      toast.error("Informe um CNPJ válido nos dados do cliente para consultar.");
+      return;
+    }
+    setIsSearchingCnpj(true);
+    try {
+      const res = await fetchCnpjInfo(cnpjToQuery);
+      if (!res.valid) {
+        toast.error(res.erro || "CNPJ inválido nos dígitos verificadores.");
+      } else if (res.details) {
+        setCnpjDetails(res.details);
+        toast.success("Ficha Cadastral da Receita Federal carregada!");
+      } else {
+        toast.error("Não foi possível retornar dados para este CNPJ.");
+      }
+    } catch (err) {
+      toast.error("Erro ao consultar Receita Federal.");
+    } finally {
+      setIsSearchingCnpj(false);
+    }
+  };
+
   if (!activeChat) {
     return (
       <aside className="flex h-full w-[280px] shrink-0 flex-col rounded-3xl bg-card px-5 py-6 shadow-soft border border-border text-center justify-center text-muted-foreground select-none">
@@ -249,7 +312,18 @@ export function SharedFiles() {
   const videosCount = parsedMediaFiles.filter((f) => f.type === "video").length;
   const othersCount = parsedMediaFiles.filter((f) => f.type === "audio").length;
 
+  const hasCnpjSaved = !!((activeChat as any).cnpjDetails && Object.keys((activeChat as any).cnpjDetails).length > 0);
+
   const categories = [
+    {
+      id: "receita",
+      icon: Building,
+      label: "Ficha Receita Federal (CNPJ)",
+      count: hasCnpjSaved ? "Ficha cadastral salva" : "Pendente de consulta",
+      color: "#10b981",
+      bg: "rgba(16, 185, 129, 0.12)",
+      files: [],
+    },
     {
       id: "docs",
       icon: FileText,
@@ -591,7 +665,269 @@ export function SharedFiles() {
 
             {/* Listagem */}
             <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin space-y-2">
-              {selectedCategory === "links" ? (
+              {selectedCategory === "receita" ? (
+                /* FICHA CADASTRAL DA RECEITA FEDERAL (100% EDITÁVEL) */
+                <div className="space-y-3 pb-4">
+                  <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                    <div className="flex items-center gap-2">
+                      <Building className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
+                        Dados da Receita Federal
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleQueryCnpjLive}
+                      disabled={isSearchingCnpj}
+                      className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition disabled:opacity-50 cursor-pointer shadow-sm"
+                    >
+                      <Search className="h-3 w-3" />
+                      {isSearchingCnpj ? "Consultando..." : "Consultar API"}
+                    </button>
+                  </div>
+
+                  {/* Form com todos os campos da Receita */}
+                  <div className="space-y-2.5">
+                    <div>
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Razão Social</label>
+                      <input
+                        type="text"
+                        value={cnpjDetails.razaoSocial || ""}
+                        onChange={(e) => setCnpjDetails({ ...cnpjDetails, razaoSocial: e.target.value })}
+                        placeholder="Ex: Empresa Exemplo Ltda"
+                        className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Nome Fantasia</label>
+                      <input
+                        type="text"
+                        value={cnpjDetails.nomeFantasia || ""}
+                        onChange={(e) => setCnpjDetails({ ...cnpjDetails, nomeFantasia: e.target.value })}
+                        placeholder="Ex: Nome Comercial"
+                        className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">CNPJ</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.cnpjFormatted || activeChat?.cnpj || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, cnpjFormatted: e.target.value })}
+                          placeholder="00.000.000/0001-00"
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-semibold border border-border focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Situação</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.situacaoCadastral || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, situacaoCadastral: e.target.value })}
+                          placeholder="Ativa / Baixada"
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-semibold border border-border focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Abertura</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.dataAbertura || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, dataAbertura: e.target.value })}
+                          placeholder="AAAA-MM-DD"
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Capital Social</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.capitalSocial || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, capitalSocial: e.target.value })}
+                          placeholder="R$ 0,00"
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Nat. Jurídica</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.naturezaJuridica || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, naturezaJuridica: e.target.value })}
+                          placeholder="Sociedade Empresária"
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Porte</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.porte || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, porte: e.target.value })}
+                          placeholder="ME / EPP / Demais"
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Atividade Principal (CNAE)</label>
+                      <textarea
+                        rows={2}
+                        value={cnpjDetails.atividadePrincipal || ""}
+                        onChange={(e) => setCnpjDetails({ ...cnpjDetails, atividadePrincipal: e.target.value })}
+                        placeholder="Descrição da atividade principal"
+                        className="w-full rounded-lg bg-card p-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Atividades Secundárias</label>
+                      <textarea
+                        rows={2}
+                        value={cnpjDetails.atividadesSecundarias || ""}
+                        onChange={(e) => setCnpjDetails({ ...cnpjDetails, atividadesSecundarias: e.target.value })}
+                        placeholder="Descrição das atividades secundárias"
+                        className="w-full rounded-lg bg-card p-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary resize-none"
+                      />
+                    </div>
+
+                    {/* Endereço */}
+                    <div className="pt-2 border-t border-border/60 space-y-2">
+                      <span className="text-[10px] font-extrabold text-primary block uppercase tracking-wider">Endereço Comercial</span>
+                      
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Logradouro / Rua</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.logradouro || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, logradouro: e.target.value })}
+                          placeholder="Rua / Av"
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Número</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.numero || ""}
+                            onChange={(e) => setCnpjDetails({ ...cnpjDetails, numero: e.target.value })}
+                            className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Complemento</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.complemento || ""}
+                            onChange={(e) => setCnpjDetails({ ...cnpjDetails, complemento: e.target.value })}
+                            className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Bairro</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.bairro || ""}
+                            onChange={(e) => setCnpjDetails({ ...cnpjDetails, bairro: e.target.value })}
+                            className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Cidade</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.municipio || ""}
+                            onChange={(e) => setCnpjDetails({ ...cnpjDetails, municipio: e.target.value })}
+                            className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">UF</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.uf || ""}
+                            onChange={(e) => setCnpjDetails({ ...cnpjDetails, uf: e.target.value })}
+                            className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border uppercase"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">CEP</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.cep || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, cep: e.target.value })}
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Contato & QSA */}
+                    <div className="pt-2 border-t border-border/60 space-y-2">
+                      <span className="text-[10px] font-extrabold text-primary block uppercase tracking-wider">Contato & Sócios (QSA)</span>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Telefone Empresa</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.telefone || ""}
+                            onChange={(e) => setCnpjDetails({ ...cnpjDetails, telefone: e.target.value })}
+                            className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">E-mail Empresa</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.email || ""}
+                            onChange={(e) => setCnpjDetails({ ...cnpjDetails, email: e.target.value })}
+                            className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-medium border border-border"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">Quadro de Sócios (QSA)</label>
+                        <textarea
+                          rows={2}
+                          value={cnpjDetails.qsa || ""}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, qsa: e.target.value })}
+                          placeholder="Nome dos sócios e qualificações"
+                          className="w-full rounded-lg bg-card p-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary resize-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Botão de Salvar */}
+                    <div className="pt-2">
+                      <button
+                        onClick={handleSaveCnpjDetails}
+                        disabled={isSavingCnpj}
+                        className="w-full flex items-center justify-center gap-2 h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow-soft cursor-pointer disabled:opacity-50"
+                      >
+                        <Save className="h-4 w-4" />
+                        {isSavingCnpj ? "Salvando Ficha..." : "Salvar Dados da Receita"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : selectedCategory === "links" ? (
                 /* LISTAGEM DE LINKS */
                 parsedLinks.length > 0 ? (
                   parsedLinks.map((link) => (

@@ -36,6 +36,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           if ("cnpj"  in body) updates.cnpj  = body.cnpj;
           if ("cpf"   in body) updates.cpf   = body.cpf;
           if ("tags"  in body) updates.tags  = body.tags;
+          if ("cnpjDetails" in body) updates.cnpjDetails = body.cnpjDetails;
 
           if (Object.keys(updates).length === 0) {
             return new Response(JSON.stringify({ error: "Nenhum campo para atualizar" }), {

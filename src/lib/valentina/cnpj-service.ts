@@ -2,6 +2,31 @@
  * Validação Matemática e Consulta de CNPJ na API (cnpj.ws + fallbacks)
  */
 
+export interface CnpjFullDetails {
+  razaoSocial?: string;
+  nomeFantasia?: string;
+  cnpjFormatted?: string;
+  cleanCnpj?: string;
+  situacaoCadastral?: string;
+  dataAbertura?: string;
+  naturezaJuridica?: string;
+  capitalSocial?: string;
+  porte?: string;
+  atividadePrincipal?: string;
+  atividadesSecundarias?: string;
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  municipio?: string;
+  uf?: string;
+  cep?: string;
+  telefone?: string;
+  email?: string;
+  qsa?: string;
+  consultedAt?: string;
+}
+
 export interface CnpjData {
   valid: boolean;
   cleanCnpj: string;
@@ -10,6 +35,7 @@ export interface CnpjData {
   nomeFantasia?: string;
   uf?: string;
   municipio?: string;
+  details?: CnpjFullDetails;
   erro?: string;
 }
 
@@ -92,6 +118,8 @@ export async function fetchCnpjInfo(cnpjRaw: string): Promise<CnpjData> {
     };
   }
 
+  const nowIso = new Date().toISOString();
+
   // Tentar 1: publica.cnpj.ws
   try {
     const res = await fetch(`https://publica.cnpj.ws/cnpj/${clean}`, {
@@ -100,19 +128,49 @@ export async function fetchCnpjInfo(cnpjRaw: string): Promise<CnpjData> {
     });
     if (res.ok) {
       const data = await res.json();
-      const razaoSocial = data?.razao_social || data?.estabelecimento?.nome_fantasia || "";
-      const nomeFantasia = data?.estabelecimento?.nome_fantasia || "";
+      const razaoSocial = (data?.razao_social || data?.estabelecimento?.nome_fantasia || "").trim();
+      const nomeFantasia = (data?.estabelecimento?.nome_fantasia || "").trim();
       const uf = data?.estabelecimento?.estado?.sigla || "";
       const municipio = data?.estabelecimento?.cidade?.nome || "";
+
+      const details: CnpjFullDetails = {
+        razaoSocial,
+        nomeFantasia,
+        cnpjFormatted: formatted,
+        cleanCnpj: clean,
+        situacaoCadastral: data?.estabelecimento?.situacao_cadastral || "Ativa",
+        dataAbertura: data?.estabelecimento?.data_inicio_atividade || "",
+        naturezaJuridica: data?.natureza_juridica?.descricao || "",
+        capitalSocial: data?.capital_social ? `R$ ${Number(data.capital_social).toLocaleString("pt-BR")}` : "",
+        porte: data?.porte?.descricao || "",
+        atividadePrincipal: data?.estabelecimento?.atividade_principal?.descricao
+          ? `${data.estabelecimento.atividade_principal.subclasse || ''} - ${data.estabelecimento.atividade_principal.descricao}`
+          : "",
+        atividadesSecundarias: (data?.estabelecimento?.atividades_secundarias || [])
+          .map((a: any) => `${a.subclasse || ''} - ${a.descricao || ''}`)
+          .join("\n"),
+        logradouro: `${data?.estabelecimento?.tipo_logradouro || ""} ${data?.estabelecimento?.logradouro || ""}`.trim(),
+        numero: data?.estabelecimento?.numero || "",
+        complemento: data?.estabelecimento?.complemento || "",
+        bairro: data?.estabelecimento?.bairro || "",
+        municipio,
+        uf,
+        cep: data?.estabelecimento?.cep || "",
+        telefone: `${data?.estabelecimento?.ddd1 || ""} ${data?.estabelecimento?.telefone1 || ""}`.trim(),
+        email: data?.estabelecimento?.email || "",
+        qsa: (data?.socios || []).map((s: any) => `${s.nome} (${s.qualificacao_socio?.descricao || 'Sócio'})`).join(", "),
+        consultedAt: nowIso,
+      };
 
       return {
         valid: true,
         cleanCnpj: clean,
         cnpjFormatted: formatted,
-        razaoSocial: razaoSocial.trim(),
-        nomeFantasia: nomeFantasia.trim(),
+        razaoSocial,
+        nomeFantasia,
         uf,
         municipio,
+        details,
       };
     }
   } catch { /* tenta fallback */ }
@@ -124,14 +182,47 @@ export async function fetchCnpjInfo(cnpjRaw: string): Promise<CnpjData> {
     });
     if (res.ok) {
       const data = await res.json();
+      const razaoSocial = (data.razao_social || data.nome_fantasia || "").trim();
+      const nomeFantasia = (data.nome_fantasia || "").trim();
+      const uf = data.uf || "";
+      const municipio = data.municipio || "";
+
+      const details: CnpjFullDetails = {
+        razaoSocial,
+        nomeFantasia,
+        cnpjFormatted: formatted,
+        cleanCnpj: clean,
+        situacaoCadastral: data.descricao_situacao_cadastral || "Ativa",
+        dataAbertura: data.data_inicio_atividade || "",
+        naturezaJuridica: data.natureza_juridica || "",
+        capitalSocial: data.capital_social ? `R$ ${Number(data.capital_social).toLocaleString("pt-BR")}` : "",
+        porte: data.porte || "",
+        atividadePrincipal: data.cnae_fiscal_descricao || "",
+        atividadesSecundarias: (data.cnaes_secundarios || [])
+          .map((a: any) => `${a.codigo || ''} - ${a.descricao || ''}`)
+          .join("\n"),
+        logradouro: `${data.descricao_tipo_de_logradouro || ""} ${data.logradouro || ""}`.trim(),
+        numero: data.numero || "",
+        complemento: data.complemento || "",
+        bairro: data.bairro || "",
+        municipio,
+        uf,
+        cep: data.cep || "",
+        telefone: data.ddd_telefone_1 || "",
+        email: data.email || "",
+        qsa: (data.qsa || []).map((s: any) => `${s.nome_socio || s.nome} (${s.qualificacao_socio || 'Sócio'})`).join(", "),
+        consultedAt: nowIso,
+      };
+
       return {
         valid: true,
         cleanCnpj: clean,
         cnpjFormatted: formatted,
-        razaoSocial: (data.razao_social || data.nome_fantasia || "").trim(),
-        nomeFantasia: (data.nome_fantasia || "").trim(),
-        uf: data.uf || "",
-        municipio: data.municipio || "",
+        razaoSocial,
+        nomeFantasia,
+        uf,
+        municipio,
+        details,
       };
     }
   } catch { /* tenta fallback */ }
@@ -143,14 +234,42 @@ export async function fetchCnpjInfo(cnpjRaw: string): Promise<CnpjData> {
     });
     if (res.ok) {
       const data = await res.json();
+      const razaoSocial = (data.razao_social || data.nome_fantasia || "").trim();
+      const nomeFantasia = (data.nome_fantasia || "").trim();
+      const uf = data.uf || "";
+      const municipio = data.municipio || "";
+
+      const details: CnpjFullDetails = {
+        razaoSocial,
+        nomeFantasia,
+        cnpjFormatted: formatted,
+        cleanCnpj: clean,
+        situacaoCadastral: data.descricao_situacao_cadastral || "Ativa",
+        dataAbertura: data.data_inicio_atividade || "",
+        naturezaJuridica: data.natureza_juridica || "",
+        capitalSocial: data.capital_social ? `R$ ${Number(data.capital_social).toLocaleString("pt-BR")}` : "",
+        porte: data.porte || "",
+        atividadePrincipal: data.cnae_fiscal_descricao || "",
+        logradouro: data.logradouro || "",
+        numero: data.numero || "",
+        bairro: data.bairro || "",
+        municipio,
+        uf,
+        cep: data.cep || "",
+        telefone: data.ddd_telefone_1 || "",
+        email: data.email || "",
+        consultedAt: nowIso,
+      };
+
       return {
         valid: true,
         cleanCnpj: clean,
         cnpjFormatted: formatted,
-        razaoSocial: (data.razao_social || data.nome_fantasia || "").trim(),
-        nomeFantasia: (data.nome_fantasia || "").trim(),
-        uf: data.uf || "",
-        municipio: data.municipio || "",
+        razaoSocial,
+        nomeFantasia,
+        uf,
+        municipio,
+        details,
       };
     }
   } catch { /* ignora */ }
@@ -159,5 +278,10 @@ export async function fetchCnpjInfo(cnpjRaw: string): Promise<CnpjData> {
     valid: true,
     cleanCnpj: clean,
     cnpjFormatted: formatted,
+    details: {
+      cnpjFormatted: formatted,
+      cleanCnpj: clean,
+      consultedAt: nowIso,
+    },
   };
 }

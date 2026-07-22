@@ -35,6 +35,7 @@ export type Conversation = {
   email?: string;
   cnpj?: string;
   cpf?: string;
+  cnpjDetails?: Record<string, any>;
   tags: string[];
   channel: Channel;
   queue: QueueType;

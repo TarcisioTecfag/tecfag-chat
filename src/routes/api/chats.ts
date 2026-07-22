@@ -83,6 +83,7 @@ export const Route = createFileRoute("/api/chats")({
               email: row.contact.email || "",
               cnpj: row.contact.cnpj || "",
               cpf: row.contact.cpf || "",
+              cnpjDetails: (row.contact as any).cnpjDetails || {},
               tags: row.contact.tags || [],
               channel: row.contact.mainChannel || "whatsapp",
               queue: row.conversation.queueState || "fila",
