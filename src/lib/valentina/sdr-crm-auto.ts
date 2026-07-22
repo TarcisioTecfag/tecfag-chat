@@ -106,15 +106,93 @@ export async function autoCreateOrUpdateRdCrmDeal({
       ? `${companyName} - ${productVal}`
       : `${companyName} - Triagem Valentina`;
 
-    // 5. Montar os custom fields em formato aceito pela API do RD CRM
-    const dealCustomFields: Array<{ custom_field_id: string; value: any }> = [];
+    // Helper inteligente para encontrar a opção exata configurada no campo de seleção do RD CRM
+    const matchBestOption = (fieldObj: any, rawValue: string): string => {
+      if (!rawValue || !rawValue.trim()) return "";
 
-    const formatValue = (fieldObj: any, val: any) => {
-      if (!val) return "";
-      const type = fieldObj?.type || "";
-      if (type === "multiple_choice" || type === "option" || type === "select") {
-        return Array.isArray(val) ? val : [val];
+      const options = fieldObj?.options || fieldObj?.custom_field_options || [];
+      if (!Array.isArray(options) || options.length === 0) {
+        return rawValue.trim();
       }
+
+      const normalize = (s: string) =>
+        s
+          ? s
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z0-9]/g, "")
+          : "";
+
+      const rawNorm = normalize(rawValue);
+
+      // 1. Busca opção por igualdade exata de string normalizada
+      for (const opt of options) {
+        const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
+        if (normalize(optVal) === rawNorm) {
+          return optVal;
+        }
+      }
+
+      // 2. Busca opção por inclusão de texto (sub-string)
+      for (const opt of options) {
+        const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
+        const optNorm = normalize(optVal);
+        if (optNorm && (optNorm.includes(rawNorm) || rawNorm.includes(optNorm))) {
+          return optVal;
+        }
+      }
+
+      // 3. Fallbacks de termos comuns para campos do CRM da Valem
+      if (rawNorm.includes("valentina") || rawNorm.includes("sdr")) {
+        for (const opt of options) {
+          const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
+          const optNorm = normalize(optVal);
+          if (optNorm.includes("sdr") || optNorm.includes("valentina")) {
+            return optVal;
+          }
+        }
+      }
+
+      if (rawNorm.includes("nao") || rawNorm.includes("não")) {
+        for (const opt of options) {
+          const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
+          const optNorm = normalize(optVal);
+          if (optNorm === "nao" || optNorm.includes("nao")) {
+            return optVal;
+          }
+        }
+      }
+
+      if (rawNorm.includes("sim")) {
+        for (const opt of options) {
+          const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
+          const optNorm = normalize(optVal);
+          if (optNorm === "sim" || optNorm.includes("sim")) {
+            return optVal;
+          }
+        }
+      }
+
+      // 4. Se não houver correspondência exata, seleciona a primeira opção da lista do CRM
+      const firstOpt = options[0];
+      return typeof firstOpt === "string" ? firstOpt : (firstOpt?.value || firstOpt?.label || rawValue);
+    };
+
+    // Helper para formatar o valor de acordo com o tipo de campo (Seleção vs Texto)
+    const formatValue = (fieldObj: any, val: any) => {
+      if (!val) return [];
+      const type = fieldObj?.type || "";
+      const hasOptions = (Array.isArray(fieldObj?.options) && fieldObj.options.length > 0) ||
+                        (Array.isArray(fieldObj?.custom_field_options) && fieldObj.custom_field_options.length > 0);
+      const isSelection = type === "multiple_choice" || type === "option" || type === "select" || hasOptions;
+
+      if (isSelection) {
+        const rawStr = Array.isArray(val) ? val[0] : String(val);
+        const matched = matchBestOption(fieldObj, rawStr);
+        return matched ? [matched] : [];
+      }
+
       return val;
     };
 
