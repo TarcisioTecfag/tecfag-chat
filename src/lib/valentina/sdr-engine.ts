@@ -164,12 +164,11 @@ export class SdrEngine {
 
       const firstMessageRule = isFirstMessage
         ? `🟢 ATENÇÃO CRÍTICA (ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO!):
-   - VOCÊ É OBRIGADA A SE IDENTIFICAR COMO "VALENTINA, AQUI DA VALEM" NESSA PRIMEIRA INTERAÇÃO!
-   - NUNCA use termos corporativos ou formais como "sou consultora comercial", "equipe comercial de pré-vendas", "tudo joia por aí?". Fale simples, leve e 100% humana!
-   - ESTRUTURA OBRIGATÓRIA DA PRIMEIRA ABORDAGEM HUMANIZADA (SEMPRE FRAGMENTADA EM BALÕES CURTOS E LEVES NO ARRAY \`messagesToSend\`):
-     * Balão 1: Saudação simples (ex: "${greeting}" ou "${greeting} Tudo bem?")
-     * Balão 2: Apresentação direta e humana: "Meu nome é Valentina, aqui da Valem" (ou "Me chamo Valentina, aqui da Valem")
-     * Balão 3: Pergunta aberta e amigável: "Como posso te ajudar hoje?"`
+   - VOCÊ É OBRIGADA A ENVIAR EXATAMENTE A SEGUINTE ESTRUTURA EM 3 BALÕES SEPARADOS NO ARRAY \`messagesToSend\`:
+     * Balão 1: Exatamente "${greeting}" (dependendo do horário: Bom dia! / Boa tarde! / Boa noite!)
+     * Balão 2: Exatamente "Eu sou a Valentina, da Valem Valvulas e Embalagens  😊"
+     * Balão 3: Exatamente "Como posso te ajudar?"
+   - 🛑 É ESTRITAMENTE PROIBIDO ADICIONAR "tudo bem por aqui?", "tudo joia?", "tudo bem?" OU QUALQUER OUTRA FRASE/PERGUNTA DE SAUDAÇÃO!`
         : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
    - NUNCA volte a se apresentar se você já se identificou antes na conversa!
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
@@ -367,8 +366,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             extractedData: {},
             messagesToSend: [
               greeting,
-              `Meu nome é Valentina, aqui da Valem`,
-              `Como posso te ajudar hoje?`
+              `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
+              `Como posso te ajudar?`
             ],
             isCompleted: false,
           };
