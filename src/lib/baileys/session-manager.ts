@@ -31,7 +31,9 @@ export type SessionEvent =
       operatorId: string | null;
       sectorId: string | null;
       responsibleName?: string;
-    };
+    }
+  | { type: "contact_updated"; contactId?: string; contact?: any; updates?: any }
+  | { type: "chat_updated"; chat: any };
 
 export type SessionListener = (event: SessionEvent) => void;
 

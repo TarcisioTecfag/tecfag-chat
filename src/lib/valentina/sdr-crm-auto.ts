@@ -284,6 +284,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
             tenantId,
             name: collectedData["NOME COMPLETO"]?.value || `Cliente ${contactPhone}`,
             phone: contactPhone,
+            mainChannel: "whatsapp",
             createdAt: timeNow,
           })
           .onConflictDoNothing();
