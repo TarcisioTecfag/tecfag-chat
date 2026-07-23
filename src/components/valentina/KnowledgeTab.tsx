@@ -74,7 +74,7 @@ export function KnowledgeTab() {
     setSelectedFolderId(newId);
 
     try {
-      await fetch("/api/valentina/knowledge", {
+      await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -100,7 +100,7 @@ export function KnowledgeTab() {
     setEditingFolderName("");
 
     try {
-      await fetch("/api/valentina/knowledge", {
+      await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -134,7 +134,7 @@ export function KnowledgeTab() {
     }
 
     try {
-      await fetch(`/api/valentina/knowledge?type=folder&id=${id}`, {
+      await fetch(`${BACKEND_URL}/api/valentina/knowledge?type=folder&id=${id}`, {
         method: "DELETE",
       });
     } catch (err) {
@@ -201,7 +201,7 @@ export function KnowledgeTab() {
   const handleDeleteFile = async (id: string) => {
     setFiles((prev) => prev.filter((file) => file.id !== id));
     try {
-      await fetch(`/api/valentina/knowledge?type=file&id=${id}`, {
+      await fetch(`${BACKEND_URL}/api/valentina/knowledge?type=file&id=${id}`, {
         method: "DELETE",
       });
     } catch (err) {
@@ -231,23 +231,28 @@ export function KnowledgeTab() {
       ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
       : `${(fileSize / 1024).toFixed(0)} KB`;
 
-    // Leitura do conteúdo de texto do arquivo
+    // Leitura do conteúdo de texto do arquivo (apenas se não for binário denso)
     let fileContent = "";
-    try {
-      fileContent = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve((e.target?.result as string) || "");
-        reader.onerror = () => resolve("");
-        reader.readAsText(fileObj);
-      });
-    } catch (err) {
-      console.warn("[KnowledgeTab] Erro ao ler arquivo como texto:", err);
+    if (type === "txt" || extension === "md" || extension === "json" || extension === "csv") {
+      try {
+        fileContent = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve((e.target?.result as string) || "");
+          reader.onerror = () => resolve("");
+          reader.readAsText(fileObj);
+        });
+      } catch (err) {
+        console.warn("[KnowledgeTab] Erro ao ler arquivo de texto:", err);
+      }
+    } else {
+      // Para PDFs e documentos, sinalizamos o nome do arquivo para o backend tratar a extração de conhecimento
+      fileContent = `[Documento ${fileName} - Formato: ${type.toUpperCase()}]`;
     }
 
     setUploadProgress(60);
 
     try {
-      const res = await fetch("/api/valentina/knowledge", {
+      const res = await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -262,25 +267,20 @@ export function KnowledgeTab() {
         }),
       });
 
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `HTTP ${res.status}`);
+      }
+
       const data = await res.json();
       setUploadProgress(100);
 
       if (data.file) {
         setFiles((prev) => [...prev, data.file]);
-      } else {
-        const fallbackFile: FileType = {
-          id: `kf-${Date.now()}`,
-          name: fileName,
-          size: formattedSize,
-          type,
-          format: uploadMode,
-          uploadedAt: new Date().toLocaleDateString("pt-BR"),
-          folderId: selectedFolderId,
-        };
-        setFiles((prev) => [...prev, fallbackFile]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("[KnowledgeTab] Erro no upload para a API:", err);
+      alert(`Falha ao salvar arquivo no banco de dados: ${err.message || "Erro de servidor"}`);
     } finally {
       setTimeout(() => setIsUploading(false), 300);
     }
