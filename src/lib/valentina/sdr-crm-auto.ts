@@ -33,6 +33,10 @@ const VALEM_FIELD_IDS = {
   feitoPor: "69b1638eb0e1180014224ca3",
 };
 
+// ID hardcoded do Pipeline FUNIL VÁLVULAS (obtido via API)
+// Será atualizado dinamicamente na busca, mas serve como fallback definitivo
+const VALEM_PIPELINE_ID = ""; // será preenchido dinamicamente
+
 // ─── HELPER: Limpeza e Normalização de Nomes de Empresa ──────────────────────────────
 function cleanName(s: string): string {
   return s
@@ -190,20 +194,32 @@ async function upsertContactInCrm(
   return null;
 }
 
-// ─── HELPER 3: Busca de Deal Ativo no CRM por Contact ID ─────────────────────────────
+// ─── HELPER 3: Busca de Deal Ativo no CRM por Contact ID (apenas no Funil Válvulas) ──
 async function findExistingDealInCrm(
   tenantId: string,
-  crmContactId: string
+  crmContactId: string,
+  pipelineId?: string
 ): Promise<string | null> {
   if (!crmContactId) return null;
   try {
-    const rDeals = await rdRequest<any[]>(tenantId, "GET", `/deals?filter=contact_id:${crmContactId}`);
+    // Busca filtrada pelo pipeline Válvulas para não pegar deals de outros funis
+    const filterStr = pipelineId
+      ? `/deals?filter=contact_id:${crmContactId},pipeline_id:${pipelineId}`
+      : `/deals?filter=contact_id:${crmContactId}`;
+    const rDeals = await rdRequest<any[]>(tenantId, "GET", filterStr);
     const dealsList: any[] = Array.isArray(rDeals) ? rDeals : (Array.isArray((rDeals as any)?.data) ? (rDeals as any).data : []);
-    if (dealsList.length > 0) {
-      const ongoingDeal = dealsList.find((d: any) => d.status === "ongoing");
-      const chosen = ongoingDeal || dealsList[0];
+
+    // Filtrar apenas deals do funil Válvulas se pipelineId disponível
+    const validDeals = pipelineId
+      ? dealsList.filter((d: any) => d.pipeline_id === pipelineId || d.deal_pipeline?.id === pipelineId)
+      : dealsList;
+
+    if (validDeals.length > 0) {
+      // Prefere ongoing, senão qualquer um (inclusive won — será reativado)
+      const ongoingDeal = validDeals.find((d: any) => d.status === "ongoing");
+      const chosen = ongoingDeal || validDeals[0];
       const chosenId = chosen.id || chosen._id;
-      console.log(`[RD CRM Auto] 🔍 Card ativo existente localizado no RD CRM para contato ${crmContactId}: ${chosenId}`);
+      console.log(`[RD CRM Auto] 🔍 Card existente localizado no RD CRM (funil ${pipelineId || 'qualquer'}): ${chosenId} [status: ${chosen.status}]`);
       return chosenId;
     }
   } catch (e: any) {
@@ -379,58 +395,90 @@ export async function autoCreateOrUpdateRdCrmDeal({
       feitoPor: findField(VALEM_FIELD_IDS.feitoPor, "FEITO POR"),
     };
 
-    // 4. Buscar Funil "Válvulas" / "Valvulas" no RD CRM
+    // 4. Buscar Funil "FUNIL VÁLVULAS" no RD CRM e etapa "Recebidos"
     let dealStageId: string | undefined = undefined;
     let dealPipelineId: string | undefined = undefined;
 
     try {
-      let pipelinesRes = await rdRequest<any>(tenantId, "GET", "/pipelines").catch(() => null);
+      // Tenta endpoint correto da API v2
+      let pipelinesRes = await rdRequest<any>(tenantId, "GET", "/deal_pipelines").catch(() => null);
       if (!pipelinesRes) {
-        pipelinesRes = await rdRequest<any>(tenantId, "GET", "/deal_pipelines").catch(() => null);
+        pipelinesRes = await rdRequest<any>(tenantId, "GET", "/pipelines").catch(() => null);
       }
 
       const pipelines: any[] = Array.isArray(pipelinesRes)
         ? pipelinesRes
-        : (pipelinesRes && Array.isArray(pipelinesRes.pipelines)
-            ? pipelinesRes.pipelines
-            : (pipelinesRes && Array.isArray(pipelinesRes.deal_pipelines)
-                ? pipelinesRes.deal_pipelines
+        : (pipelinesRes && Array.isArray(pipelinesRes.deal_pipelines)
+            ? pipelinesRes.deal_pipelines
+            : (pipelinesRes && Array.isArray(pipelinesRes.pipelines)
+                ? pipelinesRes.pipelines
                 : (pipelinesRes && Array.isArray(pipelinesRes.data) ? pipelinesRes.data : [])));
 
+      console.log(`[RD CRM Auto] 📋 Pipelines encontrados: ${pipelines.map((p) => p.name).join(" | ")}`);
+
+      // Busca específica: "FUNIL VÁLVULAS" ou "FUNIL VALVULAS"
       const valvulasPipeline = pipelines.find((p) => {
         const norm = normalizeStr(p.name || "");
-        return norm.includes("valvula") || norm.includes("valvulas");
+        // Aceita tanto "valvula" quanto "valvulas" e ignora acentos
+        return norm.includes("valvula");
       });
 
       if (valvulasPipeline) {
         dealPipelineId = valvulasPipeline.id || valvulasPipeline._id;
-        const stages = valvulasPipeline.deal_stages || valvulasPipeline.stages || [];
-        if (Array.isArray(stages) && stages.length > 0) {
-          dealStageId = stages[0].id || stages[0]._id;
-          console.log(`[RD CRM Auto] 🎯 Funil Válvulas encontrado! Pipeline: ${dealPipelineId}, Stage: ${dealStageId}`);
-        }
-      }
+        const stages: any[] = valvulasPipeline.deal_stages || valvulasPipeline.stages || [];
+        console.log(`[RD CRM Auto] 🎯 Funil Válvulas encontrado! ID: ${dealPipelineId}`);
+        console.log(`[RD CRM Auto] 📋 Stages disponíveis: ${stages.map((s: any) => s.name).join(" | ")}`);
 
-      if (!dealStageId && pipelines.length > 0) {
-        const firstPipe = pipelines[0];
-        dealPipelineId = firstPipe.id || firstPipe._id;
-        const stages = firstPipe.deal_stages || firstPipe.stages || [];
-        if (Array.isArray(stages) && stages.length > 0) {
-          dealStageId = stages[0].id || stages[0]._id;
-          console.log(`[RD CRM Auto] ⚠️ Funil Válvulas não encontrado, usando primeiro pipeline: ${dealPipelineId}`);
+        // Busca etapa "Recebidos" (primeira etapa de entrada)
+        const recebidosStage = stages.find((s: any) => {
+          const norm = normalizeStr(s.name || "");
+          return norm.includes("recebido") || norm.includes("recebidos") || norm.includes("entrada") || norm.includes("novo") || norm.includes("novos");
+        });
+
+        if (recebidosStage) {
+          dealStageId = recebidosStage.id || recebidosStage._id;
+          console.log(`[RD CRM Auto] ✅ Stage "Recebidos" encontrado: ${dealStageId} ("${recebidosStage.name}")`);
+        } else if (stages.length > 0) {
+          // Se não encontrou "Recebidos", usa o PRIMEIRO stage do funil (menor ordem = entrada)
+          const sortedStages = [...stages].sort((a, b) => (a.step || a.order || 0) - (b.step || b.order || 0));
+          dealStageId = sortedStages[0].id || sortedStages[0]._id;
+          console.log(`[RD CRM Auto] ⚠️ Stage "Recebidos" não encontrado, usando primeiro stage: ${dealStageId} ("${sortedStages[0].name}")`);
         }
+      } else {
+        // NÃO usar fallback para outro funil — isso causava o card ir para "FUNIL TÉCNICA"
+        console.error(`[RD CRM Auto] ❌ FUNIL VÁLVULAS não encontrado entre: ${pipelines.map((p) => p.name).join(", ")}. Card NÃO será criado sem o funil correto.`);
       }
-    } catch {}
+    } catch (pErr: any) {
+      console.error(`[RD CRM Auto] ❌ Erro ao buscar pipelines:`, pErr?.message);
+    }
 
     // 5. Extrair os valores coletados pela Valentina na triagem
     const clientName = collectedData["NOME COMPLETO"]?.value || contact.name || `Cliente ${contactPhone}`;
     const companyName = collectedData["EMPRESA"]?.value || contact.name || clientName;
     const cnpjVal = collectedData["CNPJ OU CPF"]?.value || contact.cnpj || contact.cpf || "";
-    const productVal = collectedData["QUAL O TIPO DE PRODUTO?"]?.value || 
-                       collectedData["QUAL O TIPO DE PRODUTO (VALEM)"]?.value || 
+    const productVal = collectedData["QUAL O TIPO DE PRODUTO?"]?.value ||
+                       collectedData["QUAL O TIPO DE PRODUTO (VALEM)"]?.value ||
                        collectedData["PRODUTO DE INTERESSE"]?.value || "";
-    const projetosVal = collectedData["PROJETOS / DESENVOLVIMENTO"]?.value || "NAO";
-    const qualificadoVal = collectedData["QUALIFICADO POR SDR (VALEM)"]?.value || "Industrial - Recorrência: Lead Qualificado via Valentina SDR";
+    const projetosVal = collectedData["PROJETOS / DESENVOLVIMENTO?"]?.value ||
+                        collectedData["PROJETO OU DESENVOLVIMENTO? SIM OU NÃO"]?.value ||
+                        collectedData["PROJETOS / DESENVOLVIMENTO"]?.value || "";
+    const qualificadoVal = collectedData["TIPO DE QUALIFICAÇÃO"]?.value ||
+                           collectedData["QUALIFICADO POR SDR (VALEM)"]?.value || "";
+
+    // Qualificação de temperatura → campo nativo deal.qualification (1-5)
+    // Mapeamento: Frio=1, Exploratorio/Morno=2, Aquecido=3, Quente=4, Fechar=5
+    const temperaturaVal = collectedData["QUALIFICAÇÃO (TEMPERATURA)"]?.value ||
+                           collectedData["TEMPERATURA"]?.value ||
+                           collectedData["QUALIFICACAO TEMPERATURA"]?.value || "";
+    const mapTemperatura = (t: string): number => {
+      const n = (t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (n.includes("fechar") || n.includes("muito alto") || n.includes("5")) return 5;
+      if (n.includes("quente") || n.includes("alto") || n.includes("4")) return 4;
+      if (n.includes("aquecido") || n.includes("media") || n.includes("3")) return 3;
+      if (n.includes("explorat") || n.includes("baixa") || n.includes("morno") || n.includes("2")) return 2;
+      return 1; // frio / muito baixo
+    };
+    const qualificationScore = temperaturaVal ? mapTemperatura(temperaturaVal) : 0;
 
     const dealTitle = productVal
       ? `${companyName} - ${productVal}`
@@ -474,21 +522,28 @@ export async function autoCreateOrUpdateRdCrmDeal({
     // Formato: { "<custom_field_id>": "valor" }
     const dealCustomFields: Record<string, any> = {};
 
-    if (resolvedFields.qualificadoSdr) {
-      const fId = resolvedFields.qualificadoSdr.id || resolvedFields.qualificadoSdr._id;
-      if (fId) dealCustomFields[fId] = formatValue(resolvedFields.qualificadoSdr, qualificadoVal);
+    // Usar ID resolvido dinamicamente OU o ID hardcoded como fallback absoluto
+    // Isso garante que os campos nunca fiquem vazios por falha na busca dinâmica
+    if (qualificadoVal) {
+      const fId = (resolvedFields.qualificadoSdr?.id || resolvedFields.qualificadoSdr?._id) || VALEM_FIELD_IDS.qualificadoSdr;
+      dealCustomFields[fId] = formatValue(resolvedFields.qualificadoSdr, qualificadoVal);
+      console.log(`[RD CRM Auto] 📝 Campo qualificadoSdr [${fId}] = "${dealCustomFields[fId]}"`);
     }
-    if (resolvedFields.projetosDesenvolvimento) {
-      const fId = resolvedFields.projetosDesenvolvimento.id || resolvedFields.projetosDesenvolvimento._id;
-      if (fId) dealCustomFields[fId] = formatValue(resolvedFields.projetosDesenvolvimento, projetosVal);
+    if (projetosVal) {
+      const fId = (resolvedFields.projetosDesenvolvimento?.id || resolvedFields.projetosDesenvolvimento?._id) || VALEM_FIELD_IDS.projetosDesenvolvimento;
+      dealCustomFields[fId] = formatValue(resolvedFields.projetosDesenvolvimento, projetosVal);
+      console.log(`[RD CRM Auto] 📝 Campo projetosDesenvolvimento [${fId}] = "${dealCustomFields[fId]}"`);
     }
-    if (resolvedFields.tipoProduto && productVal) {
-      const fId = resolvedFields.tipoProduto.id || resolvedFields.tipoProduto._id;
-      if (fId) dealCustomFields[fId] = formatValue(resolvedFields.tipoProduto, productVal);
+    if (productVal) {
+      const fId = (resolvedFields.tipoProduto?.id || resolvedFields.tipoProduto?._id) || VALEM_FIELD_IDS.tipoProduto;
+      dealCustomFields[fId] = formatValue(resolvedFields.tipoProduto, productVal);
+      console.log(`[RD CRM Auto] 📝 Campo tipoProduto [${fId}] = "${dealCustomFields[fId]}"`);
     }
-    if (resolvedFields.feitoPor) {
-      const fId = resolvedFields.feitoPor.id || resolvedFields.feitoPor._id;
-      if (fId) dealCustomFields[fId] = formatValue(resolvedFields.feitoPor, "VALENTINA");
+    {
+      // Campo FEITO POR — sempre envia "SDR" (preenchido pela Valentina SDR)
+      const fId = (resolvedFields.feitoPor?.id || resolvedFields.feitoPor?._id) || VALEM_FIELD_IDS.feitoPor;
+      dealCustomFields[fId] = formatValue(resolvedFields.feitoPor, "SDR");
+      console.log(`[RD CRM Auto] 📝 Campo feitoPor [${fId}] = "${dealCustomFields[fId]}"`);
     }
 
     // Monta o resumo formatado
@@ -556,10 +611,10 @@ export async function autoCreateOrUpdateRdCrmDeal({
     // 8. Busca/Criação Robusta do Contato no RD CRM
     const crmContactId = await upsertContactInCrm(tenantId, clientName, contactPhone, docDigits, organizationId);
 
-    // 9. Verificar se o Card já existe localmente ou no RD CRM
+    // 9. Verificar se o Card já existe localmente ou no RD CRM (apenas no funil Válvulas)
     let dealId = contact.rdCrmDealId;
     if (!dealId && crmContactId) {
-      dealId = await findExistingDealInCrm(tenantId, crmContactId);
+      dealId = await findExistingDealInCrm(tenantId, crmContactId, dealPipelineId);
     }
 
     let dealLink = contact.rdCrmDealLink;
@@ -569,30 +624,38 @@ export async function autoCreateOrUpdateRdCrmDeal({
       const updatePayload: Record<string, any> = {
         name: dealTitle,
         custom_fields: dealCustomFields,
+        status: "ongoing", // Reativa o deal caso esteja como won/lost
       };
       if (organizationId) updatePayload.organization_id = organizationId;
       if (dealPipelineId) updatePayload.pipeline_id = dealPipelineId;
       if (dealStageId) updatePayload.stage_id = dealStageId;
       if (crmUserId) updatePayload.owner_id = crmUserId;
+      if (qualificationScore > 0) updatePayload.deal_stage_id = updatePayload.stage_id; // alguns endpoints usam esse nome
+      if (qualificationScore > 0) updatePayload.qualification = qualificationScore;
 
       await rdRequest(tenantId, "PUT", `/deals/${dealId}`, updatePayload);
       console.log(`[RD CRM Auto] ✅ Card ${dealId} atualizado no RD CRM.`);
     } else {
       console.log(`[RD CRM Auto] ➕ Criando NOVO Card no RD CRM para o cliente "${clientName}" (${companyName})...`);
+
+      // Bloqueia criação se não encontrou o funil Válvulas — evita card no funil errado
+      if (!dealPipelineId) {
+        console.error(`[RD CRM Auto] ❌ ABORTANDO criação: FUNIL VÁLVULAS não foi localizado. Corrija os nomes dos funis no RD CRM.`);
+        return false;
+      }
+
       const dealPayload: Record<string, any> = {
         name: dealTitle,
         custom_fields: dealCustomFields,
         status: "ongoing",
       };
 
-      if (crmContactId) {
-        dealPayload.contact_ids = [crmContactId];
-      }
-
+      if (crmContactId) dealPayload.contact_ids = [crmContactId];
       if (organizationId) dealPayload.organization_id = organizationId;
       if (dealPipelineId) dealPayload.pipeline_id = dealPipelineId;
       if (dealStageId) dealPayload.stage_id = dealStageId;
       if (crmUserId) dealPayload.owner_id = crmUserId;
+      if (qualificationScore > 0) dealPayload.qualification = qualificationScore;
 
       const newDeal = await rdRequest<any>(tenantId, "POST", "/deals", dealPayload);
       dealId = newDeal?.id || newDeal?._id;
