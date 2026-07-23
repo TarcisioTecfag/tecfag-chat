@@ -512,21 +512,33 @@ export class SessionManager {
             fs.writeFileSync(path.join(mediaDir, messageId), buffer);
 
             // Identificar mimetype e formatar tag de mídia
+            // Extrair legenda da mídia se houver
+            const rawCaption = (
+              rawMsg.message?.imageMessage?.caption ||
+              rawMsg.message?.videoMessage?.caption ||
+              rawMsg.message?.documentMessage?.caption ||
+              rawMsg.message?.viewOnceMessage?.message?.imageMessage?.caption ||
+              rawMsg.message?.viewOnceMessage?.message?.videoMessage?.caption ||
+              rawMsg.message?.viewOnceMessageV2?.message?.imageMessage?.caption ||
+              rawMsg.message?.viewOnceMessageV2?.message?.videoMessage?.caption ||
+              ""
+            ).trim();
+
             let mime = "application/octet-stream";
             let fileName: string | undefined = undefined;
             if (rawMsg.message.imageMessage) {
               mime = rawMsg.message.imageMessage.mimetype || "image/jpeg";
-              text = `[MEDIA:image]${messageId}`;
+              text = `[MEDIA:image]${messageId}` + (rawCaption ? `\n${rawCaption}` : "");
             } else if (rawMsg.message.videoMessage) {
               mime = rawMsg.message.videoMessage.mimetype || "video/mp4";
-              text = `[MEDIA:video]${messageId}`;
+              text = `[MEDIA:video]${messageId}` + (rawCaption ? `\n${rawCaption}` : "");
             } else if (rawMsg.message.audioMessage) {
               mime = rawMsg.message.audioMessage.mimetype || "audio/ogg";
-              text = `[MEDIA:audio]${messageId}`;
+              text = `[MEDIA:audio]${messageId}` + (rawCaption ? `\n${rawCaption}` : "");
             } else if (rawMsg.message.documentMessage) {
               mime = rawMsg.message.documentMessage.mimetype || "application/octet-stream";
               fileName = rawMsg.message.documentMessage.fileName || rawMsg.message.documentMessage.title || "documento";
-              text = `[MEDIA:document]${messageId}:${fileName}`;
+              text = `[MEDIA:document]${messageId}:${fileName}` + (rawCaption ? `\n${rawCaption}` : "");
             } else if (rawMsg.message.stickerMessage) {
               mime = rawMsg.message.stickerMessage.mimetype || "image/webp";
               text = `[MEDIA:sticker]${messageId}`;
@@ -534,10 +546,10 @@ export class SessionManager {
               const viewOnceMsg = rawMsg.message.viewOnceMessage?.message || rawMsg.message.viewOnceMessageV2?.message;
               if (viewOnceMsg?.imageMessage) {
                 mime = viewOnceMsg.imageMessage.mimetype || "image/jpeg";
-                text = `[MEDIA:image]${messageId}`;
+                text = `[MEDIA:image]${messageId}` + (rawCaption ? `\n${rawCaption}` : "");
               } else if (viewOnceMsg?.videoMessage) {
                 mime = viewOnceMsg.videoMessage.mimetype || "video/mp4";
-                text = `[MEDIA:video]${messageId}`;
+                text = `[MEDIA:video]${messageId}` + (rawCaption ? `\n${rawCaption}` : "");
               }
             }
 

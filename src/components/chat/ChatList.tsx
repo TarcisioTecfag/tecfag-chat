@@ -7,22 +7,22 @@ import { motion, AnimatePresence } from "framer-motion";
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { icon?: string; label: string } {
   if (!text) return { label: "Sem mensagens" };
-  if (text.startsWith("[LOCAL_MEDIA:")) {
-    const type = text.slice("[LOCAL_MEDIA:".length).split(":")[0];
-    if (type === "image")    return { icon: "📷", label: "Imagem" };
-    if (type === "video")    return { icon: "🎥", label: "Vídeo" };
-    if (type === "audio")    return { icon: "🎵", label: "Áudio" };
-    // document — tenta extrair o nome do arquivo (último segmento)
-    const rest = text.slice("[LOCAL_MEDIA:document:".length);
-    const fileName = rest.split(":").pop() || "Documento";
-    return { icon: "📄", label: fileName };
-  }
-  if (text.startsWith("[MEDIA:")) {
-    if (text.includes(":image]"))    return { icon: "📷", label: "Imagem" };
-    if (text.includes(":video]"))    return { icon: "🎥", label: "Vídeo" };
-    if (text.includes(":audio]"))    return { icon: "🎵", label: "Áudio" };
-    if (text.includes(":sticker]")) return { icon: "🪄", label: "Figurinha" };
-    if (text.includes(":document]")) return { icon: "📄", label: "Documento" };
+  if (text.startsWith("[LOCAL_MEDIA:") || text.startsWith("[MEDIA:")) {
+    const newlineIndex = text.indexOf("\n");
+    const caption = newlineIndex !== -1 ? text.slice(newlineIndex + 1).trim() : "";
+    
+    let icon = "📄";
+    let typeLabel = "Documento";
+
+    if (text.includes(":image]"))       { icon = "📷"; typeLabel = "Imagem"; }
+    else if (text.includes(":video]"))   { icon = "🎥"; typeLabel = "Vídeo"; }
+    else if (text.includes(":audio]"))   { icon = "🎵"; typeLabel = "Áudio"; }
+    else if (text.includes(":sticker]")) { icon = "🪄"; typeLabel = "Figurinha"; }
+
+    return {
+      icon,
+      label: caption ? `${typeLabel}: ${caption}` : typeLabel
+    };
   }
   return { label: text };
 }

@@ -259,11 +259,28 @@ function renderMessageContent(
   isMe?: boolean,
   onSaveSticker?: (messageId: string, url: string) => void,
 ) {
+  // Separar a tag de mídia da legenda (se enviada com a mídia)
+  const newlineIndex = text.indexOf("\n");
+  const mediaTag = newlineIndex !== -1 ? text.slice(0, newlineIndex).trim() : text.trim();
+  const captionText = newlineIndex !== -1 ? text.slice(newlineIndex + 1).trim() : "";
+
+  const wrapMediaWithCaption = (mediaNode: React.ReactNode) => {
+    if (!captionText) return mediaNode;
+    return (
+      <div className="flex flex-col gap-1.5 max-w-sm">
+        {mediaNode}
+        <p className="whitespace-pre-wrap text-sm leading-relaxed px-0.5 pt-0.5 font-medium select-text">
+          {renderTextWithLinks(captionText, isMe)}
+        </p>
+      </div>
+    );
+  };
+
   // ── Preview local de mídia enviada (objectURL temporário) ─────────────────
-  if (text.startsWith("[LOCAL_MEDIA:")) {
+  if (mediaTag.startsWith("[LOCAL_MEDIA:")) {
     // Formato: [LOCAL_MEDIA:type:blobUrl:filename]
     // blobUrl pode conter ':', então capturamos filename do final
-    const rest = text.slice("[LOCAL_MEDIA:".length);
+    const rest = mediaTag.slice("[LOCAL_MEDIA:".length);
     const typeEnd = rest.indexOf(":");
     const type = rest.slice(0, typeEnd);
     const afterType = rest.slice(typeEnd + 1);
@@ -273,7 +290,7 @@ function renderMessageContent(
     const fileName = afterType.slice(lastColon + 1).replace(/\]$/, "");
 
     if (type === "image") {
-      return (
+      return wrapMediaWithCaption(
         <div
           className="relative group max-w-sm rounded-xl overflow-hidden cursor-pointer"
           onClick={() => {
@@ -291,7 +308,7 @@ function renderMessageContent(
     }
 
     if (type === "video") {
-      return (
+      return wrapMediaWithCaption(
         <div
           className="relative group max-w-sm rounded-xl overflow-hidden cursor-pointer bg-black/5 flex items-center justify-center border border-border"
           onClick={() => {
@@ -314,21 +331,21 @@ function renderMessageContent(
     }
 
     if (type === "audio") {
-      return <AudioBubble src={blobUrl} fileName={fileName} />;
+      return wrapMediaWithCaption(<AudioBubble src={blobUrl} fileName={fileName} />);
     }
 
     // document
-    return <DocumentCard src={blobUrl} fileName={fileName} />;
+    return wrapMediaWithCaption(<DocumentCard src={blobUrl} fileName={fileName} />);
   }
 
-  if (text.startsWith("[MEDIA:")) {
-    const match = text.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
+  if (mediaTag.startsWith("[MEDIA:")) {
+    const match = mediaTag.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
     if (match) {
       const [, type, messageId, extra] = match;
       const mediaUrl = `${BACKEND_URL}/api/baileys/media?messageId=${messageId}`;
 
       if (type === "image") {
-        return (
+        return wrapMediaWithCaption(
           <div
             className="relative group max-w-sm rounded-xl overflow-hidden border border-border bg-black/5 hover:opacity-95 transition cursor-pointer"
             onClick={() => {
@@ -345,7 +362,7 @@ function renderMessageContent(
       }
 
       if (type === "video") {
-        return (
+        return wrapMediaWithCaption(
           <div
             className="relative group max-w-sm rounded-xl overflow-hidden border border-border bg-black/5 cursor-pointer flex items-center justify-center"
             onClick={() => {
@@ -365,16 +382,16 @@ function renderMessageContent(
       }
 
       if (type === "audio") {
-        return <AudioBubble src={mediaUrl} fileName="Áudio" />;
+        return wrapMediaWithCaption(<AudioBubble src={mediaUrl} fileName="Áudio" />);
       }
 
       if (type === "document") {
         const fileName = extra || "documento";
-        return <DocumentCard src={mediaUrl} fileName={fileName} />;
+        return wrapMediaWithCaption(<DocumentCard src={mediaUrl} fileName={fileName} />);
       }
 
       if (type === "sticker") {
-        return (
+        return wrapMediaWithCaption(
           <div className="relative max-w-[120px] group overflow-visible">
             <img src={mediaUrl} alt="Figurinha" className="h-28 w-28 object-contain" />
             {onSaveSticker && (

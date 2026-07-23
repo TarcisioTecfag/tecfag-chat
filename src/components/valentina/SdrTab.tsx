@@ -735,8 +735,12 @@ export function SdrTab() {
                           let mediaType = msg.mediaType || null;
                           let fileName = msg.fileName || null;
 
-                          if (text.startsWith("[MEDIA:")) {
-                            const match = text.match(/^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/);
+                          const newlineIdx = text.indexOf("\n");
+                          const mediaTag = newlineIdx !== -1 ? text.slice(0, newlineIdx).trim() : text.trim();
+                          const captionText = newlineIdx !== -1 ? text.slice(newlineIdx + 1).trim() : "";
+
+                          if (mediaTag.startsWith("[MEDIA:")) {
+                            const match = mediaTag.match(/^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/);
                             if (match) {
                               const type = match[1];
                               const mediaId = match[2];
@@ -771,7 +775,8 @@ export function SdrTab() {
                                 >
                                   <img src={mediaUrl} alt="Imagem enviada" className="w-full max-h-56 object-cover rounded-2xl group-hover:scale-[1.02] transition duration-300" />
                                 </button>
-                                {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                                {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
+                                {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
                               </div>
                             );
                           }
@@ -790,7 +795,8 @@ export function SdrTab() {
                                     </div>
                                   </div>
                                 </div>
-                                {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                                {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
+                                {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
                               </div>
                             );
                           }
@@ -799,7 +805,8 @@ export function SdrTab() {
                             return (
                               <div className="space-y-1 py-0.5">
                                 <AudioPlayerBubble src={mediaUrl} isBot={msg.sender === "bot"} />
-                                {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                                {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
+                                {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
                               </div>
                             );
                           }
@@ -825,12 +832,13 @@ export function SdrTab() {
                                     </p>
                                   </div>
                                 </a>
-                                {text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                                {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
+                                {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
                               </div>
                             );
                           }
 
-                          return <span className="whitespace-pre-wrap break-words">{text}</span>;
+                          return <span className="whitespace-pre-wrap break-words">{captionText || text}</span>;
                         })()}
                         <span
                           className={`block mt-1 text-[9px] ${
