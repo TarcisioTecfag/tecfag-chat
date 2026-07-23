@@ -202,9 +202,7 @@ export class SdrEngine {
               where: (t, { eq: dEq }) => dEq(t.id, conversationId)
             });
             if (conv?.contactId) {
-              await db.update(contacts)
-                .set({ cnpjDetails: cnpjInfo.details, cnpj: cnpjInfo.cnpjFormatted })
-                .where(eq(contacts.id, conv.contactId));
+              await syncContactDataFromTriage(tenantId, conv.contactId, {}, cnpjInfo.details);
               console.log(`[SdrEngine] 🏛️ Ficha Cadastral da Receita Federal salva com sucesso no Contato ${conv.contactId}!`);
             }
           } catch (e: any) {
@@ -626,6 +624,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             outcome: isCompleted ? (wasAlreadyCompleted ? flowState.outcome : "transferred") : "in_progress",
           })
           .where(eq(agentFlowStates.id, flowState.id));
+
+        // Sincronizar o Contato no DB local (Nome, CNPJ, CPF, Receita Federal) e notificar a interface
+        if (conv?.contactId) {
+          await syncContactDataFromTriage(tenantId, conv.contactId, updatedCollectedData);
+        }
       }
 
       if (signal?.aborted) return false;

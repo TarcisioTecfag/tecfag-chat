@@ -130,6 +130,32 @@ export async function autoCreateOrUpdateRdCrmDeal({
       return false;
     }
 
+    // Garantir que o nome e CNPJ/CPF do contato no DB local reflitam os dados coletados na triagem
+    const nameVal = collectedData["NOME COMPLETO"]?.value;
+    const cnpjCpfVal = collectedData["CNPJ OU CPF"]?.value;
+    const contactUpdates: Record<string, any> = {};
+
+    if (nameVal && typeof nameVal === "string" && nameVal.trim() !== "" && !nameVal.includes("Aguardando") && nameVal.trim() !== contact.name) {
+      contactUpdates.name = nameVal.trim();
+      contact.name = nameVal.trim();
+    }
+
+    if (cnpjCpfVal && typeof cnpjCpfVal === "string" && cnpjCpfVal.trim() !== "" && !cnpjCpfVal.includes("Aguardando") && !cnpjCpfVal.includes("Invalido")) {
+      const cleanDigits = cnpjCpfVal.replace(/\D/g, "");
+      if (cleanDigits.length === 14 && contact.cnpj !== cnpjCpfVal.trim()) {
+        contactUpdates.cnpj = cnpjCpfVal.trim();
+        contact.cnpj = cnpjCpfVal.trim();
+      } else if (cleanDigits.length === 11 && contact.cpf !== cnpjCpfVal.trim()) {
+        contactUpdates.cpf = cnpjCpfVal.trim();
+        contact.cpf = cnpjCpfVal.trim();
+      }
+    }
+
+    if (Object.keys(contactUpdates).length > 0) {
+      await db.update(contacts).set(contactUpdates).where(eq(contacts.id, contact.id));
+      console.log(`[RD CRM Auto] 🔄 Dados do Contato ${contact.id} sincronizados no DB antes do envio ao CRM:`, contactUpdates);
+    }
+
     console.log(`[RD CRM Auto] ✅ Contato local obtido: ID="${contact.id}", Nome="${contact.name}", Telefone="${contact.phone}", Card Existente ID="${contact.rdCrmDealId || "NENHUM"}"`);
 
     // 3. Buscar os campos customizados oficiais do RD CRM via API
