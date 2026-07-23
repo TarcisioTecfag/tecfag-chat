@@ -520,18 +520,22 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           // Automação: Cria e vincula o Card no RD Station CRM com os dados coletados na triagem da Valentina
           try {
-            await autoCreateOrUpdateRdCrmDeal({
+            console.log(`[SdrEngine] 📦 Disparando autoCreateOrUpdateRdCrmDeal para ${contactPhone} (conversa: ${conversationId})...`);
+            const crmResult = await autoCreateOrUpdateRdCrmDeal({
               tenantId,
               conversationId,
               contactPhone,
               collectedData: updatedCollectedData,
             });
+            console.log(`[SdrEngine] 🏁 Resultado da automação do RD CRM: ${crmResult ? "SUCESSO ✅" : "FALHA / RECUSADO ⚠️"}`);
           } catch (crmErr: any) {
-            console.error("[SdrEngine] Erro na automação de criação/atualização de card no RD CRM:", crmErr?.message);
+            console.error("[SdrEngine] ❌ Erro ao executar autoCreateOrUpdateRdCrmDeal:", crmErr?.stack || crmErr?.message || crmErr);
           }
         } catch (rErr: any) {
-          console.error("[SdrEngine] Erro ao alocar no rodízio:", rErr?.message);
+          console.error("[SdrEngine] ❌ Erro ao alocar no rodízio ou acionar CRM:", rErr?.message || rErr);
         }
+      } else {
+        console.log(`[SdrEngine] ℹ️ Conclusão da triagem não disparada neste turno. (isCompleted=${isCompleted}, wasAlreadyCompleted=${wasAlreadyCompleted}, aborted=${Boolean(signal?.aborted)})`);
       }
 
       // 10. Se a qualificação foi concluída agora, ANUNCIAR A TRANSFERÊNCIA PERSONALIZADA no WhatsApp!
