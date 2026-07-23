@@ -154,8 +154,13 @@ export class SlaEngine {
       if (!config) continue;
 
       const now = new Date();
-      // O processamento ocorre após as 18h
-      const isPast6PM = now.getHours() >= 18;
+      const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        hour: "numeric",
+        hour12: false,
+      }).format(now);
+      const brtHour = parseInt(brtHourStr, 10);
+      const isPast6PM = brtHour >= 18;
 
       if (isPast6PM) {
         const todayStr = now.toISOString().split("T")[0]; // YYYY-MM-DD

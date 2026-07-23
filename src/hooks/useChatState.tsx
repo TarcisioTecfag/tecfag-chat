@@ -909,7 +909,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 id: "val_welcome",
                 author: "Valentina",
                 text: (() => {
-                  const hour = new Date().getHours();
+                  const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
+                    timeZone: "America/Sao_Paulo",
+                    hour: "numeric",
+                    hour12: false,
+                  }).format(new Date());
+                  const hour = parseInt(brtHourStr, 10);
                   const greeting = hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
                   const name = operatorProfile?.name || "operador";
                   return `Olá! ${greeting} ${name}, como posso te ajudar hoje?`;

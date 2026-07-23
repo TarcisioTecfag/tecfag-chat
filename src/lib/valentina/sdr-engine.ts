@@ -155,7 +155,13 @@ export class SdrEngine {
       // 5. Montar Prompt Estruturado para o Gemini 2.5 Pro
       const existingCollectedData = (flowState?.collectedData as Record<string, any>) || {};
 
-      const hour = new Date().getHours();
+      const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        hour: "numeric",
+        hour12: false,
+      }).format(new Date());
+      const hour = parseInt(brtHourStr, 10);
+
       let greeting = "Boa tarde!";
       if (hour >= 5 && hour < 12) greeting = "Bom dia!";
       if (hour >= 18 || hour < 5) greeting = "Boa noite!";
