@@ -263,12 +263,9 @@ export class SdrEngine {
 
         if (cnpjInfo.valid && cnpjInfo.details) {
           try {
-            const conv = await db.query.conversations.findFirst({
-              where: (t, { eq: dEq }) => dEq(t.id, conversationId)
-            });
-            if (conv?.contactId) {
-              await syncContactDataFromTriage(tenantId, conv.contactId, {}, cnpjInfo.details);
-              console.log(`[SdrEngine] 🏛️ Ficha Cadastral da Receita Federal salva com sucesso no Contato ${conv.contactId}!`);
+            if (convCheck?.contactId) {
+              await syncContactDataFromTriage(tenantId, convCheck.contactId, {}, cnpjInfo.details);
+              console.log(`[SdrEngine] 🏛️ Ficha Cadastral da Receita Federal salva com sucesso no Contato ${convCheck.contactId}!`);
             }
           } catch (e: any) {
             console.error("[SdrEngine] Erro ao salvar cnpjDetails no contato:", e?.message);
@@ -691,8 +688,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           .where(eq(agentFlowStates.id, flowState.id));
 
         // Sincronizar o Contato no DB local (Nome, CNPJ, CPF, Receita Federal) e notificar a interface
-        if (conv?.contactId) {
-          await syncContactDataFromTriage(tenantId, conv.contactId, updatedCollectedData);
+        if (convCheck?.contactId) {
+          await syncContactDataFromTriage(tenantId, convCheck.contactId, updatedCollectedData);
         }
       }
 
