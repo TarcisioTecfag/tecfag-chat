@@ -1,6 +1,6 @@
 
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, messages, internalMessages } from "../../db/schema";
+import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts } from "../../db/schema";
 import { eq, asc } from "drizzle-orm";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
