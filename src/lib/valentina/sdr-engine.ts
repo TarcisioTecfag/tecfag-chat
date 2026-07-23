@@ -165,11 +165,13 @@ export class SdrEngine {
 
       const firstMessageRule = isFirstMessage
         ? `🟢 ATENÇÃO CRÍTICA (ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO!):
-   - VOCÊ É OBRIGADA A ENVIAR EXATAMENTE A SEGUINTE ESTRUTURA EM 3 BALÕES SEPARADOS NO ARRAY \`messagesToSend\`:
+   - VOCÊ É OBRIGADA A ENVIAR A SEGUINTE ESTRUTURA EM 3 BALÕES SEPARADOS NO ARRAY \`messagesToSend\`:
      * Balão 1: Exatamente "${greeting}" (dependendo do horário: Bom dia! / Boa tarde! / Boa noite!)
      * Balão 2: Exatamente "Eu sou a Valentina, da Valem Valvulas e Embalagens  😊"
-     * Balão 3: Exatamente "Como posso te ajudar?"
-   - 🛑 É ESTRITAMENTE PROIBIDO ADICIONAR "tudo bem por aqui?", "tudo joia?", "tudo bem?" OU QUALQUER OUTRA FRASE/PERGUNTA DE SAUDAÇÃO!`
+     * Balão 3:
+       - SE O CLIENTE APENAS SAUDOU (ex: "Bom dia", "Olá", "Oi", "Tudo bem?"): Envie EXATAMENTE "Como posso te ajudar?".
+       - SE O CLIENTE JÁ INFORMOU O QUE PRECISA OU O PRODUTO (ex: "quero saber mais sobre embalagens de produtos spray", "preciso de válvulas"): É PROIBIDO PERGUNTAR "Como posso te ajudar?". O Balão 3 DEVE RECONHECER O PEDIDO DO CLIENTE com entusiasmo humano e iniciar a triagem (ex: "Com certeza! Vou te passar todas as informações sobre nossas embalagens para spray. Me conta, qual produto você pretende envasar nelas?")!
+   - 🛑 É ESTRITAMENTE PROIBIDO ADICIONAR "tudo bem por aqui?", "tudo joia?", "tudo bem?" OU QUALQUER OUTRA FRASE/PERGUNTA DE SAUDAÇÃO SEPARADA!`
         : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
    - NUNCA volte a se apresentar se você já se identificou antes na conversa!
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
@@ -378,12 +380,25 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         };
       }
 
-      // 🛑 GARANTIA PROGRAMÁTICA: Se for a PRIMEIRA mensagem do atendimento, FORÇA as 3 mensagens exatas sem variação da IA!
+      // 🛑 GARANTIA PROGRAMÁTICA: Se for a PRIMEIRA mensagem do atendimento:
       if (isFirstMessage) {
+        const combinedText = batchItems.map((i) => i.text).join(" ").toLowerCase();
+
+        // Checar se o cliente apenas deu oi/saudação ou se já explicou o que precisa
+        const isGenericGreetingOnly =
+          combinedText.replace(/[^a-z0-9]/g, "").length < 25 &&
+          !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid)/.test(combinedText);
+
+        // Se o cliente apenas deu saudação simples, força "Como posso te ajudar?"
+        // Se o cliente já passou o produto/pedido, usa o 3º balão gerado pela IA (que reconhece o pedido)!
+        const thirdBalloon = isGenericGreetingOnly
+          ? "Como posso te ajudar?"
+          : (aiResult.messagesToSend[2] || aiResult.messagesToSend[0] || "Como posso te ajudar?");
+
         aiResult.messagesToSend = [
           greeting,
           `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
-          `Como posso te ajudar?`
+          thirdBalloon,
         ];
       }
 
