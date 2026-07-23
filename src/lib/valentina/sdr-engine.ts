@@ -527,58 +527,36 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
-      // 8.1 Verificação da confirmação do Nome da Empresa pelo cliente
-      const batchTextCombined = batchItems.map((i) => i.text.toLowerCase()).join(" ");
-      const isConfirmationReply = /\b(sim|certo|correto|é essa|isso mesmo|exato|com certeza|uhum|é sim|confirmo|pode ser|essa mesma)\b/i.test(batchTextCombined);
-
-      // Verificar se Valentina já havia perguntado a confirmação da empresa em algum balão do histórico
-      const botAskedCompanyConfirmation = historyMsgs.some((m) => {
-        const lower = m.content.toLowerCase();
-        return lower.includes("sua empresa") || lower.includes("empresa é") || lower.includes("empresa cadastrada");
-      });
-
-      // Se Valentina está fazendo essa pergunta neste exato lote:
-      const isAskingConfirmationNow = aiResult.messagesToSend.some((m) => {
-        const lower = m.toLowerCase();
-        return lower.includes("sua empresa") || lower.includes("empresa é") || lower.includes("empresa cadastrada") || (lower.includes("empresa") && lower.includes("certo?"));
-      });
-
-      let isCompanyConfirmed = false;
-
-      // Se o cliente já confirmou anteriormente:
-      if (existingCollectedData["EMPRESA_CONFIRMED"]?.value === "true") {
-        isCompanyConfirmed = true;
-      } else if (botAskedCompanyConfirmation && isConfirmationReply) {
-        // Cliente acabou de responder "Sim/Certo" para a pergunta da Valentina
-        isCompanyConfirmed = true;
+      // 8.1 Verificação da confirmação / presença do Nome da Empresa
+      if (updatedCollectedData["EMPRESA"]?.value) {
         updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "true", status: "filled" };
-      } else if (!detectedCnpjCandidate && !botAskedCompanyConfirmation && updatedCollectedData["EMPRESA"]?.value && !isAskingConfirmationNow) {
-        // Se a empresa foi digitada diretamente pelo cliente por extenso (sem ser busca por CNPJ na Receita)
-        isCompanyConfirmed = true;
-        updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "true", status: "filled" };
-      } else {
-        // Busca de CNPJ da Receita Federal SEMPRE exige confirmação posterior do cliente!
-        isCompanyConfirmed = false;
-        updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "false", status: "pending" };
       }
 
       const filledCount = Object.values(updatedCollectedData).filter((d) => d.status === "filled").length;
 
-      // TRAVA ESTRITA DE CONCLUSÃO: A triagem SÓ pode ser concluída se TODOS os dados vitais forem preenchidos E a empresa confirmada:
       const nameVal = updatedCollectedData["NOME COMPLETO"]?.value || "";
       const companyVal = updatedCollectedData["EMPRESA"]?.value || "";
       const cnpjVal = updatedCollectedData["CNPJ OU CPF"]?.value || "";
       const productVal = updatedCollectedData["QUAL O TIPO DE PRODUTO?"]?.value || "";
 
-      const hasName = Boolean(nameVal && nameVal.trim() !== "" && !nameVal.includes("Aguardando"));
-      const hasCompany = Boolean(companyVal && companyVal.trim() !== "" && !companyVal.includes("Aguardando"));
-      const hasCnpj = Boolean(cnpjVal && cnpjVal.trim() !== "" && !cnpjVal.includes("Aguardando") && !cnpjVal.includes("Invalido"));
-      const hasProduct = Boolean(productVal && productVal.trim() !== "" && !productVal.includes("Aguardando"));
+      const hasName = Boolean(nameVal && nameVal.trim() !== "" && !nameVal.toLowerCase().includes("aguardando"));
+      const hasCompany = Boolean(companyVal && companyVal.trim() !== "" && !companyVal.toLowerCase().includes("aguardando"));
+      const hasCnpj = Boolean(cnpjVal && cnpjVal.trim() !== "" && !cnpjVal.toLowerCase().includes("aguardando") && !cnpjVal.toLowerCase().includes("invalido"));
+      const hasProduct = Boolean(productVal && productVal.trim() !== "" && !productVal.toLowerCase().includes("aguardando"));
 
-      const isTriageFullyReady = hasName && hasCompany && hasCnpj && hasProduct && isCompanyConfirmed;
+      // Verifica se a resposta da Valentina inclui frases de transferência
+      const messagesMentionTransfer = aiResult.messagesToSend.some((m) => {
+        const lower = m.toLowerCase();
+        return (
+          lower.includes("transferindo") ||
+          lower.includes("especialista comercial") ||
+          lower.includes("vendedor especialista") ||
+          lower.includes("dar continuidade ao seu atendimento")
+        );
+      });
 
-      // NUNCA conclui prematuramente se faltar a confirmação ou qualquer um dos campos vitais!
-      const isCompleted = isTriageFullyReady && (aiResult.isCompleted || filledCount >= 6);
+      const isTriageFullyReady = (hasName && hasCompany && (hasCnpj || hasProduct)) || filledCount >= 4;
+      const isCompleted = Boolean(aiResult.isCompleted || messagesMentionTransfer || (isTriageFullyReady && filledCount >= 3));
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
 
@@ -641,23 +619,23 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             const original = msg;
 
             let updatedMsg = msg
-              .replace(/um dos nossos vendedores especialistas/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/um de nossos vendedores especialistas/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/nossos vendedores especialistas/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/vendedores especialistas/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/vendedor especialista/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/um de nossos especialistas comerciais/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/um dos nossos especialistas comerciais/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/nossa equipe de atendimento comercial/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/nossa equipe comercial/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/um dos nossos vendedores/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/um de nossos vendedores/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/nossos vendedores/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-              .replace(/um dos nossos especialistas/gi, `o(a) ${sellerFirstName}`)
-              .replace(/um de nossos especialistas/gi, `o(a) ${sellerFirstName}`)
-              .replace(/um especialista/gi, `o(a) ${sellerFirstName}`)
+              .replace(/um dos nossos vendedores especialistas/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/um de nossos vendedores especialistas/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/nossos vendedores especialistas/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/vendedores especialistas/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/vendedor especialista/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/um de nossos especialistas comerciais/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/um dos nossos especialistas comerciais/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/nossa equipe de atendimento comercial/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/nossa equipe comercial/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/um dos nossos vendedores/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/um de nossos vendedores/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/nossos vendedores/gi, `${sellerFirstName}, nosso especialista comercial`)
+              .replace(/um dos nossos especialistas/gi, `${sellerFirstName}`)
+              .replace(/um de nossos especialistas/gi, `${sellerFirstName}`)
+              .replace(/um especialista/gi, `${sellerFirstName}`)
               .replace(/nossos especialistas/gi, `${sellerFirstName}`)
-              .replace(/vendedores/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/vendedores/gi, `${sellerFirstName}, nosso especialista comercial`)
               .replace(/nossa equipe/gi, `${sellerFirstName}`);
 
             if (updatedMsg !== original) {
@@ -668,7 +646,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           if (!replacedAny) {
             aiResult.messagesToSend.push(
-              `Estou te transferindo agora para o(a) ${sellerFirstName}, nosso(a) especialista comercial! Ele(a) já vai dar continuidade ao seu atendimento 😊`
+              `Estou te transferindo agora para ${sellerFirstName}, nosso especialista comercial! Já vai dar continuidade ao seu atendimento 😊`
             );
           }
         }
