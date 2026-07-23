@@ -577,27 +577,32 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         if (sellerFirstName) {
           let replacedAny = false;
           aiResult.messagesToSend = aiResult.messagesToSend.map((msg) => {
-            const lower = msg.toLowerCase();
-            if (
-              lower.includes("especialista") ||
-              lower.includes("vendedor") ||
-              lower.includes("atendente") ||
-              lower.includes("consultor") ||
-              lower.includes("direcionando") ||
-              lower.includes("transferindo")
-            ) {
+            const original = msg;
+
+            let updatedMsg = msg
+              .replace(/um dos nossos vendedores especialistas/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/um de nossos vendedores especialistas/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/nossos vendedores especialistas/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/vendedores especialistas/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/vendedor especialista/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/um de nossos especialistas comerciais/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/um dos nossos especialistas comerciais/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/nossa equipe de atendimento comercial/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/nossa equipe comercial/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/um dos nossos vendedores/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/um de nossos vendedores/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/nossos vendedores/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/um dos nossos especialistas/gi, `o(a) ${sellerFirstName}`)
+              .replace(/um de nossos especialistas/gi, `o(a) ${sellerFirstName}`)
+              .replace(/um especialista/gi, `o(a) ${sellerFirstName}`)
+              .replace(/nossos especialistas/gi, `${sellerFirstName}`)
+              .replace(/vendedores/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+              .replace(/nossa equipe/gi, `${sellerFirstName}`);
+
+            if (updatedMsg !== original) {
               replacedAny = true;
-              return msg
-                .replace(/um de nossos especialistas comerciais/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-                .replace(/um dos nossos especialistas comerciais/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-                .replace(/nossa equipe de atendimento comercial/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-                .replace(/nossa equipe comercial/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
-                .replace(/um de nossos especialistas/gi, `o(a) ${sellerFirstName}`)
-                .replace(/um especialista/gi, `o(a) ${sellerFirstName}`)
-                .replace(/nossos especialistas/gi, `${sellerFirstName}`)
-                .replace(/nossa equipe/gi, `${sellerFirstName}`);
             }
-            return msg;
+            return updatedMsg;
           });
 
           if (!replacedAny) {
