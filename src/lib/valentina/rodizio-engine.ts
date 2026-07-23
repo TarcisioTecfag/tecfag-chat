@@ -203,6 +203,24 @@ export class RodizioEngine {
 
       console.log(`[RodizioEngine] Lead "${clientName}" (${conversationId}) alocado com sucesso para o vendedor: ${chosenOperator.name}`);
 
+      // 4. Notificar a interface do usuário em tempo real via SSE
+      try {
+        const { SessionManager } = await import("../baileys/session-manager");
+        SessionManager.getInstance().notifyPublic(tenantId, {
+          type: "chat_updated",
+          chat: {
+            id: conversationId,
+            contactId: conv?.contactId || null,
+            queue: "meus",
+            operatorId: chosenOperator.id,
+            walletOperatorId: chosenOperator.id,
+            responsibleName: chosenOperator.name,
+          },
+        });
+      } catch (sseErr: any) {
+        console.warn("[RodizioEngine] Erro ao notificar SSE sobre alocação do rodízio:", sseErr?.message);
+      }
+
       return chosenOperator;
     } catch (err: any) {
       console.error("[RodizioEngine] Erro ao alocar próximo operador:", err?.message);

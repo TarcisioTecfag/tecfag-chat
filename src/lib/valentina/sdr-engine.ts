@@ -443,9 +443,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       if (aiResult.extractedData) {
-        for (const [k, v] of Object.entries(aiResult.extractedData)) {
-          if (v && v.trim() !== "" && !v.toLowerCase().includes("mantem")) {
-            updatedCollectedData[k] = { value: v.trim(), status: "filled" };
+        for (const [k, rawV] of Object.entries(aiResult.extractedData)) {
+          const v = String(rawV || "").trim();
+          if (v && !v.toLowerCase().includes("mantem")) {
+            const lowerV = v.toLowerCase();
+            // Evitar que booleans ou respostas de confirmação ("sim"/"true") sobrescrevam o nome real da empresa ou CNPJ
+            if (k === "EMPRESA" && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
+              console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher EMPRESA com resposta booleana: "${v}"`);
+              continue;
+            }
+            if (k === "CNPJ OU CPF" && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
+              console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher CNPJ com resposta booleana: "${v}"`);
+              continue;
+            }
+            updatedCollectedData[k] = { value: v, status: "filled" };
           }
         }
       }
@@ -762,6 +773,24 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         sentAt: new Date(),
       }).onConflictDoNothing();
 
+      // Buscar dados atualizados da conversa e do contato para enviar no SSE
+      const currentConv = await db.query.conversations.findFirst({
+        where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+      });
+
+      let currentWalletOpId: string | null = null;
+      let currentRdCrmDealId: string | null = null;
+      let currentRdCrmDealLink: string | null = null;
+
+      if (currentConv?.contactId) {
+        const [cnt] = await db.select().from(contacts).where(eq(contacts.id, currentConv.contactId));
+        if (cnt) {
+          currentWalletOpId = cnt.walletOperatorId || null;
+          currentRdCrmDealId = cnt.rdCrmDealId || null;
+          currentRdCrmDealLink = cnt.rdCrmDealLink || null;
+        }
+      }
+
       SessionManager.getInstance().notifyPublic(tenantId, {
         type: "message",
         message: {
@@ -774,6 +803,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           quotedMessageId: quotedMsgId,
           quotedMessageSender: quotedMsgId ? "Cliente" : null,
           quotedMessageContent: quotedContent,
+          queue: currentConv?.queueState || "automacao",
+          operatorId: currentConv?.operatorId || null,
+          walletOperatorId: currentWalletOpId,
+          rdCrmDealId: currentRdCrmDealId,
+          rdCrmDealLink: currentRdCrmDealLink,
         },
       });
     }

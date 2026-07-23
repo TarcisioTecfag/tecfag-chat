@@ -1897,6 +1897,38 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 : c;
             })
           );
+        } else if (data.type === "chat_updated" && data.chat) {
+          const updatedChat = data.chat;
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id === updatedChat.id) {
+                return {
+                  ...c,
+                  queue: updatedChat.queue || c.queue,
+                  operatorId: updatedChat.operatorId !== undefined ? updatedChat.operatorId : c.operatorId,
+                  walletOperatorId: updatedChat.walletOperatorId !== undefined ? updatedChat.walletOperatorId : c.walletOperatorId,
+                  responsibleName: updatedChat.responsibleName || c.responsibleName,
+                };
+              }
+              return c;
+            })
+          );
+        } else if (data.type === "contact_updated" && data.contact) {
+          const tenantId = tenantRef.current;
+          fetch(`${BACKEND_URL}/api/chats?tenantId=${tenantId}`)
+            .then((res) => res.json())
+            .then((freshChats) => {
+              if (Array.isArray(freshChats)) {
+                setConversations((prev) => {
+                  const map = new Map(freshChats.map((item: any) => [item.id, item]));
+                  return prev.map((c) => {
+                    const fresh = map.get(c.id);
+                    return fresh ? { ...c, ...fresh, messages: c.messages } : c;
+                  });
+                });
+              }
+            })
+            .catch(() => {});
         } else if (data.type === "message") {
           const { message } = data;
 

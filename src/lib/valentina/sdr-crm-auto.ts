@@ -84,11 +84,47 @@ export async function autoCreateOrUpdateRdCrmDeal({
     }
 
     if (!contact) {
-      console.error(`[RD CRM Auto] ❌ ERRO CRÍTICO: Nenhum contato correspondente ao telefone "${contactPhone}" ou conversa "${conversationId}" foi localizado no banco de dados! Abortando.`);
+      console.warn(`[RD CRM Auto] ⚠️ Nenhum contato encontrado no DB para o telefone "${contactPhone}" ou conversa "${conversationId}". Criando contato automaticamente...`);
+      const cleanPhone = contactPhone.replace(/\D/g, "");
+      const newContactId = `c-${cleanPhone}`;
+      const timeNow = new Date();
+
+      try {
+        await db
+          .insert(contacts)
+          .values({
+            id: newContactId,
+            tenantId,
+            name: collectedData["NOME COMPLETO"]?.value || `Cliente ${contactPhone}`,
+            phone: contactPhone,
+            createdAt: timeNow,
+          })
+          .onConflictDoNothing();
+
+        const [created] = await db
+          .select()
+          .from(contacts)
+          .where(eq(contacts.id, newContactId));
+
+        contact = created;
+
+        if (conv) {
+          await db
+            .update(conversations)
+            .set({ contactId: newContactId })
+            .where(eq(conversations.id, conversationId));
+        }
+      } catch (cErr: any) {
+        console.error("[RD CRM Auto] Erro ao criar contato automaticamente:", cErr?.message);
+      }
+    }
+
+    if (!contact) {
+      console.error(`[RD CRM Auto] ❌ ERRO CRÍTICO: Não foi possível obter nem criar contato para "${contactPhone}". Abortando.`);
       return false;
     }
 
-    console.log(`[RD CRM Auto] ✅ Contato local encontrado: ID="${contact.id}", Nome="${contact.name}", Telefone="${contact.phone}", Card Existente ID="${contact.rdCrmDealId || "NENHUM"}"`);
+    console.log(`[RD CRM Auto] ✅ Contato local obtido: ID="${contact.id}", Nome="${contact.name}", Telefone="${contact.phone}", Card Existente ID="${contact.rdCrmDealId || "NENHUM"}"`);
 
     // 3. Buscar os campos customizados oficiais do RD CRM via API
     console.log(`[RD CRM Auto] 📋 Solicitando campos customizados da API do RD CRM (GET /custom_fields?limit=100)...`);
@@ -421,6 +457,21 @@ export async function autoCreateOrUpdateRdCrmDeal({
           .where(eq(contacts.id, contact.id));
 
         console.log(`[RD CRM Auto] 🎉 CARD CRIADO E VINCULADO COM SUCESSO NO RD CRM! Deal ID: ${dealId} | Link: ${dealLink}`);
+
+        // Notificar interface SSE para atualizar o painel lateral do contato instantaneamente
+        try {
+          const { SessionManager } = await import("../baileys/session-manager");
+          SessionManager.getInstance().notifyPublic(tenantId, {
+            type: "contact_updated",
+            contact: {
+              id: contact.id,
+              rdCrmDealId: dealId,
+              rdCrmDealLink: dealLink,
+            },
+          });
+        } catch (sseErr: any) {
+          console.warn("[RD CRM Auto] Erro ao emitir SSE contact_updated:", sseErr?.message);
+        }
       } else {
         console.error("[RD CRM Auto] ❌ API do RD CRM não retornou o ID do novo deal criado!", newDeal);
       }
