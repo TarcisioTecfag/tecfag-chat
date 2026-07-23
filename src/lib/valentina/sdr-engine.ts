@@ -553,22 +553,39 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         console.log(`[SdrEngine] ℹ️ Conclusão da triagem não disparada neste turno. (isCompleted=${isCompleted}, wasAlreadyCompleted=${wasAlreadyCompleted}, aborted=${Boolean(signal?.aborted)})`);
       }
 
-      // 10. Se a qualificação foi concluída agora, ANUNCIAR A TRANSFERÊNCIA PERSONALIZADA no WhatsApp!
+      // 10. Se a qualificação foi concluída agora, ANUNCIAR A TRANSFERÊNCIA PERSONALIZADA COM O NOME REAL DO VENDEDOR!
       if (isCompleted && !wasAlreadyCompleted) {
         const sellerFirstName = allocatedOp?.name ? allocatedOp.name.split(" ")[0] : null;
 
-        const hasAlreadyTransferMsg = aiResult.messagesToSend.some(
-          (m) => m.toLowerCase().includes("transferindo") || m.toLowerCase().includes("especialista") || m.toLowerCase().includes("vendedor")
-        );
+        if (sellerFirstName) {
+          let replacedAny = false;
+          aiResult.messagesToSend = aiResult.messagesToSend.map((msg) => {
+            const lower = msg.toLowerCase();
+            if (
+              lower.includes("especialista") ||
+              lower.includes("vendedor") ||
+              lower.includes("atendente") ||
+              lower.includes("consultor") ||
+              lower.includes("direcionando") ||
+              lower.includes("transferindo")
+            ) {
+              replacedAny = true;
+              return msg
+                .replace(/um de nossos especialistas comerciais/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+                .replace(/um dos nossos especialistas comerciais/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+                .replace(/nossa equipe de atendimento comercial/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+                .replace(/nossa equipe comercial/gi, `o(a) ${sellerFirstName}, nosso(a) especialista comercial`)
+                .replace(/um de nossos especialistas/gi, `o(a) ${sellerFirstName}`)
+                .replace(/um especialista/gi, `o(a) ${sellerFirstName}`)
+                .replace(/nossos especialistas/gi, `${sellerFirstName}`)
+                .replace(/nossa equipe/gi, `${sellerFirstName}`);
+            }
+            return msg;
+          });
 
-        if (!hasAlreadyTransferMsg) {
-          if (sellerFirstName) {
+          if (!replacedAny) {
             aiResult.messagesToSend.push(
               `Estou te transferindo agora para o(a) ${sellerFirstName}, nosso(a) especialista comercial! Ele(a) já vai dar continuidade ao seu atendimento 😊`
-            );
-          } else {
-            aiResult.messagesToSend.push(
-              `Estou te transferindo agora para a nossa equipe de atendimento comercial! Um consultor especialista já vai dar continuidade ao seu atendimento 😊`
             );
           }
         }
