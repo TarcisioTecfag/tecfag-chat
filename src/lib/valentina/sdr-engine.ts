@@ -541,6 +541,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // Todos os dados essenciais para o CRM foram efetivamente fornecidos pelo cliente?
       const hasVitalInformation = hasName && (hasCompany || hasCnpj) && hasProduct;
 
+      // Contagem de campos vitais já preenchidos (usada no metadata do flowState)
+      const filledCount = [hasName, hasCompany || hasCnpj, hasProduct].filter(Boolean).length;
+
       // Verifica se a resposta da Valentina inclui frases explícitas de transferência
       const messagesMentionTransfer = aiResult.messagesToSend.some((m) => {
         const lower = m.toLowerCase();
