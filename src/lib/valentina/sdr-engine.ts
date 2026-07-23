@@ -28,6 +28,71 @@ export function isPhoneWhitelisted(phone: string, whitelistPhone: string): boole
   return cleanPhone.includes(cleanWhitelist) || cleanWhitelist.includes(cleanPhone);
 }
 
+/**
+ * Sincroniza dados do Contato no DB local com os campos coletados na triagem/Receita Federal
+ */
+export async function syncContactDataFromTriage(
+  tenantId: string,
+  contactId: string,
+  collectedData: Record<string, any> = {},
+  cnpjDetailsInput?: any
+) {
+  try {
+    const [contact] = await db.select().from(contacts).where(eq(contacts.id, contactId));
+    if (!contact) return;
+
+    const updates: Record<string, any> = {};
+
+    const nameVal = collectedData["NOME COMPLETO"]?.value;
+    const cnpjCpfVal = collectedData["CNPJ OU CPF"]?.value;
+
+    if (
+      nameVal &&
+      typeof nameVal === "string" &&
+      nameVal.trim() !== "" &&
+      !nameVal.includes("Aguardando") &&
+      nameVal.trim() !== contact.name
+    ) {
+      updates.name = nameVal.trim();
+    }
+
+    if (
+      cnpjCpfVal &&
+      typeof cnpjCpfVal === "string" &&
+      cnpjCpfVal.trim() !== "" &&
+      !cnpjCpfVal.includes("Aguardando") &&
+      !cnpjCpfVal.includes("Invalido")
+    ) {
+      const cleanDigits = cnpjCpfVal.replace(/\D/g, "");
+      if (cleanDigits.length === 14 && contact.cnpj !== cnpjCpfVal.trim()) {
+        updates.cnpj = cnpjCpfVal.trim();
+      } else if (cleanDigits.length === 11 && contact.cpf !== cnpjCpfVal.trim()) {
+        updates.cpf = cnpjCpfVal.trim();
+      }
+    }
+
+    if (cnpjDetailsInput) {
+      updates.cnpjDetails = cnpjDetailsInput;
+      if (cnpjDetailsInput.cnpjFormatted && contact.cnpj !== cnpjDetailsInput.cnpjFormatted) {
+        updates.cnpj = cnpjDetailsInput.cnpjFormatted;
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await db.update(contacts).set(updates).where(eq(contacts.id, contactId));
+      console.log(`[SdrEngine] 🔄 Contato ${contactId} atualizado no DB local com dados da triagem/Receita:`, updates);
+
+      SessionManager.getInstance().notifyPublic(tenantId, {
+        type: "contact_updated",
+        contactId: contactId,
+        updates: updates,
+      });
+    }
+  } catch (err: any) {
+    console.error(`[SdrEngine] ⚠️ Erro em syncContactDataFromTriage:`, err?.message);
+  }
+}
+
 export class SdrEngine {
   private static instance: SdrEngine;
 
