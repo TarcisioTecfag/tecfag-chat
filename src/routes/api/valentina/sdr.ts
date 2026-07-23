@@ -40,12 +40,22 @@ function parseMediaInfo(content: string, mediaUrl?: string | null, mediaType?: s
   let type = mediaType || undefined;
   let name = fileName || undefined;
 
-  if (content && content.startsWith("[MEDIA:")) {
-    const match = content.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
-    if (match) {
-      type = match[1] === "sticker" ? "image" : match[1];
-      const mediaId = match[2];
-      name = match[3] || name;
+  if (content) {
+    const firstLine = content.split(/\r?\n/)[0].trim();
+    if (firstLine.startsWith("[MEDIA:")) {
+      const match = firstLine.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/i);
+      if (match) {
+        type = match[1].toLowerCase() === "sticker" ? "image" : match[1].toLowerCase();
+        const mediaId = match[2].trim();
+        name = match[3] ? match[3].trim() : name;
+        url = `/api/baileys/media?messageId=${mediaId}`;
+      }
+    }
+  }
+
+  if (url && url.includes("/api/media/")) {
+    const mediaId = url.split("/api/media/")[1]?.trim();
+    if (mediaId) {
       url = `/api/baileys/media?messageId=${mediaId}`;
     }
   }

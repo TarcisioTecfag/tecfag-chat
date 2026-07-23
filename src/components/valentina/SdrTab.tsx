@@ -735,27 +735,27 @@ export function SdrTab() {
                           let mediaType = msg.mediaType || null;
                           let fileName = msg.fileName || null;
 
-                          const newlineIdx = text.indexOf("\n");
-                          const mediaTag = newlineIdx !== -1 ? text.slice(0, newlineIdx).trim() : text.trim();
-                          const captionText = newlineIdx !== -1 ? text.slice(newlineIdx + 1).trim() : "";
+                          const lines = text.split(/\r?\n/);
+                          const mediaTag = lines[0].trim();
+                          const captionText = lines.slice(1).join("\n").trim();
 
                           if (mediaTag.startsWith("[MEDIA:")) {
-                            const match = mediaTag.match(/^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/);
+                            const match = mediaTag.match(/^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/i);
                             if (match) {
-                              const type = match[1];
-                              const mediaId = match[2];
-                              const fn = match[3];
+                              const type = match[1].toLowerCase();
+                              const mediaId = match[2].trim();
+                              const fn = match[3] ? match[3].trim() : null;
 
                               mediaType = type === "sticker" ? "image" : type;
-                              if (!mediaUrl || mediaUrl.includes("/api/media/")) {
-                                mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
-                              }
+                              mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
                               if (fn && !fileName) {
                                 fileName = fn;
                               }
                             }
-                          } else if (mediaUrl && mediaUrl.includes("/api/media/")) {
-                            const mediaId = mediaUrl.split("/api/media/")[1];
+                          }
+
+                          if (mediaUrl && mediaUrl.includes("/api/media/")) {
+                            const mediaId = mediaUrl.split("/api/media/")[1]?.trim();
                             if (mediaId) {
                               mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
                             }
