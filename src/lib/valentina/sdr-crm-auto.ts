@@ -340,7 +340,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
     const docDigits = (contact.cnpj || contact.cpf || cnpjCpfVal || "").replace(/\D/g, "");
 
     // 3. Buscar os campos customizados oficiais do RD CRM via API
-    const rawFieldsRes = await rdRequest<any>(tenantId, "GET", "/custom_fields?limit=100").catch((err) => {
+    const rawFieldsRes = await rdRequest<any>(tenantId, "GET", "/custom_fields?filter=entity:deal&page[size]=100").catch((err) => {
       console.error("[RD CRM Auto] ❌ Erro ao buscar /custom_fields no RD CRM:", err?.message || err);
       return [];
     });
@@ -457,7 +457,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
     };
 
     const formatValue = (fieldObj: any, val: any) => {
-      if (!val) return [];
+      if (!val) return "";
       const type = fieldObj?.type || "";
       const hasOptions = (Array.isArray(fieldObj?.options) && fieldObj.options.length > 0) ||
                         (Array.isArray(fieldObj?.custom_field_options) && fieldObj.custom_field_options.length > 0);
@@ -465,36 +465,30 @@ export async function autoCreateOrUpdateRdCrmDeal({
 
       if (isSelection) {
         const rawStr = Array.isArray(val) ? val[0] : String(val);
-        const matched = matchBestOption(fieldObj, rawStr);
-        return matched ? [matched] : [];
+        return matchBestOption(fieldObj, rawStr) || rawStr;
       }
-      return val;
+      return Array.isArray(val) ? val[0] : val;
     };
 
-    const dealCustomFields: any[] = [];
+    // RD CRM API v2 exige custom_fields como HASH (objeto), não array
+    // Formato: { "<custom_field_id>": "valor" }
+    const dealCustomFields: Record<string, any> = {};
+
     if (resolvedFields.qualificadoSdr) {
-      dealCustomFields.push({
-        custom_field_id: resolvedFields.qualificadoSdr.id || resolvedFields.qualificadoSdr._id,
-        value: formatValue(resolvedFields.qualificadoSdr, qualificadoVal),
-      });
+      const fId = resolvedFields.qualificadoSdr.id || resolvedFields.qualificadoSdr._id;
+      if (fId) dealCustomFields[fId] = formatValue(resolvedFields.qualificadoSdr, qualificadoVal);
     }
     if (resolvedFields.projetosDesenvolvimento) {
-      dealCustomFields.push({
-        custom_field_id: resolvedFields.projetosDesenvolvimento.id || resolvedFields.projetosDesenvolvimento._id,
-        value: formatValue(resolvedFields.projetosDesenvolvimento, projetosVal),
-      });
+      const fId = resolvedFields.projetosDesenvolvimento.id || resolvedFields.projetosDesenvolvimento._id;
+      if (fId) dealCustomFields[fId] = formatValue(resolvedFields.projetosDesenvolvimento, projetosVal);
     }
     if (resolvedFields.tipoProduto && productVal) {
-      dealCustomFields.push({
-        custom_field_id: resolvedFields.tipoProduto.id || resolvedFields.tipoProduto._id,
-        value: formatValue(resolvedFields.tipoProduto, productVal),
-      });
+      const fId = resolvedFields.tipoProduto.id || resolvedFields.tipoProduto._id;
+      if (fId) dealCustomFields[fId] = formatValue(resolvedFields.tipoProduto, productVal);
     }
     if (resolvedFields.feitoPor) {
-      dealCustomFields.push({
-        custom_field_id: resolvedFields.feitoPor.id || resolvedFields.feitoPor._id,
-        value: formatValue(resolvedFields.feitoPor, "VALENTINA"),
-      });
+      const fId = resolvedFields.feitoPor.id || resolvedFields.feitoPor._id;
+      if (fId) dealCustomFields[fId] = formatValue(resolvedFields.feitoPor, "VALENTINA");
     }
 
     // Monta o resumo formatado
@@ -521,11 +515,11 @@ export async function autoCreateOrUpdateRdCrmDeal({
     const infoComplementarHtml = infoLines.filter((l) => l !== null).join("<br>");
 
     if (resolvedFields.infoComplementar) {
-      dealCustomFields.push({
-        custom_field_id: resolvedFields.infoComplementar.id || resolvedFields.infoComplementar._id,
-        value: infoComplementarText,
-      });
+      const fId = resolvedFields.infoComplementar.id || resolvedFields.infoComplementar._id;
+      if (fId) dealCustomFields[fId] = infoComplementarText;
     }
+
+    console.log("[RD CRM Auto] 📦 custom_fields a enviar:", JSON.stringify(dealCustomFields));
 
     // 6. Resoluções de Vendedor / Vínculo com Usuário do CRM
     let crmUserId: string | undefined = undefined;
