@@ -1,12 +1,17 @@
 /**
  * sdr-crm-auto.ts
  * Automação de Criação e Vínculo de Card no RD Station CRM quando a SDR Valentina conclui uma triagem.
+ * Replicando a arquitetura robusta de buscas do Tecfag I.A Faggner (rdCrmService.ts):
+ * - Busca de Empresa por Nome exato, primeira palavra e CNPJ
+ * - Busca de Contato por CPF/CNPJ e 4 variantes de Telefone (com/sem DDI, com/sem 9º dígito)
+ * - Busca de Deal existente no RD CRM por Contact ID antes de tentar criar novo (evita duplicados)
+ * - Envio de Nota na Timeline do Card (POST /deals/:id/notes)
  */
 
 import { db } from "../../db";
 import { contacts, conversations } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import { rdRequest, isRdCrmConfigured } from "../rdCrmService";
+import { rdRequest, isRdCrmConfigured, buildPhoneSearchTerms, getCachedUsers } from "../rdCrmService";
 
 interface CreateCrmDealFromTriageOptions {
   tenantId: string;
@@ -27,6 +32,185 @@ const VALEM_FIELD_IDS = {
   infoComplementar: "696bd749b44b6d00179417a0",
   feitoPor: "69b1638eb0e1180014224ca3",
 };
+
+// ─── HELPER: Limpeza e Normalização de Nomes de Empresa ──────────────────────────────
+function cleanName(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .trim();
+}
+
+// ─── HELPER 1: Busca ou Criação Robusta de Organização no RD CRM ─────────────────────
+async function findOrCreateOrganizationInCrm(
+  tenantId: string,
+  companyName: string,
+  docDigits: string,
+  ownerId?: string
+): Promise<string | null> {
+  if (!companyName || companyName.trim() === "" || companyName.startsWith("Cliente ")) {
+    return null;
+  }
+
+  const targetClean = cleanName(companyName);
+
+  // 1. Busca por Nome Exato
+  try {
+    const byFilterName = await rdRequest<any>(tenantId, "GET", `/organizations?filter=name:${encodeURIComponent(`"${companyName}"`)}&page[size]=20`);
+    const listExato: any[] = Array.isArray(byFilterName) ? byFilterName : (Array.isArray(byFilterName?.data) ? byFilterName.data : []);
+    const matchExato = listExato.find((o: any) => cleanName(o.name || "") === targetClean);
+    if (matchExato) {
+      console.log(`[RD CRM Auto] ✅ Organização existente encontrada (por nome exato): ${matchExato.id || matchExato._id} "${matchExato.name}"`);
+      return matchExato.id || matchExato._id;
+    }
+  } catch (e: any) {
+    console.warn(`[RD CRM Auto] Aviso ao buscar organização por nome exato:`, e.message);
+  }
+
+  // 2. Busca por Primeira Palavra
+  const primeiraPalavra = companyName.split(" ")[0];
+  if (primeiraPalavra && primeiraPalavra.length > 3) {
+    try {
+      const byFilterSub = await rdRequest<any>(tenantId, "GET", `/organizations?filter=name:~${encodeURIComponent(`"${primeiraPalavra}"`)}&page[size]=50`);
+      const listSub: any[] = Array.isArray(byFilterSub) ? byFilterSub : (Array.isArray(byFilterSub?.data) ? byFilterSub.data : []);
+      const matchSub = listSub.find((o: any) => cleanName(o.name || "") === targetClean);
+      if (matchSub) {
+        console.log(`[RD CRM Auto] ✅ Organização existente encontrada (por primeira palavra): ${matchSub.id || matchSub._id} "${matchSub.name}"`);
+        return matchSub.id || matchSub._id;
+      }
+    } catch {}
+  }
+
+  // 3. Busca por CNPJ/CPF se houver documento
+  if (docDigits) {
+    try {
+      const byCnpj = await rdRequest<any>(tenantId, "GET", `/organizations?filter=@cpf:${encodeURIComponent(`"${docDigits}"`)}&page[size]=20`);
+      const cnpjList: any[] = Array.isArray(byCnpj) ? byCnpj : (Array.isArray(byCnpj?.data) ? byCnpj.data : []);
+      if (cnpjList.length > 0) {
+        console.log(`[RD CRM Auto] ✅ Organização existente encontrada (por CNPJ): ${cnpjList[0].id || cnpjList[0]._id} "${cnpjList[0].name}"`);
+        return cnpjList[0].id || cnpjList[0]._id;
+      }
+    } catch {}
+  }
+
+  // 4. Se não existe, cria a nova Organização
+  try {
+    const createPayload: Record<string, any> = { name: companyName };
+    if (ownerId) createPayload.user_id = ownerId;
+    if (docDigits) createPayload.custom_fields = { cpf: docDigits };
+
+    const orgRes = await rdRequest<any>(tenantId, "POST", "/organizations", createPayload);
+    const orgId = orgRes?.id || orgRes?._id;
+    if (orgId) {
+      console.log(`[RD CRM Auto] ✅ Nova Organização criada no RD CRM: ${orgId} ("${companyName}")`);
+      return orgId;
+    }
+  } catch (createErr: any) {
+    console.warn(`[RD CRM Auto] ⚠️ Falha ao criar organização "${companyName}": ${createErr?.message || createErr}`);
+    if (createErr?.message?.includes("cadastrad") || createErr?.message?.includes("422")) {
+      try {
+        const byFilterName = await rdRequest<any>(tenantId, "GET", `/organizations?filter=name:${encodeURIComponent(`"${companyName}"`)}&page[size]=20`);
+        const list: any[] = Array.isArray(byFilterName) ? byFilterName : (Array.isArray(byFilterName?.data) ? byFilterName.data : []);
+        if (list.length > 0) return list[0].id || list[0]._id;
+      } catch {}
+    }
+  }
+
+  return null;
+}
+
+// ─── HELPER 2: Upsert Robusto de Contato no RD CRM (Busca por CPF/CNPJ e 4 Variantes de Telefone) ───
+async function upsertContactInCrm(
+  tenantId: string,
+  clientName: string,
+  contactPhone: string,
+  docDigits: string,
+  organizationId?: string | null
+): Promise<string | null> {
+  const cleanPhone = contactPhone.replace(/\D/g, "");
+  const hasDoc = docDigits.length === 11 || docDigits.length === 14;
+
+  // 1. Buscar no CRM por CPF/CNPJ
+  if (hasDoc) {
+    try {
+      const byDoc = await rdRequest<any[]>(tenantId, "GET", `/contacts?filter=@cpf_cnpj:${encodeURIComponent(docDigits)}`);
+      const listDoc = Array.isArray(byDoc) ? byDoc : (Array.isArray((byDoc as any)?.data) ? (byDoc as any).data : []);
+      if (listDoc.length > 0) {
+        const existingId = listDoc[0].id || listDoc[0]._id;
+        console.log(`[RD CRM Auto] ✅ Contato existente no CRM (por CPF/CNPJ ${docDigits}): ${existingId}`);
+        const updatePayload: Record<string, any> = { name: clientName };
+        if (organizationId) updatePayload.organization_id = organizationId;
+        await rdRequest(tenantId, "PUT", `/contacts/${existingId}`, updatePayload).catch(() => null);
+        return existingId;
+      }
+    } catch {}
+  }
+
+  // 2. Buscar no CRM por Telefone usando 4 variantes (com/sem DDI, com/sem 9º dígito)
+  if (cleanPhone) {
+    const phoneTerms = buildPhoneSearchTerms(cleanPhone);
+    for (const term of phoneTerms) {
+      try {
+        const byPhone = await rdRequest<any[]>(tenantId, "GET", `/contacts?filter=phone:${encodeURIComponent(term)}`);
+        const listPhone = Array.isArray(byPhone) ? byPhone : (Array.isArray((byPhone as any)?.data) ? (byPhone as any).data : []);
+        if (listPhone.length > 0) {
+          const existingId = listPhone[0].id || listPhone[0]._id;
+          console.log(`[RD CRM Auto] ✅ Contato existente no CRM (por telefone variante "${term}"): ${existingId}`);
+          const updatePayload: Record<string, any> = { name: clientName };
+          if (organizationId) updatePayload.organization_id = organizationId;
+          await rdRequest(tenantId, "PUT", `/contacts/${existingId}`, updatePayload).catch(() => null);
+          return existingId;
+        }
+      } catch {}
+    }
+  }
+
+  // 3. Criar Contato no CRM se não existir
+  try {
+    const contactPayload: Record<string, any> = {
+      name: clientName,
+      phones: cleanPhone ? [{ phone: cleanPhone }] : [],
+    };
+    if (hasDoc) contactPayload.custom_fields = { cpf_cnpj: docDigits };
+    if (organizationId) contactPayload.organization_id = organizationId;
+
+    const created = await rdRequest<any>(tenantId, "POST", "/contacts", contactPayload);
+    const newContactId = created?.id || created?._id;
+    if (newContactId) {
+      console.log(`[RD CRM Auto] ✅ Novo Contato criado no RD CRM: ${newContactId}`);
+      return newContactId;
+    }
+  } catch (cErr: any) {
+    console.warn(`[RD CRM Auto] ⚠️ Falha ao criar contato no RD CRM:`, cErr?.message || cErr);
+  }
+
+  return null;
+}
+
+// ─── HELPER 3: Busca de Deal Ativo no CRM por Contact ID ─────────────────────────────
+async function findExistingDealInCrm(
+  tenantId: string,
+  crmContactId: string
+): Promise<string | null> {
+  if (!crmContactId) return null;
+  try {
+    const rDeals = await rdRequest<any[]>(tenantId, "GET", `/deals?filter=contact_id:${crmContactId}`);
+    const dealsList: any[] = Array.isArray(rDeals) ? rDeals : (Array.isArray((rDeals as any)?.data) ? (rDeals as any).data : []);
+    if (dealsList.length > 0) {
+      const ongoingDeal = dealsList.find((d: any) => d.status === "ongoing");
+      const chosen = ongoingDeal || dealsList[0];
+      const chosenId = chosen.id || chosen._id;
+      console.log(`[RD CRM Auto] 🔍 Card ativo existente localizado no RD CRM para contato ${crmContactId}: ${chosenId}`);
+      return chosenId;
+    }
+  } catch (e: any) {
+    console.warn(`[RD CRM Auto] Aviso ao buscar deals por contact_id ${crmContactId}:`, e.message);
+  }
+  return null;
+}
 
 export async function autoCreateOrUpdateRdCrmDeal({
   tenantId,
@@ -63,7 +247,6 @@ export async function autoCreateOrUpdateRdCrmDeal({
 
     let contact: any = null;
     if (conv?.contactId) {
-      console.log(`[RD CRM Auto] Conversa localizada. ID do Contato associado: "${conv.contactId}"`);
       const [foundContact] = await db
         .select()
         .from(contacts)
@@ -72,9 +255,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
     }
 
     if (!contact) {
-      console.log(`[RD CRM Auto] Contato não encontrado por conv.contactId. Buscando por variantes do telefone "${contactPhone}"...`);
       const cleanPhone = contactPhone.replace(/\D/g, "");
-
       const allContacts = await db
         .select()
         .from(contacts)
@@ -90,7 +271,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
     }
 
     if (!contact) {
-      console.warn(`[RD CRM Auto] ⚠️ Nenhum contato encontrado no DB para o telefone "${contactPhone}" ou conversa "${conversationId}". Criando contato automaticamente...`);
+      console.warn(`[RD CRM Auto] ⚠️ Nenhum contato encontrado no DB local para "${contactPhone}". Criando contato local...`);
       const cleanPhone = contactPhone.replace(/\D/g, "");
       const newContactId = `c-${cleanPhone}`;
       const timeNow = new Date();
@@ -130,7 +311,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
       return false;
     }
 
-    // Garantir que o nome e CNPJ/CPF do contato no DB local reflitam os dados coletados na triagem
+    // Sincronizar dados do contato local
     const nameVal = collectedData["NOME COMPLETO"]?.value;
     const cnpjCpfVal = collectedData["CNPJ OU CPF"]?.value;
     const contactUpdates: Record<string, any> = {};
@@ -153,13 +334,11 @@ export async function autoCreateOrUpdateRdCrmDeal({
 
     if (Object.keys(contactUpdates).length > 0) {
       await db.update(contacts).set(contactUpdates).where(eq(contacts.id, contact.id));
-      console.log(`[RD CRM Auto] 🔄 Dados do Contato ${contact.id} sincronizados no DB antes do envio ao CRM:`, contactUpdates);
     }
 
-    console.log(`[RD CRM Auto] ✅ Contato local obtido: ID="${contact.id}", Nome="${contact.name}", Telefone="${contact.phone}", Card Existente ID="${contact.rdCrmDealId || "NENHUM"}"`);
+    const docDigits = (contact.cnpj || contact.cpf || cnpjCpfVal || "").replace(/\D/g, "");
 
     // 3. Buscar os campos customizados oficiais do RD CRM via API
-    console.log(`[RD CRM Auto] 📋 Solicitando campos customizados da API do RD CRM (GET /custom_fields?limit=100)...`);
     const rawFieldsRes = await rdRequest<any>(tenantId, "GET", "/custom_fields?limit=100").catch((err) => {
       console.error("[RD CRM Auto] ❌ Erro ao buscar /custom_fields no RD CRM:", err?.message || err);
       return [];
@@ -170,8 +349,6 @@ export async function autoCreateOrUpdateRdCrmDeal({
       : (rawFieldsRes && Array.isArray(rawFieldsRes.custom_fields)
           ? rawFieldsRes.custom_fields
           : (rawFieldsRes && Array.isArray(rawFieldsRes.data) ? rawFieldsRes.data : []));
-
-    console.log(`[RD CRM Auto] 📊 Total de custom_fields retornados do RD CRM: ${allCrmFields.length}`);
 
     const normalizeStr = (str: string) =>
       str
@@ -201,24 +378,11 @@ export async function autoCreateOrUpdateRdCrmDeal({
       feitoPor: findField(VALEM_FIELD_IDS.feitoPor, "FEITO POR"),
     };
 
-    console.log(`[RD CRM Auto] 🎯 Mapeamento de Campos Customizados Resolvidos:`, {
-      qualificadoSdr: resolvedFields.qualificadoSdr ? `${resolvedFields.qualificadoSdr.label || resolvedFields.qualificadoSdr.name} (ID: ${resolvedFields.qualificadoSdr.id || resolvedFields.qualificadoSdr._id})` : "❌ NÃO ENCONTRADO",
-      projetosDesenvolvimento: resolvedFields.projetosDesenvolvimento ? `${resolvedFields.projetosDesenvolvimento.label || resolvedFields.projetosDesenvolvimento.name} (ID: ${resolvedFields.projetosDesenvolvimento.id || resolvedFields.projetosDesenvolvimento._id})` : "❌ NÃO ENCONTRADO",
-      tipoProduto: resolvedFields.tipoProduto ? `${resolvedFields.tipoProduto.label || resolvedFields.tipoProduto.name} (ID: ${resolvedFields.tipoProduto.id || resolvedFields.tipoProduto._id})` : "❌ NÃO ENCONTRADO",
-      infoComplementar: resolvedFields.infoComplementar ? `${resolvedFields.infoComplementar.label || resolvedFields.infoComplementar.name} (ID: ${resolvedFields.infoComplementar.id || resolvedFields.infoComplementar._id})` : "❌ NÃO ENCONTRADO",
-      feitoPor: resolvedFields.feitoPor ? `${resolvedFields.feitoPor.label || resolvedFields.feitoPor.name} (ID: ${resolvedFields.feitoPor.id || resolvedFields.feitoPor._id})` : "❌ NÃO ENCONTRADO",
-    });
-
-    // 4. Buscar Funil "Válvulas" / "Valvulas" no RD CRM (GET /pipelines)
-    console.log(`[RD CRM Auto] 🏷️ Buscando funil e etapa de vendas "Válvulas" no RD CRM (GET /pipelines)...`);
+    // 4. Buscar Funil "Válvulas" / "Valvulas" no RD CRM
     let dealStageId: string | undefined = undefined;
 
     try {
-      let pipelinesRes = await rdRequest<any>(tenantId, "GET", "/pipelines").catch((err) => {
-        console.warn(`[RD CRM Auto] Aviso ao buscar GET /pipelines:`, err?.message);
-        return null;
-      });
-
+      let pipelinesRes = await rdRequest<any>(tenantId, "GET", "/pipelines").catch(() => null);
       if (!pipelinesRes) {
         pipelinesRes = await rdRequest<any>(tenantId, "GET", "/deal_pipelines").catch(() => null);
       }
@@ -231,19 +395,15 @@ export async function autoCreateOrUpdateRdCrmDeal({
                 ? pipelinesRes.deal_pipelines
                 : (pipelinesRes && Array.isArray(pipelinesRes.data) ? pipelinesRes.data : [])));
 
-      console.log(`[RD CRM Auto] Lista de Funis encontrados no CRM (${pipelines.length}):`, pipelines.map((p) => ({ id: p.id || p._id, name: p.name })));
-
       const valvulasPipeline = pipelines.find((p) => {
         const norm = normalizeStr(p.name || "");
         return norm.includes("valvula") || norm.includes("valvulas");
       });
 
       if (valvulasPipeline) {
-        console.log(`[RD CRM Auto] ✅ Funil "Válvulas" localizado: ID="${valvulasPipeline.id || valvulasPipeline._id}", Name="${valvulasPipeline.name}"`);
         const stages = valvulasPipeline.deal_stages || valvulasPipeline.stages || [];
         if (Array.isArray(stages) && stages.length > 0) {
           dealStageId = stages[0].id || stages[0]._id;
-          console.log(`[RD CRM Auto] ✅ Primeira etapa do Funil Válvulas selecionada: ID="${dealStageId}", Nome="${stages[0].name}"`);
         }
       }
 
@@ -252,37 +412,9 @@ export async function autoCreateOrUpdateRdCrmDeal({
         const stages = firstPipe.deal_stages || firstPipe.stages || [];
         if (Array.isArray(stages) && stages.length > 0) {
           dealStageId = stages[0].id || stages[0]._id;
-          console.log(`[RD CRM Auto] ⚠️ Funil Válvulas não encontrado especificamente. Usando primeira etapa do funil "${firstPipe.name}": ID="${dealStageId}"`);
         }
       }
-
-      if (!dealStageId) {
-        console.log(`[RD CRM Auto] Buscando etapas diretamente em GET /deal_stages...`);
-        const stagesRes = await rdRequest<any>(tenantId, "GET", "/deal_stages").catch(() => null);
-        const allStages: any[] = Array.isArray(stagesRes)
-          ? stagesRes
-          : (stagesRes && Array.isArray(stagesRes.deal_stages)
-              ? stagesRes.deal_stages
-              : (stagesRes && Array.isArray(stagesRes.data) ? stagesRes.data : []));
-
-        console.log(`[RD CRM Auto] Lista de Etapas encontradas (${allStages.length}):`, allStages.map((s) => ({ id: s.id || s._id, name: s.name })));
-
-        const valvulaStage = allStages.find((s) => {
-          const norm = normalizeStr(s.name || s.pipeline_name || "");
-          return norm.includes("valvula") || norm.includes("valvulas");
-        });
-
-        if (valvulaStage) {
-          dealStageId = valvulaStage.id || valvulaStage._id;
-          console.log(`[RD CRM Auto] ✅ Etapa correspondente ao Funil Válvulas localizada: ID="${dealStageId}", Nome="${valvulaStage.name}"`);
-        } else if (allStages.length > 0) {
-          dealStageId = allStages[0].id || allStages[0]._id;
-          console.log(`[RD CRM Auto] ⚠️ Usando primeira etapa disponível de GET /deal_stages: ID="${dealStageId}"`);
-        }
-      }
-    } catch (stageErr: any) {
-      console.warn(`[RD CRM Auto] ⚠️ Não foi possível determinar etapa do funil:`, stageErr?.message || stageErr);
-    }
+    } catch {}
 
     // 5. Extrair os valores coletados pela Valentina na triagem
     const clientName = collectedData["NOME COMPLETO"]?.value || contact.name || `Cliente ${contactPhone}`;
@@ -294,78 +426,30 @@ export async function autoCreateOrUpdateRdCrmDeal({
     const projetosVal = collectedData["PROJETOS / DESENVOLVIMENTO"]?.value || "NAO";
     const qualificadoVal = collectedData["QUALIFICADO POR SDR (VALEM)"]?.value || "Industrial - Recorrência: Lead Qualificado via Valentina SDR";
 
-    // Título formatado da Oportunidade no CRM
     const dealTitle = productVal
       ? `${companyName} - ${productVal}`
       : `${companyName} - Triagem Valentina`;
 
-    console.log(`[RD CRM Auto] 📝 Título da Oportunidade: "${dealTitle}"`);
-
-    // Helper inteligente para encontrar a opção exata configurada no campo de seleção do RD CRM
+    // Matcher de Opção do Dropdown
     const matchBestOption = (fieldObj: any, rawValue: string): string => {
       if (!rawValue || !rawValue.trim()) return "";
-
       const options = fieldObj?.options || fieldObj?.custom_field_options || [];
-      if (!Array.isArray(options) || options.length === 0) {
-        return rawValue.trim();
-      }
+      if (!Array.isArray(options) || options.length === 0) return rawValue.trim();
 
       const rawNorm = normalizeStr(rawValue);
-
-      // 1. Busca opção por igualdade exata de string normalizada
       for (const opt of options) {
         const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
-        if (normalizeStr(optVal) === rawNorm) {
-          return optVal;
-        }
+        if (normalizeStr(optVal) === rawNorm) return optVal;
       }
-
-      // 2. Busca opção por inclusão de texto (sub-string)
       for (const opt of options) {
         const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
         const optNorm = normalizeStr(optVal);
-        if (optNorm && (optNorm.includes(rawNorm) || rawNorm.includes(optNorm))) {
-          return optVal;
-        }
+        if (optNorm && (optNorm.includes(rawNorm) || rawNorm.includes(optNorm))) return optVal;
       }
-
-      // 3. Fallbacks de termos comuns para campos do CRM da Valem
-      if (rawNorm.includes("valentina") || rawNorm.includes("sdr")) {
-        for (const opt of options) {
-          const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
-          const optNorm = normalizeStr(optVal);
-          if (optNorm.includes("sdr") || optNorm.includes("valentina")) {
-            return optVal;
-          }
-        }
-      }
-
-      if (rawNorm.includes("nao") || rawNorm.includes("não")) {
-        for (const opt of options) {
-          const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
-          const optNorm = normalizeStr(optVal);
-          if (optNorm === "nao" || optNorm.includes("nao")) {
-            return optVal;
-          }
-        }
-      }
-
-      if (rawNorm.includes("sim")) {
-        for (const opt of options) {
-          const optVal = typeof opt === "string" ? opt : (opt.value || opt.name || opt.label || "");
-          const optNorm = normalizeStr(optVal);
-          if (optNorm === "sim" || optNorm.includes("sim")) {
-            return optVal;
-          }
-        }
-      }
-
-      // 4. Se não houver correspondência exata, seleciona a primeira opção da lista do CRM
       const firstOpt = options[0];
       return typeof firstOpt === "string" ? firstOpt : (firstOpt?.value || firstOpt?.label || rawValue);
     };
 
-    // Helper para formatar o valor de acordo com o tipo de campo (Seleção vs Texto)
     const formatValue = (fieldObj: any, val: any) => {
       if (!val) return [];
       const type = fieldObj?.type || "";
@@ -378,33 +462,28 @@ export async function autoCreateOrUpdateRdCrmDeal({
         const matched = matchBestOption(fieldObj, rawStr);
         return matched ? [matched] : [];
       }
-
       return val;
     };
 
     const dealCustomFields: any[] = [];
-
     if (resolvedFields.qualificadoSdr) {
       dealCustomFields.push({
         custom_field_id: resolvedFields.qualificadoSdr.id || resolvedFields.qualificadoSdr._id,
         value: formatValue(resolvedFields.qualificadoSdr, qualificadoVal),
       });
     }
-
     if (resolvedFields.projetosDesenvolvimento) {
       dealCustomFields.push({
         custom_field_id: resolvedFields.projetosDesenvolvimento.id || resolvedFields.projetosDesenvolvimento._id,
         value: formatValue(resolvedFields.projetosDesenvolvimento, projetosVal),
       });
     }
-
     if (resolvedFields.tipoProduto && productVal) {
       dealCustomFields.push({
         custom_field_id: resolvedFields.tipoProduto.id || resolvedFields.tipoProduto._id,
         value: formatValue(resolvedFields.tipoProduto, productVal),
       });
     }
-
     if (resolvedFields.feitoPor) {
       dealCustomFields.push({
         custom_field_id: resolvedFields.feitoPor.id || resolvedFields.feitoPor._id,
@@ -412,7 +491,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
       });
     }
 
-    // Monta o resumo formatado para Informações Complementares
+    // Monta o resumo formatado
     const infoLines = [
       `📋 TRIAGEM FINALIZADA POR VALENTINA (SDR)`,
       `----------------------------------------`,
@@ -426,15 +505,14 @@ export async function autoCreateOrUpdateRdCrmDeal({
       ``,
       `💬 RESPOSTAS COLETADAS NA TRIAGEM:`,
     ];
-
     for (const [k, v] of Object.entries(collectedData)) {
       const valStr = typeof v === "object" ? v?.value : v;
       if (valStr && String(valStr).trim() !== "") {
         infoLines.push(`- ${k}: ${valStr}`);
       }
     }
-
     const infoComplementarText = infoLines.filter((l) => l !== null).join("\n");
+    const infoComplementarHtml = infoLines.filter((l) => l !== null).join("<br>");
 
     if (resolvedFields.infoComplementar) {
       dealCustomFields.push({
@@ -443,28 +521,10 @@ export async function autoCreateOrUpdateRdCrmDeal({
       });
     }
 
-    console.log(`[RD CRM Auto] ⚙️ deal_custom_fields montados (${dealCustomFields.length}):`, JSON.stringify(dealCustomFields, null, 2));
-
-    // 6. Tentar criar/associar Organização no CRM
-    let organizationId: string | undefined = undefined;
-    if (companyName && !companyName.startsWith("Cliente ")) {
-      try {
-        console.log(`[RD CRM Auto] 🏢 Criando/Buscando Organização no RD CRM para "${companyName}"...`);
-        const orgRes = await rdRequest<any>(tenantId, "POST", "/organizations", {
-          name: companyName,
-        });
-        organizationId = orgRes?.id || orgRes?._id;
-        console.log(`[RD CRM Auto] ✅ Organização obtida: ID="${organizationId}"`);
-      } catch (orgErr: any) {
-        console.warn("[RD CRM Auto] Organização não criada (pode já existir no CRM):", orgErr?.message || orgErr);
-      }
-    }
-
-    // 6.5. Tentar identificar vendedor/responsável alocado no RD CRM
+    // 6. Resoluções de Vendedor / Vínculo com Usuário do CRM
     let crmUserId: string | undefined = undefined;
     if (allocatedOperator?.name || allocatedOperator?.email) {
       try {
-        const { getCachedUsers } = await import("../rdCrmService");
         const users = await getCachedUsers(tenantId);
         const opName = (allocatedOperator.name || "").toLowerCase().trim();
         const opEmail = (allocatedOperator.email || "").toLowerCase().trim();
@@ -490,83 +550,96 @@ export async function autoCreateOrUpdateRdCrmDeal({
       }
     }
 
-    // 7. Se o contato já tem um Card no CRM, apenas atualiza. Se não tem, cria um NOVO Card!
+    // 7. Busca/Criação Robusta da Organização no RD CRM
+    const organizationId = await findOrCreateOrganizationInCrm(tenantId, companyName, docDigits, crmUserId);
+
+    // 8. Busca/Criação Robusta do Contato no RD CRM
+    const crmContactId = await upsertContactInCrm(tenantId, clientName, contactPhone, docDigits, organizationId);
+
+    // 9. Verificar se o Card já existe localmente ou no RD CRM
     let dealId = contact.rdCrmDealId;
+    if (!dealId && crmContactId) {
+      dealId = await findExistingDealInCrm(tenantId, crmContactId);
+    }
+
     let dealLink = contact.rdCrmDealLink;
 
     if (dealId) {
-      console.log(`[RD CRM Auto] 🔄 Contato "${contact.id}" já possui card vinculado (${dealId}). Atualizando dados via PUT /deals/${dealId}...`);
+      console.log(`[RD CRM Auto] 🔄 Atualizando Card existente no RD CRM (ID: ${dealId})...`);
       const updatePayload: Record<string, any> = {
         name: dealTitle,
         deal_custom_fields: dealCustomFields,
-        contacts: [
-          {
-            name: clientName,
-            phones: [{ phone: contactPhone }],
-          },
-        ],
       };
       if (organizationId) updatePayload.organization_id = organizationId;
       if (dealStageId) updatePayload.deal_stage_id = dealStageId;
       if (crmUserId) updatePayload.user_id = crmUserId;
 
-      console.log(`[RD CRM Auto] 📤 Enviando PUT /deals/${dealId}:`, JSON.stringify(updatePayload, null, 2));
-      const putRes = await rdRequest(tenantId, "PUT", `/deals/${dealId}`, updatePayload);
-      console.log(`[RD CRM Auto] ✅ Card atualizado com sucesso no RD CRM:`, JSON.stringify(putRes, null, 2));
+      await rdRequest(tenantId, "PUT", `/deals/${dealId}`, updatePayload);
+      console.log(`[RD CRM Auto] ✅ Card ${dealId} atualizado no RD CRM.`);
     } else {
       console.log(`[RD CRM Auto] ➕ Criando NOVO Card no RD CRM para o cliente "${clientName}" (${companyName})...`);
       const dealPayload: Record<string, any> = {
         name: dealTitle,
         deal_custom_fields: dealCustomFields,
-        contacts: [
-          {
-            name: clientName,
-            phones: [{ phone: contactPhone }],
-          },
-        ],
       };
+
+      if (crmContactId) {
+        dealPayload.contacts = [{ id: crmContactId }];
+      } else {
+        dealPayload.contacts = [{ name: clientName, phones: [{ phone: contactPhone }] }];
+      }
 
       if (organizationId) dealPayload.organization_id = organizationId;
       if (dealStageId) dealPayload.deal_stage_id = dealStageId;
       if (crmUserId) dealPayload.user_id = crmUserId;
 
-      console.log(`[RD CRM Auto] 📤 Enviando POST /deals:`, JSON.stringify(dealPayload, null, 2));
       const newDeal = await rdRequest<any>(tenantId, "POST", "/deals", dealPayload);
-      console.log(`[RD CRM Auto] 📥 Resposta da API POST /deals:`, JSON.stringify(newDeal, null, 2));
-
       dealId = newDeal?.id || newDeal?._id || newDeal?.deal?.id;
 
       if (dealId) {
         dealLink = `https://crm.rdstation.com/app/deals/${dealId}`;
-
-        // Salva os campos de vínculo no banco local do sistema
-        console.log(`[RD CRM Auto] 💾 Persistindo rdCrmDealId (${dealId}) e rdCrmDealLink no contato ${contact.id}...`);
-        await db
-          .update(contacts)
-          .set({
-            rdCrmDealId: dealId,
-            rdCrmDealLink: dealLink,
-          })
-          .where(eq(contacts.id, contact.id));
-
-        console.log(`[RD CRM Auto] 🎉 CARD CRIADO E VINCULADO COM SUCESSO NO RD CRM! Deal ID: ${dealId} | Link: ${dealLink}`);
-
-        // Notificar interface SSE para atualizar o painel lateral do contato instantaneamente
-        try {
-          const { SessionManager } = await import("../baileys/session-manager");
-          SessionManager.getInstance().notifyPublic(tenantId, {
-            type: "contact_updated",
-            contact: {
-              id: contact.id,
-              rdCrmDealId: dealId,
-              rdCrmDealLink: dealLink,
-            },
-          });
-        } catch (sseErr: any) {
-          console.warn("[RD CRM Auto] Erro ao emitir SSE contact_updated:", sseErr?.message);
-        }
+        console.log(`[RD CRM Auto] 🎉 CARD CRIADO COM SUCESSO NO RD CRM! Deal ID: ${dealId}`);
       } else {
         console.error("[RD CRM Auto] ❌ API do RD CRM não retornou o ID do novo deal criado!", newDeal);
+      }
+    }
+
+    if (dealId) {
+      dealLink = `https://crm.rdstation.com/app/deals/${dealId}`;
+
+      // 10. Enviar Nota na Timeline do Card no RD CRM
+      try {
+        console.log(`[RD CRM Auto] 📝 Enviando nota de relatório de triagem para timeline do deal ${dealId}...`);
+        await rdRequest(tenantId, "POST", `/deals/${dealId}/notes`, {
+          description: `[Triagem Valentina SDR]<br><br>${infoComplementarHtml}`,
+        });
+        console.log(`[RD CRM Auto] ✅ Nota adicionada com sucesso na timeline do CRM.`);
+      } catch (noteErr: any) {
+        console.warn(`[RD CRM Auto] Aviso ao adicionar nota na timeline do CRM:`, noteErr?.message);
+      }
+
+      // Persistir no DB local
+      await db
+        .update(contacts)
+        .set({
+          rdCrmDealId: dealId,
+          rdCrmDealLink: dealLink,
+        })
+        .where(eq(contacts.id, contact.id));
+
+      // Emitir evento SSE real-time
+      try {
+        const { SessionManager } = await import("../baileys/session-manager");
+        SessionManager.getInstance().notifyPublic(tenantId, {
+          type: "contact_updated",
+          contact: {
+            id: contact.id,
+            rdCrmDealId: dealId,
+            rdCrmDealLink: dealLink,
+          },
+        });
+      } catch (sseErr: any) {
+        console.warn("[RD CRM Auto] Erro ao emitir SSE contact_updated:", sseErr?.message);
       }
     }
 
