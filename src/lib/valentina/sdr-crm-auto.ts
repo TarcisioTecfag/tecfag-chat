@@ -13,6 +13,11 @@ interface CreateCrmDealFromTriageOptions {
   conversationId: string;
   contactPhone: string;
   collectedData: Record<string, any>;
+  allocatedOperator?: {
+    id?: string;
+    name?: string;
+    email?: string;
+  };
 }
 
 const VALEM_FIELD_IDS = {
@@ -28,6 +33,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
   conversationId,
   contactPhone,
   collectedData,
+  allocatedOperator,
 }: CreateCrmDealFromTriageOptions): Promise<boolean> {
   console.log(`\n================================================================================`);
   console.log(`[RD CRM Auto] 🚀 INICIANDO AUTOMAÇÃO DE CRIAÇÃO/ATUALIZAÇÃO DE CARD NO RD CRM`);
@@ -177,21 +183,27 @@ export async function autoCreateOrUpdateRdCrmDeal({
       feitoPor: resolvedFields.feitoPor ? `${resolvedFields.feitoPor.label || resolvedFields.feitoPor.name} (ID: ${resolvedFields.feitoPor.id || resolvedFields.feitoPor._id})` : "❌ NÃO ENCONTRADO",
     });
 
-    // 4. Buscar Funil "Válvulas" / "Valvulas" no RD CRM (GET /deal_pipelines ou GET /deal_stages)
-    console.log(`[RD CRM Auto] 🏷️ Buscando funil e etapa de vendas "Válvulas" no RD CRM (GET /deal_pipelines)...`);
+    // 4. Buscar Funil "Válvulas" / "Valvulas" no RD CRM (GET /pipelines)
+    console.log(`[RD CRM Auto] 🏷️ Buscando funil e etapa de vendas "Válvulas" no RD CRM (GET /pipelines)...`);
     let dealStageId: string | undefined = undefined;
 
     try {
-      const pipelinesRes = await rdRequest<any>(tenantId, "GET", "/deal_pipelines").catch((err) => {
-        console.warn(`[RD CRM Auto] Aviso ao buscar GET /deal_pipelines:`, err?.message);
+      let pipelinesRes = await rdRequest<any>(tenantId, "GET", "/pipelines").catch((err) => {
+        console.warn(`[RD CRM Auto] Aviso ao buscar GET /pipelines:`, err?.message);
         return null;
       });
 
+      if (!pipelinesRes) {
+        pipelinesRes = await rdRequest<any>(tenantId, "GET", "/deal_pipelines").catch(() => null);
+      }
+
       const pipelines: any[] = Array.isArray(pipelinesRes)
         ? pipelinesRes
-        : (pipelinesRes && Array.isArray(pipelinesRes.deal_pipelines)
-            ? pipelinesRes.deal_pipelines
-            : (pipelinesRes && Array.isArray(pipelinesRes.data) ? pipelinesRes.data : []));
+        : (pipelinesRes && Array.isArray(pipelinesRes.pipelines)
+            ? pipelinesRes.pipelines
+            : (pipelinesRes && Array.isArray(pipelinesRes.deal_pipelines)
+                ? pipelinesRes.deal_pipelines
+                : (pipelinesRes && Array.isArray(pipelinesRes.data) ? pipelinesRes.data : [])));
 
       console.log(`[RD CRM Auto] Lista de Funis encontrados no CRM (${pipelines.length}):`, pipelines.map((p) => ({ id: p.id || p._id, name: p.name })));
 
@@ -209,8 +221,16 @@ export async function autoCreateOrUpdateRdCrmDeal({
         }
       }
 
+      if (!dealStageId && pipelines.length > 0) {
+        const firstPipe = pipelines[0];
+        const stages = firstPipe.deal_stages || firstPipe.stages || [];
+        if (Array.isArray(stages) && stages.length > 0) {
+          dealStageId = stages[0].id || stages[0]._id;
+          console.log(`[RD CRM Auto] ⚠️ Funil Válvulas não encontrado especificamente. Usando primeira etapa do funil "${firstPipe.name}": ID="${dealStageId}"`);
+        }
+      }
+
       if (!dealStageId) {
-        // Tentar via GET /deal_stages diretamente
         console.log(`[RD CRM Auto] Buscando etapas diretamente em GET /deal_stages...`);
         const stagesRes = await rdRequest<any>(tenantId, "GET", "/deal_stages").catch(() => null);
         const allStages: any[] = Array.isArray(stagesRes)
@@ -229,10 +249,13 @@ export async function autoCreateOrUpdateRdCrmDeal({
         if (valvulaStage) {
           dealStageId = valvulaStage.id || valvulaStage._id;
           console.log(`[RD CRM Auto] ✅ Etapa correspondente ao Funil Válvulas localizada: ID="${dealStageId}", Nome="${valvulaStage.name}"`);
+        } else if (allStages.length > 0) {
+          dealStageId = allStages[0].id || allStages[0]._id;
+          console.log(`[RD CRM Auto] ⚠️ Usando primeira etapa disponível de GET /deal_stages: ID="${dealStageId}"`);
         }
       }
     } catch (stageErr: any) {
-      console.warn(`[RD CRM Auto] ⚠️ Não foi possível determinar etapa do funil Válvulas:`, stageErr?.message || stageErr);
+      console.warn(`[RD CRM Auto] ⚠️ Não foi possível determinar etapa do funil:`, stageErr?.message || stageErr);
     }
 
     // 5. Extrair os valores coletados pela Valentina na triagem
@@ -411,6 +434,36 @@ export async function autoCreateOrUpdateRdCrmDeal({
       }
     }
 
+    // 6.5. Tentar identificar vendedor/responsável alocado no RD CRM
+    let crmUserId: string | undefined = undefined;
+    if (allocatedOperator?.name || allocatedOperator?.email) {
+      try {
+        const { getCachedUsers } = await import("../rdCrmService");
+        const users = await getCachedUsers(tenantId);
+        const opName = (allocatedOperator.name || "").toLowerCase().trim();
+        const opEmail = (allocatedOperator.email || "").toLowerCase().trim();
+
+        const matchedUser = users.find((u: any) => {
+          const uName = (u.name || "").toLowerCase().trim();
+          const uEmail = (u.email || "").toLowerCase().trim();
+          if (opEmail && uEmail === opEmail) return true;
+          if (opName && uName) {
+            const firstOp = opName.split(" ")[0];
+            const firstU = uName.split(" ")[0];
+            return uName.includes(opName) || opName.includes(uName) || (firstOp.length > 2 && firstOp === firstU);
+          }
+          return false;
+        });
+
+        if (matchedUser) {
+          crmUserId = matchedUser.id || matchedUser._id;
+          console.log(`[RD CRM Auto] 👤 Vendedor do RD CRM associado: "${matchedUser.name}" (ID: ${crmUserId})`);
+        }
+      } catch (uErr: any) {
+        console.warn("[RD CRM Auto] Aviso ao vincular vendedor no RD CRM:", uErr?.message || uErr);
+      }
+    }
+
     // 7. Se o contato já tem um Card no CRM, apenas atualiza. Se não tem, cria um NOVO Card!
     let dealId = contact.rdCrmDealId;
     let dealLink = contact.rdCrmDealLink;
@@ -420,9 +473,16 @@ export async function autoCreateOrUpdateRdCrmDeal({
       const updatePayload: Record<string, any> = {
         name: dealTitle,
         deal_custom_fields: dealCustomFields,
+        contacts: [
+          {
+            name: clientName,
+            phones: [{ phone: contactPhone }],
+          },
+        ],
       };
       if (organizationId) updatePayload.organization_id = organizationId;
       if (dealStageId) updatePayload.deal_stage_id = dealStageId;
+      if (crmUserId) updatePayload.user_id = crmUserId;
 
       console.log(`[RD CRM Auto] 📤 Enviando PUT /deals/${dealId}:`, JSON.stringify(updatePayload, null, 2));
       const putRes = await rdRequest(tenantId, "PUT", `/deals/${dealId}`, updatePayload);
@@ -432,10 +492,17 @@ export async function autoCreateOrUpdateRdCrmDeal({
       const dealPayload: Record<string, any> = {
         name: dealTitle,
         deal_custom_fields: dealCustomFields,
+        contacts: [
+          {
+            name: clientName,
+            phones: [{ phone: contactPhone }],
+          },
+        ],
       };
 
       if (organizationId) dealPayload.organization_id = organizationId;
       if (dealStageId) dealPayload.deal_stage_id = dealStageId;
+      if (crmUserId) dealPayload.user_id = crmUserId;
 
       console.log(`[RD CRM Auto] 📤 Enviando POST /deals:`, JSON.stringify(dealPayload, null, 2));
       const newDeal = await rdRequest<any>(tenantId, "POST", "/deals", dealPayload);

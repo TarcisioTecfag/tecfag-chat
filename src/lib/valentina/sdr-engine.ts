@@ -558,6 +558,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               conversationId,
               contactPhone,
               collectedData: updatedCollectedData,
+              allocatedOperator: allocatedOp,
             });
             console.log(`[SdrEngine] 🏁 Resultado da automação do RD CRM: ${crmResult ? "SUCESSO ✅" : "FALHA / RECUSADO ⚠️"}`);
           } catch (crmErr: any) {
