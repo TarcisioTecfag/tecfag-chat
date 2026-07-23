@@ -527,13 +527,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
-      // 8.1 Verificação da confirmação / presença do Nome da Empresa
-      if (updatedCollectedData["EMPRESA"]?.value) {
-        updatedCollectedData["EMPRESA_CONFIRMED"] = { value: "true", status: "filled" };
-      }
-
-      const filledCount = Object.values(updatedCollectedData).filter((d) => d.status === "filled").length;
-
+      // 8.1 Verificação da presença dos Dados Vitais
       const nameVal = updatedCollectedData["NOME COMPLETO"]?.value || "";
       const companyVal = updatedCollectedData["EMPRESA"]?.value || "";
       const cnpjVal = updatedCollectedData["CNPJ OU CPF"]?.value || "";
@@ -544,7 +538,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const hasCnpj = Boolean(cnpjVal && cnpjVal.trim() !== "" && !cnpjVal.toLowerCase().includes("aguardando") && !cnpjVal.toLowerCase().includes("invalido"));
       const hasProduct = Boolean(productVal && productVal.trim() !== "" && !productVal.toLowerCase().includes("aguardando"));
 
-      // Verifica se a resposta da Valentina inclui frases de transferência
+      // Todos os dados essenciais para o CRM foram efetivamente fornecidos pelo cliente?
+      const hasVitalInformation = hasName && (hasCompany || hasCnpj) && hasProduct;
+
+      // Verifica se a resposta da Valentina inclui frases explícitas de transferência
       const messagesMentionTransfer = aiResult.messagesToSend.some((m) => {
         const lower = m.toLowerCase();
         return (
@@ -555,8 +552,24 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         );
       });
 
-      const isTriageFullyReady = (hasName && hasCompany && (hasCnpj || hasProduct)) || filledCount >= 4;
-      const isCompleted = Boolean(aiResult.isCompleted || messagesMentionTransfer || (isTriageFullyReady && filledCount >= 3));
+      // Verifica se a Valentina está fazendo uma pergunta/solicitação no lote atual
+      const botIsAskingQuestion = aiResult.messagesToSend.some((m) => {
+        const lower = m.toLowerCase();
+        return m.includes("?") || lower.includes("qual") || lower.includes("como") || lower.includes("onde") || lower.includes("pode me");
+      });
+
+      // A triagem SÓ PODE SER CONCLUÍDA se:
+      // 1) O Gemini marcou isCompleted=true E NÃO está fazendo nenhuma nova pergunta; OU
+      // 2) Temos TODOS os dados vitais coletados (Nome, Empresa/CNPJ, Produto) E (a Valentina gerou mensagem de transferência ou Gemini marcou isCompleted=true);
+      let isCompleted = false;
+      if (aiResult.isCompleted && !botIsAskingQuestion) {
+        isCompleted = true;
+      } else if (hasVitalInformation && (aiResult.isCompleted || messagesMentionTransfer)) {
+        isCompleted = true;
+      } else {
+        isCompleted = false;
+      }
+
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
 
@@ -644,7 +657,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             return updatedMsg;
           });
 
-          if (!replacedAny) {
+          if (!replacedAny && !botIsAskingQuestion) {
             aiResult.messagesToSend.push(
               `Estou te transferindo agora para ${sellerFirstName}, nosso especialista comercial! Já vai dar continuidade ao seu atendimento 😊`
             );
