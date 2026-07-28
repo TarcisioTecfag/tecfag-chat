@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Check,
   LogOut,
+  X,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
@@ -220,7 +221,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
       {/* ─── 1. HEADER DO VENDEDOR & STATUS ─────────────────────────────────── */}
       <motion.div
         variants={itemVariants}
-        className="bg-card border border-border rounded-3xl p-5 shadow-soft flex flex-col gap-3 relative overflow-hidden"
+        className="bg-card border border-border rounded-3xl p-5 shadow-soft flex flex-col gap-3 relative z-20"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -235,11 +236,11 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </div>
           </div>
 
-          {/* Botão Seletor de Status com Dropdown de 3 Opções + Logout */}
+          {/* Botão Seletor de Status com Micro-Animação */}
           <div className="relative">
             <motion.button
               whileTap={{ scale: 0.92 }}
-              onClick={() => setShowStatusMenu((prev) => !prev)}
+              onClick={() => setShowStatusMenu(true)}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition shadow-soft cursor-pointer border ${
                 opStatus === "disponivel"
                   ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
@@ -259,102 +260,114 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
               />
               <span className="capitalize">{opStatus === "disponivel" ? "Disponível" : opStatus === "pausa" ? "Pausa" : "Desconectado"}</span>
             </motion.button>
-
-            {/* Menu Popover das 3 Opções + Logout */}
-            <AnimatePresence>
-              {showStatusMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowStatusMenu(false)}
-                  />
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                    transition={{ type: "spring", damping: 22, stiffness: 350 }}
-                    className="absolute right-0 top-full mt-2 z-50 w-48 rounded-2xl bg-card p-1.5 border border-border shadow-2xl text-xs font-bold origin-top-right flex flex-col gap-1"
-                  >
-                    <div className="px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground border-b border-border/50 mb-0.5">
-                      Status do Atendente
-                    </div>
-
-                    {/* 🟢 1. Disponível */}
-                    <button
-                      onClick={() => {
-                        updateOperatorProfile({ status: "disponivel" });
-                        setShowStatusMenu(false);
-                      }}
-                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition cursor-pointer ${
-                        opStatus === "disponivel"
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                          : "hover:bg-muted text-foreground"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span>Disponível</span>
-                      </div>
-                      {opStatus === "disponivel" && <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                    </button>
-
-                    {/* 🟡 2. Pausa */}
-                    <button
-                      onClick={() => {
-                        updateOperatorProfile({ status: "pausa" });
-                        setShowStatusMenu(false);
-                      }}
-                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition cursor-pointer ${
-                        opStatus === "pausa"
-                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                          : "hover:bg-muted text-foreground"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-amber-500" />
-                        <span>Em Pausa</span>
-                      </div>
-                      {opStatus === "pausa" && <Check className="w-3.5 h-3.5 text-amber-500" />}
-                    </button>
-
-                    {/* 🔴 3. Desconectado */}
-                    <button
-                      onClick={() => {
-                        updateOperatorProfile({ status: "desconectado" });
-                        setShowStatusMenu(false);
-                      }}
-                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition cursor-pointer ${
-                        opStatus === "desconectado"
-                          ? "bg-gray-500/10 text-gray-600 dark:text-gray-400"
-                          : "hover:bg-muted text-foreground"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-gray-400" />
-                        <span>Desconectado</span>
-                      </div>
-                      {opStatus === "desconectado" && <Check className="w-3.5 h-3.5 text-gray-400" />}
-                    </button>
-
-                    <div className="my-0.5 border-t border-border/60" />
-
-                    {/* 🚪 Botão Discreto de Sair (Logout) */}
-                    <button
-                      onClick={() => {
-                        setShowStatusMenu(false);
-                        logout();
-                      }}
-                      className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-destructive hover:bg-destructive/10 transition cursor-pointer"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Sair da Conta</span>
-                    </button>
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
           </div>
         </div>
+
+        {/* Modal de Seleção de Status + Logout (Centralizado e Sem Corte) */}
+        <AnimatePresence>
+          {showStatusMenu && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+              <div
+                className="absolute inset-0"
+                onClick={() => setShowStatusMenu(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 15 }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className="relative w-full max-w-xs bg-card border border-border rounded-3xl p-4 shadow-2xl z-10 flex flex-col gap-2.5 select-none"
+              >
+                <div className="flex items-center justify-between pb-2 border-b border-border text-xs font-bold text-foreground">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                    Alterar Status do Atendente
+                  </span>
+                  <button
+                    onClick={() => setShowStatusMenu(false)}
+                    className="w-7 h-7 rounded-full flex items-center justify-center bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* 🟢 1. Disponível */}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    updateOperatorProfile({ status: "disponivel" });
+                    setShowStatusMenu(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-2xl px-3.5 py-2.5 text-xs font-bold transition cursor-pointer ${
+                    opStatus === "disponivel"
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-2xs"
+                      : "bg-muted/40 hover:bg-muted text-foreground border border-transparent"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Disponível</span>
+                  </div>
+                  {opStatus === "disponivel" && <Check className="w-4 h-4 text-emerald-500" />}
+                </motion.button>
+
+                {/* 🟡 2. Pausa */}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    updateOperatorProfile({ status: "pausa" });
+                    setShowStatusMenu(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-2xl px-3.5 py-2.5 text-xs font-bold transition cursor-pointer ${
+                    opStatus === "pausa"
+                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-2xs"
+                      : "bg-muted/40 hover:bg-muted text-foreground border border-transparent"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                    <span>Em Pausa</span>
+                  </div>
+                  {opStatus === "pausa" && <Check className="w-4 h-4 text-amber-500" />}
+                </motion.button>
+
+                {/* 🔴 3. Desconectado */}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    updateOperatorProfile({ status: "desconectado" });
+                    setShowStatusMenu(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-2xl px-3.5 py-2.5 text-xs font-bold transition cursor-pointer ${
+                    opStatus === "desconectado"
+                      ? "bg-gray-500/10 text-gray-600 dark:text-gray-400 border border-gray-500/30 shadow-2xs"
+                      : "bg-muted/40 hover:bg-muted text-foreground border border-transparent"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-gray-400" />
+                    <span>Desconectado</span>
+                  </div>
+                  {opStatus === "desconectado" && <Check className="w-4 h-4 text-gray-400" />}
+                </motion.button>
+
+                <div className="my-1 border-t border-border/60" />
+
+                {/* 🚪 Botão Discreto de Sair (Logout) */}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    setShowStatusMenu(false);
+                    logout();
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl px-3.5 py-2.5 text-xs font-bold text-destructive bg-destructive/10 hover:bg-destructive/20 transition cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sair da Conta</span>
+                </motion.button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
         <div className="text-xs text-muted-foreground bg-muted/40 p-3 rounded-2xl border border-border/50 flex items-center justify-between">
           <span className="font-medium">
