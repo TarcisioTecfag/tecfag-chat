@@ -133,7 +133,11 @@ Responda de forma direta, altamente profissional, entusiasmada e útil, utilizan
 Mensagem do operador: "${content}"`;
 
 
-              const aiRes = await vertexAi.generateText(systemPrompt, "gemini-2.5-pro");
+              const aiRes = await vertexAi.generateText(systemPrompt, "gemini-2.5-pro", undefined, {
+                tenantId,
+                feature: "supervisor_chat",
+                metadata: { operatorId },
+              });
               if (aiRes) {
                 aiContent = aiRes;
               }

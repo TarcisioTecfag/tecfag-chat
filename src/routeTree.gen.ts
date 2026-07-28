@@ -34,6 +34,7 @@ import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overv
 import { Route as ApiGestaoOperatorHistoryRouteImport } from './routes/api/gestao/operator-history'
 import { Route as ApiGestaoMyMetricsRouteImport } from './routes/api/gestao/my-metrics'
 import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
+import { Route as ApiGestaoCostsRouteImport } from './routes/api/gestao/costs'
 import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
 import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
 import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
@@ -176,6 +177,11 @@ const ApiGestaoHealthRoute = ApiGestaoHealthRouteImport.update({
   path: '/api/gestao/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGestaoCostsRoute = ApiGestaoCostsRouteImport.update({
+  id: '/api/gestao/costs',
+  path: '/api/gestao/costs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGestaoAuditsRoute = ApiGestaoAuditsRouteImport.update({
   id: '/api/gestao/audits',
   path: '/api/gestao/audits',
@@ -278,6 +284,7 @@ export interface FileRoutesByFullPath {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
+  '/api/gestao/costs': typeof ApiGestaoCostsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/my-metrics': typeof ApiGestaoMyMetricsRoute
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
@@ -320,6 +327,7 @@ export interface FileRoutesByTo {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
+  '/api/gestao/costs': typeof ApiGestaoCostsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/my-metrics': typeof ApiGestaoMyMetricsRoute
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
@@ -363,6 +371,7 @@ export interface FileRoutesById {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
+  '/api/gestao/costs': typeof ApiGestaoCostsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/my-metrics': typeof ApiGestaoMyMetricsRoute
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
@@ -407,6 +416,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
+    | '/api/gestao/costs'
     | '/api/gestao/health'
     | '/api/gestao/my-metrics'
     | '/api/gestao/operator-history'
@@ -449,6 +459,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
+    | '/api/gestao/costs'
     | '/api/gestao/health'
     | '/api/gestao/my-metrics'
     | '/api/gestao/operator-history'
@@ -491,6 +502,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
+    | '/api/gestao/costs'
     | '/api/gestao/health'
     | '/api/gestao/my-metrics'
     | '/api/gestao/operator-history'
@@ -531,6 +543,7 @@ export interface RootRouteChildren {
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
   ApiGestaoAlertsRoute: typeof ApiGestaoAlertsRoute
   ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
+  ApiGestaoCostsRoute: typeof ApiGestaoCostsRoute
   ApiGestaoHealthRoute: typeof ApiGestaoHealthRoute
   ApiGestaoMyMetricsRoute: typeof ApiGestaoMyMetricsRoute
   ApiGestaoOperatorHistoryRoute: typeof ApiGestaoOperatorHistoryRoute
@@ -724,6 +737,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGestaoHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/gestao/costs': {
+      id: '/api/gestao/costs'
+      path: '/api/gestao/costs'
+      fullPath: '/api/gestao/costs'
+      preLoaderRoute: typeof ApiGestaoCostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/gestao/audits': {
       id: '/api/gestao/audits'
       path: '/api/gestao/audits'
@@ -903,6 +923,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
   ApiGestaoAlertsRoute: ApiGestaoAlertsRoute,
   ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
+  ApiGestaoCostsRoute: ApiGestaoCostsRoute,
   ApiGestaoHealthRoute: ApiGestaoHealthRoute,
   ApiGestaoMyMetricsRoute: ApiGestaoMyMetricsRoute,
   ApiGestaoOperatorHistoryRoute: ApiGestaoOperatorHistoryRoute,

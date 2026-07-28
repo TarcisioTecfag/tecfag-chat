@@ -390,6 +390,29 @@ export const knowledgeFiles = pgTable("knowledge_files", {
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
 });
 
+// ─── 20. TELEMETRIA E CUSTOS DE I.A. (Vertex AI / Gemini) ─────────────────────
+// Guarda o consumo real de tokens, latência e custo calculado em USD/BRL por requisição.
+export const aiUsageLogs = pgTable("ai_usage_logs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  feature: text("feature").notNull(), // 'sdr_agent' | 'conversation_audit' | 'sla_advisor' | 'supervisor_chat' | 'call_transcription' | 'knowledge_rag'
+  model: text("model").notNull(),     // 'gemini-2.5-pro' | 'gemini-1.5-flash' | etc.
+  
+  promptTokens: integer("prompt_tokens").default(0).notNull(),
+  completionTokens: integer("completion_tokens").default(0).notNull(),
+  totalTokens: integer("total_tokens").default(0).notNull(),
+  
+  costUsd: text("cost_usd").notNull(), // Decimal em USD string (ex: "0.002345")
+  costBrl: text("cost_brl").notNull(), // Decimal em BRL string (ex: "0.013132")
+  latencyMs: integer("latency_ms").default(0).notNull(),
+  
+  status: text("status").default("success").notNull(), // 'success' | 'error'
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata").default({}).notNull(),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -408,6 +431,7 @@ export type OperatorDailyMetrics = typeof operatorDailyMetrics.$inferSelect;
 export type AiReport = typeof aiReports.$inferSelect;
 export type CallSession = typeof callSessions.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
+export type AiUsageLog = typeof aiUsageLogs.$inferSelect;
 
 // ── Tipos da Valentina (Agentes I.A. & Base de Conhecimento) ──
 export type AgentConfig = typeof agentConfigs.$inferSelect;
@@ -416,4 +440,5 @@ export type RoundRobinState = typeof roundRobinState.$inferSelect;
 export type InternalMessage = typeof internalMessages.$inferSelect;
 export type KnowledgeFolder = typeof knowledgeFolders.$inferSelect;
 export type KnowledgeFileRecord = typeof knowledgeFiles.$inferSelect;
+
 

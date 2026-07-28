@@ -305,7 +305,10 @@ export class SlaEngine {
           > Recomendação prioritária do dia...)
         `;
 
-        const aiOutput = await vertexAi.generateText(prompt, "gemini-2.5-pro");
+        const aiOutput = await vertexAi.generateText(prompt, "gemini-2.5-pro", undefined, {
+          tenantId,
+          feature: "sla_advisor",
+        });
         if (aiOutput) {
           markdownReport = aiOutput;
         }

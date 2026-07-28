@@ -7,7 +7,7 @@ import {
   MessageSquare, BarChart2, Bell, Zap, FlaskConical,
   Activity, Search, ClipboardCheck, ChevronLeft, Phone,
   Mail, Calendar, CheckCircle2, Circle, ExternalLink,
-  Loader2, X, Filter
+  Loader2, X, Filter, Coins, DollarSign, Cpu, Layers, Bot, Sparkles, ShieldCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, MOCK_LIVE, LiveOperator, LiveConversation } from "@/lib/monitor-mock-data";
@@ -31,7 +31,7 @@ import {
 const DEMO_MODE = true;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
-type MonitorTab = "overview" | "live" | "alerts" | "operators" | "audits" | "tasks";
+type MonitorTab = "overview" | "live" | "alerts" | "operators" | "audits" | "tasks" | "costs";
 
 type OverviewData = {
   today: string;
@@ -2097,6 +2097,434 @@ function GlobalTasksTab() {
   );
 }
 
+// ── Aba de Custos & Telemetria Vertex AI ─────────────────────────────────────
+function CostsTab({ tenant }: { tenant: string }) {
+  const [period, setPeriod] = useState<"today" | "7d" | "30d">("7d");
+  const [featureFilter, setFeatureFilter] = useState<string>("all");
+  const [modelFilter, setModelFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>(null);
+
+  const fetchCosts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/gestao/costs?tenantId=${tenant}&period=${period}&feature=${featureFilter}&model=${modelFilter}`);
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+    } catch (e) {
+      console.error("[CostsTab] Erro ao buscar custos:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [tenant, period, featureFilter, modelFilter]);
+
+  useEffect(() => {
+    fetchCosts();
+  }, [fetchCosts]);
+
+  if (loading && !data) {
+    return (
+      <div className="flex flex-col items-center justify-center flex-1 py-20 text-muted-foreground gap-3">
+        <Loader2 className="h-7 w-7 animate-spin text-primary" />
+        <p className="text-xs font-semibold">Carregando telemetria e dados financeiros da Vertex AI...</p>
+      </div>
+    );
+  }
+
+  const summary = data?.summary || {
+    totalCalls: 0,
+    totalCostUsd: 0,
+    totalCostBrl: 0,
+    totalTokens: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    avgLatencyMs: 0,
+    avgCostPerCallBrl: 0,
+    successCount: 0,
+    errorCount: 0,
+  };
+
+  const featureBreakdown = data?.featureBreakdown || [];
+  const timeline = data?.timeline || [];
+  const logs = (data?.logs || []).filter((log: any) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      log.feature?.toLowerCase().includes(q) ||
+      log.model?.toLowerCase().includes(q) ||
+      log.status?.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div className="flex flex-col flex-1 overflow-y-auto pr-1 space-y-4 pb-4">
+      {/* Top Header & Filters */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/20 p-3.5 rounded-2xl border border-line">
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold shadow-xs">
+            <Coins className="h-4.5 w-4.5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-extrabold text-foreground flex items-center gap-2">
+              Gestão de Custos & Telemetria Vertex AI
+              {data?.isSimulated ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold border border-amber-500/20">
+                  <Sparkles className="h-3 w-3" />
+                  Demonstrativo Dev
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-500/20">
+                  <ShieldCheck className="h-3 w-3" />
+                  Telemetria Real Vertex AI
+                </span>
+              )}
+            </h2>
+            <p className="text-[11px] text-muted-foreground">
+              Monitoramento financeiro e consumo de tokens do Google Gemini em produção
+            </p>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center bg-card rounded-xl p-1 border border-line shadow-xs">
+            <button
+              onClick={() => setPeriod("today")}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                period === "today" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Hoje
+            </button>
+            <button
+              onClick={() => setPeriod("7d")}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                period === "7d" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              7 Dias
+            </button>
+            <button
+              onClick={() => setPeriod("30d")}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                period === "30d" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              30 Dias
+            </button>
+          </div>
+
+          <select
+            value={featureFilter}
+            onChange={(e) => setFeatureFilter(e.target.value)}
+            className="bg-card text-foreground text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-line outline-none focus:border-primary transition cursor-pointer"
+          >
+            <option value="all">Todas Funcionalidades</option>
+            <option value="sdr_agent">SDR Bot (Triagem)</option>
+            <option value="conversation_audit">Auditoria QA</option>
+            <option value="supervisor_chat">Valentina Chat</option>
+            <option value="sla_advisor">Análise SLA</option>
+          </select>
+
+          <select
+            value={modelFilter}
+            onChange={(e) => setModelFilter(e.target.value)}
+            className="bg-card text-foreground text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-line outline-none focus:border-primary transition cursor-pointer"
+          >
+            <option value="all">Todos os Modelos</option>
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+          </select>
+
+          <button
+            onClick={fetchCosts}
+            className="p-1.5 bg-card border border-line rounded-xl text-muted-foreground hover:text-primary transition cursor-pointer"
+            title="Atualizar custos"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* KPI Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
+          <div className="flex items-center justify-between text-muted-foreground mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider">Custo Total Estimado</span>
+            <div className="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <DollarSign className="h-4 w-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-foreground tracking-tight flex items-baseline gap-1.5">
+              R$ {summary.totalCostBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <span className="text-xs font-semibold text-muted-foreground">
+                (US$ {summary.totalCostUsd.toFixed(2)})
+              </span>
+            </div>
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 flex items-center gap-1">
+              <TrendingUp className="h-3 w-3" />
+              Preços Oficiais Vertex AI Rest API
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
+          <div className="flex items-center justify-between text-muted-foreground mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider">Tokens Processados</span>
+            <div className="p-1.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Cpu className="h-4 w-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-foreground tracking-tight">
+              {(summary.totalTokens / 1_000_000).toFixed(2)} M
+              <span className="text-xs font-normal text-muted-foreground ml-1">tokens</span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-semibold mt-1">
+              <span className="text-blue-600 dark:text-blue-400">Prompt: {(summary.promptTokens / 1_000_000).toFixed(2)}M</span>
+              <span>•</span>
+              <span className="text-indigo-600 dark:text-indigo-400">Resp: {(summary.completionTokens / 1000).toFixed(0)}k</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
+          <div className="flex items-center justify-between text-muted-foreground mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider">Requisições à IA</span>
+            <div className="p-1.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
+              <Bot className="h-4 w-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-foreground tracking-tight">
+              {summary.totalCalls}
+              <span className="text-xs font-normal text-muted-foreground ml-1">chamadas</span>
+            </div>
+            <p className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold mt-1 flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" />
+              Sucesso: {summary.totalCalls > 0 ? ((summary.successCount / summary.totalCalls) * 100).toFixed(1) : 100}%
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
+          <div className="flex items-center justify-between text-muted-foreground mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider">Custo Médio / Interação</span>
+            <div className="p-1.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <BarChart2 className="h-4 w-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-foreground tracking-tight">
+              R$ {summary.avgCostPerCallBrl.toFixed(3)}
+            </div>
+            <p className="text-[11px] text-muted-foreground font-semibold mt-1 flex items-center gap-1">
+              <Clock className="h-3 w-3 text-amber-500" />
+              Latência média: {summary.avgLatencyMs} ms
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Chart & Feature Breakdown Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
+                <TrendingUp className="h-3.5 w-3.5 text-primary" />
+                Evolução Diária de Custos (R$) & Volume de Tokens
+              </h3>
+              <p className="text-[10px] text-muted-foreground">Gastos e consumo acumulado por dia de operação</p>
+            </div>
+          </div>
+
+          <div className="h-60 w-full">
+            {timeline.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={timeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="dateFormatted" tick={{ fontSize: 10 }} stroke="#888888" />
+                  <YAxis yAxisId="left" tick={{ fontSize: 10 }} stroke="#888888" tickFormatter={(v) => `R$${v}`} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} stroke="#888888" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                  <RechartsTooltip
+                    contentStyle={{ backgroundColor: "rgba(15, 23, 42, 0.9)", borderColor: "#334155", borderRadius: "12px", color: "#fff", fontSize: "11px" }}
+                    formatter={(value: any, name: any) => {
+                      if (name === "Custo (R$)") return [`R$ ${Number(value).toFixed(2)}`, name];
+                      if (name === "Tokens") return [`${Number(value).toLocaleString()} tokens`, name];
+                      return [value, name];
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "5px" }} />
+                  <Bar yAxisId="left" dataKey="costBrl" name="Custo (R$)" fill="#10b981" radius={[6, 6, 0, 0]} barSize={22} />
+                  <Line yAxisId="right" type="monotone" dataKey="tokens" name="Tokens" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+                Sem histórico para os filtros selecionados
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between">
+          <div>
+            <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5 mb-1">
+              <Layers className="h-3.5 w-3.5 text-primary" />
+              Custo por Funcionalidade
+            </h3>
+            <p className="text-[10px] text-muted-foreground mb-3.5">Proporção de uso e gastos da I.A.</p>
+
+            <div className="space-y-3">
+              {featureBreakdown.map((item: any) => (
+                <div key={item.feature} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="text-foreground text-[11px] truncate flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-primary" />
+                      {item.featureName}
+                    </span>
+                    <span className="text-muted-foreground font-mono text-[11px]">
+                      R$ {item.costBrl.toFixed(2)} ({item.percentage}%)
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-500"
+                      style={{ width: `${Math.max(item.percentage, 4)}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                    <span>{item.calls} chamadas</span>
+                    <span>{(item.tokens / 1000).toFixed(0)}k tokens</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-3 p-2.5 rounded-xl bg-primary/5 border border-primary/10 text-[10px] text-muted-foreground flex items-start gap-2">
+            <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <div>
+              <span className="font-extrabold text-foreground block">Otimização Recorrente:</span>
+              Garante transparência nos custos por triagem, auditoria de qualidade e supervisão.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Real-time Telemetry Table */}
+      <div className="bg-card rounded-2xl border border-line shadow-soft overflow-hidden flex flex-col">
+        <div className="p-3.5 border-b border-line flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
+              <Activity className="h-3.5 w-3.5 text-primary" />
+              Logs de Telemetria Vertex AI em Tempo Real
+            </h3>
+            <p className="text-[10px] text-muted-foreground">Registro detalhado de cada consumo de tokens e latência</p>
+          </div>
+
+          <div className="relative">
+            <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Filtrar logs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 pr-3 py-1 bg-muted/40 border border-line rounded-xl text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary w-56 transition"
+            />
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-muted/30 border-b border-line text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+              <tr>
+                <th className="py-2 px-3.5">Horário</th>
+                <th className="py-2 px-3.5">Funcionalidade</th>
+                <th className="py-2 px-3.5">Modelo Vertex</th>
+                <th className="py-2 px-3.5">Tokens (In/Out)</th>
+                <th className="py-2 px-3.5">Latência</th>
+                <th className="py-2 px-3.5">Custo USD</th>
+                <th className="py-2 px-3.5">Custo BRL</th>
+                <th className="py-2 px-3.5 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/50">
+              {logs.length > 0 ? (
+                logs.map((log: any) => {
+                  const dateFormatted = log.createdAt
+                    ? new Date(log.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                    : "--";
+                  const dateDay = log.createdAt
+                    ? new Date(log.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+                    : "";
+
+                  return (
+                    <tr key={log.id} className="hover:bg-muted/20 transition">
+                      <td className="py-2 px-3.5 font-mono text-[11px] text-foreground">
+                        <span className="font-bold">{dateFormatted}</span>
+                        <span className="text-[9px] text-muted-foreground ml-1.5">{dateDay}</span>
+                      </td>
+                      <td className="py-2 px-3.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                          log.feature === "sdr_agent" ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20" :
+                          log.feature === "conversation_audit" ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" :
+                          log.feature === "supervisor_chat" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" :
+                          "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                        }`}>
+                          {log.feature === "sdr_agent" ? "SDR Bot" : log.feature === "conversation_audit" ? "Auditoria QA" : log.feature === "supervisor_chat" ? "Valentina Chat" : "SLA Engine"}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3.5 font-semibold text-[11px] text-foreground">
+                        {log.model}
+                      </td>
+                      <td className="py-2 px-3.5 font-mono text-[11px] text-muted-foreground">
+                        <span className="text-foreground font-bold">{log.totalTokens}</span>
+                        <span className="text-[10px] ml-1">({log.promptTokens}/{log.completionTokens})</span>
+                      </td>
+                      <td className="py-2 px-3.5 font-mono text-[11px] text-muted-foreground">
+                        {log.latencyMs} ms
+                      </td>
+                      <td className="py-2 px-3.5 font-mono text-[11px] font-semibold text-foreground">
+                        $ {parseFloat(log.costUsd || "0").toFixed(5)}
+                      </td>
+                      <td className="py-2 px-3.5 font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                        R$ {parseFloat(log.costBrl || "0").toFixed(4)}
+                      </td>
+                      <td className="py-2 px-3.5 text-center">
+                        {log.status === "success" ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-extrabold">
+                            <CheckCircle2 className="h-3 w-3" /> OK
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 text-[10px] font-extrabold">
+                            <XCircle className="h-3 w-3" /> ERRO
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={8} className="py-6 text-center text-xs text-muted-foreground">
+                    Nenhum registro de telemetria encontrado
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function MonitorView() {
   const { tenant } = useChat();
@@ -2153,6 +2581,7 @@ export function MonitorView() {
     { id: "operators", label: "Operadores", icon: Users },
     { id: "audits", label: "Auditorias IA", icon: Zap },
     { id: "tasks", label: "Tarefas Globais", icon: ClipboardCheck },
+    { id: "costs", label: "Custos", icon: Coins },
   ];
 
   const today = new Date().toLocaleDateString("pt-BR", {
@@ -2269,6 +2698,9 @@ export function MonitorView() {
             )}
             {activeTab === "tasks" && (
               <GlobalTasksTab />
+            )}
+            {activeTab === "costs" && (
+              <CostsTab tenant={tenant} />
             )}
 
 

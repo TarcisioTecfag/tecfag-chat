@@ -429,7 +429,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         aiResult = await vertexAi.generateStructuredJson<SdrAiResult>(
           multimodalParts,
           "gemini-2.5-pro",
-          signal
+          signal,
+          {
+            tenantId,
+            feature: "sdr_agent",
+            metadata: { conversationId },
+          }
         );
       }
 

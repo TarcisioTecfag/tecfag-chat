@@ -260,7 +260,9 @@ export class AuditService {
   private async callGemini(prompt: string, attempt = 1): Promise<AuditResult | null> {
     try {
       const { vertexAi } = await import("./vertex-ai");
-      const parsed = await vertexAi.generateStructuredJson<AuditResult>(prompt, "gemini-2.5-pro");
+      const parsed = await vertexAi.generateStructuredJson<AuditResult>(prompt, "gemini-2.5-pro", undefined, {
+        feature: "conversation_audit",
+      });
       if (!parsed) {
         if (attempt < 3) {
           await new Promise((r) => setTimeout(r, 3000));

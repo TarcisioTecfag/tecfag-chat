@@ -103,7 +103,7 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 12 },
-  visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 350, damping: 25 } },
+  visible: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 350, damping: 25 } },
 };
 
 export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({

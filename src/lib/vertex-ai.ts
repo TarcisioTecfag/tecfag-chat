@@ -1,6 +1,11 @@
 import { GoogleAuth } from "google-auth-library";
 import fs from "fs";
 import path from "path";
+import { db } from "../db";
+import { aiUsageLogs } from "../db/schema";
+import crypto from "crypto";
+
+const uuidv4 = () => crypto.randomUUID();
 
 export interface VertexConfig {
   projectId?: string;
@@ -13,6 +18,67 @@ export interface VertexConfig {
 export type MultimodalPart =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } };
+
+export interface VertexCallContext {
+  tenantId?: string;
+  feature?: string;
+  metadata?: Record<string, any>;
+}
+
+export function calculateVertexCost(model: string, promptTokens: number, completionTokens: number): { usd: number; brl: number } {
+  const isFlash = model.toLowerCase().includes("flash");
+  
+  // Preços oficiais por 1,000,000 tokens (USD)
+  const promptRatePer1M = isFlash ? 0.075 : 1.25;
+  const completionRatePer1M = isFlash ? 0.30 : 5.00;
+
+  const usdPrompt = (promptTokens / 1_000_000) * promptRatePer1M;
+  const usdCompletion = (completionTokens / 1_000_000) * completionRatePer1M;
+  const totalUsd = usdPrompt + usdCompletion;
+  const usdToBrl = 5.60;
+
+  return {
+    usd: Number(totalUsd.toFixed(6)),
+    brl: Number((totalUsd * usdToBrl).toFixed(6)),
+  };
+}
+
+/**
+ * Executa gravação assíncrona de telemetria no banco sem bloquear a requisição principal
+ */
+async function logAiUsage(data: {
+  tenantId: string;
+  feature: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  latencyMs: number;
+  status: "success" | "error";
+  errorMessage?: string;
+  metadata?: Record<string, any>;
+}) {
+  try {
+    const cost = calculateVertexCost(data.model, data.promptTokens, data.completionTokens);
+    await db.insert(aiUsageLogs).values({
+      id: uuidv4(),
+      tenantId: data.tenantId || "valem",
+      feature: data.feature || "general",
+      model: data.model,
+      promptTokens: data.promptTokens,
+      completionTokens: data.completionTokens,
+      totalTokens: data.totalTokens,
+      costUsd: cost.usd.toString(),
+      costBrl: cost.brl.toString(),
+      latencyMs: data.latencyMs,
+      status: data.status,
+      errorMessage: data.errorMessage,
+      metadata: data.metadata || {},
+    });
+  } catch (e: any) {
+    console.error("[VertexAI Log] Erro ao gravar log de uso no banco:", e?.message || e);
+  }
+}
 
 class VertexAiService {
   private static instance: VertexAiService;
@@ -125,22 +191,38 @@ class VertexAiService {
 
   /**
    * Executa uma geração multimodal (texto, imagens, áudio) via REST API no Vertex AI (Gemini 2.5 Pro)
-   * Suporta cancelamento por AbortSignal (Stop & Restart)
+   * Suporta cancelamento por AbortSignal (Stop & Restart) e telemetria de uso
    */
   public async generateText(
     promptInput: string | MultimodalPart[],
     modelName?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    context?: VertexCallContext
   ): Promise<string | null> {
+    const startTime = Date.now();
     const accessToken = await this.getAccessToken();
+    const model = modelName || this.defaultModelName;
+    const tenantId = context?.tenantId || "valem";
+    const feature = context?.feature || "general";
+
     if (!accessToken) {
       console.warn("[VertexAI] Não foi possível obter token de acesso. Verifique credenciais.");
+      logAiUsage({
+        tenantId,
+        feature,
+        model,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        latencyMs: Date.now() - startTime,
+        status: "error",
+        errorMessage: "Credenciais do Vertex AI não configuradas.",
+        metadata: context?.metadata,
+      });
       return null;
     }
 
-    const model = modelName || this.defaultModelName;
     const url = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${this.location}/publishers/google/models/${model}:generateContent`;
-
     const parts: MultimodalPart[] = typeof promptInput === "string" ? [{ text: promptInput }] : promptInput;
 
     try {
@@ -164,34 +246,81 @@ class VertexAiService {
         signal,
       });
 
+      const latencyMs = Date.now() - startTime;
+
       if (!response.ok) {
         const errText = await response.text();
         console.error(`[VertexAI] Erro HTTP ${response.status} na API Vertex AI:`, errText);
+        logAiUsage({
+          tenantId,
+          feature,
+          model,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          latencyMs,
+          status: "error",
+          errorMessage: `Erro HTTP ${response.status}: ${errText.slice(0, 200)}`,
+          metadata: context?.metadata,
+        });
         return null;
       }
 
       const data: any = await response.json();
       const responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      // Extrair uso de tokens real da resposta do Vertex AI
+      const usage = data?.usageMetadata || {};
+      const promptTokens = usage?.promptTokenCount || 0;
+      const completionTokens = usage?.candidatesTokenCount || 0;
+      const totalTokens = usage?.totalTokenCount || (promptTokens + completionTokens);
+
+      logAiUsage({
+        tenantId,
+        feature,
+        model,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        latencyMs,
+        status: "success",
+        metadata: context?.metadata,
+      });
+
       return responseText || null;
 
     } catch (e: any) {
+      const latencyMs = Date.now() - startTime;
       if (e.name === "AbortError" || signal?.aborted) {
         console.log("[VertexAI] Chamada cancelada via AbortSignal (Stop & Restart).");
         return null;
       }
       console.error("[VertexAI] Erro na chamada REST Vertex AI:", e?.message || e);
+      logAiUsage({
+        tenantId,
+        feature,
+        model,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        latencyMs,
+        status: "error",
+        errorMessage: e?.message || String(e),
+        metadata: context?.metadata,
+      });
       return null;
     }
   }
 
   /**
    * Gera uma resposta estruturada em JSON parseada garantida.
-   * Suporta partes multimodais e AbortSignal.
+   * Suporta partes multimodais, AbortSignal e contexto de telemetria.
    */
   public async generateStructuredJson<T>(
     promptInput: string | MultimodalPart[],
     modelName?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    context?: VertexCallContext
   ): Promise<T | null> {
     let parts: MultimodalPart[];
     const jsonInstruction = `\n\nREGRAS CRÍTICAS DE RETORNO: Retorne EXCLUSIVAMENTE um objeto JSON válido. Não inclua blocos de markdown (\`\`\`json), nem texto explicativo antes ou depois.`;
@@ -202,7 +331,7 @@ class VertexAiService {
       parts = [...promptInput, { text: jsonInstruction }];
     }
 
-    const rawText = await this.generateText(parts, modelName, signal);
+    const rawText = await this.generateText(parts, modelName, signal, context);
     if (!rawText) return null;
 
     try {
