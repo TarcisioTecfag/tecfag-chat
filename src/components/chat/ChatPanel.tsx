@@ -1949,7 +1949,7 @@ export function ChatPanel() {
       {activeChat.queue !== "finalizados" ? (
         <div
           ref={composerRef}
-          className="px-5 pb-5"
+          className="hidden md:block px-5 pb-5"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
