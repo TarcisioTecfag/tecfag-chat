@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager, resolveRealJid } from "../../../lib/baileys/session-manager";
 import { db } from "../../../db";
 import { contacts } from "../../../db/schema";
-import { eq, isNull, and } from "drizzle-orm";
+import { eq, isNull, and, or, like } from "drizzle-orm";
+import { urlToBase64 } from "../../../lib/utils";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,8 +13,8 @@ const corsHeaders = {
 
 /**
  * POST /api/baileys/sync-avatars
- * Varre todos os contatos do tenant que não têm foto salva
- * e tenta buscar via profilePictureUrl no Baileys.
+ * Varre todos os contatos do tenant que não têm foto salva em base64
+ * e tenta buscar via profilePictureUrl no Baileys, convertendo para Base64 no banco.
  * Útil para re-sincronizar fotos de contatos antigos.
  */
 export const Route = createFileRoute("/api/baileys/sync-avatars")({
@@ -37,14 +38,17 @@ export const Route = createFileRoute("/api/baileys/sync-avatars")({
             );
           }
 
-          // Busca todos os contatos do tenant sem foto e com JID salvo
+          // Busca todos os contatos do tenant sem foto ou com foto externa (http...)
           const contactsWithoutAvatar = await db
             .select()
             .from(contacts)
             .where(
               and(
                 eq(contacts.tenantId, tenantId),
-                isNull(contacts.avatar)
+                or(
+                  isNull(contacts.avatar),
+                  like(contacts.avatar, "http%")
+                )
               )
             );
 
@@ -97,9 +101,13 @@ export const Route = createFileRoute("/api/baileys/sync-avatars")({
               }
 
               if (picUrl) {
+                // Converte a URL da Meta em Base64 para persistência total no banco de dados
+                const base64Avatar = await urlToBase64(picUrl);
+                const avatarToSave = base64Avatar || picUrl;
+
                 await db
                   .update(contacts)
-                  .set({ avatar: picUrl })
+                  .set({ avatar: avatarToSave })
                   .where(eq(contacts.id, contact.id));
 
                 // Notifica o front via SSE
@@ -107,13 +115,14 @@ export const Route = createFileRoute("/api/baileys/sync-avatars")({
                   type: "contact_avatar",
                   contactId: contact.id,
                   phone: contact.phone ?? "",
-                  avatar: picUrl,
+                  avatar: avatarToSave,
                 });
 
                 updated++;
               } else {
                 failed++;
               }
+
 
               // Pequena pausa entre requisições para não disparar rate-limit do WhatsApp
               await new Promise((r) => setTimeout(r, 200));

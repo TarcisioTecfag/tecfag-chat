@@ -1,193 +1,521 @@
-import React from "react";
-import { ArrowRight, Clock } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import {
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
+  Flame,
+  Star,
+  ArrowRight,
+  ChevronRight,
+  MessageSquare,
+  Calendar,
+  RefreshCw,
+  User,
+  Shield,
+  Zap,
+  TrendingUp,
+  Check,
+} from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
+import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
+import { formatPhoneNumber } from "@/lib/utils";
+
+const BACKEND_URL =
+  typeof window !== "undefined" && window.location.hostname === "localhost"
+    ? "http://localhost:3000"
+    : "";
 
 interface ValentinaFeedProps {
   onOpenChat?: (chatId: string) => void;
   onSendPrompt?: (promptText: string) => void;
 }
 
+interface MyMetrics {
+  activeChats: number;
+  overdueAlerts: number;
+  completedToday: number;
+  avgResponseTimeFormatted: string;
+  performanceScore: number;
+}
+
+interface SlaAlert {
+  logId: string;
+  conversationId: string;
+  contactName: string;
+  contactPhone: string;
+  contactAvatar?: string;
+  operatorId?: string;
+  waitingMinutes: number;
+  waitingSeconds: number;
+  isOverdue: boolean;
+  isCritical: boolean;
+  lastMessagePreview: string;
+}
+
+interface TaskItem {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  dueDate: string | null;
+  client?: { name: string; phone: string };
+  deal?: { id: string; name: string };
+}
+
+// Subcomponente de Avatar com Fallback
+function FeedAvatar({ avatar, name }: { avatar?: string | null; name: string }) {
+  const [err, setErr] = useState(false);
+  const initials = name ? name.slice(0, 2).toUpperCase() : "U";
+
+  if (avatar && !err) {
+    return (
+      <img
+        src={avatar}
+        alt=""
+        className="w-10 h-10 rounded-full object-cover border border-border shrink-0"
+        onError={() => setErr(true)}
+      />
+    );
+  }
+
+  return (
+    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary font-bold text-xs grid place-items-center shrink-0 border border-primary/20">
+      {initials}
+    </div>
+  );
+}
+
 export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
   onOpenChat,
-  onSendPrompt,
 }) => {
-  const { setSelectedChatId, setActiveView, conversations } = useChat();
+  const {
+    tenant,
+    currentOperatorId,
+    operators,
+    operatorProfile,
+    updateOperatorProfile,
+    conversations,
+    setSelectedChatId,
+    setActiveView,
+  } = useChat();
 
-  const handleOpenConversa = (customerName: string) => {
-    const targetChat = conversations.find(
-      (c) => c.name.toLowerCase().includes(customerName.toLowerCase())
-    );
-    if (targetChat) {
-      setSelectedChatId(targetChat.id);
-    }
-    setActiveView("chat");
-    if (onOpenChat && targetChat) {
-      onOpenChat(targetChat.id);
+  const currentOp = operators.find((o) => o.id === currentOperatorId) || operators[0];
+  const opName = operatorProfile?.name || currentOp?.name || "Operador";
+  const opEmail = operatorProfile?.email || currentOp?.email || "";
+  const opStatus = operatorProfile?.status || currentOp?.status || "disponivel";
+
+  const [metrics, setMetrics] = useState<MyMetrics>({
+    activeChats: 0,
+    overdueAlerts: 0,
+    completedToday: 0,
+    avgResponseTimeFormatted: "0m",
+    performanceScore: 95,
+  });
+
+  const [slaAlerts, setSlaAlerts] = useState<SlaAlert[]>([]);
+  const [myTasks, setMyTasks] = useState<TaskItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Saudação com base na hora do dia
+  const currentHour = new Date().getHours();
+  const greetingTime =
+    currentHour < 12 ? "Bom dia" : currentHour < 18 ? "Boa tarde" : "Boa noite";
+
+  // Carrega dados reais do backend
+  const loadDashboardData = async () => {
+    setLoading(true);
+    try {
+      // 1. Métricas do Operador
+      if (currentOperatorId) {
+        const mRes = await fetch(
+          `${BACKEND_URL}/api/gestao/my-metrics?tenantId=${tenant}&operatorId=${currentOperatorId}`
+        ).catch(() => null);
+        if (mRes && mRes.ok) {
+          const mData = await mRes.json();
+          setMetrics(mData);
+        }
+      }
+
+      // 2. Alertas SLA reais
+      const aRes = await fetch(
+        `${BACKEND_URL}/api/gestao/alerts?tenantId=${tenant}`
+      ).catch(() => null);
+      if (aRes && aRes.ok) {
+        const aData: SlaAlert[] = await aRes.json();
+        // Filtra alertas pertencentes a este operador (ou na fila se for relevante)
+        const myAlerts = aData.filter(
+          (a) => !a.operatorId || a.operatorId === currentOperatorId
+        );
+        setSlaAlerts(myAlerts);
+      }
+
+      // 3. Minhas Tarefas reais do CRM (filtradas pelo email do operador)
+      if (opEmail) {
+        const tRes = await fetch(
+          `${BACKEND_URL}/api/tasks?tenantId=${tenant}&email=${encodeURIComponent(opEmail)}`
+        ).catch(() => null);
+        if (tRes && tRes.ok) {
+          const tData = await tRes.json();
+          setMyTasks(tData.tasks || []);
+        }
+      }
+    } catch (err) {
+      console.error("[ValentinaFeed] Erro ao carregar dados:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
+  useEffect(() => {
+    loadDashboardData();
+  }, [tenant, currentOperatorId, opEmail]);
+
+  // Conversas recentes do operador logado
+  const myRecentChats = conversations
+    .filter(
+      (c) =>
+        c.operatorId === currentOperatorId ||
+        c.walletOperatorId === currentOperatorId
+    )
+    .slice(0, 3);
+
+  const handleOpenConversaById = (chatId: string) => {
+    setSelectedChatId(chatId);
+    setActiveView("chat");
+    if (onOpenChat) onOpenChat(chatId);
+  };
+
+  const toggleStatus = () => {
+    const nextStatus =
+      opStatus === "disponivel"
+        ? "pausa"
+        : opStatus === "pausa"
+        ? "desconectado"
+        : "disponivel";
+    updateOperatorProfile({ status: nextStatus });
+  };
+
   return (
-    <div className="flex flex-col gap-4 p-4 pb-28">
-      {/* 1. Boas-vindas da Valentina */}
-      <div className="bg-card border border-border rounded-3xl p-5 shadow-soft transition-all">
-        <p className="text-foreground text-sm font-medium leading-relaxed">
-          Olá! Bom dia Tarcisio Pereira, como posso te ajudar hoje?
-        </p>
-      </div>
-
-      {/* 2. Chips / Perguntas Sugeridas */}
-      <div className="flex items-start gap-3">
-        <div className="relative w-8 h-8 shrink-0 mt-1">
-          <img
-            src="/valentina.png"
-            alt="Valentina"
-            className="w-8 h-8 rounded-full object-cover border border-primary/30"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src =
-                "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80";
-            }}
-          />
-        </div>
-
-        <div className="flex flex-col gap-2.5 flex-1">
-          <button
-            onClick={() => onSendPrompt?.("Quantos leads tenho sem resposta?")}
-            className="flex items-center justify-between px-4 py-3 bg-card hover:bg-primary-soft/50 border border-primary/20 rounded-full text-xs font-bold text-primary shadow-2xs transition-all active:scale-[0.98] text-left cursor-pointer"
-          >
-            <span>Quantos leads tenho sem resposta?</span>
-            <ArrowRight className="w-4 h-4 text-primary shrink-0 ml-2" />
-          </button>
-
-          <button
-            onClick={() => onSendPrompt?.("Quais são meus leads quentes?")}
-            className="flex items-center justify-between px-4 py-3 bg-card hover:bg-primary-soft/50 border border-primary/20 rounded-full text-xs font-bold text-primary shadow-2xs transition-all active:scale-[0.98] text-left cursor-pointer"
-          >
-            <span>Quais são meus leads quentes?</span>
-            <ArrowRight className="w-4 h-4 text-primary shrink-0 ml-2" />
-          </button>
-
-          <button
-            onClick={() =>
-              onSendPrompt?.(
-                "Como está a pontuação atual dos meus atendimentos?"
-              )
-            }
-            className="flex items-center justify-between px-4 py-3 bg-card hover:bg-primary-soft/50 border border-primary/20 rounded-full text-xs font-bold text-primary shadow-2xs transition-all active:scale-[0.98] text-left cursor-pointer"
-          >
-            <span>Como está a pontuação atual dos meus atendimentos?</span>
-            <ArrowRight className="w-4 h-4 text-primary shrink-0 ml-2" />
-          </button>
-        </div>
-      </div>
-
-      {/* 3. CARD DE ALERTA DE ATRASO */}
-      <div className="flex items-start gap-3">
-        <div className="relative w-8 h-8 shrink-0 mt-2">
-          <img
-            src="/valentina.png"
-            alt="Valentina"
-            className="w-8 h-8 rounded-full object-cover border border-primary/30"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src =
-                "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80";
-            }}
-          />
-        </div>
-
-        <div className="flex-1 bg-primary-soft/30 border border-primary/20 rounded-3xl p-4 shadow-soft">
-          {/* Header do Card */}
-          <div className="flex items-center gap-1.5 mb-2 text-primary font-extrabold text-[11px] tracking-wide uppercase">
-            <Clock className="w-3.5 h-3.5 text-primary stroke-[2.5]" />
-            <span>AVISO DE VALENTINA</span>
-          </div>
-
-          <p className="text-muted-foreground text-xs font-medium leading-relaxed mb-3">
-            Alerta de Atraso! O cliente{" "}
-            <strong className="text-foreground font-bold">Tarcisio Júnior</strong>{" "}
-            está aguardando retorno há mais de 20 minutos.
-          </p>
-
-          {/* Card interno do Cliente */}
-          <div className="bg-card rounded-2xl p-3.5 border border-border shadow-2xs space-y-3">
-            <div className="text-xs">
-              <span className="text-muted-foreground font-semibold">Cliente: </span>
-              <span className="text-primary font-bold">
-                Tarcisio Júnior
+    <div className="flex flex-col gap-5 p-4 pb-24 max-w-lg mx-auto select-none">
+      
+      {/* ─── 1. HEADER DO VENDEDOR & STATUS ─────────────────────────────────── */}
+      <div className="bg-card border border-border rounded-3xl p-5 shadow-soft flex flex-col gap-3 relative overflow-hidden">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <FeedAvatar avatar={operatorProfile?.avatar || currentOp?.avatar} name={opName} />
+            <div>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                {greetingTime}, 👋
               </span>
+              <h2 className="text-base font-bold text-foreground leading-tight">
+                {opName}
+              </h2>
             </div>
+          </div>
 
-            <div className="bg-muted/60 rounded-xl p-3 border border-border text-xs italic text-muted-foreground font-medium">
-              “Bom dia! Como está a liberação da carga de embaladoras da Valem?”
-            </div>
+          {/* Botão Seletor de Status */}
+          <button
+            onClick={toggleStatus}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition shadow-soft cursor-pointer border ${
+              opStatus === "disponivel"
+                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                : opStatus === "pausa"
+                ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                : "bg-muted text-muted-foreground border-border"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                opStatus === "disponivel"
+                  ? "bg-emerald-500"
+                  : opStatus === "pausa"
+                  ? "bg-amber-500"
+                  : "bg-gray-400"
+              }`}
+            />
+            <span className="capitalize">{opStatus}</span>
+          </button>
+        </div>
 
-            <button
-              onClick={() => handleOpenConversa("Tarcisio Júnior")}
-              className="w-full py-2.5 px-4 rounded-full bg-primary hover:opacity-90 text-primary-foreground font-bold text-xs flex items-center justify-center gap-2 shadow-soft transition-all active:scale-[0.98] cursor-pointer"
-            >
-              <span>Abrir Conversa</span>
-              <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
-            </button>
+        <div className="text-xs text-muted-foreground bg-muted/40 p-3 rounded-2xl border border-border/50 flex items-center justify-between">
+          <span className="font-medium">
+            {metrics.overdueAlerts > 0
+              ? `🚨 ${metrics.overdueAlerts} atendimento${metrics.overdueAlerts > 1 ? "s" : ""} requer${metrics.overdueAlerts > 1 ? "em" : ""} atenção!`
+              : "✨ Todos os seus atendimentos estão em dia."}
+          </span>
+          <button
+            onClick={loadDashboardData}
+            className="p-1 rounded-lg hover:bg-muted text-muted-foreground transition cursor-pointer"
+            title="Atualizar painel"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* ─── 2. CARROSSEL / GRID DE KPIS INDIVIDUAIS ───────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* KPI 1: SLA Médio Hoje */}
+        <div className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between">
+          <div className="flex items-center justify-between text-muted-foreground mb-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider">Tempo Resposta</span>
+            <Clock className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <span className="text-xl font-black text-foreground block">
+              {metrics.avgResponseTimeFormatted || "0m"}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-medium">Média de hoje</span>
+          </div>
+        </div>
+
+        {/* KPI 2: Alertas SLA Atrasados */}
+        <div className={`border rounded-2xl p-4 shadow-soft flex flex-col justify-between ${
+          metrics.overdueAlerts > 0 ? "bg-red-500/5 border-red-500/20" : "bg-card border-border"
+        }`}>
+          <div className="flex items-center justify-between text-muted-foreground mb-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider">Atrasos SLA</span>
+            <AlertTriangle className={`h-4 w-4 ${metrics.overdueAlerts > 0 ? "text-red-500 animate-pulse" : "text-emerald-500"}`} />
+          </div>
+          <div>
+            <span className={`text-xl font-black block ${metrics.overdueAlerts > 0 ? "text-red-600" : "text-foreground"}`}>
+              {metrics.overdueAlerts}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-medium">Aguardando você</span>
+          </div>
+        </div>
+
+        {/* KPI 3: Atendimentos Concluídos Hoje */}
+        <div className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between">
+          <div className="flex items-center justify-between text-muted-foreground mb-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider">Concluídos</span>
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          </div>
+          <div>
+            <span className="text-xl font-black text-foreground block">
+              {metrics.completedToday}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-medium">Encerrados hoje</span>
+          </div>
+        </div>
+
+        {/* KPI 4: Score de Qualidade IA */}
+        <div className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between">
+          <div className="flex items-center justify-between text-muted-foreground mb-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider">Score I.A.</span>
+            <Star className="h-4 w-4 text-amber-500 fill-amber-500/20" />
+          </div>
+          <div>
+            <span className="text-xl font-black text-foreground block">
+              {metrics.performanceScore}<span className="text-xs font-normal text-muted-foreground">/100</span>
+            </span>
+            <span className="text-[10px] text-muted-foreground font-medium">Avaliação Valentina</span>
           </div>
         </div>
       </div>
 
-      {/* 4. CARD DE NOVO ATENDIMENTO / LEAD QUENTE */}
-      <div className="flex items-start gap-3">
-        <div className="relative w-8 h-8 shrink-0 mt-2">
-          <img
-            src="/valentina.png"
-            alt="Valentina"
-            className="w-8 h-8 rounded-full object-cover border border-primary/30"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src =
-                "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80";
-            }}
-          />
+      {/* ─── 3. BLOCO 1: REQUER ATENÇÃO IMEDIATA (ALERTAS SLA REAIS) ───────── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <Flame className="h-4 w-4 text-red-500" />
+            <h3 className="text-xs font-black uppercase tracking-wider text-foreground">
+              Requer Atenção Imediata
+            </h3>
+          </div>
+          <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+            {slaAlerts.length}
+          </span>
         </div>
 
-        <div className="flex-1 bg-primary-soft/30 border border-primary/20 rounded-3xl p-4 shadow-soft">
-          {/* Header do Card */}
-          <div className="flex items-center gap-1.5 mb-2 text-primary font-extrabold text-[11px] tracking-wide uppercase">
-            <Clock className="w-3.5 h-3.5 text-primary stroke-[2.5]" />
-            <span>AVISO DE VALENTINA</span>
-          </div>
+        {slaAlerts.length > 0 ? (
+          slaAlerts.slice(0, 3).map((alert) => (
+            <div
+              key={alert.logId}
+              className="bg-card border border-red-500/30 rounded-3xl p-4 shadow-soft space-y-3 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <FeedAvatar avatar={alert.contactAvatar} name={alert.contactName} />
+                  <div>
+                    <span className="font-bold text-sm text-foreground block leading-tight">
+                      {alert.contactName}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground font-medium">
+                      {formatPhoneNumber(alert.contactPhone)}
+                    </span>
+                  </div>
+                </div>
 
-          <p className="text-muted-foreground text-xs font-medium leading-relaxed mb-3">
-            Novo Atendimento! Transferi um novo cliente para a sua fila
-            comercial.
-          </p>
-
-          {/* Card interno do Cliente */}
-          <div className="bg-card rounded-2xl p-3.5 border border-border shadow-2xs space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <div>
-                <span className="text-muted-foreground font-semibold">Cliente: </span>
-                <span className="text-primary font-bold">Pedro Silva</span>
+                {/* Tempo de Espera */}
+                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 border border-red-500/20 shrink-0">
+                  <Clock className="h-3 w-3" />
+                  {alert.waitingMinutes > 0 ? `${alert.waitingMinutes}m atraso` : `${alert.waitingSeconds}s`}
+                </span>
               </div>
-              <span className="px-2.5 py-0.5 rounded-full bg-red-50 text-red-500 border border-red-200 text-[10px] font-extrabold tracking-wide uppercase">
-                QUENTE
-              </span>
-            </div>
 
-            <div className="bg-muted/60 rounded-xl p-3 border border-border text-xs space-y-1">
-              <span className="text-[10px] font-extrabold text-muted-foreground uppercase tracking-wider block">
-                INTERESSE:
-              </span>
-              <p className="text-foreground font-medium">
-                Válvula Reguladora de Pressão de 2 polegadas
-              </p>
-            </div>
+              {/* Mensagem do cliente */}
+              <div className="bg-muted/60 rounded-xl p-3 border border-border text-xs text-foreground/80 italic line-clamp-2">
+                "{alert.lastMessagePreview}"
+              </div>
 
-            <button
-              onClick={() => handleOpenConversa("Pedro Silva")}
-              className="w-full py-2.5 px-4 rounded-full bg-primary hover:opacity-90 text-primary-foreground font-bold text-xs flex items-center justify-center gap-2 shadow-soft transition-all active:scale-[0.98] cursor-pointer"
-            >
-              <span>Abrir Atendimento</span>
-              <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
-            </button>
+              {/* Botão Responder Agora */}
+              <button
+                onClick={() => handleOpenConversaById(alert.conversationId)}
+                className="w-full py-2.5 px-4 rounded-xl bg-primary hover:opacity-90 text-primary-foreground font-bold text-xs flex items-center justify-center gap-2 shadow-soft transition active:scale-[0.98] cursor-pointer"
+              >
+                <span>Responder Agora</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="bg-card border border-border rounded-2xl p-5 text-center text-xs space-y-1 shadow-soft">
+            <div className="h-9 w-9 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto mb-2">
+              <CheckCircle2 className="h-5 w-5" />
+            </div>
+            <p className="font-bold text-foreground">Nenhum atendimento atrasado!</p>
+            <p className="text-[11px] text-muted-foreground">
+              Você está respondendo todas as conversas dentro do limite de tempo.
+            </p>
           </div>
-        </div>
+        )}
       </div>
+
+      {/* ─── 4. BLOCO 2: MINHAS TAREFAS DO DIA (RD STATION CRM REAIS) ────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-primary" />
+            <h3 className="text-xs font-black uppercase tracking-wider text-foreground">
+              Minhas Tarefas de Hoje
+            </h3>
+          </div>
+          <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+            {myTasks.length}
+          </span>
+        </div>
+
+        {myTasks.length > 0 ? (
+          <div className="space-y-2">
+            {myTasks.slice(0, 4).map((task) => (
+              <div
+                key={task.id}
+                className="bg-card border border-border rounded-2xl p-3.5 shadow-soft flex items-center justify-between gap-3 hover:bg-muted/30 transition"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`h-8 w-8 rounded-xl flex items-center justify-center shrink-0 ${
+                    task.status === "done"
+                      ? "bg-emerald-500/10 text-emerald-500"
+                      : "bg-primary/10 text-primary"
+                  }`}>
+                    {task.status === "done" ? (
+                      <Check className="h-4 w-4 stroke-[3]" />
+                    ) : (
+                      <Clock className="h-4 w-4" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <span className={`block font-bold text-xs truncate ${task.status === "done" ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                      {task.name}
+                    </span>
+                    {task.client?.name && (
+                      <span className="text-[10px] text-muted-foreground font-medium truncate block">
+                        Cliente: {task.client.name}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <span className="text-[10px] font-extrabold uppercase px-2 py-1 rounded-lg bg-muted text-muted-foreground shrink-0">
+                  {task.type || "Tarefa"}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-card border border-border rounded-2xl p-5 text-center text-xs space-y-1 shadow-soft">
+            <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2">
+              <Calendar className="h-5 w-5" />
+            </div>
+            <p className="font-bold text-foreground">Nenhuma tarefa agendada</p>
+            <p className="text-[11px] text-muted-foreground">
+              Suas tarefas do RD Station CRM aparecerão aqui automaticamente.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ─── 5. BLOCO 3: CONVERSAS RECENTES (ACESSO RÁPIDO) ────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-primary" />
+            <h3 className="text-xs font-black uppercase tracking-wider text-foreground">
+              Conversas Recentes
+            </h3>
+          </div>
+          <button
+            onClick={() => setActiveView("chat")}
+            className="text-[10px] font-bold text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+          >
+            Ver todas
+            <ChevronRight className="h-3 w-3" />
+          </button>
+        </div>
+
+        {myRecentChats.length > 0 ? (
+          <div className="space-y-2">
+            {myRecentChats.map((c) => (
+              <div
+                key={c.id}
+                onClick={() => handleOpenConversaById(c.id)}
+                className="bg-card border border-border hover:border-primary/40 rounded-2xl p-3.5 shadow-soft flex items-center justify-between gap-3 transition cursor-pointer active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <FeedAvatar avatar={c.avatar} name={c.name} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-xs text-foreground truncate">
+                        {c.name}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.2 text-[8px] font-bold text-white ${
+                        c.channel === "whatsapp"
+                          ? "bg-emerald-500"
+                          : c.channel === "instagram"
+                          ? "bg-purple-600"
+                          : "bg-blue-600"
+                      }`}>
+                        {c.channel === "whatsapp" && <WhatsappLogo className="h-2 w-2" />}
+                        {c.channel === "instagram" && <InstagramLogo className="h-2 w-2" />}
+                        {c.channel === "messenger" && <MessengerLogo className="h-2 w-2" />}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground truncate block mt-0.5">
+                      {c.messages && c.messages.length > 0
+                        ? c.messages[c.messages.length - 1].text
+                        : "Sem mensagens recentes"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0 text-xs font-bold text-primary">
+                  <span>Abrir</span>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-card border border-border rounded-2xl p-5 text-center text-xs space-y-1 shadow-soft">
+            <p className="font-bold text-foreground">Nenhum atendimento ativo</p>
+            <p className="text-[11px] text-muted-foreground">
+              Atribua atendimentos a você na aba Atendimentos para visualizá-los aqui.
+            </p>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 };

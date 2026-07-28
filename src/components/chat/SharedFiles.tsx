@@ -153,8 +153,28 @@ export function SharedFiles() {
 
   const [cnpjDetails, setCnpjDetails] = useState<CnpjFullDetails>({});
   const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
+  const [isSavingCnpj, setIsSavingCnpj] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "idle">("idle");
   const isFirstCnpjRender = React.useRef(true);
+
+  const handleSaveCnpjDetails = async () => {
+    if (!activeChat) return;
+    setIsSavingCnpj(true);
+    try {
+      const contactId = activeChat.contactId || activeChat.id;
+      await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cnpjDetails }),
+      });
+      setAutoSaveStatus("saved");
+    } catch (e) {
+      console.error("Erro ao salvar detalhes do CNPJ:", e);
+    } finally {
+      setIsSavingCnpj(false);
+    }
+  };
+
 
   useEffect(() => {
     isFirstCnpjRender.current = true;

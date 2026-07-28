@@ -16,6 +16,7 @@ import { eq, isNull, and, desc } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
+import { urlToBase64 } from "../utils";
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connected";
 
@@ -669,17 +670,19 @@ export class SessionManager {
             return undefined;
           };
 
-          tryGetPic().then((picUrl) => {
+          tryGetPic().then(async (picUrl) => {
             if (picUrl) {
+              const base64Avatar = await urlToBase64(picUrl);
+              const avatarToSave = base64Avatar || picUrl;
               db.update(contacts)
-                .set({ avatar: picUrl })
+                .set({ avatar: avatarToSave })
                 .where(eq(contacts.id, contactId))
                 .then(() => {
                   this.notify(tenantId, {
                     type: "contact_avatar",
                     contactId: contactId,
                     phone: phone,
-                    avatar: picUrl,
+                    avatar: avatarToSave,
                   });
                 })
                 .catch((err) => console.error("Erro ao salvar foto de perfil no DB:", err));
@@ -687,6 +690,7 @@ export class SessionManager {
               console.log(`[Baileys] Foto não disponível para ${phone} (todos os JIDs tentados)`);
             }
           }).catch(() => {});
+
         }
       }
 

@@ -76,8 +76,8 @@ export const MobileLayout: React.FC = () => {
         )}
       </main>
 
-      {/* Input de Mensagem (no Feed Valentina ou em Chat Selecionado) */}
-      {(activeView === "valentina" || (activeView === "chat" && selectedChatId)) && (
+      {/* Input de Mensagem (Apenas quando estiver DENTRO de um Chat selecionado) */}
+      {activeView === "chat" && selectedChatId && (
         <MobileMessageInput onSendMessage={handleSendMessage} />
       )}
 

@@ -43,6 +43,31 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
   );
 }
 
+function ContactAvatar({ avatar, name, initials, initialsBg, size = "h-9 w-9" }: { avatar?: string | null; name: string; initials?: string; initialsBg?: string; size?: string }) {
+  const [imgError, setImgError] = useState(false);
+  const displayInitials = initials || name.slice(0, 2).toUpperCase() || "U";
+
+  if (avatar && !imgError) {
+    return (
+      <img
+        src={avatar}
+        alt=""
+        className={`${size} rounded-full object-cover border border-border shrink-0`}
+        onError={() => setImgError(true)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`grid ${size} place-items-center rounded-full text-xs font-bold text-foreground shrink-0`}
+      style={{ background: initialsBg || "#eee" }}
+    >
+      {displayInitials}
+    </div>
+  );
+}
+
 export function ContactsView() {
   const {
     tenant,
@@ -249,13 +274,7 @@ export function ContactsView() {
                   <tr key={c.id} className="hover:bg-muted/10 transition text-xs font-semibold text-foreground/90">
                     <td className="py-3.5 px-6">
                       <div className="flex items-center gap-3">
-                        {c.avatar ? (
-                          <img src={c.avatar} alt="" className="h-9 w-9 rounded-full object-cover border border-border" />
-                        ) : (
-                          <div className="grid h-9 w-9 place-items-center rounded-full text-xs font-bold text-foreground" style={{ background: c.initialsBg || "#eee" }}>
-                            {c.initials || "U"}
-                          </div>
-                        )}
+                        <ContactAvatar avatar={c.avatar} name={c.name} initials={c.initials} initialsBg={c.initialsBg} size="h-9 w-9" />
                         <div>
                           <span className="block font-bold text-foreground">{c.name}</span>
                           <span className="text-[10px] text-muted-foreground font-medium">Cadastrado</span>
@@ -381,13 +400,7 @@ export function ContactsView() {
                 {/* Linha Topo: Avatar + Nome + Badge Canal */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {c.avatar ? (
-                      <img src={c.avatar} alt="" className="h-10 w-10 rounded-full object-cover border border-border" />
-                    ) : (
-                      <div className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground" style={{ background: c.initialsBg || "#eee" }}>
-                        {c.initials || "U"}
-                      </div>
-                    )}
+                    <ContactAvatar avatar={c.avatar} name={c.name} initials={c.initials} initialsBg={c.initialsBg} size="h-10 w-10" />
                     <div>
                       <span className="block font-bold text-sm text-foreground leading-tight">{c.name}</span>
                       <span className="text-[10px] text-muted-foreground font-medium">
@@ -544,13 +557,7 @@ export function ContactsView() {
                         {/* Header do resultado */}
                         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/50">
                           <div className="flex items-center gap-3 min-w-0">
-                            {conv.avatar ? (
-                              <img src={conv.avatar} alt="" className="h-9 w-9 rounded-full object-cover border border-border shrink-0" />
-                            ) : (
-                              <div className="grid h-9 w-9 place-items-center rounded-full text-xs font-bold text-foreground shrink-0" style={{ background: conv.initialsBg || "#eee" }}>
-                                {conv.initials || "U"}
-                              </div>
-                            )}
+                            <ContactAvatar avatar={conv.avatar} name={conv.name} initials={conv.initials} initialsBg={conv.initialsBg} size="h-9 w-9" />
                             <div className="min-w-0">
                               <span className="block font-bold text-sm text-foreground truncate">{conv.name}</span>
                               <div className="flex items-center gap-1.5 mt-0.5">

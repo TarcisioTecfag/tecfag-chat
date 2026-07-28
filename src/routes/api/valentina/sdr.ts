@@ -135,7 +135,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 .orderBy(asc(messages.sentAt))
                 .limit(100);
 
-              const formattedMessages = realMsgs.map((m) => {
+              const formattedMessages = realMsgs.map((m: any) => {
                 const mediaInfo = parseMediaInfo(m.content, m.mediaUrl, m.mediaType, m.fileName);
                 return {
                   id: m.id,
@@ -156,7 +156,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
 
               const operator = conv?.operatorId
                 ? await db.query.operators.findFirst({
-                    where: (t, { eq: dEq }) => dEq(t.id, conv.operatorId),
+                    where: (t, { eq: dEq }) => dEq(t.id, conv.operatorId!),
                   })
                 : null;
 
@@ -214,7 +214,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
 
                 const operator = c.operatorId
                   ? await db.query.operators.findFirst({
-                      where: (t, { eq: dEq }) => dEq(t.id, c.operatorId),
+                      where: (t, { eq: dEq }) => dEq(t.id, c.operatorId!),
                     })
                   : null;
 
@@ -225,7 +225,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   .orderBy(asc(messages.sentAt))
                   .limit(100);
 
-                const formattedMessages = realMsgs.map((m) => {
+                const formattedMessages = realMsgs.map((m: any) => {
                   const mediaInfo = parseMediaInfo(m.content, m.mediaUrl, m.mediaType, m.fileName);
                   return {
                     id: m.id,
