@@ -47,16 +47,10 @@ export class AuditService {
   private jobInterval: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
   private isProcessing = false;
-  private genAI: GoogleGenerativeAI | null = null;
 
   private constructor() {
-    const apiKey = process.env.GOOGLE_AI_API_KEY;
-    if (apiKey) {
-      this.genAI = new GoogleGenerativeAI(apiKey);
-      console.log("[AuditService] Gemini API configurada com sucesso.");
-    } else {
-      console.warn("[AuditService] GOOGLE_AI_API_KEY não encontrada — auditorias desabilitadas.");
-    }
+    // Usa o vertexAi singleton (vertex-ai.ts) — sem necessidade de SDK externo
+    console.log("[AuditService] Inicializado. Usará Vertex AI para auditorias.");
   }
 
   static getInstance(): AuditService {
@@ -68,7 +62,7 @@ export class AuditService {
 
   /** Inicia o job de auditoria. Idempotente. */
   start() {
-    if (this.isRunning || !this.genAI) return;
+    if (this.isRunning) return;
     this.isRunning = true;
 
     console.log("[AuditService] Iniciando job de auditoria (intervalo: 5min)...");
