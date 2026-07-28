@@ -11,7 +11,7 @@ import {
   Loader2, Inbox, MessageCircleQuestion, Filter, Calendar,
   ExternalLink, Star, X,
 } from "lucide-react";
-import { useChatState } from "@/hooks/useChatState";
+import { useChat } from "@/hooks/useChatState";
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -97,6 +97,7 @@ function getDateRange(period: QuickPeriod, customFrom?: string, customTo?: strin
       };
   }
 }
+
 
 function formatRelativeTime(iso: string) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -268,7 +269,7 @@ function TimelineFilters({
 // ── Componente principal ─────────────────────────────────────────────────────
 
 export function SupervisorTab() {
-  const { setSelectedChatId, setActiveView } = useChatState();
+  const { setSelectedChatId, setActiveView } = useChat();
 
   const [data, setData] = useState<SupervisorApiData | null>(null);
   const [loading, setLoading] = useState(true);
