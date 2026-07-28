@@ -463,7 +463,10 @@ export function ChatPanel() {
     currentGroup,
     setSelectedChatId,
     setActiveView,
+    clientTypingStatus,
   } = useChat();
+
+  const activeTyping = activeChat ? clientTypingStatus[activeChat.id] : null;
 
   // ── Flags de permissão derivadas do grupo de acesso ──────────────────────
   const isOwner = !!activeChat && activeChat.operatorId === currentOperatorId;
@@ -1124,7 +1127,22 @@ export function ChatPanel() {
 
           <div>
             <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
-            <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5">
+            {activeTyping ? (
+              <span className="text-[11px] font-bold text-emerald-600 animate-pulse flex items-center gap-1 mt-0.5">
+                {activeTyping.status === "recording" ? (
+                  <>
+                    <Mic className="h-3 w-3 text-red-500" />
+                    <span>gravando áudio...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-3 w-3 text-emerald-500" />
+                    <span>digitando...</span>
+                  </>
+                )}
+              </span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5">
               {activeChat.queue === "meus" && (
                 isOwner ? (
                   <span className="flex items-center gap-1 text-primary">
@@ -1878,6 +1896,52 @@ export function ChatPanel() {
             );
           });
         })()}
+
+        {/* Indicador do Cliente Digitando / Gravando Áudio */}
+        <AnimatePresence>
+          {activeTyping && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-end gap-2 my-2.5 w-full"
+            >
+              {activeChat.avatar ? (
+                <img
+                  src={activeChat.avatar}
+                  alt=""
+                  className="h-7 w-7 shrink-0 rounded-full object-cover border border-border"
+                />
+              ) : (
+                <div
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-foreground"
+                  style={{ background: activeChat.initialsBg || "#eee" }}
+                >
+                  {activeChat.initials || "U"}
+                </div>
+              )}
+              <div className="rounded-2xl rounded-bl-[5px] bg-card border border-border px-4 py-2 text-xs font-bold text-emerald-600 shadow-soft flex items-center gap-2">
+                {activeTyping.status === "recording" ? (
+                  <>
+                    <Mic className="h-3.5 w-3.5 text-red-500 animate-pulse" />
+                    <span>gravando áudio...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>digitando</span>
+                    <motion.span
+                      animate={{ opacity: [0.3, 1, 0.3] }}
+                      transition={{ duration: 1.2, repeat: Infinity }}
+                    >
+                      ...
+                    </motion.span>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div ref={messagesEndRef} />
       </div>
 

@@ -34,7 +34,8 @@ export type SessionEvent =
       responsibleName?: string;
     }
   | { type: "contact_updated"; contactId?: string; contact?: any; updates?: any }
-  | { type: "chat_updated"; chat: any };
+  | { type: "chat_updated"; chat: any }
+  | { type: "presence_update"; id: string; presences: Record<string, any> };
 
 export type SessionListener = (event: SessionEvent) => void;
 
@@ -104,6 +105,26 @@ export class SessionManager {
 
   public getQr(tenantId: string): string | undefined {
     return this.sessionQrs.get(tenantId);
+  }
+
+  public getSession(tenantId: string): WASocket | undefined {
+    return this.sessions.get(tenantId);
+  }
+
+  /** Subscreve presença para um JID de cliente (para capturar digitando/gravando) */
+  public async subscribePresence(tenantId: string, jid: string) {
+    const sock = this.sessions.get(tenantId);
+    if (sock && jid) {
+      try {
+        let targetJid = jid;
+        if (!targetJid.includes("@")) {
+          targetJid = `${targetJid.replace(/\D/g, "")}@s.whatsapp.net`;
+        }
+        await sock.presenceSubscribe(targetJid);
+      } catch (e) {
+        console.error(`[Baileys Presence] Erro ao subscrever presença de ${jid}:`, e);
+      }
+    }
   }
 
   public async initSession(tenantId: string): Promise<WASocket> {
@@ -236,6 +257,17 @@ export class SessionManager {
             await this.handleIncomingMessage(tenantId, msg);
           }
         }
+      }
+    });
+
+    // Tratar eventos de atualização de presença (cliente digitando / gravando áudio)
+    sock.ev.on("presence.update", (data: any) => {
+      if (data && data.id) {
+        this.notify(tenantId, {
+          type: "presence_update",
+          id: data.id,
+          presences: data.presences || {},
+        });
       }
     });
 

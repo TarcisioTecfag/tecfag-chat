@@ -139,6 +139,7 @@ type ChatContextType = {
   setMetaConfig: React.Dispatch<React.SetStateAction<MetaConfig>>;
   baileysConfig: BaileysConfig;
   setBaileysConfig: React.Dispatch<React.SetStateAction<BaileysConfig>>;
+  clientTypingStatus: Record<string, { status: "composing" | "recording"; timestamp: number } | null>;
   disconnectBaileys: () => void;
   connectBaileys: () => void;
  
@@ -160,6 +161,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
   const [activeView, setActiveView] = useState<"chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina">("chat");
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+
+  // Status de presença (digitando / gravando áudio) do cliente por conversa
+  const [clientTypingStatus, setClientTypingStatus] = useState<Record<string, { status: "composing" | "recording"; timestamp: number } | null>>({});
 
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([]);
@@ -1876,6 +1880,37 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       qrCodeUrl: "",
     });
   };
+  // Subscrever presença no Baileys quando o operador seleciona um chat ativo
+  useEffect(() => {
+    if (!selectedChatId) return;
+    const currentChat = conversations.find((c) => c.id === selectedChatId);
+    if (currentChat && currentChat.phone && (currentChat.channel === "whatsapp" || !currentChat.channel)) {
+      fetch(`${BACKEND_URL}/api/baileys/presence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: "valem", jid: currentChat.phone }),
+      }).catch(() => {});
+    }
+  }, [selectedChatId, conversations]);
+
+  // Auto-limpar estados de "digitando" / "gravando" antigos (> 5s) caso evento 'paused' falhe
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setClientTypingStatus((prev) => {
+        let changed = false;
+        const updated = { ...prev };
+        for (const [key, value] of Object.entries(updated)) {
+          if (value && now - value.timestamp > 5000) {
+            updated[key] = null;
+            changed = true;
+          }
+        }
+        return changed ? updated : prev;
+      });
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   const connectBaileys = () => {
     if (eventSourceRef.current) {
@@ -1951,6 +1986,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return c;
             })
           );
+        } else if (data.type === "presence_update" && data.id && data.presences) {
+          const presenceId = data.id;
+          const presenceObj = data.presences[presenceId] || Object.values(data.presences)[0];
+          const lastState = presenceObj?.lastKnownPresence;
+
+          setClientTypingStatus((prev) => {
+            const cleanPresence = presenceId.replace(/\D/g, "");
+            const targetConv = conversationsRef.current.find((c) => {
+              if (!c.phone) return false;
+              const cleanPhone = c.phone.replace(/\D/g, "");
+              return (
+                (cleanPresence && cleanPhone && (cleanPresence.endsWith(cleanPhone.slice(-8)) || cleanPhone.endsWith(cleanPresence.slice(-8)))) ||
+                c.id === presenceId
+              );
+            });
+
+            if (targetConv) {
+              if (lastState === "composing" || lastState === "recording") {
+                return { ...prev, [targetConv.id]: { status: lastState, timestamp: Date.now() } };
+              } else {
+                return { ...prev, [targetConv.id]: null };
+              }
+            }
+            return prev;
+          });
         } else if (data.type === "contact_updated" && data.contact) {
           const tenantId = tenantRef.current;
           fetch(`${BACKEND_URL}/api/chats?tenantId=${tenantId}`)
@@ -2400,6 +2460,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setMetaConfig,
         baileysConfig,
         setBaileysConfig,
+        clientTypingStatus,
         disconnectBaileys,
         connectBaileys,
 
