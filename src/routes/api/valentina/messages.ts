@@ -200,7 +200,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
             .where(
               and(
                 eq(internalMessages.tenantId, tenantId),
-                eq(internalMessages.operatorId, operatorId)
+                eq(internalMessages.operatorId, operatorId),
+                // Filtra apenas mensagens do chat (ignora alertas automáticos de supervisão com metadata.type)
+                sql`(${internalMessages.metadata}->>'type' IS NULL OR ${internalMessages.metadata}->>'isChat' = 'true')`
               )
             )
             .orderBy(desc(internalMessages.createdAt))
@@ -245,7 +247,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             direction: "to_agent",
             agentType: "supervisor",
             content,
-            metadata: {},
+            metadata: { isChat: true },
             read: 1,
             createdAt: now,
           });
@@ -294,35 +296,33 @@ export const Route = createFileRoute("/api/valentina/messages")({
             const { vertexAi } = await import("../../../lib/vertex-ai");
 
             if (vertexAi.isReady()) {
-              const systemPrompt = `Você é a Valentina, colega de trabalho e assistente inteligente do vendedor "${operatorName}" na empresa Valempack.
+              const systemPrompt = `Você é a Valentina, assistente pessoal e colega de trabalho do vendedor "${operatorName}" na empresa Valempack.
+
+## REGRA PRINCIPAL:
+- Responda ESTREITAMENTE ao que o operador perguntou.
+- Se o operador disser apenas "olá", "esta aí?", "tudo bem?", "boa tarde" ou saudações simples, responda amigavelmente com uma reação amigável e pergunte como pode ajudar.
+- NUNCA dê broncas, alertas proativos de SLA ou cobranças de conversas paradas sem ser solicitada.
+- Só mencione SLA, conversas paradas ou métricas SE o operador perguntar explicitamente sobre isso (ex: "tenho pendências?", "como estão meus SLAs?", "como foi meu dia?").
+- NUNCA inclua frases do tipo "Aliás, vi que tem uma conversa sua parada..." em mensagens comuns.
 
 ## SUA PERSONALIDADE:
-- Você é uma COLEGA DE TRABALHO, não um robô. Fale como uma pessoa real brasileira.
-- Use linguagem natural: "opa", "ei", "olha só", "vish", "haha", "boa!", "massa!", "beleza"
-- Pode usar humor leve e brincadeiras quando apropriado
-- Pode rir ("hahaha", "kk"), reagir com surpresa, demonstrar empatia real
-- NÃO repita as mesmas expressões. Varie: às vezes "opa!", às vezes "ei!", "olha", "bom..."
-- Use emojis com moderação (máximo 1-2 por fragmento), não em todos
-- NUNCA comece todas as respostas com "Olá!" ou "Oi!" — varie a abertura
-- Seja direta e objetiva, sem enrolação
+- Fale como uma pessoa real brasileira, inteligente, amigável e prestativa.
+- Use linguagem natural: "opa", "tô por aqui sim!", "fala aí!", "boa!", "como posso te ajudar?"
+- Use emojis com moderação (máximo 1-2 por resposta).
+- Seja direta e objetiva.
 
 ## COMO RESPONDER:
-- SEMPRE fragmente sua resposta em múltiplas mensagens curtas (2-4 fragmentos)
-- Cada fragmento deve ter NO MÁXIMO 2-3 linhas
-- Isso simula como uma pessoa real digita no WhatsApp: mensagens curtas e rápidas
-- O primeiro fragmento geralmente é uma reação rápida à pergunta
-- Os seguintes trazem a informação detalhada
-- Nunca envie um único blocão de texto
+- SEMPRE fragmente sua resposta em mensagens curtas (1-3 fragmentos).
+- Cada fragmento deve ter no máximo 2-3 linhas.
+- Nunca envie um blocão de texto.
 
 ## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
 Retorne EXCLUSIVAMENTE um JSON válido neste formato:
 {
   "fragments": [
     { "text": "texto da primeira mensagem curta", "delay": 0 },
-    { "text": "texto da segunda mensagem", "delay": 800 },
-    { "text": "texto da terceira se necessário", "delay": 1200 }
-  ],
-  "alerts": []
+    { "text": "texto da segunda mensagem curta", "delay": 800 }
+  ]
 }
 
 Se detectar uma situação crítica nos dados do operador (SLA estourado, cliente frustrado), inclua em "alerts":
@@ -388,7 +388,7 @@ Responda como Valentina de forma natural, humanizada e fragmentada. Use os dados
               direction: "from_agent",
               agentType: "supervisor",
               content: frag.text,
-              metadata: { fragmentIndex: i, totalFragments: fragments.length },
+              metadata: { isChat: true, fragmentIndex: i, totalFragments: fragments.length },
               read: 0,
               createdAt: fragTimestamp,
             });
