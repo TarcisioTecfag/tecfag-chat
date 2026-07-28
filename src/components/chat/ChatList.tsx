@@ -1,6 +1,6 @@
 import React from "react";
 import { useChat } from "@/hooks/useChatState";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot } from "lucide-react";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut } from "lucide-react";
 import { Channel, QueueType } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -76,6 +76,7 @@ export function ChatList() {
     markAsRead,
     markAsUnread,
     pinChat,
+    logout,
   } = useChat();
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
@@ -200,6 +201,17 @@ export function ChatList() {
                       <span className="capitalize">{st === "disponivel" ? "Disponível" : st === "pausa" ? "Em Pausa" : "Desconectado"}</span>
                     </button>
                   ))}
+                  <div className="my-1 border-t border-border/60" />
+                  <button
+                    onClick={() => {
+                      setShowStatusDropdown(false);
+                      logout();
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-destructive hover:bg-destructive/10 transition cursor-pointer"
+                  >
+                    <LogOut className="h-3 w-3" />
+                    <span>Sair</span>
+                  </button>
                 </motion.div>
               </>
             )}

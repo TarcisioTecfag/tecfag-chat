@@ -15,6 +15,7 @@ import {
   Zap,
   TrendingUp,
   Check,
+  LogOut,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
@@ -113,7 +114,10 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
     conversations,
     setSelectedChatId,
     setActiveView,
+    logout,
   } = useChat();
+
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
 
   const currentOp = operators.find((o) => o.id === currentOperatorId) || operators[0];
   const opName = operatorProfile?.name || currentOp?.name || "Operador";
@@ -231,30 +235,125 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </div>
           </div>
 
-          {/* Botão Seletor de Status com Micro-Animação */}
-          <motion.button
-            whileTap={{ scale: 0.92 }}
-            whileHover={{ scale: 1.03 }}
-            onClick={toggleStatus}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition shadow-soft cursor-pointer border ${
-              opStatus === "disponivel"
-                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                : opStatus === "pausa"
-                ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
-                : "bg-muted text-muted-foreground border-border"
-            }`}
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${
+          {/* Botão Seletor de Status com Dropdown de 3 Opções + Logout */}
+          <div className="relative">
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={() => setShowStatusMenu((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition shadow-soft cursor-pointer border ${
                 opStatus === "disponivel"
-                  ? "bg-emerald-500 animate-pulse"
+                  ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
                   : opStatus === "pausa"
-                  ? "bg-amber-500"
-                  : "bg-gray-400"
+                  ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                  : "bg-muted text-muted-foreground border-border"
               }`}
-            />
-            <span className="capitalize">{opStatus}</span>
-          </motion.button>
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  opStatus === "disponivel"
+                    ? "bg-emerald-500 animate-pulse"
+                    : opStatus === "pausa"
+                    ? "bg-amber-500"
+                    : "bg-gray-400"
+                }`}
+              />
+              <span className="capitalize">{opStatus === "disponivel" ? "Disponível" : opStatus === "pausa" ? "Pausa" : "Desconectado"}</span>
+            </motion.button>
+
+            {/* Menu Popover das 3 Opções + Logout */}
+            <AnimatePresence>
+              {showStatusMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowStatusMenu(false)}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 5 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 5 }}
+                    transition={{ type: "spring", damping: 22, stiffness: 350 }}
+                    className="absolute right-0 top-full mt-2 z-50 w-48 rounded-2xl bg-card p-1.5 border border-border shadow-2xl text-xs font-bold origin-top-right flex flex-col gap-1"
+                  >
+                    <div className="px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground border-b border-border/50 mb-0.5">
+                      Status do Atendente
+                    </div>
+
+                    {/* 🟢 1. Disponível */}
+                    <button
+                      onClick={() => {
+                        updateOperatorProfile({ status: "disponivel" });
+                        setShowStatusMenu(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition cursor-pointer ${
+                        opStatus === "disponivel"
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>Disponível</span>
+                      </div>
+                      {opStatus === "disponivel" && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                    </button>
+
+                    {/* 🟡 2. Pausa */}
+                    <button
+                      onClick={() => {
+                        updateOperatorProfile({ status: "pausa" });
+                        setShowStatusMenu(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition cursor-pointer ${
+                        opStatus === "pausa"
+                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" />
+                        <span>Em Pausa</span>
+                      </div>
+                      {opStatus === "pausa" && <Check className="w-3.5 h-3.5 text-amber-500" />}
+                    </button>
+
+                    {/* 🔴 3. Desconectado */}
+                    <button
+                      onClick={() => {
+                        updateOperatorProfile({ status: "desconectado" });
+                        setShowStatusMenu(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition cursor-pointer ${
+                        opStatus === "desconectado"
+                          ? "bg-gray-500/10 text-gray-600 dark:text-gray-400"
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-gray-400" />
+                        <span>Desconectado</span>
+                      </div>
+                      {opStatus === "desconectado" && <Check className="w-3.5 h-3.5 text-gray-400" />}
+                    </button>
+
+                    <div className="my-0.5 border-t border-border/60" />
+
+                    {/* 🚪 Botão Discreto de Sair (Logout) */}
+                    <button
+                      onClick={() => {
+                        setShowStatusMenu(false);
+                        logout();
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-destructive hover:bg-destructive/10 transition cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sair da Conta</span>
+                    </button>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
 
         <div className="text-xs text-muted-foreground bg-muted/40 p-3 rounded-2xl border border-border/50 flex items-center justify-between">
