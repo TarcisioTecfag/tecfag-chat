@@ -33,20 +33,20 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   };
 
   return (
-    <div className="fixed bottom-14 left-0 right-0 z-40 bg-white/95 backdrop-blur-md px-3 pt-2 pb-2.5 border-t border-gray-100 shadow-sm flex flex-col gap-2">
+    <div className="fixed bottom-14 left-0 right-0 z-40 bg-card/95 backdrop-blur-md px-3 pt-2 pb-2.5 border-t border-border shadow-soft flex flex-col gap-2 transition-colors">
       {/* Abas Superiores: Enviar Mensagem | Nota Interna */}
-      <div className="flex items-center gap-6 px-3 border-b border-gray-100/60 pb-1.5 text-xs font-bold">
+      <div className="flex items-center gap-6 px-3 border-b border-border/60 pb-1.5 text-xs font-bold">
         <button
           onClick={() => setActiveTab("message")}
           className={`relative pb-1 transition-colors cursor-pointer ${
             activeTab === "message"
-              ? "text-emerald-600 font-extrabold"
-              : "text-gray-400 hover:text-gray-600 font-medium"
+              ? "text-primary font-extrabold"
+              : "text-muted-foreground hover:text-foreground font-medium"
           }`}
         >
           Enviar Mensagem
           {activeTab === "message" && (
-            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-full" />
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
           )}
         </button>
 
@@ -54,19 +54,19 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
           onClick={() => setActiveTab("internal_note")}
           className={`relative pb-1 transition-colors cursor-pointer ${
             activeTab === "internal_note"
-              ? "text-emerald-600 font-extrabold"
-              : "text-gray-400 hover:text-gray-600 font-medium"
+              ? "text-primary font-extrabold"
+              : "text-muted-foreground hover:text-foreground font-medium"
           }`}
         >
           Nota Interna
           {activeTab === "internal_note" && (
-            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-full" />
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
           )}
         </button>
       </div>
 
       {/* Container da caixa de digitação */}
-      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200/80 rounded-full px-3.5 py-1.5 shadow-2xs focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-100 transition-all">
+      <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-full px-3.5 py-1.5 shadow-2xs focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
         <input
           type="text"
           value={text}
@@ -77,14 +77,14 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
               ? "Escreva sua mensagem..."
               : "Escreva uma nota interna (apenas sua equipe verá)..."
           }
-          className="flex-1 bg-transparent text-xs text-gray-800 placeholder:text-gray-400 focus:outline-none py-1.5"
+          className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none py-1.5"
         />
 
-        <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
+        <div className="flex items-center gap-2.5 text-muted-foreground shrink-0">
           <button
             type="button"
             onClick={onOpenQuickResponses}
-            className="hover:text-emerald-600 transition-colors p-1 cursor-pointer"
+            className="hover:text-primary transition-colors p-1 cursor-pointer"
             title="Respostas Rápidas"
           >
             <Zap className="w-4 h-4 stroke-[2]" />
@@ -93,7 +93,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
           <button
             type="button"
             onClick={onOpenEmojiPicker}
-            className="hover:text-emerald-600 transition-colors p-1 cursor-pointer"
+            className="hover:text-primary transition-colors p-1 cursor-pointer"
             title="Emojis"
           >
             <Smile className="w-4 h-4 stroke-[2]" />
@@ -101,7 +101,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
 
           <button
             type="button"
-            className="hover:text-emerald-600 transition-colors p-1 cursor-pointer"
+            className="hover:text-primary transition-colors p-1 cursor-pointer"
             title="Anexar arquivo"
           >
             <Paperclip className="w-4 h-4 stroke-[2]" />
@@ -109,7 +109,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
 
           <button
             type="button"
-            className="hover:text-emerald-600 transition-colors p-1 cursor-pointer"
+            className="hover:text-primary transition-colors p-1 cursor-pointer"
             title="Gravador de Voz"
           >
             <Mic className="w-4 h-4 stroke-[2]" />
@@ -118,7 +118,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
           <button
             type="button"
             onClick={handleSend}
-            className="w-8 h-8 rounded-full bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white flex items-center justify-center transition-all shadow-xs ml-0.5 cursor-pointer"
+            className="w-8 h-8 rounded-full bg-primary hover:opacity-90 active:scale-95 text-primary-foreground flex items-center justify-center transition-all shadow-soft ml-0.5 cursor-pointer"
             title="Enviar"
           >
             <Send className="w-3.5 h-3.5 stroke-[2.5] translate-x-0.5 -translate-y-0.5" />

@@ -1,20 +1,27 @@
 import React from "react";
-import { Users, ClipboardList, Wallet, BarChart3, Menu } from "lucide-react";
+import { MessageSquare, Users, Wallet, Sparkles } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 
 export const MobileBottomNav: React.FC = () => {
-  const { activeView, setActiveView, operatorProfile } = useChat();
+  const { activeView, setActiveView, setSelectedChatId, operatorProfile } = useChat();
+
+  const handleTabClick = (viewId: string) => {
+    // Ao clicar em qualquer aba inferior (especialmente Atendimentos),
+    // reseta selectedChatId para mostrar a lista de conversas primeiro no mobile
+    setSelectedChatId(null);
+    setActiveView(viewId as any);
+  };
 
   const navItems = [
     {
       id: "valentina",
       label: "Início",
       icon: (
-        <div className="relative w-7 h-7">
+        <div className="relative w-6 h-6">
           <img
             src={operatorProfile?.avatar || "/vendedor.png"}
             alt={operatorProfile?.name || "Usuário"}
-            className="w-7 h-7 rounded-full object-cover border border-gray-200"
+            className="w-6 h-6 rounded-full object-cover border border-primary/30"
             onError={(e) => {
               (e.target as HTMLImageElement).src =
                 "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80";
@@ -27,46 +34,42 @@ export const MobileBottomNav: React.FC = () => {
     {
       id: "chat",
       label: "Atendimentos",
+      icon: <MessageSquare className="w-5 h-5 stroke-[2.2]" />,
+    },
+    {
+      id: "contacts",
+      label: "Clientes",
       icon: <Users className="w-5 h-5 stroke-[2.2]" />,
     },
     {
-      id: "tasks",
-      label: "Tarefas",
-      icon: <ClipboardList className="w-5 h-5 stroke-[2.2]" />,
-    },
-    {
       id: "wallet",
-      label: "Contatos",
+      label: "Carteira",
       icon: <Wallet className="w-5 h-5 stroke-[2.2]" />,
-    },
-    {
-      id: "analytics",
-      label: "Relatórios",
-      icon: <BarChart3 className="w-5 h-5 stroke-[2.2]" />,
-    },
-    {
-      id: "settings",
-      label: "Mais",
-      icon: <Menu className="w-5 h-5 stroke-[2.2]" />,
     },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-lg border-t border-gray-100 px-2 py-1.5 flex justify-between items-center shadow-lg">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border px-3 py-2 flex justify-around items-center shadow-lg">
       {navItems.map((item) => {
         const isActive = activeView === item.id;
         return (
           <button
             key={item.id}
-            onClick={() => setActiveView(item.id as any)}
-            className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition-all cursor-pointer ${
-              isActive ? "text-emerald-600 font-bold" : "text-gray-400 hover:text-gray-600 font-medium"
+            onClick={() => handleTabClick(item.id)}
+            className={`flex flex-col items-center justify-center flex-1 py-1 px-2 transition-all cursor-pointer ${
+              isActive
+                ? "text-primary font-bold"
+                : "text-muted-foreground hover:text-foreground font-medium"
             }`}
           >
             <div className={`transition-transform duration-200 ${isActive ? "scale-110" : ""}`}>
               {item.icon}
             </div>
-            <span className={`text-[10px] mt-1 tracking-tight ${isActive ? "text-emerald-600 font-bold" : "text-gray-500"}`}>
+            <span
+              className={`text-[11px] mt-1 tracking-tight ${
+                isActive ? "text-primary font-bold" : "text-muted-foreground"
+              }`}
+            >
               {item.label}
             </span>
           </button>

@@ -7,10 +7,7 @@ import { MobileMessageInput } from "./MobileMessageInput";
 import { ChatList } from "@/components/chat/ChatList";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ContactsView } from "@/components/chat/ContactsView";
-import { TasksView } from "@/components/chat/TasksView";
-import { AnalyticsView } from "@/components/chat/AnalyticsView";
-import { SettingsView } from "@/components/chat/SettingsView";
-import { ArrowLeft } from "lucide-react";
+import { WalletView } from "@/components/chat/WalletView";
 
 export const MobileLayout: React.FC = () => {
   const {
@@ -18,7 +15,6 @@ export const MobileLayout: React.FC = () => {
     selectedChatId,
     setSelectedChatId,
     sendMessage,
-    activeChat,
   } = useChat();
 
   const [searchOpen, setSearchOpen] = useState(false);
@@ -27,21 +23,19 @@ export const MobileLayout: React.FC = () => {
     if (selectedChatId) {
       sendMessage(text, isInternalNote);
     } else {
-      // Se estiver no feed da Valentina, envia para a Valentina ou abre um aviso
       console.log("Enviando mensagem para Valentina:", text, isInternalNote);
     }
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50/70 text-gray-900 font-sans selection:bg-emerald-100 relative overflow-x-hidden">
-      {/* Top Header Mobile */}
+    <div className="flex flex-col min-h-screen bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-x-hidden">
+      {/* Header Mobile com navegação e acionamento de ações */}
       <MobileHeader
         onSearchClick={() => setSearchOpen(!searchOpen)}
-        onFilterClick={() => console.log("Abrir filtros mobile")}
       />
 
       {/* Conteúdo Dinâmico com base na View Ativa */}
-      <main className="flex-1 overflow-y-auto pb-36">
+      <main className="flex-1 overflow-y-auto pb-32">
         {activeView === "valentina" ? (
           <ValentinaFeed
             onOpenChat={(id) => {
@@ -50,67 +44,39 @@ export const MobileLayout: React.FC = () => {
           />
         ) : activeView === "chat" ? (
           selectedChatId ? (
-            /* Tela do Chat Selecionado em Tela Cheia no Mobile */
-            <div className="flex flex-col h-full">
-              <div className="flex items-center gap-3 bg-white px-4 py-2.5 border-b border-gray-100 shadow-2xs sticky top-0 z-30">
-                <button
-                  onClick={() => setSelectedChatId(null)}
-                  className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 cursor-pointer"
-                  title="Voltar para a lista"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center text-xs">
-                    {activeChat?.name?.charAt(0) || "C"}
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-bold text-gray-900 leading-tight">
-                      {activeChat?.name || "Atendimento"}
-                    </h3>
-                    <span className="text-[10px] text-gray-500 font-medium">
-                      {activeChat?.phone || "WhatsApp"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Chat Panel nativo adaptado */}
-              <div className="flex-1 overflow-y-auto p-2">
-                <ChatPanel />
-              </div>
+            /* Tela do Chat Selecionado em Tela Cheia (sem headers duplicados) */
+            <div className="flex flex-col h-full w-full p-2">
+              <ChatPanel />
             </div>
           ) : (
-            /* Lista de Atendimentos no Mobile */
-            <div className="p-2">
+            /* Lista de Conversas do Atendimento 100% fluida */
+            <div className="p-2 w-full flex justify-center">
               <ChatList />
             </div>
           )
-        ) : activeView === "contacts" || activeView === "wallet" ? (
-          <div className="p-3">
+        ) : activeView === "contacts" ? (
+          /* Aba Clientes */
+          <div className="p-2 w-full">
             <ContactsView />
           </div>
-        ) : activeView === "tasks" ? (
-          <div className="p-3">
-            <TasksView />
-          </div>
-        ) : activeView === "analytics" ? (
-          <div className="p-3">
-            <AnalyticsView />
+        ) : activeView === "wallet" ? (
+          /* Aba Carteira */
+          <div className="p-2 w-full">
+            <WalletView />
           </div>
         ) : (
-          <div className="p-3">
-            <SettingsView />
+          <div className="p-2 w-full">
+            <ChatList />
           </div>
         )}
       </main>
 
-      {/* Caixa de Entrada de Mensagem (quando estiver no Valentina Feed ou no Chat) */}
+      {/* Input de Mensagem (no Feed Valentina ou em Chat Selecionado) */}
       {(activeView === "valentina" || (activeView === "chat" && selectedChatId)) && (
         <MobileMessageInput onSendMessage={handleSendMessage} />
       )}
 
-      {/* Navegação Inferior Fixa */}
+      {/* Navegação Inferior Fixa com 4 Itens */}
       <MobileBottomNav />
     </div>
   );

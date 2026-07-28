@@ -127,7 +127,7 @@ export function ChatList() {
 
   return (
     <>
-    <aside className="flex h-full w-[260px] shrink-0 flex-col rounded-3xl bg-card px-4 py-6 shadow-soft select-none border border-border">
+    <aside className="flex h-full w-full md:w-[260px] md:shrink-0 flex-col rounded-3xl bg-card px-4 py-6 shadow-soft select-none border border-border">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-foreground tracking-tight">Atendimentos</h2>
@@ -281,6 +281,7 @@ export function ChatList() {
               key={q.id}
               onClick={() => {
                 setActiveQueue(q.id as QueueType);
+                setSelectedChatId(null);
                 setActiveView("chat");
               }}
               className={`relative flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition-colors duration-200 cursor-pointer z-10 ${
