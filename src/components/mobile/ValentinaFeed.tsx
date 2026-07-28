@@ -17,7 +17,10 @@ import {
   Check,
   LogOut,
   X,
+  Building,
+  Lock,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
 import { formatPhoneNumber } from "@/lib/utils";
@@ -116,9 +119,15 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
     setSelectedChatId,
     setActiveView,
     logout,
+    setTenant,
+    currentGroup,
   } = useChat();
 
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+
+  const canSwitchTenant = currentGroup
+    ? currentGroup.allowedTenants.includes("tecfag") && currentGroup.allowedTenants.includes("valem")
+    : true;
 
   const currentOp = operators.find((o) => o.id === currentOperatorId) || operators[0];
   const opName = operatorProfile?.name || currentOp?.name || "Operador";
@@ -230,9 +239,31 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
                 {greetingTime}, 👋
               </span>
-              <h2 className="text-base font-bold text-foreground leading-tight">
-                {opName}
-              </h2>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h2 className="text-base font-bold text-foreground leading-tight">
+                  {opName}
+                </h2>
+                <motion.button
+                  whileTap={canSwitchTenant ? { scale: 0.90 } : undefined}
+                  onClick={() => {
+                    if (canSwitchTenant) {
+                      setTenant(tenant === "tecfag" ? "valem" : "tecfag");
+                    } else {
+                      toast.error(`Acesso restrito ao tenant ${tenant.toUpperCase()}`);
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition cursor-pointer ${
+                    tenant === "valem"
+                      ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                      : "bg-blue-500/10 text-blue-600 border-blue-500/20"
+                  } ${!canSwitchTenant ? "opacity-80" : "hover:opacity-90"}`}
+                  title={canSwitchTenant ? `Alternar para ${tenant === "tecfag" ? "Valem" : "Tecfag"}` : `Tenant ${tenant.toUpperCase()} (Fixo)`}
+                >
+                  <Building className="w-3 h-3" />
+                  <span>{tenant === "valem" ? "Valem" : "Tecfag"}</span>
+                  {!canSwitchTenant && <Lock className="w-2.5 h-2.5 ml-0.5 text-muted-foreground" />}
+                </motion.button>
+              </div>
             </div>
           </div>
 
@@ -263,7 +294,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
           </div>
         </div>
 
-        {/* Modal de Seleção de Status + Logout (Centralizado e Sem Corte) */}
+        {/* Modal de Seleção de Status + Tenant Switcher + Logout (Centralizado e Sem Corte) */}
         <AnimatePresence>
           {showStatusMenu && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
@@ -280,7 +311,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
               >
                 <div className="flex items-center justify-between pb-2 border-b border-border text-xs font-bold text-foreground">
                   <span className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">
-                    Alterar Status do Atendente
+                    Status & Organização
                   </span>
                   <button
                     onClick={() => setShowStatusMenu(false)}
@@ -350,7 +381,64 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
                   {opStatus === "desconectado" && <Check className="w-4 h-4 text-gray-400" />}
                 </motion.button>
 
-                <div className="my-1 border-t border-border/60" />
+                {/* 🏢 Seção de Tenant (Com Bloqueio por Permissão RBAC) */}
+                <div className="pt-2 pb-1 border-t border-border/60 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                    <span>Organização (Tenant)</span>
+                    {!canSwitchTenant && (
+                      <span className="flex items-center gap-1 text-[9px] text-amber-600 font-bold lowercase">
+                        <Lock className="w-2.5 h-2.5" />
+                        permissão única
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() => {
+                        if (canSwitchTenant) {
+                          setTenant("valem");
+                        } else {
+                          toast.error("Acesso restrito ao tenant VALEM");
+                        }
+                      }}
+                      className={`flex items-center justify-between py-2 px-2.5 rounded-xl text-xs font-bold transition ${
+                        tenant === "valem"
+                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                          : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                      } ${!canSwitchTenant && tenant !== "valem" ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Building className="w-3.5 h-3.5" />
+                        <span>Valem</span>
+                      </div>
+                      {tenant === "valem" && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (canSwitchTenant) {
+                          setTenant("tecfag");
+                        } else {
+                          toast.error("Acesso restrito ao tenant TECFAG");
+                        }
+                      }}
+                      className={`flex items-center justify-between py-2 px-2.5 rounded-xl text-xs font-bold transition ${
+                        tenant === "tecfag"
+                          ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30"
+                          : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                      } ${!canSwitchTenant && tenant !== "tecfag" ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Building className="w-3.5 h-3.5" />
+                        <span>Tecfag</span>
+                      </div>
+                      {tenant === "tecfag" && <Check className="w-3.5 h-3.5 text-blue-500" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="my-0.5 border-t border-border/60" />
 
                 {/* 🚪 Botão Discreto de Sair (Logout) */}
                 <motion.button

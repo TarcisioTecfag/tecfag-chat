@@ -833,47 +833,56 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Re-verify tenant when operator or group changes
   useEffect(() => {
+    const email = (operatorProfile?.email || currentOperator?.email || "").toLowerCase();
+    const isValemUser = email.includes("@valempack") || email.includes("@valem") || currentOperator?.tenantId === "valem";
+    const isTecfagUser = email.includes("@tecfag") || currentOperator?.tenantId === "tecfag";
+
+    let targetTenant: "tecfag" | "valem" | null = null;
+
     if (currentGroup) {
       if (!currentGroup.allowedTenants.includes(tenant)) {
-        const firstAllowed = currentGroup.allowedTenants[0];
-        if (firstAllowed) {
-          setTenantState(firstAllowed);
-          if (typeof window !== "undefined") {
-            try {
-              localStorage.setItem("chat_tenant", firstAllowed);
-            } catch (e) {
-              console.error("Erro ao persistir chat_tenant no localStorage:", e);
-            }
-          }
-          document.title = firstAllowed === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
-        }
+        targetTenant = currentGroup.allowedTenants[0] || null;
       }
     }
-  }, [currentOperatorId, currentGroup, tenant]);
+
+    if (!targetTenant) {
+      if (isValemUser && tenant !== "valem" && (!currentGroup || currentGroup.allowedTenants.includes("valem"))) {
+        targetTenant = "valem";
+      } else if (isTecfagUser && tenant !== "tecfag" && (!currentGroup || currentGroup.allowedTenants.includes("tecfag"))) {
+        targetTenant = "tecfag";
+      }
+    }
+
+    if (targetTenant && targetTenant !== tenant) {
+      setTenantState(targetTenant);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("chat_tenant", targetTenant);
+        } catch (e) {
+          console.error("Erro ao persistir chat_tenant no localStorage:", e);
+        }
+      }
+      document.title = targetTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+    }
+  }, [currentOperatorId, currentGroup, tenant, operatorProfile?.email, currentOperator?.email]);
 
   const setTenant = (newTenant: "tecfag" | "valem") => {
     if (currentGroup && !currentGroup.allowedTenants.includes(newTenant)) {
-      return; // Tenant block
+      toast.error(`Acesso bloqueado: você não tem permissão para acessar o tenant ${newTenant.toUpperCase()}`);
+      return;
     }
     setTenantState(newTenant);
+    setActiveView("chat");
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("chat_tenant", newTenant);
+        localStorage.setItem("chat_active_view", "chat");
       } catch (e) {
         console.error("Erro ao persistir chat_tenant no localStorage:", e);
       }
     }
-    // Sync view reset
-    setActiveView("chat");
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("chat_active_view", "chat");
-      } catch (e) {
-        console.error("Erro ao persistir chat_active_view no localStorage:", e);
-      }
-    }
-    // Change document title for visual cues
     document.title = newTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+    toast.success(`Tenant alterado para ${newTenant === "tecfag" ? "Tecfag Chat" : "Valem Chat"}`);
   };
 
   // Carregar conversas persistidas no banco (Railway)
