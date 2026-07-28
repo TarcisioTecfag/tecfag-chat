@@ -93,13 +93,16 @@ export const Route = createFileRoute("/api/valentina/supervisor")({
             };
           });
 
-          // 3. Top Perguntas dos operadores nas últimas 7 dias
-          const topQuestionsRaw = await db
+          // 3. Perguntas recentes dos operadores nas últimas 7 dias
+          const recentQuestionsRaw = await db
             .select({
+              id: internalMessages.id,
               question: internalMessages.content,
-              count: sql<number>`COUNT(*)`.mapWith(Number),
+              createdAt: internalMessages.createdAt,
+              operatorName: operators.name,
             })
             .from(internalMessages)
+            .leftJoin(operators, eq(internalMessages.operatorId, operators.id))
             .where(
               and(
                 eq(internalMessages.tenantId, tenantId),
@@ -108,20 +111,21 @@ export const Route = createFileRoute("/api/valentina/supervisor")({
                 gte(internalMessages.createdAt, last7d)
               )
             )
-            .groupBy(internalMessages.content)
-            .orderBy(desc(sql`COUNT(*)`))
-            .limit(10);
+            .orderBy(desc(internalMessages.createdAt))
+            .limit(20);
 
-          const topQuestions = topQuestionsRaw.map((q) => ({
+          const recentQuestions = recentQuestionsRaw.map((q) => ({
+            id: q.id,
             question: q.question,
-            count: q.count,
+            operatorName: q.operatorName || "Operador Desconhecido",
+            timestamp: q.createdAt.toISOString(),
           }));
 
           return new Response(
             JSON.stringify({
               kpis,
               notifications,
-              topQuestions,
+              recentQuestions,
             }),
             {
               headers: { ...corsHeaders, "Content-Type": "application/json" },

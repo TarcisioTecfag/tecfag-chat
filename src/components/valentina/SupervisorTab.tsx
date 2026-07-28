@@ -83,9 +83,11 @@ interface SupervisorApiData {
     priority: string;
     conversationId: string | null;
   }[];
-  topQuestions: {
+  recentQuestions: {
+    id: string;
+    operatorName: string;
     question: string;
-    count: number;
+    timestamp: string;
   }[];
 }
 
@@ -120,7 +122,7 @@ export function SupervisorTab() {
 
   const kpis = data?.kpis || { notificationsSent: 0, questionsAnswered: 0, slaAlerts: 0, leadsTransferred: 0 };
   const notifications = data?.notifications || [];
-  const topQuestions = data?.topQuestions || [];
+  const recentQuestions = data?.recentQuestions || [];
 
   return (
     <div className="flex flex-col gap-4 h-full overflow-y-auto scrollbar-thin">
@@ -156,7 +158,7 @@ export function SupervisorTab() {
         />
       </div>
 
-      {/* ── Bottom row — Timeline + Top Questions ──────────────────────── */}
+      {/* ── Bottom row — Timeline + Recent Questions ──────────────────────── */}
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Timeline de atividade (60%) */}
         <div className="w-[60%] flex flex-col bg-card rounded-2xl border border-border shadow-soft overflow-hidden">
@@ -232,14 +234,13 @@ export function SupervisorTab() {
           </div>
         </div>
 
-        {/* Perguntas mais frequentes (40%) */}
+        {/* Perguntas Recentes (40%) */}
         <div className="w-[40%] flex flex-col bg-card rounded-2xl border border-border shadow-soft overflow-hidden">
           <div className="px-4 py-3 border-b border-line shrink-0">
             <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
               <HelpCircle className="h-3.5 w-3.5 text-primary" />
-              Perguntas Mais Frequentes
+              Perguntas Recentes
             </h3>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Últimos 7 dias</p>
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
             {loading ? (
@@ -251,19 +252,10 @@ export function SupervisorTab() {
                   </div>
                 ))}
               </div>
-            ) : topQuestions.length === 0 ? (
+            ) : recentQuestions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <HelpCircle className="h-6 w-6 mb-2 opacity-40" />
                 <p className="text-xs font-medium">Sem perguntas registradas</p>
-                <p className="text-[10px] mt-1">Quando operadores interagirem com a Valentina, as perguntas mais frequentes aparecerão aqui</p>
-              </div>
-            ) : (
-              topQuestions.map((q, idx) => {
-                const maxCount = topQuestions[0]?.count || 1;
-                const pct = (q.count / maxCount) * 100;
-                return (
-                  <motion.div
-                    key={idx}
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.15, delay: idx * 0.05 }}
