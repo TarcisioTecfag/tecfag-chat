@@ -228,8 +228,8 @@ export function ContactsView() {
         </div>
       </div>
 
-      {/* Main Table */}
-      <div className="flex-1 bg-card rounded-2xl border border-border shadow-soft overflow-hidden flex flex-col">
+      {/* Main Table (Desktop View) */}
+      <div className="hidden md:flex flex-1 bg-card rounded-2xl border border-border shadow-soft overflow-hidden flex-col">
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -358,10 +358,8 @@ export function ContactsView() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-muted-foreground">
-                    <User className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" strokeWidth={1.5} />
-                    <p className="text-sm font-semibold">Nenhum contato encontrado</p>
-                    <p className="text-xs mt-0.5">Tente ajustar seus termos de pesquisa ou crie um novo contato.</p>
+                  <td colSpan={7} className="py-12 text-center text-xs text-muted-foreground font-medium">
+                    Nenhum cliente encontrado com os filtros aplicados.
                   </td>
                 </tr>
               )}

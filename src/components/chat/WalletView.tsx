@@ -295,132 +295,198 @@ export function WalletView() {
                 className="h-full"
               >
                 {walletClients.length > 0 ? (
-                  <div className="overflow-x-auto rounded-2xl border border-border bg-card">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-line bg-muted/30 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          <th className="p-4">Cliente</th>
-                          <th className="p-4">Canais / Contato</th>
-                          <th className="p-4">CPF / CNPJ</th>
-                          <th className="p-4">Status de Atendimento</th>
-                          <th className="p-4 text-right">Ação</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-line text-xs">
-                        {walletClients.map((c) => {
-                          const statusInfo = getAttendanceStatus(c);
-                          const isValentina = c.id === "valentina" || c.contactId === "valentina" || c.name.toLowerCase().includes("valentina");
-                          const initials = c.name
-                            .split(" ")
-                            .map((w) => w[0])
-                            .join("")
-                            .toUpperCase()
-                            .substring(0, 2);
+                  <>
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto rounded-2xl border border-border bg-card">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-line bg-muted/30 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            <th className="p-4">Cliente</th>
+                            <th className="p-4">Canais / Contato</th>
+                            <th className="p-4">CPF / CNPJ</th>
+                            <th className="p-4">Status de Atendimento</th>
+                            <th className="p-4 text-right">Ação</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-line text-xs">
+                          {walletClients.map((c) => {
+                            const statusInfo = getAttendanceStatus(c);
+                            const isValentina = c.id === "valentina" || c.contactId === "valentina" || c.name.toLowerCase().includes("valentina");
+                            const initials = c.name
+                              .split(" ")
+                              .map((w) => w[0])
+                              .join("")
+                              .toUpperCase()
+                              .substring(0, 2);
 
-                          return (
-                            <tr key={c.id} className="hover:bg-muted/20 transition-colors">
-                              <td className="p-4">
-                                <div className="flex items-center gap-3">
-                                  {c.avatar ? (
-                                    <img
-                                      src={c.avatar}
-                                      alt={c.name}
-                                      className="h-9 w-9 rounded-xl object-cover border border-border"
-                                    />
-                                  ) : (
-                                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-soft text-xs font-bold text-primary border border-border">
-                                      {initials}
-                                    </div>
-                                  )}
-                                  <div>
-                                    <div className="font-semibold text-foreground flex items-center gap-1.5">
-                                      {c.name}
-                                      {isValentina && (
-                                        <span className="inline-flex items-center gap-1 bg-primary/15 text-primary text-[9px] font-black px-1.5 py-0.5 rounded-md border border-primary/20">
-                                          <Bot className="h-2.5 w-2.5" /> IA
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                                      {c.channel === "whatsapp" && <WhatsappLogo className="h-3 w-3 inline text-emerald-500" />}
-                                      {c.channel === "instagram" && <InstagramLogo className="h-3 w-3 inline text-pink-500" />}
-                                      {c.channel === "messenger" && <MessengerLogo className="h-3 w-3 inline text-blue-500" />}
-                                      <span className="capitalize">{c.channel}</span>
+                            return (
+                              <tr key={c.id} className="hover:bg-muted/20 transition-colors">
+                                <td className="p-4">
+                                  <div className="flex items-center gap-3">
+                                    {c.avatar ? (
+                                      <img
+                                        src={c.avatar}
+                                        alt={c.name}
+                                        className="h-9 w-9 rounded-xl object-cover border border-border"
+                                      />
+                                    ) : (
+                                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-soft text-xs font-bold text-primary border border-border">
+                                        {initials}
+                                      </div>
+                                    )}
+                                    <div>
+                                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                                        {c.name}
+                                        {isValentina && (
+                                          <span className="inline-flex items-center gap-1 bg-primary/15 text-primary text-[9px] font-black px-1.5 py-0.5 rounded-md border border-primary/20">
+                                            <Bot className="h-2.5 w-2.5" /> IA
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                        {c.channel === "whatsapp" && <WhatsappLogo className="h-3 w-3 inline text-emerald-500" />}
+                                        {c.channel === "instagram" && <InstagramLogo className="h-3 w-3 inline text-pink-500" />}
+                                        {c.channel === "messenger" && <MessengerLogo className="h-3 w-3 inline text-blue-500" />}
+                                        <span className="capitalize">{c.channel}</span>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              </td>
-                              <td className="p-4">
-                                <div className="flex flex-col gap-0.5">
-                                  {c.phone && (
+                                </td>
+                                <td className="p-4">
+                                  <div className="flex flex-col gap-0.5">
+                                    {c.phone && (
+                                      <span className="font-medium text-foreground flex items-center gap-1">
+                                        <Phone className="h-3 w-3 text-muted-foreground" />
+                                        {formatPhoneNumber(c.phone)}
+                                      </span>
+                                    )}
+                                    {c.email && (
+                                      <span className="text-muted-foreground flex items-center gap-1">
+                                        <Mail className="h-3 w-3 text-muted-foreground" />
+                                        {c.email}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-4">
+                                  {c.cnpj ? (
                                     <span className="font-medium text-foreground flex items-center gap-1">
-                                      <Phone className="h-3 w-3 text-muted-foreground" />
-                                      {formatPhoneNumber(c.phone)}
+                                      <Building className="h-3.5 w-3.5 text-muted-foreground" />
+                                      {formatCNPJ(c.cnpj)}
                                     </span>
-                                  )}
-                                  {c.email && (
-                                    <span className="text-muted-foreground flex items-center gap-1">
-                                      <Mail className="h-3 w-3 text-muted-foreground" />
-                                      {c.email}
+                                  ) : c.cpf ? (
+                                    <span className="font-medium text-foreground flex items-center gap-1">
+                                      <User className="h-3.5 w-3.5 text-muted-foreground" />
+                                      {formatCPF(c.cpf)}
                                     </span>
+                                  ) : (
+                                    <span className="text-muted-foreground italic">-</span>
                                   )}
-                                </div>
-                              </td>
-                              <td className="p-4">
-                                {c.cnpj ? (
-                                  <span className="font-medium text-foreground flex items-center gap-1">
-                                    <Building className="h-3.5 w-3.5 text-muted-foreground" />
-                                    {formatCNPJ(c.cnpj)}
+                                </td>
+                                <td className="p-4">
+                                  <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${statusInfo.color}`}>
+                                    {statusInfo.text}
                                   </span>
-                                ) : c.cpf ? (
-                                  <span className="font-medium text-foreground flex items-center gap-1">
-                                    <User className="h-3.5 w-3.5 text-muted-foreground" />
-                                    {formatCPF(c.cpf)}
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground italic">-</span>
-                                )}
-                              </td>
-                              <td className="p-4">
-                                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${statusInfo.color}`}>
-                                  {statusInfo.text}
-                                </span>
-                              </td>
-                              <td className="p-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  {/* Valentina é assistente IA permanente do sistema e não pode ser removida */}
-                                  {!isValentina && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <button
-                                          onClick={() => setConfirmRemoveClient(c)}
-                                          className="inline-flex items-center gap-1 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-red-200 dark:border-red-800"
-                                        >
-                                          <UserMinus className="h-3.5 w-3.5" />
-                                          Remover
-                                        </button>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="top">
-                                        Remover da carteira e devolver para a Valentina IA
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  )}
+                                </td>
+                                <td className="p-4 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    {!isValentina && (
+                                      <button
+                                        onClick={() => setConfirmRemoveClient(c)}
+                                        className="inline-flex items-center gap-1 rounded-xl bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-red-200 dark:border-red-800"
+                                      >
+                                        <UserMinus className="h-3.5 w-3.5" />
+                                        Remover
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleGoToChat(c)}
+                                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:opacity-90 shadow-soft cursor-pointer"
+                                    >
+                                      <MessageSquare className="h-3.5 w-3.5" />
+                                      Atendimento
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
 
-                                  <button
-                                    onClick={() => handleGoToChat(c)}
-                                    className="inline-flex items-center gap-1 rounded-xl bg-muted px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-primary-soft hover:text-primary transition cursor-pointer border border-border hover:border-primary/20"
-                                  >
-                                    Conversar
-                                    <ChevronRight className="h-3 w-3" />
-                                  </button>
+                    {/* Mobile Native Cards View */}
+                    <div className="flex flex-col gap-3 md:hidden">
+                      {walletClients.map((c) => {
+                        const statusInfo = getAttendanceStatus(c);
+                        const isValentina = c.id === "valentina" || c.contactId === "valentina" || c.name.toLowerCase().includes("valentina");
+                        const initials = c.name
+                          .split(" ")
+                          .map((w) => w[0])
+                          .join("")
+                          .toUpperCase()
+                          .substring(0, 2);
+
+                        return (
+                          <div key={c.id} className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col gap-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                {c.avatar ? (
+                                  <img src={c.avatar} alt="" className="h-10 w-10 rounded-xl object-cover border border-border" />
+                                ) : (
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-xs font-bold text-primary border border-border">
+                                    {initials}
+                                  </div>
+                                )}
+                                <div>
+                                  <span className="font-bold text-sm text-foreground block">{c.name}</span>
+                                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusInfo.color}`}>
+                                    {statusInfo.text}
+                                  </span>
                                 </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                              </div>
+
+                              <span className="text-[10px] font-bold text-muted-foreground flex items-center gap-1 capitalize">
+                                {c.channel === "whatsapp" && <WhatsappLogo className="h-3 w-3 text-emerald-500" />}
+                                {c.channel}
+                              </span>
+                            </div>
+
+                            <div className="bg-muted/40 rounded-xl p-3 text-xs space-y-1 border border-border/50">
+                              {c.phone && (
+                                <div className="flex items-center justify-between text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <Phone className="h-3 w-3 text-primary" />
+                                    <span className="font-semibold text-foreground">{formatPhoneNumber(c.phone)}</span>
+                                  </span>
+                                  {c.cnpj && <span className="font-mono text-[10px]">{formatCNPJ(c.cnpj)}</span>}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 pt-1 border-t border-border/60">
+                              {!isValentina && (
+                                <button
+                                  onClick={() => setConfirmRemoveClient(c)}
+                                  className="flex-1 py-2 px-3 rounded-xl border border-red-200 text-red-600 bg-red-50 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                >
+                                  <UserMinus className="h-3.5 w-3.5" />
+                                  <span>Remover</span>
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleGoToChat(c)}
+                                className="flex-1 py-2 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center gap-1.5 shadow-soft hover:opacity-90 transition cursor-pointer"
+                              >
+                                <MessageSquare className="h-3.5 w-3.5" />
+                                <span>Ir para Atendimento</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 ) : (
                   <div className="flex h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card p-6 text-center">
                     <Briefcase className="h-10 w-10 text-muted-foreground/40 mb-3" />

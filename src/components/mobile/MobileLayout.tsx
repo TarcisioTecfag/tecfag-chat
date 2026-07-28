@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { useChat } from "@/hooks/useChatState";
 import { MobileHeader } from "./MobileHeader";
 import { MobileBottomNav } from "./MobileBottomNav";
@@ -17,7 +17,7 @@ export const MobileLayout: React.FC = () => {
     sendMessage,
   } = useChat();
 
-  const [searchOpen, setSearchOpen] = useState(false);
+  const isInsideChat = activeView === "chat" && selectedChatId !== null;
 
   const handleSendMessage = (text: string, isInternalNote: boolean) => {
     if (selectedChatId) {
@@ -29,13 +29,13 @@ export const MobileLayout: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-x-hidden">
-      {/* Header Mobile com navegação e acionamento de ações */}
-      <MobileHeader
-        onSearchClick={() => setSearchOpen(!searchOpen)}
-      />
+      {/* O menu de cima (MobileHeader) SÓ APARECE no mobile quando estivermos DENTRO de um chat */}
+      {isInsideChat && (
+        <MobileHeader />
+      )}
 
       {/* Conteúdo Dinâmico com base na View Ativa */}
-      <main className="flex-1 overflow-y-auto pb-32">
+      <main className={`flex-1 overflow-y-auto ${isInsideChat ? "pb-36" : "pb-24"}`}>
         {activeView === "valentina" ? (
           <ValentinaFeed
             onOpenChat={(id) => {
@@ -44,24 +44,24 @@ export const MobileLayout: React.FC = () => {
           />
         ) : activeView === "chat" ? (
           selectedChatId ? (
-            /* Tela do Chat Selecionado em Tela Cheia (sem headers duplicados) */
-            <div className="flex flex-col h-full w-full p-2">
+            /* Tela do Chat Selecionado em Tela Cheia no Mobile */
+            <div className="flex flex-col h-full w-full p-1 sm:p-2">
               <ChatPanel />
             </div>
           ) : (
             /* Lista de Conversas do Atendimento 100% fluida */
-            <div className="p-2 w-full flex justify-center">
+            <div className="p-2 w-full">
               <ChatList />
             </div>
           )
         ) : activeView === "contacts" ? (
-          /* Aba Clientes */
-          <div className="p-2 w-full">
+          /* Aba Clientes (Mobile Native) */
+          <div className="p-2.5 w-full">
             <ContactsView />
           </div>
         ) : activeView === "wallet" ? (
-          /* Aba Carteira */
-          <div className="p-2 w-full">
+          /* Aba Carteira (Mobile Native) */
+          <div className="p-2.5 w-full">
             <WalletView />
           </div>
         ) : (
@@ -71,12 +71,12 @@ export const MobileLayout: React.FC = () => {
         )}
       </main>
 
-      {/* Input de Mensagem (no Feed Valentina ou em Chat Selecionado) */}
+      {/* Input de Mensagem (Apenas no Feed Valentina ou no Chat Aberto) */}
       {(activeView === "valentina" || (activeView === "chat" && selectedChatId)) && (
         <MobileMessageInput onSendMessage={handleSendMessage} />
       )}
 
-      {/* Navegação Inferior Fixa com 4 Itens */}
+      {/* Navegação Inferior Fixa (4 Itens: Início, Atendimentos, Clientes, Carteira) */}
       <MobileBottomNav />
     </div>
   );
