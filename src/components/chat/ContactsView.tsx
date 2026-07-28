@@ -368,6 +368,102 @@ export function ContactsView() {
         </div>
       </div>
 
+      {/* Mobile Native Cards View (Exibido apenas em telas menores) */}
+      <div className="flex flex-col gap-3 md:hidden mt-2 pb-10">
+        {filteredContacts.length > 0 ? (
+          filteredContacts.map((c) => {
+            const isValentina = c.id === "valentina" || c.name.toLowerCase().includes("valentina");
+            const opName = c.operatorId ? operators.find(o => o.id === c.operatorId)?.name : null;
+            const displayName = opName || (c.responsibleName === "Na Fila" || !c.responsibleName ? "Na Fila" : c.responsibleName);
+
+            return (
+              <div key={c.id} className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col gap-3">
+                {/* Linha Topo: Avatar + Nome + Badge Canal */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {c.avatar ? (
+                      <img src={c.avatar} alt="" className="h-10 w-10 rounded-full object-cover border border-border" />
+                    ) : (
+                      <div className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground" style={{ background: c.initialsBg || "#eee" }}>
+                        {c.initials || "U"}
+                      </div>
+                    )}
+                    <div>
+                      <span className="block font-bold text-sm text-foreground leading-tight">{c.name}</span>
+                      <span className="text-[10px] text-muted-foreground font-medium">
+                        {displayName === "Na Fila" ? "🟡 Na Fila de Espera" : `🟢 ${displayName}`}
+                      </span>
+                    </div>
+                  </div>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white ${c.channel === "whatsapp" ? "bg-emerald-500" : c.channel === "instagram" ? "bg-gradient-to-tr from-yellow-500 to-purple-600" : "bg-blue-600"}`}>
+                    {c.channel === "whatsapp" && <WhatsappLogo className="h-3 w-3" />}
+                    {c.channel === "instagram" && <InstagramLogo className="h-3 w-3" />}
+                    {c.channel === "messenger" && <MessengerLogo className="h-3 w-3" />}
+                    <span className="capitalize">{c.channel}</span>
+                  </span>
+                </div>
+
+                {/* Dados do Contato: Telefone, Email, CNPJ */}
+                <div className="bg-muted/40 rounded-xl p-3 text-xs space-y-1.5 border border-border/50">
+                  <div className="flex items-center justify-between text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <Phone className="h-3.5 w-3.5 text-primary" />
+                      <span className="font-semibold text-foreground">{formatPhoneNumber(c.phone)}</span>
+                    </span>
+                    {c.cnpj && (
+                      <span className="text-[10px] text-emerald-600 font-mono bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                        {formatCNPJ(c.cnpj)}
+                      </span>
+                    )}
+                  </div>
+                  {c.email && (
+                    <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+                      <Mail className="h-3 w-3" />
+                      <span className="truncate">{c.email}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tags */}
+                {c.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {c.tags.map((tag) => (
+                      <span key={tag} className="rounded-full bg-primary-soft/60 px-2 py-0.5 text-[10px] font-bold text-primary border border-primary/20">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Ações */}
+                <div className="flex items-center gap-2 pt-1 border-t border-border/60">
+                  {!isValentina && (
+                    <button
+                      onClick={() => startEditing(c)}
+                      className="flex-1 py-2 px-3 rounded-xl border border-border bg-card hover:bg-muted text-foreground text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                      <span>Editar</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleStartChat(c.id)}
+                    className="flex-1 py-2 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center gap-1.5 shadow-soft hover:opacity-90 transition cursor-pointer"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span>Iniciar Chat</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="p-8 text-center text-xs text-muted-foreground font-medium bg-card rounded-2xl border border-border">
+            Nenhum cliente encontrado com os filtros aplicados.
+          </div>
+        )}
+      </div>
+
       {/* MODAL: BUSCA GLOBAL DE CONVERSAS */}
       <AnimatePresence>
         {showSearchModal && (
