@@ -29,7 +29,7 @@ export const MobileLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-x-hidden">
+    <div className="flex flex-col h-[100dvh] max-h-[100dvh] w-full max-w-[100vw] bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-hidden touch-manipulation">
       {/* O menu de cima (MobileHeader) SÓ APARECE no mobile quando estivermos DENTRO de um chat */}
       {isInsideChat && (
         <MobileHeader onSearchClick={() => setSearchOpen(!searchOpen)} />
@@ -37,8 +37,8 @@ export const MobileLayout: React.FC = () => {
 
       {/* Conteúdo Dinâmico com base na View Ativa */}
       <main
-        className={`flex-1 overflow-y-auto ${
-          isInsideChat ? "pt-14 pb-24" : "pb-20"
+        className={`flex-1 min-h-0 overflow-y-auto w-full ${
+          isInsideChat ? "pt-14 pb-20" : "pb-16"
         }`}
       >
         {activeView === "valentina" ? (
@@ -49,8 +49,8 @@ export const MobileLayout: React.FC = () => {
           />
         ) : activeView === "chat" ? (
           selectedChatId ? (
-            /* Tela do Chat Selecionado em Tela Cheia no Mobile (sem headers duplicados) */
-            <div className="flex flex-col h-full w-full p-1 sm:p-2">
+            /* Tela do Chat Selecionado em Tela Cheia no Mobile */
+            <div className="flex flex-col h-full w-full min-h-0 p-0 sm:p-1 overflow-hidden">
               <ChatPanel />
             </div>
           ) : (
