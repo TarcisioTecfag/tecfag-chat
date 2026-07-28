@@ -17,6 +17,9 @@ import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { motion, AnimatePresence } from "framer-motion";
 
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileLayout } from "@/components/mobile/MobileLayout";
+
 export const Route = createFileRoute("/")({
   ssr: true,
   component: Index,
@@ -24,6 +27,7 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const { tenant, activeView, rightSidebarOpen, selectedChatId, isAuthenticated, isProfileModalOpen } = useChat();
+  const isMobile = useIsMobile();
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -48,6 +52,17 @@ function Index() {
         "--primary": "#2dc4a0", // Verde Esmeralda Valem
         "--primary-soft": "#d8f1ea",
       } as React.CSSProperties);
+
+  if (isMobile) {
+    return (
+      <div className="min-h-screen bg-background" style={themeStyles}>
+        <MobileLayout />
+        <AnimatePresence>
+          {isProfileModalOpen && <ProfileModal />}
+        </AnimatePresence>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
