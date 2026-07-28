@@ -226,11 +226,17 @@ function getFeatureLabel(feature: string): string {
     case "sla_advisor":
       return "Análise SLA & Alertas";
     case "supervisor_chat":
-      return "Valentina Chat Operador";
+      return "Valentina Supervisor (Chat Interno)";
+    case "valentina_chat":
+      return "Valentina Chat do Operador";
+    case "sentiment_analysis":
+      return "Análise de Sentimento (Clientes)";
+    case "call_transcription":
+      return "Transcrição de Ligações";
     case "knowledge_rag":
       return "Base de Conhecimento RAG";
     default:
-      return "Uso Geral Vertex AI";
+      return feature || "Uso Geral Vertex AI";
   }
 }
 
@@ -250,7 +256,7 @@ function generateDemoLogs(period: string, tenantId: string) {
   const days = period === "today" ? 1 : period === "7d" ? 7 : 30;
   const now = new Date();
 
-  const features = ["sdr_agent", "conversation_audit", "supervisor_chat", "sla_advisor"];
+  const features = ["sdr_agent", "conversation_audit", "supervisor_chat", "sla_advisor", "valentina_chat", "sentiment_analysis"];
   const models = ["gemini-2.5-pro", "gemini-1.5-flash"];
 
   // Gerar ~15 chamadas por dia com variação realista
