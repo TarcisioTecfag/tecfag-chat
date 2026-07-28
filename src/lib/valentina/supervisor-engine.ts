@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { conversations, contacts, messages, internalMessages, operators } from "../../db/schema";
-import { eq, ne, desc } from "drizzle-orm";
+import { eq, ne, desc, and } from "drizzle-orm";
 import crypto from "crypto";
 
 /**
@@ -174,11 +174,14 @@ export class SupervisorEngine {
     if (now - lastTime < 20 * 60_000) return;
     this.lastNotified.set(key, now);
 
-    const op = await db.query.operators.findFirst({
-        where: eq(operators.id, operatorId)
-    });
+    const opRows = await db
+      .select({ name: operators.name, tenantId: operators.tenantId })
+      .from(operators)
+      .where(eq(operators.id, operatorId))
+      .limit(1);
     
-    if (!op) return;
+    if (opRows.length === 0) return;
+    const op = opRows[0];
 
     const alertMessage = `⚠️ Atenção ${op.name.split(' ')[0]}! Você possui ${count} conversas ativas neste momento. Tente focar em fechar os atendimentos atuais para manter a qualidade.`;
 

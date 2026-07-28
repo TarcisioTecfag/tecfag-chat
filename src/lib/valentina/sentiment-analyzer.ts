@@ -145,11 +145,14 @@ class SentimentAnalyzer {
     this.lastAlertTimes.set(conversationId, now);
 
     // Buscar a conversa para encontrar o operador alocado
-    const conv = await db.query.conversations.findFirst({
-        where: (t, { eq }) => eq(t.id, conversationId)
-    });
+    const convRows = await db
+      .select({ operatorId: conversations.operatorId })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
     
-    if (!conv || !conv.operatorId) return; // Alertar apenas se houver operador atendendo
+    if (convRows.length === 0 || !convRows[0].operatorId) return;
+    const conv = convRows[0];
 
     const humanizedMsg = `🚨 Detectei frustração na conversa com o cliente *${contactName}*. Pode ser uma boa ideia dar uma atenção e acalmá-lo!`;
 
@@ -157,7 +160,7 @@ class SentimentAnalyzer {
     await db.insert(internalMessages).values({
       id: uuidv4(),
       tenantId,
-      operatorId: conv.operatorId,
+      operatorId: conv.operatorId || 'system',
       direction: 'from_agent',
       agentType: 'supervisor',
       content: humanizedMsg,
@@ -204,14 +207,18 @@ class SentimentAnalyzer {
       
       // Tentar resolver o nome do contato se não foi enviado no metadata
       if (resolvedContactName === 'Cliente') {
-          const conv = await db.query.conversations.findFirst({
-              where: (t, { eq }) => eq(t.id, conversationId)
-          });
-          if (conv && conv.contactId) {
-             const contact = await db.query.contacts.findFirst({
-                 where: (t, { eq }) => eq(t.id, conv.contactId)
-             });
-             if (contact) resolvedContactName = contact.name;
+          const convRows2 = await db
+            .select({ contactId: conversations.contactId })
+            .from(conversations)
+            .where(eq(conversations.id, conversationId))
+            .limit(1);
+          if (convRows2.length > 0 && convRows2[0].contactId) {
+             const contactRows = await db
+               .select({ name: contacts.name })
+               .from(contacts)
+               .where(eq(contacts.id, convRows2[0].contactId))
+               .limit(1);
+             if (contactRows.length > 0) resolvedContactName = contactRows[0].name;
           }
       }
 

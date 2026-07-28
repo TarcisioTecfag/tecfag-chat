@@ -50,7 +50,7 @@ function SlaAlertCard({ data }: { data: Record<string, any> }) {
 // ── Componente principal ────────────────────────────────────────────────────
 
 export function ValentinaChatTab() {
-  const { operatorProfile } = useChat();
+  const { operatorProfile, currentOperatorId } = useChat();
   const [messages, setMessages] = useState<ValentinaChatMessage[]>([...VALENTINA_WELCOME_MESSAGES]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -110,7 +110,7 @@ export function ValentinaChatTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tenantId: "valem",
-          operatorId: operatorProfile?.id || "system",
+          operatorId: currentOperatorId || "system",
           content: textToSend,
         }),
       });

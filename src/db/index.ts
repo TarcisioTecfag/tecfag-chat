@@ -46,6 +46,7 @@ setupClient.unsafe(`
   ALTER TABLE response_time_logs ADD COLUMN IF NOT EXISTS agent_response_at TIMESTAMP;
   ALTER TABLE response_time_logs ADD COLUMN IF NOT EXISTS response_time_seconds INTEGER;
   ALTER TABLE response_time_logs ADD COLUMN IF NOT EXISTS overdue_threshold_seconds INTEGER NOT NULL DEFAULT 900;
+  ALTER TABLE response_time_logs ADD COLUMN IF NOT EXISTS overdue_notified_at TIMESTAMP;
 
   CREATE TABLE IF NOT EXISTS ai_conversation_audits (
     id TEXT PRIMARY KEY,
@@ -201,6 +202,47 @@ setupClient.unsafe(`
     content TEXT,
     uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
+
+  -- ── Telemetria e Custos de I.A. (Vertex AI) ──────────────────────────────
+  CREATE TABLE IF NOT EXISTS ai_usage_logs (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    feature TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd TEXT NOT NULL,
+    cost_brl TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'success',
+    error_message TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  -- Colunas extras caso a tabela já exista sem elas
+  ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS latency_ms INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'success';
+  ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS error_message TEXT;
+  ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}';
+
+  -- ── Relatórios de IA (tabela com schema correto) ──────────────────────────
+  CREATE TABLE IF NOT EXISTS ai_reports (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    period TEXT NOT NULL,
+    report_markdown TEXT NOT NULL,
+    report_data JSONB,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  -- Compatibilidade: add colunas caso tabela exista com schema antigo
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS type TEXT;
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS period TEXT;
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS report_markdown TEXT;
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS report_data JSONB;
 `)
   .then(() => {
     console.log("[db] ✓ Tabelas de gestão e agentes verificadas/criadas com sucesso.");
