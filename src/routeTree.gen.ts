@@ -45,9 +45,11 @@ import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/
 import { Route as ApiBaileysStatusRouteImport } from './routes/api/baileys/status'
 import { Route as ApiBaileysSendMediaRouteImport } from './routes/api/baileys/send-media'
 import { Route as ApiBaileysSendRouteImport } from './routes/api/baileys/send'
+import { Route as ApiBaileysPresenceRouteImport } from './routes/api/baileys/presence'
 import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
 import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
 import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
+import { Route as ApiAdminResetRouteImport } from './routes/api/admin/reset'
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
@@ -233,6 +235,11 @@ const ApiBaileysSendRoute = ApiBaileysSendRouteImport.update({
   path: '/api/baileys/send',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBaileysPresenceRoute = ApiBaileysPresenceRouteImport.update({
+  id: '/api/baileys/presence',
+  path: '/api/baileys/presence',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiBaileysMediaRoute = ApiBaileysMediaRouteImport.update({
   id: '/api/baileys/media',
   path: '/api/baileys/media',
@@ -246,6 +253,11 @@ const ApiBaileysDisconnectRoute = ApiBaileysDisconnectRouteImport.update({
 const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
   id: '/api/baileys/connect',
   path: '/api/baileys/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminResetRoute = ApiAdminResetRouteImport.update({
+  id: '/api/admin/reset',
+  path: '/api/admin/reset',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSettingsRdCrmFieldsRoute = ApiSettingsRdCrmFieldsRouteImport.update({
@@ -278,9 +290,11 @@ export interface FileRoutesByFullPath {
   '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
+  '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
+  '/api/baileys/presence': typeof ApiBaileysPresenceRoute
   '/api/baileys/send': typeof ApiBaileysSendRoute
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
@@ -322,9 +336,11 @@ export interface FileRoutesByTo {
   '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
+  '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
+  '/api/baileys/presence': typeof ApiBaileysPresenceRoute
   '/api/baileys/send': typeof ApiBaileysSendRoute
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
@@ -367,9 +383,11 @@ export interface FileRoutesById {
   '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
+  '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
+  '/api/baileys/presence': typeof ApiBaileysPresenceRoute
   '/api/baileys/send': typeof ApiBaileysSendRoute
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
@@ -413,9 +431,11 @@ export interface FileRouteTypes {
     | '/api/tasks'
     | '/api/templates'
     | '/call/$roomId'
+    | '/api/admin/reset'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
+    | '/api/baileys/presence'
     | '/api/baileys/send'
     | '/api/baileys/send-media'
     | '/api/baileys/status'
@@ -457,9 +477,11 @@ export interface FileRouteTypes {
     | '/api/tasks'
     | '/api/templates'
     | '/call/$roomId'
+    | '/api/admin/reset'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
+    | '/api/baileys/presence'
     | '/api/baileys/send'
     | '/api/baileys/send-media'
     | '/api/baileys/status'
@@ -501,9 +523,11 @@ export interface FileRouteTypes {
     | '/api/tasks'
     | '/api/templates'
     | '/call/$roomId'
+    | '/api/admin/reset'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
+    | '/api/baileys/presence'
     | '/api/baileys/send'
     | '/api/baileys/send-media'
     | '/api/baileys/status'
@@ -546,9 +570,11 @@ export interface RootRouteChildren {
   ApiTasksRoute: typeof ApiTasksRoute
   ApiTemplatesRoute: typeof ApiTemplatesRoute
   CallRoomIdRoute: typeof CallRoomIdRoute
+  ApiAdminResetRoute: typeof ApiAdminResetRoute
   ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
   ApiBaileysDisconnectRoute: typeof ApiBaileysDisconnectRoute
   ApiBaileysMediaRoute: typeof ApiBaileysMediaRoute
+  ApiBaileysPresenceRoute: typeof ApiBaileysPresenceRoute
   ApiBaileysSendRoute: typeof ApiBaileysSendRoute
   ApiBaileysSendMediaRoute: typeof ApiBaileysSendMediaRoute
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
@@ -827,6 +853,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBaileysSendRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/baileys/presence': {
+      id: '/api/baileys/presence'
+      path: '/api/baileys/presence'
+      fullPath: '/api/baileys/presence'
+      preLoaderRoute: typeof ApiBaileysPresenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/baileys/media': {
       id: '/api/baileys/media'
       path: '/api/baileys/media'
@@ -846,6 +879,13 @@ declare module '@tanstack/react-router' {
       path: '/api/baileys/connect'
       fullPath: '/api/baileys/connect'
       preLoaderRoute: typeof ApiBaileysConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/reset': {
+      id: '/api/admin/reset'
+      path: '/api/admin/reset'
+      fullPath: '/api/admin/reset'
+      preLoaderRoute: typeof ApiAdminResetRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/settings/rd-crm/fields': {
@@ -934,9 +974,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTasksRoute: ApiTasksRoute,
   ApiTemplatesRoute: ApiTemplatesRoute,
   CallRoomIdRoute: CallRoomIdRoute,
+  ApiAdminResetRoute: ApiAdminResetRoute,
   ApiBaileysConnectRoute: ApiBaileysConnectRoute,
   ApiBaileysDisconnectRoute: ApiBaileysDisconnectRoute,
   ApiBaileysMediaRoute: ApiBaileysMediaRoute,
+  ApiBaileysPresenceRoute: ApiBaileysPresenceRoute,
   ApiBaileysSendRoute: ApiBaileysSendRoute,
   ApiBaileysSendMediaRoute: ApiBaileysSendMediaRoute,
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,

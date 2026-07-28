@@ -1170,8 +1170,9 @@ export function ChatPanel() {
                 </span>
               )}
             </span>
-          </div>
+          )}
         </div>
+      </div>
 
         {/* Handover Operations Actions */}
         <div className="flex items-center gap-2 relative">
