@@ -19,6 +19,7 @@ import {
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
 import { formatPhoneNumber } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 
 const BACKEND_URL =
   typeof window !== "undefined" && window.location.hostname === "localhost"
@@ -85,6 +86,21 @@ function FeedAvatar({ avatar, name }: { avatar?: string | null; name: string }) 
   );
 }
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.06,
+    },
+  },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 350, damping: 25 } },
+};
+
 export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
   onOpenChat,
 }) => {
@@ -125,7 +141,6 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      // 1. Métricas do Operador
       if (currentOperatorId) {
         const mRes = await fetch(
           `${BACKEND_URL}/api/gestao/my-metrics?tenantId=${tenant}&operatorId=${currentOperatorId}`
@@ -136,20 +151,17 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
         }
       }
 
-      // 2. Alertas SLA reais
       const aRes = await fetch(
         `${BACKEND_URL}/api/gestao/alerts?tenantId=${tenant}`
       ).catch(() => null);
       if (aRes && aRes.ok) {
         const aData: SlaAlert[] = await aRes.json();
-        // Filtra alertas pertencentes a este operador (ou na fila se for relevante)
         const myAlerts = aData.filter(
           (a) => !a.operatorId || a.operatorId === currentOperatorId
         );
         setSlaAlerts(myAlerts);
       }
 
-      // 3. Minhas Tarefas reais do CRM (filtradas pelo email do operador)
       if (opEmail) {
         const tRes = await fetch(
           `${BACKEND_URL}/api/tasks?tenantId=${tenant}&email=${encodeURIComponent(opEmail)}`
@@ -170,7 +182,6 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
     loadDashboardData();
   }, [tenant, currentOperatorId, opEmail]);
 
-  // Conversas recentes do operador logado
   const myRecentChats = conversations
     .filter(
       (c) =>
@@ -196,10 +207,17 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-5 p-4 pb-24 max-w-lg mx-auto select-none">
-      
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="flex flex-col gap-5 p-4 pb-24 max-w-lg mx-auto select-none"
+    >
       {/* ─── 1. HEADER DO VENDEDOR & STATUS ─────────────────────────────────── */}
-      <div className="bg-card border border-border rounded-3xl p-5 shadow-soft flex flex-col gap-3 relative overflow-hidden">
+      <motion.div
+        variants={itemVariants}
+        className="bg-card border border-border rounded-3xl p-5 shadow-soft flex flex-col gap-3 relative overflow-hidden"
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <FeedAvatar avatar={operatorProfile?.avatar || currentOp?.avatar} name={opName} />
@@ -213,8 +231,10 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </div>
           </div>
 
-          {/* Botão Seletor de Status */}
-          <button
+          {/* Botão Seletor de Status com Micro-Animação */}
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            whileHover={{ scale: 1.03 }}
             onClick={toggleStatus}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition shadow-soft cursor-pointer border ${
               opStatus === "disponivel"
@@ -227,14 +247,14 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             <span
               className={`h-2 w-2 rounded-full ${
                 opStatus === "disponivel"
-                  ? "bg-emerald-500"
+                  ? "bg-emerald-500 animate-pulse"
                   : opStatus === "pausa"
                   ? "bg-amber-500"
                   : "bg-gray-400"
               }`}
             />
             <span className="capitalize">{opStatus}</span>
-          </button>
+          </motion.button>
         </div>
 
         <div className="text-xs text-muted-foreground bg-muted/40 p-3 rounded-2xl border border-border/50 flex items-center justify-between">
@@ -243,20 +263,24 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
               ? `🚨 ${metrics.overdueAlerts} atendimento${metrics.overdueAlerts > 1 ? "s" : ""} requer${metrics.overdueAlerts > 1 ? "em" : ""} atenção!`
               : "✨ Todos os seus atendimentos estão em dia."}
           </span>
-          <button
+          <motion.button
+            whileTap={{ scale: 0.85, rotate: 180 }}
             onClick={loadDashboardData}
             className="p-1 rounded-lg hover:bg-muted text-muted-foreground transition cursor-pointer"
             title="Atualizar painel"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
-          </button>
+          </motion.button>
         </div>
-      </div>
+      </motion.div>
 
       {/* ─── 2. CARROSSEL / GRID DE KPIS INDIVIDUAIS ───────────────────────── */}
-      <div className="grid grid-cols-2 gap-3">
+      <motion.div variants={itemVariants} className="grid grid-cols-2 gap-3">
         {/* KPI 1: SLA Médio Hoje */}
-        <div className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between">
+        <motion.div
+          whileTap={{ scale: 0.97 }}
+          className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between transition-colors hover:border-primary/30"
+        >
           <div className="flex items-center justify-between text-muted-foreground mb-2">
             <span className="text-[10px] font-extrabold uppercase tracking-wider">Tempo Resposta</span>
             <Clock className="h-4 w-4 text-primary" />
@@ -267,15 +291,18 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </span>
             <span className="text-[10px] text-muted-foreground font-medium">Média de hoje</span>
           </div>
-        </div>
+        </motion.div>
 
         {/* KPI 2: Alertas SLA Atrasados */}
-        <div className={`border rounded-2xl p-4 shadow-soft flex flex-col justify-between ${
-          metrics.overdueAlerts > 0 ? "bg-red-500/5 border-red-500/20" : "bg-card border-border"
-        }`}>
+        <motion.div
+          whileTap={{ scale: 0.97 }}
+          className={`border rounded-2xl p-4 shadow-soft flex flex-col justify-between transition-colors ${
+            metrics.overdueAlerts > 0 ? "bg-red-500/5 border-red-500/20" : "bg-card border-border"
+          }`}
+        >
           <div className="flex items-center justify-between text-muted-foreground mb-2">
             <span className="text-[10px] font-extrabold uppercase tracking-wider">Atrasos SLA</span>
-            <AlertTriangle className={`h-4 w-4 ${metrics.overdueAlerts > 0 ? "text-red-500 animate-pulse" : "text-emerald-500"}`} />
+            <AlertTriangle className={`h-4 w-4 ${metrics.overdueAlerts > 0 ? "text-red-500 animate-bounce" : "text-emerald-500"}`} />
           </div>
           <div>
             <span className={`text-xl font-black block ${metrics.overdueAlerts > 0 ? "text-red-600" : "text-foreground"}`}>
@@ -283,10 +310,13 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </span>
             <span className="text-[10px] text-muted-foreground font-medium">Aguardando você</span>
           </div>
-        </div>
+        </motion.div>
 
         {/* KPI 3: Atendimentos Concluídos Hoje */}
-        <div className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between">
+        <motion.div
+          whileTap={{ scale: 0.97 }}
+          className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between transition-colors hover:border-emerald-500/30"
+        >
           <div className="flex items-center justify-between text-muted-foreground mb-2">
             <span className="text-[10px] font-extrabold uppercase tracking-wider">Concluídos</span>
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
@@ -297,10 +327,13 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </span>
             <span className="text-[10px] text-muted-foreground font-medium">Encerrados hoje</span>
           </div>
-        </div>
+        </motion.div>
 
         {/* KPI 4: Score de Qualidade IA */}
-        <div className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between">
+        <motion.div
+          whileTap={{ scale: 0.97 }}
+          className="bg-card border border-border rounded-2xl p-4 shadow-soft flex flex-col justify-between transition-colors hover:border-amber-500/30"
+        >
           <div className="flex items-center justify-between text-muted-foreground mb-2">
             <span className="text-[10px] font-extrabold uppercase tracking-wider">Score I.A.</span>
             <Star className="h-4 w-4 text-amber-500 fill-amber-500/20" />
@@ -311,11 +344,11 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </span>
             <span className="text-[10px] text-muted-foreground font-medium">Avaliação Valentina</span>
           </div>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
       {/* ─── 3. BLOCO 1: REQUER ATENÇÃO IMEDIATA (ALERTAS SLA REAIS) ───────── */}
-      <div className="space-y-3">
+      <motion.div variants={itemVariants} className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
             <Flame className="h-4 w-4 text-red-500" />
@@ -330,8 +363,9 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
 
         {slaAlerts.length > 0 ? (
           slaAlerts.slice(0, 3).map((alert) => (
-            <div
+            <motion.div
               key={alert.logId}
+              whileTap={{ scale: 0.98 }}
               className="bg-card border border-red-500/30 rounded-3xl p-4 shadow-soft space-y-3 relative overflow-hidden"
             >
               <div className="flex items-center justify-between">
@@ -347,27 +381,25 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
                   </div>
                 </div>
 
-                {/* Tempo de Espera */}
                 <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 border border-red-500/20 shrink-0">
                   <Clock className="h-3 w-3" />
                   {alert.waitingMinutes > 0 ? `${alert.waitingMinutes}m atraso` : `${alert.waitingSeconds}s`}
                 </span>
               </div>
 
-              {/* Mensagem do cliente */}
               <div className="bg-muted/60 rounded-xl p-3 border border-border text-xs text-foreground/80 italic line-clamp-2">
                 "{alert.lastMessagePreview}"
               </div>
 
-              {/* Botão Responder Agora */}
-              <button
+              <motion.button
+                whileTap={{ scale: 0.95 }}
                 onClick={() => handleOpenConversaById(alert.conversationId)}
-                className="w-full py-2.5 px-4 rounded-xl bg-primary hover:opacity-90 text-primary-foreground font-bold text-xs flex items-center justify-center gap-2 shadow-soft transition active:scale-[0.98] cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-xl bg-primary hover:opacity-90 text-primary-foreground font-bold text-xs flex items-center justify-center gap-2 shadow-soft transition cursor-pointer"
               >
                 <span>Responder Agora</span>
                 <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
+              </motion.button>
+            </motion.div>
           ))
         ) : (
           <div className="bg-card border border-border rounded-2xl p-5 text-center text-xs space-y-1 shadow-soft">
@@ -380,10 +412,10 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </p>
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* ─── 4. BLOCO 2: MINHAS TAREFAS DO DIA (RD STATION CRM REAIS) ────────── */}
-      <div className="space-y-3">
+      <motion.div variants={itemVariants} className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-primary" />
@@ -399,9 +431,10 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
         {myTasks.length > 0 ? (
           <div className="space-y-2">
             {myTasks.slice(0, 4).map((task) => (
-              <div
+              <motion.div
                 key={task.id}
-                className="bg-card border border-border rounded-2xl p-3.5 shadow-soft flex items-center justify-between gap-3 hover:bg-muted/30 transition"
+                whileTap={{ scale: 0.98 }}
+                className="bg-card border border-border rounded-2xl p-3.5 shadow-soft flex items-center justify-between gap-3 hover:bg-muted/30 transition cursor-pointer"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={`h-8 w-8 rounded-xl flex items-center justify-center shrink-0 ${
@@ -430,7 +463,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
                 <span className="text-[10px] font-extrabold uppercase px-2 py-1 rounded-lg bg-muted text-muted-foreground shrink-0">
                   {task.type || "Tarefa"}
                 </span>
-              </div>
+              </motion.div>
             ))}
           </div>
         ) : (
@@ -444,10 +477,10 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </p>
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* ─── 5. BLOCO 3: CONVERSAS RECENTES (ACESSO RÁPIDO) ────────────────── */}
-      <div className="space-y-3">
+      <motion.div variants={itemVariants} className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-primary" />
@@ -467,10 +500,11 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
         {myRecentChats.length > 0 ? (
           <div className="space-y-2">
             {myRecentChats.map((c) => (
-              <div
+              <motion.div
                 key={c.id}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => handleOpenConversaById(c.id)}
-                className="bg-card border border-border hover:border-primary/40 rounded-2xl p-3.5 shadow-soft flex items-center justify-between gap-3 transition cursor-pointer active:scale-[0.99]"
+                className="bg-card border border-border hover:border-primary/40 rounded-2xl p-3.5 shadow-soft flex items-center justify-between gap-3 transition cursor-pointer"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <FeedAvatar avatar={c.avatar} name={c.name} />
@@ -503,7 +537,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
                   <span>Abrir</span>
                   <ChevronRight className="h-3.5 w-3.5" />
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         ) : (
@@ -514,8 +548,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             </p>
           </div>
         )}
-      </div>
-
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

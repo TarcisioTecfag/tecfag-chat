@@ -1,13 +1,12 @@
 import React from "react";
-import { MessageSquare, Users, Wallet, Sparkles } from "lucide-react";
+import { MessageSquare, Users, Wallet } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
+import { motion } from "framer-motion";
 
 export const MobileBottomNav: React.FC = () => {
   const { activeView, setActiveView, setSelectedChatId, operatorProfile } = useChat();
 
   const handleTabClick = (viewId: string) => {
-    // Ao clicar em qualquer aba inferior (especialmente Atendimentos),
-    // reseta selectedChatId para mostrar a lista de conversas primeiro no mobile
     setSelectedChatId(null);
     setActiveView(viewId as any);
   };
@@ -17,17 +16,17 @@ export const MobileBottomNav: React.FC = () => {
       id: "valentina",
       label: "Início",
       icon: (
-        <div className="relative w-6 h-6">
+        <div className="relative w-5.5 h-5.5">
           <img
             src={operatorProfile?.avatar || "/vendedor.png"}
             alt={operatorProfile?.name || "Usuário"}
-            className="w-6 h-6 rounded-full object-cover border border-primary/30"
+            className="w-5.5 h-5.5 rounded-full object-cover border border-primary/30"
             onError={(e) => {
               (e.target as HTMLImageElement).src =
                 "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80";
             }}
           />
-          <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-emerald-500 ring-1 ring-white" />
+          <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-1 ring-white" />
         </div>
       ),
     },
@@ -49,30 +48,43 @@ export const MobileBottomNav: React.FC = () => {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border px-3 py-2 flex justify-around items-center shadow-lg">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border/80 px-2 py-1.5 flex justify-around items-center shadow-lg select-none">
       {navItems.map((item) => {
         const isActive = activeView === item.id;
         return (
-          <button
+          <motion.button
             key={item.id}
             onClick={() => handleTabClick(item.id)}
-            className={`flex flex-col items-center justify-center flex-1 py-1 px-2 transition-all cursor-pointer ${
+            whileTap={{ scale: 0.90 }}
+            whileHover={{ scale: 1.04 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className={`relative flex flex-col items-center justify-center flex-1 py-1 px-1 transition-colors cursor-pointer rounded-2xl ${
               isActive
                 ? "text-primary font-bold"
                 : "text-muted-foreground hover:text-foreground font-medium"
             }`}
           >
+            {/* Sliding Active Pill */}
+            {isActive && (
+              <motion.div
+                layoutId="mobileNavActiveTab"
+                className="absolute inset-0 bg-primary/10 rounded-2xl -z-10 border border-primary/15"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+
             <div className={`transition-transform duration-200 ${isActive ? "scale-110" : ""}`}>
               {item.icon}
             </div>
+
             <span
-              className={`text-[11px] mt-1 tracking-tight ${
-                isActive ? "text-primary font-bold" : "text-muted-foreground"
+              className={`text-[10px] mt-0.5 tracking-tight font-extrabold transition-colors ${
+                isActive ? "text-primary" : "text-muted-foreground"
               }`}
             >
               {item.label}
             </span>
-          </button>
+          </motion.button>
         );
       })}
     </nav>

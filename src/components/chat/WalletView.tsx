@@ -180,7 +180,8 @@ export function WalletView() {
 
           {/* Tab Toggle */}
           <div className="flex items-center gap-1 rounded-2xl bg-muted/60 p-1 border border-border self-start sm:self-auto">
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={() => setActiveTab("wallet")}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "wallet"
@@ -190,8 +191,9 @@ export function WalletView() {
             >
               <Briefcase className="h-4 w-4" />
               Clientes da Carteira
-            </button>
-            <button
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={() => setActiveTab("templates")}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "templates"
@@ -201,7 +203,7 @@ export function WalletView() {
             >
               <LayoutTemplate className="h-4 w-4" />
               Meus Templates
-            </button>
+            </motion.button>
           </div>
         </div>
 
