@@ -895,6 +895,18 @@ export class SessionManager {
       }
       // ── Fim SLA Engine ──────────────────────────────────────────────────────
 
+      // ── Sentiment Analyzer: análise de sentimento em mensagens de clientes ──
+      if (finalSenderType === "client" && text && text.trim().length > 5) {
+        try {
+          const { analyzeSentiment } = await import("../valentina/sentiment-analyzer");
+          analyzeSentiment(text, convId, tenantId, { contactName: finalSenderName })
+            .catch((e: any) => console.warn("[SentimentAnalyzer] Erro:", e?.message));
+        } catch (e: any) {
+          console.warn("[SentimentAnalyzer] Import falhou:", e?.message);
+        }
+      }
+      // ── Fim Sentiment Analyzer ────────────────────────────────────────────
+
       // 4. Notificar a UI via evento SSE
       this.notify(tenantId, {
         type: "message",

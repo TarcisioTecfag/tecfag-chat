@@ -4,10 +4,12 @@ import { responseTimeLogs, conversations, contacts, operators, messages } from "
 import { eq, isNull, and, desc } from "drizzle-orm";
 import { SlaEngine } from "../../../lib/sla-engine";
 import { AuditService } from "../../../lib/audit-service";
+import { SupervisorEngine } from "../../../lib/valentina/supervisor-engine";
 
 // Inicializa os engines na primeira request desta rota (lazy init)
 SlaEngine.getInstance().start();
 AuditService.getInstance().start();
+SupervisorEngine.getInstance().start();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -1018,6 +1018,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         quotedMessageContent: quotedMessage?.content || null,
       };
 
+      // Adicionar mensagem do operador imediatamente
       setConversations((prev) =>
         prev.map((c) => {
           if (c.id === "valentina") {
@@ -1031,104 +1032,110 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
       );
 
-      setTimeout(() => {
-        let randomObj;
-        const normalizedText = text.trim().toLowerCase();
+      // Chamar API real /api/valentina/messages
+      (async () => {
+        try {
+          const res = await fetch("/api/valentina/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tenantId: tenant,
+              operatorId: currentOperatorId,
+              content: text,
+            }),
+          });
 
-        if (normalizedText.includes("quantos leads") || normalizedText.includes("sem resposta")) {
-          randomObj = {
-            text: "Você tem 1 lead aguardando retorno no momento: Tarcísio Júnior está aguardando há mais de 20 minutos na fila comercial. Recomendo responder o quanto antes! ⚠️",
-            isWarning: true,
-            warningType: "delay" as const,
-            warningMetadata: {
-              clientId: "val-1",
-              clientName: "Tarcísio Júnior",
-              lastMessage: "Bom dia! Como está a liberação da carga de embaladoras da Valem?",
-            }
-          };
-        } else if (normalizedText.includes("leads quentes") || normalizedText.includes("quais são meus leads")) {
-          randomObj = {
-            text: "O lead Pedro Silva está classificado como Quente 🔥. Ele está interessado em Válvula Reguladora de Pressão e a conversa demonstra alta intenção de compra!",
-            isWarning: true,
-            warningType: "new_lead" as const,
-            warningMetadata: {
-              clientId: "tec-1",
-              clientName: "Pedro Silva",
-              temperature: "quente" as const,
-              interest: "Válvula Reguladora de Pressão de 2 polegadas",
-            }
-          };
-        } else if (normalizedText.includes("pontuação") || normalizedText.includes("meus atendimentos") || normalizedText.includes("como está a pontuação")) {
-          randomObj = {
-            text: "Sua pontuação atual de atendimento está excelente! Média de 4.8/5.0 estrelas nas últimas avaliações dos clientes, com tempo médio de primeira resposta de 4 minutos. Bom trabalho! 🚀",
-            isWarning: false
-          };
-        } else {
-          const replies = [
-            {
-              text: "Olá! Registrei a sua dúvida. No momento, todos os seus leads da Valem estão com o SLA em dia. Excelente trabalho! 👍",
-              isWarning: false
-            },
-            {
-              text: "Oi! Lembrete rápido: o lead Pedro Silva está aguardando retorno na fila comercial. Pode dar uma olhada? ⚠️",
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+
+          // Processar fragmentos com delays incrementais para simular digitação
+          const fragments = data.fragments || [];
+          const alerts = data.alerts || [];
+
+          for (let i = 0; i < fragments.length; i++) {
+            const frag = fragments[i];
+            const delay = frag.delay || (i * 800);
+
+            await new Promise((r) => setTimeout(r, Math.max(delay, 400)));
+
+            const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            const valentinaMsg: Message = {
+              id: frag.id || `msg-val-${Date.now()}-${i}`,
+              author: "Valentina",
+              text: frag.content || frag.text || "",
+              time: respTime,
+              side: "in",
+              isInternalNote: false,
+            };
+
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id === "valentina") {
+                  return {
+                    ...c,
+                    lastMessageTime: respTime,
+                    messages: [...c.messages, valentinaMsg],
+                  };
+                }
+                return c;
+              })
+            );
+          }
+
+          // Processar alertas como mensagens de warning
+          for (const alert of alerts) {
+            const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            const alertMsg: Message = {
+              id: `msg-alert-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              author: "Valentina",
+              text: `${alert.type === "sla_warning" ? "⚠️" : "🔔"} ${alert.clientName || "Cliente"} está aguardando há ${alert.waitMinutes || "?"} minutos`,
+              time: respTime,
+              side: "in",
+              isInternalNote: false,
               isWarning: true,
               warningType: "delay" as const,
               warningMetadata: {
-                clientId: "tec-1",
-                clientName: "Pedro Silva",
-                lastMessage: "Preciso de um orçamento urgente para o projeto de válvulas.",
+                clientId: alert.conversationId || "",
+                clientName: alert.clientName || "Cliente",
+                lastMessage: alert.lastMessage || "",
+              },
+            };
+
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id === "valentina") {
+                  return {
+                    ...c,
+                    lastMessageTime: respTime,
+                    messages: [...c.messages, alertMsg],
+                  };
+                }
+                return c;
+              })
+            );
+          }
+        } catch (err) {
+          console.error("[useChatState] Erro ao chamar API Valentina:", err);
+          // Fallback local em caso de erro de rede
+          const fallbackTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const fallbackMsg: Message = {
+            id: `msg-val-fallback-${Date.now()}`,
+            author: "Valentina",
+            text: "Ops, tive um problema ao processar sua mensagem. Pode tentar de novo? 😅",
+            time: fallbackTime,
+            side: "in",
+            isInternalNote: false,
+          };
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id === "valentina") {
+                return { ...c, lastMessageTime: fallbackTime, messages: [...c.messages, fallbackMsg] };
               }
-            },
-            {
-              text: "Claro! Posso ajudar a resumir as conversas ou consultar dados do CRM. O que você gostaria de saber especificamente?",
-              isWarning: false
-            },
-            {
-              text: "Estou analisando as interações de hoje. Percebi que o cliente 'Tarcísio Júnior' tem interesse em fechar o contrato. Vale a pena enviar a proposta agora!",
-              isWarning: false
-            },
-            {
-              text: "Novo lead recebido! Cliente interessado em Válvula de Controle de Fluxo.",
-              isWarning: true,
-              warningType: "new_lead" as const,
-              warningMetadata: {
-                clientId: "val-1",
-                clientName: "Tarcísio Júnior",
-                temperature: "quente" as const,
-                interest: "Válvula de Controle de Fluxo Pneumática",
-              }
-            }
-          ];
-          randomObj = replies[Math.floor(Math.random() * replies.length)];
+              return c;
+            })
+          );
         }
-
-        const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-
-        const valentinaMsg: Message = {
-          id: `msg-val-${Date.now()}`,
-          author: "Valentina",
-          text: randomObj.text,
-          time: respTime,
-          side: "in",
-          isInternalNote: false,
-          isWarning: randomObj.isWarning,
-          warningType: (randomObj as any).warningType,
-          warningMetadata: (randomObj as any).warningMetadata,
-        };
-
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id === "valentina") {
-              return {
-                ...c,
-                lastMessageTime: respTime,
-                messages: [...c.messages, valentinaMsg],
-              };
-            }
-            return c;
-          })
-        );
-      }, 1500);
+      })();
 
       return;
     }
