@@ -114,16 +114,36 @@ export class SessionManager {
   /** Subscreve presença para um JID de cliente (para capturar digitando/gravando) */
   public async subscribePresence(tenantId: string, jid: string) {
     const sock = this.sessions.get(tenantId);
-    if (sock && jid) {
-      try {
-        let targetJid = jid;
-        if (!targetJid.includes("@")) {
-          targetJid = `${targetJid.replace(/\D/g, "")}@s.whatsapp.net`;
+    if (!sock || !jid) return;
+
+    try {
+      const jidsToSubscribe: string[] = [];
+
+      if (jid.includes("@")) {
+        jidsToSubscribe.push(jid);
+      } else {
+        let digits = jid.replace(/\D/g, "");
+        // Se o número não tem o código do país '55' (tem 10 ou 11 dígitos, ex: 14981123456)
+        if (digits.length === 10 || digits.length === 11) {
+          digits = `55${digits}`;
         }
-        await sock.presenceSubscribe(targetJid);
-      } catch (e) {
-        console.error(`[Baileys Presence] Erro ao subscrever presença de ${jid}:`, e);
+
+        jidsToSubscribe.push(`${digits}@s.whatsapp.net`);
+
+        // Se for um celular brasileiro de 13 dígitos (55 + DDD + 9 + 8 dígitos)
+        // ex: 5514981123456 -> também subscreve sem o 9 (551481123456)
+        if (digits.startsWith("55") && digits.length === 13 && digits[4] === "9") {
+          const withoutNine = `${digits.substring(0, 4)}${digits.substring(5)}`;
+          jidsToSubscribe.push(`${withoutNine}@s.whatsapp.net`);
+        }
       }
+
+      console.log(`[Baileys Presence] Subscribing presence para tenant ${tenantId}:`, jidsToSubscribe);
+      for (const targetJid of jidsToSubscribe) {
+        await sock.presenceSubscribe(targetJid).catch(() => {});
+      }
+    } catch (e) {
+      console.error(`[Baileys Presence] Erro ao subscrever presença de ${jid}:`, e);
     }
   }
 
@@ -263,6 +283,7 @@ export class SessionManager {
     // Tratar eventos de atualização de presença (cliente digitando / gravando áudio)
     sock.ev.on("presence.update", (data: any) => {
       if (data && data.id) {
+        console.log(`[Baileys Presence Event] id: ${data.id}, presences:`, JSON.stringify(data.presences));
         this.notify(tenantId, {
           type: "presence_update",
           id: data.id,

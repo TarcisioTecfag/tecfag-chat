@@ -1986,25 +1986,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return c;
             })
           );
-        } else if (data.type === "presence_update" && data.id && data.presences) {
+        } else if (data.type === "presence_update" && data.id) {
           const presenceId = data.id;
-          const presenceObj = data.presences[presenceId] || Object.values(data.presences)[0];
-          const lastState = presenceObj?.lastKnownPresence;
+          let lastState: string | undefined;
+
+          if (data.presences) {
+            const pObj = data.presences[presenceId] || Object.values(data.presences)[0];
+            if (pObj && typeof pObj === "object") {
+              lastState = pObj.lastKnownPresence || pObj.presence || pObj.state;
+            }
+          }
 
           setClientTypingStatus((prev) => {
             const cleanPresence = presenceId.replace(/\D/g, "");
             const targetConv = conversationsRef.current.find((c) => {
               if (!c.phone) return false;
               const cleanPhone = c.phone.replace(/\D/g, "");
-              return (
-                (cleanPresence && cleanPhone && (cleanPresence.endsWith(cleanPhone.slice(-8)) || cleanPhone.endsWith(cleanPresence.slice(-8)))) ||
-                c.id === presenceId
-              );
+              if (!cleanPresence || !cleanPhone) return false;
+              const last8Presence = cleanPresence.slice(-8);
+              const last8Phone = cleanPhone.slice(-8);
+              return last8Presence === last8Phone || c.id === presenceId;
             });
 
             if (targetConv) {
               if (lastState === "composing" || lastState === "recording") {
-                return { ...prev, [targetConv.id]: { status: lastState, timestamp: Date.now() } };
+                return { ...prev, [targetConv.id]: { status: lastState as "composing" | "recording", timestamp: Date.now() } };
               } else {
                 return { ...prev, [targetConv.id]: null };
               }
@@ -2029,6 +2035,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .catch(() => {});
         } else if (data.type === "message") {
           const { message } = data;
+
+          // Limpa o indicador de digitando quando a mensagem chega
+          if (message?.conversationId) {
+            setClientTypingStatus((prev) => ({ ...prev, [message.conversationId]: null }));
+          }
 
           // Mostrar notificação Toast customizada
           // Regra de Notificação:
