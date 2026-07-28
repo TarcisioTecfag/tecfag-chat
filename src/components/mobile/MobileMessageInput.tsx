@@ -156,7 +156,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
               }`}
               title="Enviar"
             >
-              <Send className="w-3.5 h-3.5 stroke-[2.5] translate-x-0.5 -translate-y-0.5" />
+              <Send className="w-4 h-4 stroke-[2.5]" />
             </motion.button>
           </div>
         </div>
