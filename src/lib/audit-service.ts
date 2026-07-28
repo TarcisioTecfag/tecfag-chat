@@ -14,7 +14,6 @@
  *   7. Atualiza operator_daily_metrics do operador auditado
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { db } from "../db";
 import {
   aiConversationAudits,

@@ -8,7 +8,6 @@
  *    analíticos executivos diários/semanais gerados por IA para WhatsApp e E-mail.
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { db } from "../db";
 import {
   responseTimeLogs,

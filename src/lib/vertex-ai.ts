@@ -108,12 +108,13 @@ class VertexAiService {
       let keyFilePath = customConfig?.keyFilePath || process.env.VERTEX_KEY_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
       let credentialsObj: Record<string, any> | null = customConfig?.credentialsJson || null;
 
-      // 1. Tentar ler string JSON crua do .env (VERTEX_SERVICE_ACCOUNT_JSON)
-      if (!credentialsObj && process.env.VERTEX_SERVICE_ACCOUNT_JSON) {
+      // 1. Tentar ler string JSON crua do .env (GOOGLE_SERVICE_ACCOUNT_JSON ou VERTEX_SERVICE_ACCOUNT_JSON)
+      const rawEnvJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.VERTEX_SERVICE_ACCOUNT_JSON;
+      if (!credentialsObj && rawEnvJson) {
         try {
-          credentialsObj = JSON.parse(process.env.VERTEX_SERVICE_ACCOUNT_JSON);
+          credentialsObj = JSON.parse(rawEnvJson);
         } catch (e) {
-          console.warn("[VertexAI] Erro ao parsear VERTEX_SERVICE_ACCOUNT_JSON no env.");
+          console.warn("[VertexAI] Erro ao parsear GOOGLE_SERVICE_ACCOUNT_JSON / VERTEX_SERVICE_ACCOUNT_JSON no env.");
         }
       }
 
