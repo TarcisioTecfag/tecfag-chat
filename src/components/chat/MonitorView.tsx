@@ -280,16 +280,28 @@ function WaitBadge({ minutes, isCritical }: { minutes: number; isCritical: boole
   );
 }
 
-function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" | "xl" }) {
+function Avatar({ name, avatar, size = "md" }: { name: string; avatar?: string | null; size?: "sm" | "md" | "lg" | "xl" }) {
   const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+  const [imgError, setImgError] = React.useState(false);
   const sizes = { 
     sm: "h-7 w-7 text-[10px]", 
     md: "h-9 w-9 text-xs", 
     lg: "h-11 w-11 text-sm",
     xl: "h-16 w-16 text-lg" 
   };
+  if (avatar && !imgError) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        title={name}
+        className={`${sizes[size]} rounded-full object-cover shrink-0 border border-border`}
+        onError={() => setImgError(true)}
+      />
+    );
+  }
   return (
-    <div className={`${sizes[size]} rounded-full bg-primary/15 text-primary font-extrabold flex items-center justify-center shrink-0`}>
+    <div className={`${sizes[size]} rounded-full bg-primary/15 text-primary font-extrabold flex items-center justify-center shrink-0`} title={name}>
       {initials}
     </div>
   );
@@ -518,7 +530,7 @@ function OverviewTab({
                     i < overview.operators.length - 1 ? "border-b border-line" : ""
                   }`}
                 >
-                  <Avatar name={op.operatorName} size="sm" />
+                  <Avatar name={op.operatorName} avatar={(op as any).operatorAvatar} size="sm" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-foreground truncate">{op.operatorName}</p>
                     <p className="text-[10px] text-muted-foreground">{op.avgResponseTimeFormatted} média</p>
@@ -775,7 +787,7 @@ function OperatorsTab({
             {/* Coluna 1: Informações do Operador */}
             <div className="flex flex-col gap-3 w-full md:col-span-3">
               <div className="flex items-center gap-4">
-                <Avatar name={op.operatorName} size="xl" />
+                <Avatar name={op.operatorName} avatar={op.operatorAvatar} size="xl" />
                 <div>
                   <div className="flex items-center flex-wrap gap-2">
                     <p className="font-black text-foreground text-lg leading-tight">{op.operatorName}</p>
