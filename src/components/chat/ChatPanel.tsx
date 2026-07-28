@@ -1128,7 +1128,7 @@ export function ChatPanel() {
           <div>
             <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
             {activeTyping ? (
-              <span className="text-[11px] font-bold text-emerald-600 animate-pulse flex items-center gap-1 mt-0.5">
+              <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
                 {activeTyping.status === "recording" ? (
                   <>
                     <Mic className="h-3 w-3 text-red-500" />
@@ -1136,7 +1136,7 @@ export function ChatPanel() {
                   </>
                 ) : (
                   <>
-                    <Zap className="h-3 w-3 text-emerald-500" />
+                    <Zap className="h-3 w-3 text-primary" />
                     <span>digitando...</span>
                   </>
                 )}
@@ -1921,7 +1921,7 @@ export function ChatPanel() {
                   {activeChat.initials || "U"}
                 </div>
               )}
-              <div className="rounded-2xl rounded-bl-[5px] bg-card border border-border px-4 py-2 text-xs font-bold text-emerald-600 shadow-soft flex items-center gap-2">
+              <div className="rounded-2xl rounded-bl-[5px] bg-primary-soft border border-primary/20 px-4 py-2 text-xs font-bold text-primary shadow-soft flex items-center gap-2">
                 {activeTyping.status === "recording" ? (
                   <>
                     <Mic className="h-3.5 w-3.5 text-red-500 animate-pulse" />
