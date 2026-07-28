@@ -211,6 +211,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const selectedChatIdRef = useRef(selectedChatId);
   const currentOperatorIdRef = useRef(currentOperatorId);
   const tenantRef = useRef(tenant);
+  // Flag para evitar loop de troca de tenant: só sincroniza UMA vez por login
+  const tenantSyncedRef = useRef(false);
 
   useEffect(() => {
     selectedChatIdRef.current = selectedChatId;
@@ -831,29 +833,40 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [activeQueue]);
 
-  // Re-verify tenant when operator or group changes
+  // Re-verify tenant when operator or group changes.
+  // IMPORTANTE: NÃO incluir `tenant` nas dependências para evitar loop infinito de pisca-pisca.
+  // Usar tenantRef.current para ler o tenant atual sem disparar re-renders.
   useEffect(() => {
-    const email = (operatorProfile?.email || currentOperator?.email || "").toLowerCase();
+    // Se já sincronizamos o tenant para este operador, não fazer nada
+    // Isso evita que a sincronização de dados do banco cause piscadas
+    if (tenantSyncedRef.current) return;
+
+    const currentTenant = tenantRef.current;
+    const email = (currentOperator?.email || "").toLowerCase();
     const isValemUser = email.includes("@valempack") || email.includes("@valem") || currentOperator?.tenantId === "valem";
     const isTecfagUser = email.includes("@tecfag") || currentOperator?.tenantId === "tecfag";
 
+    // Se o operador não tem tenant no email nem no tenantId, não forçar troca
+    if (!isValemUser && !isTecfagUser && !currentGroup) return;
+
     let targetTenant: "tecfag" | "valem" | null = null;
 
-    if (currentGroup) {
-      if (!currentGroup.allowedTenants.includes(tenant)) {
-        targetTenant = currentGroup.allowedTenants[0] || null;
-      }
+    // Prioridade 1: grupo não tem acesso ao tenant atual → forçar para um válido
+    if (currentGroup && !currentGroup.allowedTenants.includes(currentTenant)) {
+      targetTenant = currentGroup.allowedTenants[0] || null;
     }
 
+    // Prioridade 2: inferir pelo email/tenantId do operador
     if (!targetTenant) {
-      if (isValemUser && tenant !== "valem" && (!currentGroup || currentGroup.allowedTenants.includes("valem"))) {
+      if (isValemUser && currentTenant !== "valem" && (!currentGroup || currentGroup.allowedTenants.includes("valem"))) {
         targetTenant = "valem";
-      } else if (isTecfagUser && tenant !== "tecfag" && (!currentGroup || currentGroup.allowedTenants.includes("tecfag"))) {
+      } else if (isTecfagUser && currentTenant !== "tecfag" && (!currentGroup || currentGroup.allowedTenants.includes("tecfag"))) {
         targetTenant = "tecfag";
       }
     }
 
-    if (targetTenant && targetTenant !== tenant) {
+    if (targetTenant && targetTenant !== currentTenant) {
+      tenantSyncedRef.current = true; // Marcar como sincronizado para não repetir
       setTenantState(targetTenant);
       if (typeof window !== "undefined") {
         try {
@@ -863,8 +876,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
       document.title = targetTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+    } else if (currentOperator?.id && currentOperator.id !== "op-1") {
+      // Operador real carregado e tenant já está correto → marcar como sincronizado
+      tenantSyncedRef.current = true;
     }
-  }, [currentOperatorId, currentGroup, tenant, operatorProfile?.email, currentOperator?.email]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOperatorId, currentGroup]);
 
   const setTenant = (newTenant: "tecfag" | "valem") => {
     if (currentGroup && !currentGroup.allowedTenants.includes(newTenant)) {
