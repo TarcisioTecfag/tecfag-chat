@@ -14,7 +14,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-export const Route = createFileRoute("/api/gestao/my-metrics" as any)({
+export const Route = createFileRoute("/api/gestao/my-metrics")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
