@@ -4,8 +4,10 @@ import {
   BarChart2, Clock, Users, ArrowUpRight, ArrowDownRight,
   MessageSquare, RefreshCw, Percent, FileText, CheckCircle2,
   AlertTriangle, Info, Shield, HelpCircle, Activity, Star,
-  TrendingUp, TrendingDown, Eye
+  TrendingUp, TrendingDown, Eye, Coins
 } from "lucide-react";
+// Componentes migrados do Monitoramento
+import { OverviewTab, CostsTab } from "@/components/chat/MonitorView";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, BarChart, Bar, Cell, PieChart, Pie, RadialBarChart, RadialBar
@@ -15,7 +17,7 @@ import {
 const DEMO_MODE = true;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
-type AnalyticsTab = "performance" | "sla" | "contacts" | "reports";
+type AnalyticsTab = "overview" | "performance" | "sla" | "contacts" | "reports" | "costs";
 
 type HistoricalVolume = {
   name: string;
@@ -573,28 +575,32 @@ function ReportsTab({ reports, loading }: { reports: AiReportData[]; loading: bo
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function AnalyticsView() {
   const { tenant } = useChat();
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>("performance");
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>("overview");
   const [loading, setLoading] = useState(false);
   const [reports, setReports] = useState<AiReportData[]>(MOCK_REPORTS);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  // Estado para a aba Visão Geral (dados reais)
+  const [overview, setOverview] = useState<any | null>(null);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [audits, setAudits] = useState<any[]>([]);
 
   const fetchData = useCallback(async () => {
-    if (DEMO_MODE) {
-      setReports(MOCK_REPORTS);
-      setLastRefresh(new Date());
-      return;
-    }
-    
     setLoading(true);
     try {
       // Buscar relatórios de IA gerados no banco
-      const res = await fetch(`/api/gestao/reports?tenantId=${tenant}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setReports(data);
-        }
+      const [repRes, ovRes, alRes, auRes] = await Promise.all([
+        fetch(`/api/gestao/reports?tenantId=${tenant}`),
+        fetch(`/api/gestao/overview?tenantId=${tenant}`),
+        fetch(`/api/gestao/alerts?tenantId=${tenant}`),
+        fetch(`/api/gestao/audits?tenantId=${tenant}&limit=50`),
+      ]);
+      if (repRes.ok) {
+        const data = await repRes.json();
+        if (Array.isArray(data) && data.length > 0) setReports(data);
       }
+      if (ovRes.ok)  setOverview(await ovRes.json());
+      if (alRes.ok)  setAlerts(await alRes.json());
+      if (auRes.ok)  setAudits(await auRes.json());
       setLastRefresh(new Date());
     } catch (e) {
       console.error("[AnalyticsView] Erro ao carregar dados:", e);
@@ -608,10 +614,12 @@ export function AnalyticsView() {
   }, [fetchData]);
 
   const tabs: { id: AnalyticsTab; label: string; icon: React.ElementType }[] = [
-    { id: "performance", label: "Desempenho", icon: BarChart2 },
-    { id: "sla", label: "SLA & Tempos", icon: Clock },
-    { id: "contacts", label: "Clientes", icon: Users },
-    { id: "reports", label: "Relatórios IA", icon: FileText }
+    { id: "overview",     label: "Visão Geral",   icon: Eye },
+    { id: "performance",  label: "Desempenho",     icon: BarChart2 },
+    { id: "sla",          label: "SLA & Tempos",   icon: Clock },
+    { id: "contacts",     label: "Clientes",       icon: Users },
+    { id: "reports",      label: "Relatórios IA",  icon: FileText },
+    { id: "costs",        label: "Custos",         icon: Coins },
   ];
 
   return (
@@ -665,6 +673,14 @@ export function AnalyticsView() {
 
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden px-5 py-4 flex flex-col">
+        {activeTab === "overview" && (
+          <OverviewTab
+            overview={overview}
+            alerts={alerts}
+            audits={audits}
+            onSwitchTab={() => {}}
+          />
+        )}
         {activeTab === "performance" && (
           <PerformanceTab
             volumes={MOCK_HISTORICAL_VOLUMES}
@@ -680,6 +696,9 @@ export function AnalyticsView() {
         )}
         {activeTab === "reports" && (
           <ReportsTab reports={reports} loading={loading} />
+        )}
+        {activeTab === "costs" && (
+          <CostsTab tenant={tenant} />
         )}
       </div>
     </div>

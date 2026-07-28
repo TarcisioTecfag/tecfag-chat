@@ -31,7 +31,7 @@ import {
 const DEMO_MODE = true;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
-type MonitorTab = "overview" | "live" | "alerts" | "operators" | "audits" | "tasks" | "costs";
+type MonitorTab = "live" | "alerts" | "operators" | "audits" | "tasks";
 
 type OverviewData = {
   today: string;
@@ -309,7 +309,7 @@ function Avatar({ name, avatar, size = "md" }: { name: string; avatar?: string |
 
 // ── Sub-views ────────────────────────────────────────────────────────────────
 
-function OverviewTab({
+export function OverviewTab({
   overview,
   alerts,
   audits,
@@ -2110,7 +2110,7 @@ function GlobalTasksTab() {
 }
 
 // ── Aba de Custos & Telemetria Vertex AI ─────────────────────────────────────
-function CostsTab({ tenant }: { tenant: string }) {
+export function CostsTab({ tenant }: { tenant: string }) {
   const [period, setPeriod] = useState<"today" | "7d" | "30d">("7d");
   const [featureFilter, setFeatureFilter] = useState<string>("all");
   const [modelFilter, setModelFilter] = useState<string>("all");
@@ -2540,7 +2540,7 @@ function CostsTab({ tenant }: { tenant: string }) {
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function MonitorView() {
   const { tenant } = useChat();
-  const [activeTab, setActiveTab] = useState<MonitorTab>("overview");
+  const [activeTab, setActiveTab] = useState<MonitorTab>("live");
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [audits, setAudits] = useState<AuditItem[]>([]);
@@ -2587,13 +2587,11 @@ export function MonitorView() {
   }, [fetchData]);
 
   const tabs: { id: MonitorTab; label: string; icon: React.ElementType; badge?: number }[] = [
-    { id: "overview", label: "Visão Geral", icon: Eye },
-    { id: "live", label: "Ao Vivo", icon: Activity, badge: DEMO_MODE ? 4 : undefined },
-    { id: "alerts", label: "Alertas", icon: Bell, badge: alerts.filter((a: AlertItem) => a.isOverdue).length },
-    { id: "operators", label: "Operadores", icon: Users },
-    { id: "audits", label: "Auditorias IA", icon: Zap },
-    { id: "tasks", label: "Tarefas Globais", icon: ClipboardCheck },
-    { id: "costs", label: "Custos", icon: Coins },
+    { id: "live",      label: "Ao Vivo",        icon: Activity, badge: DEMO_MODE ? 4 : undefined },
+    { id: "alerts",    label: "Alertas",         icon: Bell, badge: alerts.filter((a: AlertItem) => a.isOverdue).length },
+    { id: "operators", label: "Operadores",      icon: Users },
+    { id: "audits",    label: "Auditorias IA",   icon: Zap },
+    { id: "tasks",     label: "Tarefas Globais", icon: ClipboardCheck },
   ];
 
   const today = new Date().toLocaleDateString("pt-BR", {
@@ -2673,14 +2671,6 @@ export function MonitorView() {
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             className="flex flex-col flex-1 overflow-hidden"
           >
-            {activeTab === "overview" && (
-              <OverviewTab
-                overview={overview}
-                alerts={alerts}
-                audits={audits}
-                onSwitchTab={setActiveTab}
-              />
-            )}
             {activeTab === "live" && (
               <LiveTab />
             )}
@@ -2710,9 +2700,6 @@ export function MonitorView() {
             )}
             {activeTab === "tasks" && (
               <GlobalTasksTab />
-            )}
-            {activeTab === "costs" && (
-              <CostsTab tenant={tenant} />
             )}
 
 
