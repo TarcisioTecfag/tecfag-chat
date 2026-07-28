@@ -6,7 +6,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Bot, Send, Sparkles, ArrowRight, AlertTriangle, User as UserIcon,
-  Clock, Users, Award, Globe, Plus, Image as ImageIcon, ChevronDown, RefreshCw 
+  Clock, Users, Award, Globe, Plus, Image as ImageIcon, ChevronDown, RefreshCw, Loader2
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import {
@@ -51,13 +51,23 @@ function SlaAlertCard({ data }: { data: Record<string, any> }) {
 
 export function ValentinaChatTab() {
   const { operatorProfile, currentOperatorId } = useChat();
-  const [messages, setMessages] = useState<ValentinaChatMessage[]>([...VALENTINA_WELCOME_MESSAGES]);
+  const [messages, setMessages] = useState<ValentinaChatMessage[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef  = useRef<HTMLInputElement>(null);
+
+  // Abort controller: cancela a IA em voo quando o operador digita mais
+  const abortCtrl = useRef<AbortController | null>(null);
 
   const operatorFirstName = operatorProfile?.name?.split(" ")[0] || "Operador";
+
+  // ── Debounce de 15s: acumula mensagens antes de enviar à IA ─────────────────
+  const pendingMessages  = useRef<string[]>([]);
+  const debounceTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [waitSecondsLeft, setWaitSecondsLeft] = useState<number | null>(null);
+  const countdownTimer   = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const suggestions = [
     {
@@ -82,6 +92,38 @@ export function ValentinaChatTab() {
     },
   ];
 
+  // ── Carrega histórico persistente do banco na montagem ────────────────────
+  useEffect(() => {
+    if (!currentOperatorId) return;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/valentina/messages?tenantId=valem&operatorId=${currentOperatorId}`
+        );
+        if (!res.ok) throw new Error("fetch failed");
+        const rows: any[] = await res.json();
+        if (rows.length > 0) {
+          const mapped: ValentinaChatMessage[] = rows.map((r) => ({
+            id: r.id,
+            sender: r.direction === "to_agent" ? "operator" : "valentina",
+            content: r.content,
+            timestamp: r.createdAt || new Date().toISOString(),
+            type: (r.metadata?.type as any) || "text",
+            cardData: r.metadata?.cardData,
+          }));
+          setMessages(mapped);
+        } else {
+          // Sem histórico: exibe mensagens de boas-vindas
+          setMessages([...VALENTINA_WELCOME_MESSAGES]);
+        }
+      } catch {
+        setMessages([...VALENTINA_WELCOME_MESSAGES]);
+      } finally {
+        setHistoryLoaded(true);
+      }
+    })();
+  }, [currentOperatorId]);
+
   // Auto-scroll quando novas mensagens chegam
   useEffect(() => {
     if (scrollRef.current) {
@@ -89,29 +131,27 @@ export function ValentinaChatTab() {
     }
   }, [messages, isTyping]);
 
-  const handleSendWithText = async (textToSend: string) => {
-    if (!textToSend.trim()) return;
+  // ── Dispara a IA com todas as mensagens acumuladas ───────────────────────
+  const flushToAI = async (batch: string[]) => {
+    const combinedContent = batch.join("\n");
 
-    // Adiciona mensagem do operador
-    const operatorMsg: ValentinaChatMessage = {
-      id: `op-${Date.now()}`,
-      sender: "operator",
-      content: textToSend,
-      timestamp: new Date().toISOString(),
-      type: "text",
-    };
-    setMessages((prev) => [...prev, operatorMsg]);
-    setInput("");
+    // Aborta qualquer requisição em voo anterior
+    abortCtrl.current?.abort();
+    const ctrl = new AbortController();
+    abortCtrl.current = ctrl;
+
     setIsTyping(true);
+    setWaitSecondsLeft(null);
 
     try {
       const res = await fetch("/api/valentina/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: ctrl.signal, // abort quando operação cancelada
         body: JSON.stringify({
           tenantId: "valem",
           operatorId: currentOperatorId || "system",
-          content: textToSend,
+          content: combinedContent,
         }),
       });
 
@@ -125,6 +165,7 @@ export function ValentinaChatTab() {
         const frag = fragments[i];
         const delay = frag.delay || (i * 800);
 
+        if (i > 0) setIsTyping(true); // mantém digitando entre fragmentos
         await new Promise((r) => setTimeout(r, Math.max(delay, 400)));
 
         const valentinaMsg: ValentinaChatMessage = {
@@ -138,7 +179,7 @@ export function ValentinaChatTab() {
         setMessages((prev) => [...prev, valentinaMsg]);
       }
 
-      // Processar alertas como cards especiais
+      // Alertas são mostrados separadamente (não misturar com respostas)
       const alerts = data.alerts || [];
       for (const alert of alerts) {
         const alertMsg: ValentinaChatMessage = {
@@ -157,7 +198,9 @@ export function ValentinaChatTab() {
       if (fragments.length === 0 && alerts.length === 0) {
         throw new Error("Nenhum fragmento recebido");
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Ignora silenciosamente se foi um abort intencional (operador enviou nova mensagem)
+      if (err?.name === "AbortError") return;
       console.error("[ValentinaChatTab] Erro:", err);
       const errorMsg: ValentinaChatMessage = {
         id: `val-err-${Date.now()}`,
@@ -170,6 +213,57 @@ export function ValentinaChatTab() {
     } finally {
       setIsTyping(false);
     }
+  };
+
+  // ── Envia mensagem do operador com debounce de 15s ────────────────────
+  const handleSendWithText = (textToSend: string) => {
+    if (!textToSend.trim()) return;
+
+    // Se Valentina está processando, cancela e repensa tudo do zero
+    if (isTyping) {
+      abortCtrl.current?.abort();
+      setIsTyping(false);
+    }
+
+    // Adiciona mensagem do operador visualmente de imediato
+    const operatorMsg: ValentinaChatMessage = {
+      id: `op-${Date.now()}`,
+      sender: "operator",
+      content: textToSend,
+      timestamp: new Date().toISOString(),
+      type: "text",
+    };
+    setMessages((prev) => [...prev, operatorMsg]);
+    setInput("");
+
+    // Acumula no batch
+    pendingMessages.current.push(textToSend);
+
+    // Limpa timers anteriores
+    if (debounceTimer.current)  clearTimeout(debounceTimer.current);
+    if (countdownTimer.current) clearInterval(countdownTimer.current);
+
+    // Inicia countdown visual de 15s
+    const WAIT_SEC = 15;
+    setWaitSecondsLeft(WAIT_SEC);
+    let remaining = WAIT_SEC;
+    countdownTimer.current = setInterval(() => {
+      remaining -= 1;
+      setWaitSecondsLeft(remaining > 0 ? remaining : null);
+      if (remaining <= 0 && countdownTimer.current) {
+        clearInterval(countdownTimer.current);
+        countdownTimer.current = null;
+      }
+    }, 1000);
+
+    // Agenda o envio para daqui 15s
+    debounceTimer.current = setTimeout(() => {
+      const batch = [...pendingMessages.current];
+      pendingMessages.current = [];
+      setWaitSecondsLeft(null);
+      if (countdownTimer.current) { clearInterval(countdownTimer.current); countdownTimer.current = null; }
+      flushToAI(batch);
+    }, WAIT_SEC * 1000);
   };
 
   const handleSend = () => {
@@ -379,7 +473,7 @@ export function ValentinaChatTab() {
             ))}
           </AnimatePresence>
 
-          {/* Indicador de digitação */}
+          {/* Indicador de digitação (IA processando) */}
           <AnimatePresence>
             {isTyping && (
               <motion.div
@@ -398,6 +492,33 @@ export function ValentinaChatTab() {
                     >
                       ...
                     </motion.span>
+                  </span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Countdown: aguardando mais mensagens antes de enviar à IA */}
+          <AnimatePresence>
+            {waitSecondsLeft !== null && !isTyping && (
+              <motion.div
+                initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="flex gap-4 items-center"
+              >
+                <img src="/valentina.png" alt="Valentina" className="h-8 w-8 rounded-full object-cover border border-border shrink-0 shadow-soft opacity-60" />
+                <div className="flex items-center gap-2 rounded-2xl rounded-bl-[5px] bg-muted border border-border px-4 py-2.5 text-xs text-muted-foreground shadow-soft">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                  >
+                    <Clock className="h-3 w-3 text-primary" />
+                  </motion.div>
+                  <span>
+                    Valentina aguardando mais mensagens
+                    <span className="font-black text-primary ml-1">{waitSecondsLeft}s</span>
+                    <span className="text-[10px] ml-1 text-muted-foreground/60">— envie mais ou aguarde</span>
                   </span>
                 </div>
               </motion.div>

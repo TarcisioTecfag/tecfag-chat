@@ -1640,9 +1640,13 @@ export function ChatPanel() {
             if (isMe) {
               const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
               return (
-                <div
+                <motion.div
                   id={`msg-dom-${m.id}`}
                   key={m.id}
+                  layout
+                  initial={{ opacity: 0, x: 18, scale: 0.96 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
                   className={`flex flex-col items-end group relative w-full ${gap}`}
                 >
                   <div className="flex items-center gap-2 max-w-[80%] justify-end">
@@ -1688,16 +1692,20 @@ export function ChatPanel() {
                       {m.author} · {m.time}
                     </span>
                   )}
-                </div>
+                </motion.div>
               );
             }
 
             // ── Recebidas ─────────────────────────────────────────────────
             const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
             return (
-              <div
+              <motion.div
                 id={`msg-dom-${m.id}`}
                 key={m.id}
+                layout
+                initial={{ opacity: 0, x: -18, scale: 0.96 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
                 className={`flex items-end gap-2 group relative w-full ${gap}`}
               >
                 {/* Avatar — só na última mensagem do grupo */}
@@ -1866,7 +1874,7 @@ export function ChatPanel() {
                     </span>
                   )}
                 </div>
-              </div>
+              </motion.div>
             );
           });
         })()}
