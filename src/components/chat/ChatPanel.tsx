@@ -464,6 +464,7 @@ export function ChatPanel() {
     setSelectedChatId,
     setActiveView,
     clientTypingStatus,
+    isValentinaTyping,
   } = useChat();
 
   const activeTyping = activeChat ? clientTypingStatus[activeChat.id] : null;
@@ -1127,7 +1128,12 @@ export function ChatPanel() {
 
           <div>
             <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
-            {activeTyping ? (
+            {activeChat.id === "valentina" && isValentinaTyping ? (
+              <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
+                <Zap className="h-3 w-3 text-primary animate-bounce" />
+                <span>Valentina está digitando...</span>
+              </span>
+            ) : activeTyping ? (
               <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
                 {activeTyping.status === "recording" ? (
                   <>
@@ -1897,6 +1903,34 @@ export function ChatPanel() {
             );
           });
         })()}
+
+        {/* Indicador da Valentina Digitando */}
+        <AnimatePresence>
+          {activeChat.id === "valentina" && isValentinaTyping && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-end gap-2 my-2.5 w-full"
+            >
+              <img
+                src="/valentina.png"
+                alt="Valentina"
+                className="h-7 w-7 shrink-0 rounded-full object-cover border border-border shadow-soft"
+              />
+              <div className="rounded-2xl rounded-bl-[5px] bg-primary-soft border border-primary/20 px-4 py-2 text-xs font-bold text-primary shadow-soft flex items-center gap-2">
+                <span>Valentina está digitando</span>
+                <motion.span
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 1.2, repeat: Infinity }}
+                >
+                  ...
+                </motion.span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Indicador do Cliente Digitando / Gravando Áudio */}
         <AnimatePresence>

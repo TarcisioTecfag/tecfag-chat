@@ -140,6 +140,7 @@ type ChatContextType = {
   baileysConfig: BaileysConfig;
   setBaileysConfig: React.Dispatch<React.SetStateAction<BaileysConfig>>;
   clientTypingStatus: Record<string, { status: "composing" | "recording"; timestamp: number } | null>;
+  isValentinaTyping: boolean;
   disconnectBaileys: () => void;
   connectBaileys: () => void;
  
@@ -164,6 +165,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Status de presença (digitando / gravando áudio) do cliente por conversa
   const [clientTypingStatus, setClientTypingStatus] = useState<Record<string, { status: "composing" | "recording"; timestamp: number } | null>>({});
+  const [isValentinaTyping, setIsValentinaTyping] = useState(false);
 
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([]);
@@ -1052,6 +1054,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Chamar API real /api/valentina/messages
       (async () => {
+        setIsValentinaTyping(true);
         try {
           const res = await fetch("/api/valentina/messages", {
             method: "POST",
@@ -2470,6 +2473,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         baileysConfig,
         setBaileysConfig,
         clientTypingStatus,
+        isValentinaTyping,
         disconnectBaileys,
         connectBaileys,
 
