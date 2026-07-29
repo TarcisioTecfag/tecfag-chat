@@ -1127,6 +1127,249 @@ function AuditsTab({
   );
 }
 
+// ── Componentes de Filtro Customizados ────────────────────────────────────────
+
+/**
+ * Calendário customizado com paleta de cores do sistema (var(--primary)).
+ * Substitui o <input type="date"> nativo que usa cores do browser.
+ */
+function LiveDatePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  // Fecha ao clicar fora
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const today = new Date();
+  const selected = value ? new Date(value + "T12:00:00") : null;
+  const [viewYear, setViewYear] = React.useState(selected?.getFullYear() ?? today.getFullYear());
+  const [viewMonth, setViewMonth] = React.useState(selected?.getMonth() ?? today.getMonth());
+
+  const MONTHS_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  const DAYS_PT = ["D","S","T","Q","Q","S","S"];
+
+  // Gera os dias do mês com padding
+  const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array(firstDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  // Completa até 42 células
+  while (cells.length < 42) cells.push(null);
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  };
+
+  const selectDay = (day: number) => {
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    onChange(`${viewYear}-${mm}-${dd}`);
+    setOpen(false);
+  };
+
+  const isSelected = (day: number) =>
+    selected &&
+    selected.getFullYear() === viewYear &&
+    selected.getMonth() === viewMonth &&
+    selected.getDate() === day;
+
+  const isToday = (day: number) =>
+    today.getFullYear() === viewYear &&
+    today.getMonth() === viewMonth &&
+    today.getDate() === day;
+
+  const label = selected
+    ? selected.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "dd/mm/aaaa";
+
+  return (
+    <div ref={ref} className="relative flex-1">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center gap-1.5 bg-muted/60 border rounded-lg px-2.5 py-1.5 text-[11px] transition cursor-pointer ${
+          value
+            ? "border-primary text-primary font-semibold"
+            : "border-border text-muted-foreground hover:border-primary/50"
+        }`}
+      >
+        <Calendar className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">{label}</span>
+        {value && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onChange(""); }}
+            className="ml-auto text-primary/70 hover:text-primary"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1.5 z-50 bg-card border border-border rounded-2xl shadow-xl p-3 w-56 select-none">
+          {/* Cabeçalho mês/ano */}
+          <div className="flex items-center justify-between mb-2.5">
+            <button
+              onClick={prevMonth}
+              className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-muted transition cursor-pointer"
+            >
+              <ChevronLeft className="h-4 w-4 text-foreground" />
+            </button>
+            <span className="text-[12px] font-bold text-foreground">
+              {MONTHS_PT[viewMonth]} {viewYear}
+            </span>
+            <button
+              onClick={nextMonth}
+              className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-muted transition cursor-pointer"
+            >
+              <ChevronRight className="h-4 w-4 text-foreground" />
+            </button>
+          </div>
+
+          {/* Dias da semana */}
+          <div className="grid grid-cols-7 mb-1">
+            {DAYS_PT.map((d, i) => (
+              <div key={i} className="text-center text-[9px] font-bold text-muted-foreground py-0.5">{d}</div>
+            ))}
+          </div>
+
+          {/* Células de dias */}
+          <div className="grid grid-cols-7 gap-0.5">
+            {cells.map((day, i) => (
+              <button
+                key={i}
+                disabled={!day}
+                onClick={() => day && selectDay(day)}
+                className={`h-7 w-full rounded-lg text-[11px] font-medium transition ${
+                  !day ? "" :
+                  isSelected(day)
+                    ? "bg-primary text-primary-foreground font-bold shadow-sm cursor-pointer"
+                    : isToday(day)
+                    ? "border border-primary text-primary font-bold cursor-pointer hover:bg-primary/10"
+                    : "text-foreground hover:bg-muted cursor-pointer"
+                }`}
+              >
+                {day || ""}
+              </button>
+            ))}
+          </div>
+
+          {/* Ações rápidas */}
+          <div className="flex justify-between mt-2.5 pt-2 border-t border-border">
+            <button
+              onClick={() => { onChange(""); setOpen(false); }}
+              className="text-[10px] text-muted-foreground hover:text-foreground font-semibold transition cursor-pointer"
+            >
+              Limpar
+            </button>
+            <button
+              onClick={() => {
+                const t = new Date();
+                const mm = String(t.getMonth() + 1).padStart(2, "0");
+                const dd = String(t.getDate()).padStart(2, "0");
+                onChange(`${t.getFullYear()}-${mm}-${dd}`);
+                setOpen(false);
+              }}
+              className="text-[10px] text-primary hover:text-primary/80 font-bold transition cursor-pointer"
+            >
+              Hoje
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Dropdown customizado de operadores com paleta do sistema.
+ * Substitui o <select> nativo que usa cores do browser.
+ */
+function LiveOperatorSelect({
+  value,
+  onChange,
+  operators,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  operators: { operatorId: string; operatorName: string; status: string }[];
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selectedName = value
+    ? (operators.find((o) => o.operatorId === value)?.operatorName ?? "Operador")
+    : "Todos";
+
+  const options = [{ operatorId: "", operatorName: "Todos", status: "" }, ...operators];
+
+  return (
+    <div ref={ref} className="relative flex-1">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center gap-1.5 bg-muted/60 border rounded-lg px-2.5 py-1.5 text-[11px] transition cursor-pointer ${
+          value
+            ? "border-primary text-primary font-semibold"
+            : "border-border text-muted-foreground hover:border-primary/50"
+        }`}
+      >
+        <Users className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1 text-left truncate">{selectedName}</span>
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1.5 z-50 bg-card border border-border rounded-2xl shadow-xl py-1.5 min-w-full max-h-48 overflow-y-auto scrollbar-thin">
+          {options.map((op) => {
+            const isActive = op.operatorId === value;
+            return (
+              <button
+                key={op.operatorId}
+                onClick={() => { onChange(op.operatorId); setOpen(false); }}
+                className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-[11px] text-left transition cursor-pointer ${
+                  isActive
+                    ? "bg-primary/10 text-primary font-bold"
+                    : "text-foreground hover:bg-muted/60"
+                }`}
+              >
+                {op.operatorId && (
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                    op.status === "disponivel" ? "bg-primary" :
+                    op.status === "ocupado" ? "bg-amber-500" : "bg-muted-foreground/40"
+                  }`} />
+                )}
+                {!op.operatorId && <Users className="h-3 w-3 text-muted-foreground" />}
+                <span className="truncate">{op.operatorName}</span>
+                {isActive && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── LiveTab ──────────────────────────────────────────────────────────────────
 
 const LIVE_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
@@ -1367,28 +1610,12 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
 
           {/* Filtros: Data + Operador */}
           <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Calendar className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="w-full bg-muted/60 border border-border rounded-lg pl-7 pr-2 py-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
-            <div className="relative flex-1">
-              <Users className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-              <select
-                value={opIdFilter}
-                onChange={(e) => setOpIdFilter(e.target.value)}
-                className="w-full bg-muted/60 border border-border rounded-lg pl-7 pr-2 py-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
-              >
-                <option value="">Todos</option>
-                {allOperators.map((op) => (
-                  <option key={op.operatorId} value={op.operatorId}>{op.operatorName}</option>
-                ))}
-              </select>
-            </div>
+            <LiveDatePicker value={dateFilter} onChange={setDateFilter} />
+            <LiveOperatorSelect
+              value={opIdFilter}
+              onChange={setOpIdFilter}
+              operators={allOperators}
+            />
           </div>
 
           {/* Filtros ativos */}
