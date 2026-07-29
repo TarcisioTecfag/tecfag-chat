@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { operators, conversations, contacts, messages } from "../../../db/schema";
-import { eq, and, ne, desc, inArray, isNull, or, ilike, like, gte } from "drizzle-orm";
-import { getComercialOperatorIds } from "../../../lib/gestao-filter";
+import { eq, and, ne, desc, inArray, gte } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,18 +31,12 @@ export const Route = createFileRoute("/api/gestao/live")({
         try {
           const now = new Date();
 
-          // 0. IDs dos operadores do setor Comercial (regra de negócio)
-          const comercialIds = await getComercialOperatorIds(tenantId);
-
-          // 1. Buscar operadores do setor Comercial do tenant
+          // 1. Buscar TODOS os operadores do tenant (sem filtro de setor)
+          // Nota: o filtro de setor Comercial é exclusivo da aba Operadores (overview.ts)
           const opList = await db
             .select()
             .from(operators)
-            .where(
-              comercialIds !== null
-                ? and(eq(operators.tenantId, tenantId), inArray(operators.id, comercialIds))
-                : eq(operators.tenantId, tenantId)
-            );
+            .where(eq(operators.tenantId, tenantId));
 
           // 2. Filtro de data: usa lastMessageTime >= início do dia selecionado
           const dateCondition = dateFilter
@@ -85,11 +78,10 @@ export const Route = createFileRoute("/api/gestao/live")({
 
           // 5. Separar por categoria
           const opIds = opList.map((o) => o.id);
-          
-          // Com operadores Comerciais (filtrado por operador se opIdFilter fornecido)
+
+          // Conversas com qualquer operador atribuído (todos os setores)
           const operatorConvs = filteredConvs.filter((c) =>
             c.operatorId &&
-            opIds.includes(c.operatorId) &&
             c.queueState !== "automacao" &&
             (opIdFilter ? c.operatorId === opIdFilter : true)
           );
@@ -199,6 +191,29 @@ export const Route = createFileRoute("/api/gestao/live")({
                 conversations: opConvs.map(buildLiveConv),
               };
             });
+
+          // Operadores "fantasmas": têm conversas mas não estão na tabela operators
+          // (ex: admin ou usuário externo que atendeu diretamente)
+          const knownOpIds = new Set(opList.map((o) => o.id));
+          const ghostConvs = operatorConvs.filter(
+            (c) => c.operatorId && !knownOpIds.has(c.operatorId)
+          );
+          const ghostGroups = new Map<string, typeof filteredConvs>();
+          for (const c of ghostConvs) {
+            const key = c.operatorId!;
+            if (!ghostGroups.has(key)) ghostGroups.set(key, []);
+            ghostGroups.get(key)!.push(c);
+          }
+          for (const [opId, convs] of ghostGroups) {
+            if (opIdFilter && opId !== opIdFilter) continue;
+            operatorResult.push({
+              operatorId: opId,
+              operatorName: `Usuário (${opId.slice(0, 6)})`,
+              operatorAvatar: null,
+              status: "disponivel",
+              conversations: convs.map(buildLiveConv),
+            });
+          }
 
           const unassignedResult = unassignedConvs.map(buildLiveConv);
           const automationResult = automationConvs.map((c) => ({
