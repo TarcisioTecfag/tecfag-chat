@@ -62,7 +62,7 @@ type OperatorMetric = {
   frustratedCount: number;
   satisfiedPctLastWeek?: number;
   satisfiedPctLastMonth?: number;
-  trafficLight: "green" | "yellow" | "red";
+  trafficLight: "green" | "yellow" | "red" | "gray";
 };
 
 type AlertItem = {
@@ -84,6 +84,7 @@ type AlertItem = {
 type AuditItem = {
   id: string;
   conversationId: string;
+  operatorId: string | null;
   contactName: string | null;
   operatorName: string;
   performanceScore: number | null;
@@ -101,11 +102,12 @@ type AuditItem = {
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-function TrafficDot({ light }: { light: "green" | "yellow" | "red" }) {
+function TrafficDot({ light }: { light: "green" | "yellow" | "red" | "gray" }) {
   const colors = {
     green: "bg-primary",
     yellow: "bg-amber-400",
     red: "bg-red-500",
+    gray: "bg-muted-foreground/40",
   };
   return (
     <span
@@ -771,9 +773,9 @@ function OperatorsTab({
         const satisfiedPct = total > 0 ? Math.round((op.satisfiedCount / total) * 100) : 0;
         const isExpanded = expandedOperatorId === op.operatorId;
 
-        // Filtra auditorias vinculadas a este operador
+        // Filtra auditorias vinculadas a este operador por ID (robusto, não por nome)
         const operatorAudits = audits.filter(
-          (a) => a.operatorName.toLowerCase() === op.operatorName.toLowerCase()
+          (a) => a.operatorId === op.operatorId
         );
 
         return (
@@ -796,10 +798,12 @@ function OperatorsTab({
                   <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-1.5 ${
                     op.trafficLight === "green" ? "bg-primary/10 text-primary border border-primary/20" :
                     op.trafficLight === "yellow" ? "bg-amber-50 text-amber-700 border border-amber-100" :
-                    "bg-red-50 text-red-700 border border-red-100"
+                    op.trafficLight === "red" ? "bg-red-50 text-red-700 border border-red-100" :
+                    "bg-muted/60 text-muted-foreground border border-border"
                   }`}>
                     {op.trafficLight === "green" ? "No ritmo" :
-                     op.trafficLight === "yellow" ? "Atenção" : "Lento"}
+                     op.trafficLight === "yellow" ? "Atenção" :
+                     op.trafficLight === "red" ? "Lento" : "Sem dados hoje"}
                   </span>
                   <p className="text-xs text-muted-foreground mt-1">
                     {op.totalConversations} atendimento{op.totalConversations !== 1 ? "s" : ""} hoje

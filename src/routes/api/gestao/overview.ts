@@ -201,16 +201,49 @@ export const Route = createFileRoute("/api/gestao/overview")({
           console.warn("[overview] operadores falhou:", e?.message);
         }
 
-        // Monta objeto de operador com métricas (ou zeros se ainda não há dados)
+        // ── 6b. Contagem real de conversas por operador hoje ─────────────────
+        // Conta conversas onde o operador está atribuído, atualizadas hoje.
+        // É a contagem correta de "atendimentos" — não depende de ciclos SLA.
+        let conversationCountsMap: Record<string, number> = {};
+        try {
+          const opIds = allOperators.map((o) => o.id);
+          if (opIds.length > 0) {
+            const rows = await db
+              .select({
+                operatorId: conversations.operatorId,
+                cnt: count(),
+              })
+              .from(conversations)
+              .where(
+                and(
+                  eq(conversations.tenantId, tenantId),
+                  inArray(conversations.operatorId, opIds),
+                  gte(conversations.lastMessageTime, todayStart)
+                )
+              )
+              .groupBy(conversations.operatorId);
+
+            for (const row of rows) {
+              if (row.operatorId) {
+                conversationCountsMap[row.operatorId] = Number(row.cnt);
+              }
+            }
+          }
+        } catch (e: any) {
+          console.warn("[overview] contagem de conversas falhou:", e?.message);
+        }
         const operatorsWithMetrics = allOperators.map((op) => {
           const metric = dailyMetrics.find((m) => m.operatorId === op.id);
           const avgSec = metric?.avgResponseTimeSeconds ?? null;
 
-          // Semáforo: verde < 5min, amarelo < 15min, vermelho >= 15min ou sem dados
-          let trafficLight: "green" | "yellow" | "red" = "green";
-          if (avgSec === null) trafficLight = "yellow";
-          else if (avgSec >= 900) trafficLight = "red";
-          else if (avgSec >= 300) trafficLight = "yellow";
+          // Semáforo: cinza = sem dados hoje, verde <5min, amarelo <15min, vermelho >=15min
+          // "Cinza" evita o falso "Atenção" para operadores sem atendimentos mensurados hoje.
+          let trafficLight: "green" | "yellow" | "red" | "gray" = "gray";
+          if (avgSec !== null) {
+            if (avgSec >= 900) trafficLight = "red";
+            else if (avgSec >= 300) trafficLight = "yellow";
+            else trafficLight = "green";
+          }
 
           // Obter pontuações passadas das consultas ou simular fallbacks determinísticos baseados no score atual
           const weeklyAvg = weeklyAverages.find((w) => w.operatorId === op.id);
@@ -282,7 +315,7 @@ export const Route = createFileRoute("/api/gestao/overview")({
             operatorName: op.name,
             operatorAvatar: op.avatar,
             status: op.status,
-            totalConversations: metric?.totalConversations ?? 0,
+            totalConversations: conversationCountsMap[op.id] ?? 0,
             avgResponseTimeSeconds: avgSec,
             avgResponseTimeFormatted: avgSec
               ? avgSec >= 60 ? `${Math.floor(avgSec / 60)}min ${avgSec % 60}s` : `${avgSec}s`
@@ -308,9 +341,9 @@ export const Route = createFileRoute("/api/gestao/overview")({
           };
         });
 
-        // Ordena: vermelho > amarelo > verde, depois por overdueCount desc
+        // Ordena: vermelho > amarelo > verde > cinza (sem dados por último)
         operatorsWithMetrics.sort((a, b) => {
-          const order = { red: 0, yellow: 1, green: 2 };
+          const order: Record<string, number> = { red: 0, yellow: 1, green: 2, gray: 3 };
           if (order[a.trafficLight] !== order[b.trafficLight])
             return order[a.trafficLight] - order[b.trafficLight];
           return (b.overdueCount ?? 0) - (a.overdueCount ?? 0);

@@ -100,6 +100,8 @@ export const Route = createFileRoute("/api/gestao/audits")({
 
           const result = audits.map((a) => ({
             ...a,
+            // operatorId j\u00e1 vem do select — garante que o frontend pode vincular por ID
+            operatorId: a.operatorId ?? null,
             operatorName: a.operatorId ? operatorMap[a.operatorId] ?? "Desconhecido" : "Sem operador",
             flagCount: [a.hadLongResponseGap, a.hadMissedObjection, a.hadRudeLanguage, a.hadNoFollowUp]
               .filter(Boolean).length,
