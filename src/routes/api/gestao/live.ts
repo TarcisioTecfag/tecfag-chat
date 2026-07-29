@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { operators, conversations, contacts, messages } from "../../../db/schema";
 import { eq, and, ne, desc, inArray } from "drizzle-orm";
+import { getComercialOperatorIds } from "../../../lib/gestao-filter";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,11 +29,18 @@ export const Route = createFileRoute("/api/gestao/live")({
         try {
           const now = new Date();
 
-          // 1. Buscar todos os operadores cadastrados do tenant
+          // 0. IDs dos operadores do setor Comercial (regra de negócio)
+          const comercialIds = await getComercialOperatorIds(tenantId);
+
+          // 1. Buscar operadores do setor Comercial do tenant
           const opList = await db
             .select()
             .from(operators)
-            .where(eq(operators.tenantId, tenantId));
+            .where(
+              comercialIds !== null
+                ? and(eq(operators.tenantId, tenantId), inArray(operators.id, comercialIds))
+                : eq(operators.tenantId, tenantId)
+            );
 
           // 2. Buscar conversas ativas (não finalizadas) do tenant
           const activeConvs = await db

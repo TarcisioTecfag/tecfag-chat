@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { aiConversationAudits, operators } from "../../../db/schema";
 import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
 import { AuditService } from "../../../lib/audit-service";
+import { getComercialOperatorIds } from "../../../lib/gestao-filter";
 
 // Inicia o serviço de auditoria ao carregar esta rota
 AuditService.getInstance().start();
@@ -35,14 +36,22 @@ export const Route = createFileRoute("/api/gestao/audits")({
         }
 
         try {
+          // 0. IDs dos operadores do setor Comercial (regra de negócio)
+          // Auditorias só são exibidas para operadores do setor Comercial.
+          const comercialIds = await getComercialOperatorIds(tenantId);
+
           // Monta filtros dinâmicos
           const filters: any[] = [
             eq(aiConversationAudits.tenantId, tenantId),
             eq(aiConversationAudits.status, status),
           ];
 
+          // Filtro por operador específico (param da URL) tem prioridade
           if (operatorId) {
             filters.push(eq(aiConversationAudits.operatorId, operatorId));
+          } else if (comercialIds !== null && comercialIds.length > 0) {
+            // Caso contrário, aplica o filtro do setor Comercial
+            filters.push(inArray(aiConversationAudits.operatorId, comercialIds));
           }
 
           if (date) {

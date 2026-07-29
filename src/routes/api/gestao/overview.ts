@@ -7,7 +7,8 @@ import {
   operatorDailyMetrics,
   conversations,
 } from "../../../db/schema";
-import { eq, and, isNull, isNotNull, avg, count, ne, gte, lte, sum } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, avg, count, ne, gte, lte, sum, inArray } from "drizzle-orm";
+import { getComercialOperatorIds } from "../../../lib/gestao-filter";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,6 +35,23 @@ export const Route = createFileRoute("/api/gestao/overview")({
         const today = new Date().toISOString().split("T")[0];
         const todayStart = new Date(today + "T00:00:00.000Z");
         const todayEnd   = new Date(today + "T23:59:59.999Z");
+
+        // ── 0. IDs dos operadores do setor Comercial (regra de negócio) ──────
+        // Apenas operadores do setor "Comercial" aparecem no painel de monitoramento.
+        // Se nenhum setor Comercial for encontrado, retorna overview sem operadores.
+        const comercialIds = await getComercialOperatorIds(tenantId);
+        // Se o setor existe mas está vazio, nenhum operador é exibido
+        if (comercialIds !== null && comercialIds.length === 0) {
+          return new Response(JSON.stringify({
+            today,
+            activeConversations: 0,
+            overdueAlerts: 0,
+            avgResponseTimeSeconds: null,
+            avgResponseTimeFormatted: "–",
+            teamPerformanceScore: null,
+            operators: [],
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
 
         // ── 1. Conversas ativas (fail-safe independente) ──────────────────────
         let activeConversations = 0;
@@ -170,10 +188,15 @@ export const Route = createFileRoute("/api/gestao/overview")({
         // Reflete automaticamente qualquer add/remoção de operador no DB.
         let allOperators: { id: string; name: string; status: string; avatar: string | null }[] = [];
         try {
-          allOperators = await db
+          const query = db
             .select({ id: operators.id, name: operators.name, status: operators.status, avatar: operators.avatar })
             .from(operators)
-            .where(eq(operators.tenantId, tenantId));
+            .where(
+              comercialIds !== null
+                ? and(eq(operators.tenantId, tenantId), inArray(operators.id, comercialIds))
+                : eq(operators.tenantId, tenantId)
+            );
+          allOperators = await query;
         } catch (e: any) {
           console.warn("[overview] operadores falhou:", e?.message);
         }

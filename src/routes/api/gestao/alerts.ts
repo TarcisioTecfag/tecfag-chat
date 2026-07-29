@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { responseTimeLogs, conversations, contacts, operators, messages } from "../../../db/schema";
-import { eq, isNull, and, desc } from "drizzle-orm";
+import { eq, isNull, and, desc, inArray } from "drizzle-orm";
+import { getComercialOperatorIds } from "../../../lib/gestao-filter";
 import { SlaEngine } from "../../../lib/sla-engine";
 import { AuditService } from "../../../lib/audit-service";
 import { SupervisorEngine } from "../../../lib/valentina/supervisor-engine";
@@ -34,6 +35,9 @@ export const Route = createFileRoute("/api/gestao/alerts")({
         }
 
         try {
+          // 0. IDs dos operadores do setor Comercial (regra de negócio)
+          const comercialIds = await getComercialOperatorIds(tenantId);
+
           // Busca todos os ciclos SLA sem resposta (pendentes) do tenant
           const openLogs = await db
             .select({
@@ -63,9 +67,14 @@ export const Route = createFileRoute("/api/gestao/alerts")({
             )
             .orderBy(desc(responseTimeLogs.clientMessageAt)); // Mais antigos primeiro
 
+          // Filtrar apenas operadores do setor Comercial
+          const filteredLogs = comercialIds !== null
+            ? openLogs.filter((log) => log.operatorId && comercialIds.includes(log.operatorId))
+            : openLogs;
+
           const now = Date.now();
           const alerts = await Promise.all(
-            openLogs.map(async (log) => {
+            filteredLogs.map(async (log) => {
               const waitingSeconds = Math.floor(
                 (now - new Date(log.clientMessageAt).getTime()) / 1000
               );
