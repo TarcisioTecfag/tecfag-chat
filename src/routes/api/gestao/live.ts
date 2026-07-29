@@ -79,6 +79,18 @@ export const Route = createFileRoute("/api/gestao/live")({
           // 5. Separar por categoria
           const opIds = opList.map((o) => o.id);
 
+          // Log de diagnóstico: detecta operatorIds nas conversas que não existem na tabela operators
+          const uniqueConvOpIds = [...new Set(
+            allActiveConvs.map((c) => c.operatorId).filter(Boolean)
+          )];
+          const missingIds = uniqueConvOpIds.filter((id) => !opIds.includes(id!));
+          if (missingIds.length > 0) {
+            console.warn(
+              `[live.ts] Tenant ${tenantId}: ${missingIds.length} operatorId(s) nas conversas sem registro em operators:`,
+              missingIds
+            );
+          }
+
           // Conversas com qualquer operador atribuído (todos os setores)
           const operatorConvs = filteredConvs.filter((c) =>
             c.operatorId &&
@@ -86,7 +98,7 @@ export const Route = createFileRoute("/api/gestao/live")({
             (opIdFilter ? c.operatorId === opIdFilter : true)
           );
 
-          // Na fila sem operador (queueState = 'fila')
+          // Na fila sem operador
           const unassignedConvs = filteredConvs.filter(
             (c) => !c.operatorId && c.queueState === "fila"
           );
@@ -208,7 +220,7 @@ export const Route = createFileRoute("/api/gestao/live")({
             if (opIdFilter && opId !== opIdFilter) continue;
             operatorResult.push({
               operatorId: opId,
-              operatorName: `Usuário (${opId.slice(0, 6)})`,
+              operatorName: `Operador (${opId})`,
               operatorAvatar: null,
               status: "disponivel",
               conversations: convs.map(buildLiveConv),

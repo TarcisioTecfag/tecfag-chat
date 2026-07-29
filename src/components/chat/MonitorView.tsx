@@ -1646,7 +1646,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
           )}
 
           {/* ── Seção: Na Fila (sem operador) ─────────────────────────────── */}
-          {!loading && (liveData?.unassigned.filter(matchesSearch).length ?? 0) > 0 && (
+          {!loading && !opIdFilter && (liveData?.unassigned.filter(matchesSearch).length ?? 0) > 0 && (
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 px-2 py-1">
                 <Clock className="h-3.5 w-3.5 text-amber-500" />
