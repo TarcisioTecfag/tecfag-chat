@@ -947,42 +947,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   const hour = parseInt(brtHourStr, 10);
                   const greeting = hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
                   const name = operatorProfile?.name || "operador";
-                  return `Olá! ${greeting} ${name}, como posso te ajudar hoje?`;
+                  return `Olá! ${greeting} ${name}, como posso te ajudar hoje no seu atendimento?`;
                 })(),
-                time: new Date(Date.now() - 1000 * 60 * 30).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
                 side: "in",
                 isInternalNote: false,
-              },
-              {
-                id: "val_warning_delay",
-                author: "Valentina",
-                text: "Alerta de Atraso! O cliente Tarcísio Júnior está aguardando retorno há mais de 20 minutos.",
-                time: new Date(Date.now() - 1000 * 60 * 15).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-                side: "in",
-                isInternalNote: false,
-                isWarning: true,
-                warningType: "delay",
-                warningMetadata: {
-                  clientId: "val-1",
-                  clientName: "Tarcísio Júnior",
-                  lastMessage: "Bom dia! Como está a liberação da carga de embaladoras da Valem?",
-                }
-              },
-              {
-                id: "val_warning_new_lead",
-                author: "Valentina",
-                text: "Novo Atendimento! Transferi um novo cliente para a sua fila comercial.",
-                time: new Date(Date.now() - 1000 * 60 * 5).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-                side: "in",
-                isInternalNote: false,
-                isWarning: true,
-                warningType: "new_lead",
-                warningMetadata: {
-                  clientId: "tec-1",
-                  clientName: "Pedro Silva",
-                  temperature: "quente",
-                  interest: "Válvula Reguladora de Pressão de 2 polegadas",
-                }
               }
             ],
             lastMessageTime: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
@@ -1002,6 +971,34 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })
       .catch((err) => console.error("Erro ao sincronizar conversas do banco:", err));
+  }, [tenant, currentOperatorId]);
+
+  // Carrega histórico do chat individual do operador com Valentina (scope=operator)
+  useEffect(() => {
+    if (!currentOperatorId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/valentina/messages?tenantId=${tenant}&operatorId=${currentOperatorId}&scope=operator`);
+        if (!res.ok) return;
+        const rows: any[] = await res.json();
+        if (rows.length > 0) {
+          const mappedMessages: Message[] = rows.map((r) => ({
+            id: r.id,
+            author: r.direction === "to_agent" ? "Você" : "Valentina",
+            text: r.content,
+            time: new Date(r.createdAt || Date.now()).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            side: r.direction === "to_agent" ? "out" : "in",
+            isInternalNote: false,
+          }));
+
+          setConversations((prev) =>
+            prev.map((c) => (c.id === "valentina" ? { ...c, messages: mappedMessages } : c))
+          );
+        }
+      } catch (e) {
+        console.error("Erro ao carregar histórico do chat do operador:", e);
+      }
+    })();
   }, [tenant, currentOperatorId]);
 
   const rawConversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
@@ -1063,6 +1060,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               tenantId: tenant,
               operatorId: currentOperatorId,
               content: text,
+              scope: "operator",
             }),
           });
 

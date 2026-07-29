@@ -98,7 +98,7 @@ export function ValentinaChatTab() {
     (async () => {
       try {
         const res = await fetch(
-          `/api/valentina/messages?tenantId=valem&operatorId=${currentOperatorId}`
+          `/api/valentina/messages?tenantId=valem&operatorId=${currentOperatorId}&scope=admin`
         );
         if (!res.ok) throw new Error("fetch failed");
         const rows: any[] = await res.json();
@@ -152,6 +152,7 @@ export function ValentinaChatTab() {
           tenantId: "valem",
           operatorId: currentOperatorId || "system",
           content: combinedContent,
+          scope: "admin",
         }),
       });
 

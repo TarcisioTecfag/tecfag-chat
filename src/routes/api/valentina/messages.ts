@@ -193,6 +193,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
           );
         }
 
+        const scope = url.searchParams.get("scope") || "operator";
+
         try {
           const msgs = await db
             .select()
@@ -201,8 +203,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
               and(
                 eq(internalMessages.tenantId, tenantId),
                 eq(internalMessages.operatorId, operatorId),
-                // Filtra apenas mensagens do chat (ignora alertas automáticos de supervisão com metadata.type)
-                sql`(${internalMessages.metadata}->>'type' IS NULL OR ${internalMessages.metadata}->>'isChat' = 'true')`
+                // Isolamento de escopo: 'admin' (Módulo Valentina) vs 'operator' (Chat de Atendimento)
+                sql`(${internalMessages.metadata}->>'scope' = ${scope} OR (${scope} = 'operator' AND (${internalMessages.metadata}->>'scope' IS NULL AND (${internalMessages.metadata}->>'type' IS NULL OR ${internalMessages.metadata}->>'isChat' = 'true'))))`
               )
             )
             .orderBy(desc(internalMessages.createdAt))
@@ -227,7 +229,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { tenantId, operatorId, content } = body;
+          const { tenantId, operatorId, content, scope = "operator" } = body;
 
           if (!tenantId || !operatorId || !content) {
             return new Response(
@@ -247,7 +249,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             direction: "to_agent",
             agentType: "supervisor",
             content,
-            metadata: { isChat: true },
+            metadata: { isChat: true, scope },
             read: 1,
             createdAt: now,
           });
@@ -263,7 +265,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             knowledgeContext = await getKnowledgeBaseContext(tenantId);
           } catch {}
 
-          // 4. Buscar últimas mensagens do histórico para contexto conversacional
+          // 4. Buscar últimas mensagens do histórico para contexto conversacional (do mesmo escopo)
           let chatHistory = "";
           try {
             const recentMsgs = await db
@@ -273,7 +275,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 and(
                   eq(internalMessages.tenantId, tenantId),
                   eq(internalMessages.operatorId, operatorId),
-                  eq(internalMessages.agentType, "supervisor")
+                  sql`(${internalMessages.metadata}->>'scope' = ${scope} OR (${scope} = 'operator' AND ${internalMessages.metadata}->>'scope' IS NULL))`
                 )
               )
               .orderBy(desc(internalMessages.createdAt))
@@ -296,25 +298,38 @@ export const Route = createFileRoute("/api/valentina/messages")({
             const { vertexAi } = await import("../../../lib/vertex-ai");
 
             if (vertexAi.isReady()) {
-              const systemPrompt = `Você é a Valentina, assistente pessoal e colega de trabalho do vendedor "${operatorName}" na empresa Valempack.
+              const systemPrompt = scope === "admin" 
+                ? `Você é a Valentina, I.A. Master e Assistente de Gestão & Business Intelligence (BI) da Valempack.
+Você está no Módulo de Administração. O gestor/administrador "${operatorName}" está conversando com você no canal Master.
+
+## SEU PAPEL E PODERES:
+- Você tem visão completa de toda a empresa: banco de dados, desempenho da equipe toda, TMA geral, métricas globais e base de conhecimento da empresa.
+- Responda a qualquer dúvida sobre a operação, relatórios, métricas de equipe, faturamento ou processos gerais da Valempack.
+- Seja inteligente, objetiva, amigável e fragmente suas respostas em mensagens curtas (1-3 mensagens).
+
+## DADOS REAIS DA OPERAÇÃO:
+${operatorContext}
+${knowledgeContext}
+${chatHistory}
+
+## PERGUNTA DO GESTOR:
+"${content}"`
+                : `Você é a Valentina, assistente pessoal e colega de trabalho do vendedor "${operatorName}" na empresa Valempack.
 
 ## REGRA PRINCIPAL:
 - Responda ESTREITAMENTE ao que o operador perguntou.
 - Se o operador disser apenas "olá", "esta aí?", "tudo bem?", "boa tarde" ou saudações simples, responda amigavelmente com uma reação amigável e pergunte como pode ajudar.
 - NUNCA dê broncas, alertas proativos de SLA ou cobranças de conversas paradas sem ser solicitada.
-- Só mencione SLA, conversas paradas ou métricas SE o operador perguntar explicitamente sobre isso (ex: "tenho pendências?", "como estão meus SLAs?", "como foi meu dia?").
-- NUNCA inclua frases do tipo "Aliás, vi que tem uma conversa sua parada..." em mensagens comuns.
+- Só mencione SLA, conversas paradas ou métricas SE o operador perguntar explicitamente sobre isso (ex: "tenho pendências?", "como estão meus SLAs?").
 
 ## SUA PERSONALIDADE:
 - Fale como uma pessoa real brasileira, inteligente, amigável e prestativa.
 - Use linguagem natural: "opa", "tô por aqui sim!", "fala aí!", "boa!", "como posso te ajudar?"
 - Use emojis com moderação (máximo 1-2 por resposta).
-- Seja direta e objetiva.
 
 ## COMO RESPONDER:
 - SEMPRE fragmente sua resposta em mensagens curtas (1-3 fragmentos).
 - Cada fragmento deve ter no máximo 2-3 linhas.
-- Nunca envie um blocão de texto.
 
 ## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
 Retorne EXCLUSIVAMENTE um JSON válido neste formato:
@@ -325,29 +340,14 @@ Retorne EXCLUSIVAMENTE um JSON válido neste formato:
   ]
 }
 
-Se detectar uma situação crítica nos dados do operador (SLA estourado, cliente frustrado), inclua em "alerts":
-{
-  "alerts": [
-    {
-      "type": "sla_warning",
-      "conversationId": "id-da-conversa",
-      "clientName": "nome do cliente",
-      "waitMinutes": 12,
-      "lastMessage": "última mensagem do cliente"
-    }
-  ]
-}
-
-## DADOS REAIS DA OPERAÇÃO DO VENDEDOR "${operatorName}":
+## DADOS REAIS DO OPERADOR "${operatorName}":
 ${operatorContext}
 
 ${knowledgeContext}
 ${chatHistory}
 
-## MENSAGEM DO OPERADOR AGORA:
-"${content}"
-
-Responda como Valentina de forma natural, humanizada e fragmentada. Use os dados operacionais reais acima para dar respostas precisas e contextualizadas.`;
+## MENSAGEM DO OPERADOR:
+"${content}"`;
 
               const aiRes = await vertexAi.generateStructuredJson<{
                 fragments: { text: string; delay: number }[];
@@ -388,7 +388,7 @@ Responda como Valentina de forma natural, humanizada e fragmentada. Use os dados
               direction: "from_agent",
               agentType: "supervisor",
               content: frag.text,
-              metadata: { isChat: true, fragmentIndex: i, totalFragments: fragments.length },
+              metadata: { isChat: true, scope, fragmentIndex: i, totalFragments: fragments.length },
               read: 0,
               createdAt: fragTimestamp,
             });
