@@ -163,7 +163,7 @@ export function EmojiPicker({ onSelect, onClose, onSelectSticker }: EmojiPickerP
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 10, scale: 0.95 }}
       transition={{ type: "spring", damping: 20, stiffness: 300 }}
-      className="absolute bottom-full left-0 mb-2 z-50 w-80 rounded-2xl bg-card border border-border shadow-card overflow-hidden flex flex-col"
+      className="absolute bottom-full right-0 mb-2 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-card border border-border shadow-card overflow-hidden flex flex-col"
       style={{ maxHeight: "360px" }}
     >
       {/* Seletor de Abas */}
