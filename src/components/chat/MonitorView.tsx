@@ -10,7 +10,7 @@ import {
   Loader2, X, Filter, Coins, DollarSign, Cpu, Layers, Bot, Sparkles, ShieldCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, MOCK_LIVE, LiveOperator, LiveConversation } from "@/lib/monitor-mock-data";
+import { MOCK_LIVE, LiveOperator, LiveConversation } from "@/lib/monitor-mock-data";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -103,7 +103,7 @@ type AuditItem = {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function TrafficDot({ light }: { light: "green" | "yellow" | "red" }) {
   const colors = {
-    green: "bg-emerald-500",
+    green: "bg-primary",
     yellow: "bg-amber-400",
     red: "bg-red-500",
   };
@@ -119,7 +119,7 @@ function TrafficDot({ light }: { light: "green" | "yellow" | "red" }) {
 function ScoreBadge({ score }: { score: number | null }) {
   if (score === null) return <span className="text-xs text-muted-foreground">–</span>;
   const color =
-    score >= 75 ? "text-emerald-600 bg-emerald-50" :
+    score >= 75 ? "text-primary bg-primary/10" :
     score >= 50 ? "text-amber-600 bg-amber-50" :
     "text-red-600 bg-red-50";
   return (
@@ -365,7 +365,7 @@ export function OverviewTab({
       label: "Aguardando Resposta",
       value: overview.overdueAlerts,
       icon: AlertTriangle,
-      color: overview.overdueAlerts > 0 ? "text-red-600 bg-red-50" : "text-emerald-600 bg-emerald-50",
+      color: overview.overdueAlerts > 0 ? "text-red-600 bg-red-50" : "text-primary bg-primary/10",
       pulse: overview.overdueAlerts > 0,
     },
     {
@@ -705,7 +705,7 @@ function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean 
                     setActiveView("chat");
                     setSelectedChatId(alert.conversationId);
                   }}
-                  className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-xl transition shadow-sm hover:shadow-soft"
+                  className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 px-4 py-2 rounded-xl transition shadow-sm hover:shadow-soft"
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                   Abrir Conversa
@@ -794,7 +794,7 @@ function OperatorsTab({
                     <TrafficDot light={op.trafficLight} />
                   </div>
                   <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-1.5 ${
-                    op.trafficLight === "green" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                    op.trafficLight === "green" ? "bg-primary/10 text-primary border border-primary/20" :
                     op.trafficLight === "yellow" ? "bg-amber-50 text-amber-700 border border-amber-100" :
                     "bg-red-50 text-red-700 border border-red-100"
                   }`}>
@@ -912,8 +912,8 @@ function OperatorsTab({
                           {/* Pontos Positivos / Negativos */}
                           <div className="flex flex-col gap-1.5 text-[11px] mt-1">
                             {audit.strengths && (
-                              <div className="text-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/10 px-2 py-1 rounded border border-emerald-100/50">
-                                <span className="font-extrabold uppercase text-[9px] tracking-wider block mb-0.5 text-emerald-800">Pontos Fortes:</span>
+                              <div className="text-primary bg-primary/5 px-2 py-1 rounded border border-primary/10">
+                                <span className="font-extrabold uppercase text-[9px] tracking-wider block mb-0.5 text-primary">Pontos Fortes:</span>
                                 <span className="line-clamp-2 leading-relaxed">{audit.strengths}</span>
                               </div>
                             )}
@@ -1103,9 +1103,9 @@ function AuditsTab({
             {/* Pontos Fortes e Fracos */}
             <div className="grid grid-cols-2 gap-3">
               {selected.strengths && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 mb-2">✅ Pontos Fortes</p>
-                  <p className="text-xs text-emerald-900 leading-relaxed">{selected.strengths}</p>
+                <div className="bg-primary/5 border border-primary/15 rounded-2xl p-4">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-2">✅ Pontos Fortes</p>
+                  <p className="text-xs text-foreground/80 leading-relaxed">{selected.strengths}</p>
                 </div>
               )}
               {selected.weaknesses && (
@@ -1209,14 +1209,14 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                 <div className="flex items-center justify-between px-2 py-1 shrink-0">
                   <div className="flex items-center gap-1.5">
                     <span className={`h-2 w-2 rounded-full ${
-                      op.status === "disponivel" ? "bg-emerald-500" :
+                      op.status === "disponivel" ? "bg-primary" :
                       op.status === "ocupado" ? "bg-amber-500" :
                       "bg-slate-400"
                     }`} />
                     <span className="text-xs font-bold text-foreground">{op.operatorName}</span>
                   </div>
                   <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase ${
-                    op.status === "disponivel" ? "text-emerald-700 bg-emerald-50" :
+                    op.status === "disponivel" ? "text-primary bg-primary/10" :
                     op.status === "ocupado" ? "text-amber-700 bg-amber-50" :
                     "text-slate-600 bg-slate-100"
                   }`}>
@@ -1276,10 +1276,10 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                 </span>
                 AO VIVO
               </div>
@@ -1315,8 +1315,8 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
             <div className="px-5 py-2.5 border-t border-line bg-card flex items-center justify-between shrink-0 text-[10px] text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                 </span>
                 Modo Supervisor: Espiando chat em tempo real
               </div>
@@ -2220,7 +2220,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
                   Demonstrativo Dev
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-500/20">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold border border-primary/20">
                   <ShieldCheck className="h-3 w-3" />
                   Telemetria Real Vertex AI
                 </span>
@@ -2298,7 +2298,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
         <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
           <div className="flex items-center justify-between text-muted-foreground mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider">Custo Total Estimado</span>
-            <div className="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
               <DollarSign className="h-4 w-4" />
             </div>
           </div>
@@ -2309,7 +2309,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
                 (US$ {summary.totalCostUsd.toFixed(2)})
               </span>
             </div>
-            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 flex items-center gap-1">
+            <p className="text-[11px] text-primary font-semibold mt-1 flex items-center gap-1">
               <TrendingUp className="h-3 w-3" />
               Preços Oficiais Vertex AI Rest API
             </p>
@@ -2518,7 +2518,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${
                           log.feature === "sdr_agent" ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20" :
                           log.feature === "conversation_audit" ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" :
-                          log.feature === "supervisor_chat" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" :
+                          log.feature === "supervisor_chat" ? "bg-primary/10 text-primary border border-primary/20" :
                           "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                         }`}>
                           {log.feature === "sdr_agent" ? "SDR Bot" : log.feature === "conversation_audit" ? "Auditoria QA" : log.feature === "supervisor_chat" ? "Valentina Chat" : "SLA Engine"}
@@ -2537,12 +2537,12 @@ export function CostsTab({ tenant }: { tenant: string }) {
                       <td className="py-2 px-3.5 font-mono text-[11px] font-semibold text-foreground">
                         $ {parseFloat(log.costUsd || "0").toFixed(5)}
                       </td>
-                      <td className="py-2 px-3.5 font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                      <td className="py-2 px-3.5 font-mono text-[11px] font-bold text-primary">
                         R$ {parseFloat(log.costBrl || "0").toFixed(4)}
                       </td>
                       <td className="py-2 px-3.5 text-center">
                         {log.status === "success" ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-extrabold">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-extrabold">
                             <CheckCircle2 className="h-3 w-3" /> OK
                           </span>
                         ) : (
@@ -2905,7 +2905,7 @@ function OperatorHistoryModal({
                       </td>
                       <td className="p-3 text-center">
                         <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
-                          row.avgPerformanceScore >= 75 ? "text-emerald-700 bg-emerald-50 border border-emerald-200" :
+                          row.avgPerformanceScore >= 75 ? "text-primary bg-primary/10 border border-primary/20" :
                           row.avgPerformanceScore >= 50 ? "text-amber-700 bg-amber-50 border border-amber-200" :
                           "text-red-700 bg-red-50 border border-red-200"
                         }`}>

@@ -166,6 +166,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Status de presença (digitando / gravando áudio) do cliente por conversa
   const [clientTypingStatus, setClientTypingStatus] = useState<Record<string, { status: "composing" | "recording"; timestamp: number } | null>>({});
   const [isValentinaTyping, setIsValentinaTyping] = useState(false);
+  // Ref para controle de cancelamento da resposta da Valentina
+  // Cada nova mensagem incrementa a geração e aborta o fetch anterior
+  const valentinaPendingRef = useRef<{ controller: AbortController; generation: number } | null>(null);
+  const valentinaGenerationRef = useRef(0);
 
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([]);
@@ -1052,12 +1056,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
       );
 
-      // Chamar API real /api/valentina/messages
+      // ── Valentina: cancela a chamada anterior antes de iniciar nova ──────────
+      // Aborta o fetch em andamento (AbortController) e incrementa a "geração"
+      // para que fragmentos de respostas antigas sejam descartados.
+      if (valentinaPendingRef.current) {
+        valentinaPendingRef.current.controller.abort();
+      }
+      const myGeneration = ++valentinaGenerationRef.current;
+      const controller = new AbortController();
+      valentinaPendingRef.current = { controller, generation: myGeneration };
+
+      // Chamar API real /api/valentina/messages (com signal de cancelamento)
       (async () => {
         setIsValentinaTyping(true);
         try {
           const res = await fetch("/api/valentina/messages", {
             method: "POST",
+            signal: controller.signal,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               tenantId: tenant,
@@ -1067,6 +1082,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }),
           });
 
+          // Se uma nova mensagem foi enviada enquanto aguardávamos, descartar esta resposta
+          if (valentinaGenerationRef.current !== myGeneration) return;
+
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
 
@@ -1075,10 +1093,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const alerts = data.alerts || [];
 
           for (let i = 0; i < fragments.length; i++) {
+            // Verificar cancelamento antes de cada fragmento
+            if (valentinaGenerationRef.current !== myGeneration) return;
+
             const frag = fragments[i];
             const delay = frag.delay || (i * 800);
 
-            await new Promise((r) => setTimeout(r, Math.max(delay, 400)));
+            // Aguardar delay cancelável — rejeita se o sinal foi abortado
+            await new Promise<void>((resolve, reject) => {
+              const timer = setTimeout(resolve, Math.max(delay, 400));
+              controller.signal.addEventListener("abort", () => {
+                clearTimeout(timer);
+                reject(new DOMException("Aborted", "AbortError"));
+              }, { once: true });
+            });
+
+            // Verificar cancelamento novamente após o delay
+            if (valentinaGenerationRef.current !== myGeneration) return;
 
             const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
             const valentinaMsg: Message = {
@@ -1106,6 +1137,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           // Processar alertas como mensagens de warning
           for (const alert of alerts) {
+            if (valentinaGenerationRef.current !== myGeneration) return;
             const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
             const alertMsg: Message = {
               id: `msg-alert-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1136,9 +1168,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               })
             );
           }
-        } catch (err) {
+        } catch (err: any) {
+          // AbortError é intencional (nova mensagem enviada) — não mostrar erro
+          if (err?.name === "AbortError") return;
           console.error("[useChatState] Erro ao chamar API Valentina:", err);
-          // Fallback local em caso de erro de rede
+          // Fallback local em caso de erro de rede real
+          if (valentinaGenerationRef.current !== myGeneration) return;
           const fallbackTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
           const fallbackMsg: Message = {
             id: `msg-val-fallback-${Date.now()}`,
@@ -1156,6 +1191,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return c;
             })
           );
+        } finally {
+          // Só desligar o indicador se esta geração ainda é a ativa
+          if (valentinaGenerationRef.current === myGeneration) {
+            setIsValentinaTyping(false);
+          }
         }
       })();
 
