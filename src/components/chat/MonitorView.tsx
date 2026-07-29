@@ -7,10 +7,11 @@ import {
   MessageSquare, BarChart2, Bell, Zap, FlaskConical,
   Activity, Search, ClipboardCheck, ChevronLeft, Phone,
   Mail, Calendar, CheckCircle2, Circle, ExternalLink,
-  Loader2, X, Filter, Coins, DollarSign, Cpu, Layers, Bot, Sparkles, ShieldCheck
+  Loader2, X, Filter, Coins, DollarSign, Cpu, Layers, Bot, Sparkles, ShieldCheck,
+  Play, Volume2, FileText, Radio, ChevronDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MOCK_LIVE, LiveOperator, LiveConversation } from "@/lib/monitor-mock-data";
+import { MOCK_LIVE, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -1126,203 +1127,437 @@ function AuditsTab({
   );
 }
 
-function LiveTab({ demoMode }: { demoMode: boolean }) {
-  const { tenant } = useChat();
-  const [operators, setOperators] = useState<LiveOperator[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
+// ─── LiveTab ──────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (demoMode) {
-      setOperators(MOCK_LIVE as LiveOperator[]);
-      setLoading(false);
-      return;
+const LIVE_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+/**
+ * Renderiza o conteúdo de uma mensagem ao vivo:
+ * - Suporta texto puro
+ * - Suporta [MEDIA:type]messageId:caption
+ * - Notas internas ficam em amarelo
+ */
+function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolean }) {
+  const content = msg.content || "";
+
+  // Detecta padrão [MEDIA:type]messageId
+  const mediaMatch = content.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
+
+  const bubbleCls = `max-w-[72%] rounded-2xl px-3.5 py-2 shadow-sm text-xs leading-relaxed ${
+    msg.isInternalNote
+      ? "bg-amber-50 border border-amber-200 text-amber-900 italic"
+      : isAgent
+      ? "bg-primary text-primary-foreground rounded-tr-none"
+      : "bg-card text-foreground border border-border rounded-tl-none"
+  }`;
+
+  const timeCls = `text-[9px] block text-right mt-1 select-none ${
+    isAgent ? "text-primary-foreground/60" : "text-muted-foreground/60"
+  }`;
+
+  const timeStr = msg.sentAt
+    ? new Date(msg.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    : "";
+
+  if (mediaMatch) {
+    const [, mediaType, messageId, caption] = mediaMatch;
+    const mediaUrl = `${LIVE_BACKEND_URL}/api/baileys/media?messageId=${messageId}`;
+
+    let mediaEl: React.ReactNode = null;
+
+    if (mediaType === "image") {
+      mediaEl = (
+        <a href={mediaUrl} target="_blank" rel="noopener noreferrer">
+          <img
+            src={mediaUrl}
+            alt="Imagem"
+            className="max-h-52 w-full object-contain rounded-xl cursor-pointer hover:opacity-90 transition"
+          />
+        </a>
+      );
+    } else if (mediaType === "video") {
+      mediaEl = (
+        <a href={mediaUrl} target="_blank" rel="noopener noreferrer" className="relative block">
+          <video
+            src={mediaUrl}
+            className="max-h-52 w-full object-contain rounded-xl pointer-events-none"
+          />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-xl">
+            <div className="h-10 w-10 rounded-full bg-white/90 flex items-center justify-center shadow">
+              <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
+            </div>
+          </div>
+        </a>
+      );
+    } else if (mediaType === "audio") {
+      mediaEl = (
+        <div className="flex items-center gap-2 py-1">
+          <Volume2 className="h-4 w-4 shrink-0" />
+          <audio controls src={mediaUrl} className="h-7 w-44" />
+        </div>
+      );
+    } else if (mediaType === "document") {
+      const fileName = caption || "documento";
+      mediaEl = (
+        <a
+          href={mediaUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 hover:underline"
+        >
+          <FileText className="h-4 w-4 shrink-0" />
+          <span className="text-[11px] truncate max-w-[150px]">{fileName}</span>
+        </a>
+      );
+    } else {
+      mediaEl = (
+        <a href={mediaUrl} target="_blank" rel="noopener noreferrer" className="underline text-[11px]">
+          Mídia
+        </a>
+      );
     }
 
-    const fetchLive = async () => {
-      try {
-        const res = await fetch(`/api/gestao/live?tenantId=${tenant}`);
-        if (res.ok) {
-          const data = await res.json();
-          setOperators(data);
-        }
-      } catch (e) {
-        console.error("[MonitorView] Erro ao buscar dados ao vivo:", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchLive();
-    const interval = setInterval(fetchLive, 10_000);
-    return () => clearInterval(interval);
-  }, [tenant, demoMode]);
-  
-  let selectedConv: any = null;
-  let selectedOpName = "";
-  
-  for (const op of operators) {
-    const found = op.conversations.find((c: LiveConversation) => c.id === selectedConvId);
-    if (found) {
-      selectedConv = found;
-      selectedOpName = op.operatorName;
-      break;
-    }
-  }
-
-  if (!selectedConv && operators.length > 0) {
-    for (const op of operators) {
-      if (op.conversations.length > 0) {
-        selectedConv = op.conversations[0];
-        selectedOpName = op.operatorName;
-        break;
-      }
-    }
+    return (
+      <div className={`flex ${isAgent ? "justify-end" : "justify-start"}`}>
+        <div className={bubbleCls}>
+          {mediaEl}
+          {caption && <p className="mt-1 text-[11px]">{caption}</p>}
+          <span className={timeCls}>{timeStr} · {msg.senderName}</span>
+        </div>
+      </div>
+    );
   }
 
   return (
+    <div className={`flex ${isAgent ? "justify-end" : "justify-start"}`}>
+      <div className={bubbleCls}>
+        <p className="whitespace-pre-wrap break-words">{content}</p>
+        <span className={timeCls}>{timeStr} · {msg.senderName}</span>
+      </div>
+    </div>
+  );
+}
+
+function LiveTab({ demoMode }: { demoMode: boolean }) {
+  const { tenant, setSelectedChatId, setActiveView } = useChat();
+
+  // Estado principal
+  const [liveData, setLiveData] = useState<LiveData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Conversa selecionada
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+
+  // Modal de confirmação para conversas da Valentina
+  const [valentinaPending, setValentinaPending] = useState<LiveConversation | null>(null);
+
+  // Filtros
+  const [searchTerm, setSearchTerm] = useState("");
+  const [dateFilter, setDateFilter] = useState("");          // YYYY-MM-DD
+  const [opIdFilter, setOpIdFilter] = useState("");          // operatorId
+
+  // Fetch de dados com filtros
+  const fetchLive = useCallback(async () => {
+    if (demoMode) {
+      setLiveData({ operators: MOCK_LIVE as LiveOperator[], unassigned: [], automation: [] });
+      setLoading(false);
+      return;
+    }
+    try {
+      const params = new URLSearchParams({ tenantId: tenant });
+      if (dateFilter) params.set("date", dateFilter);
+      if (opIdFilter) params.set("opId", opIdFilter);
+      if (searchTerm.length >= 2) params.set("search", searchTerm);
+
+      const res = await fetch(`/api/gestao/live?${params.toString()}`);
+      if (res.ok) {
+        const data: LiveData = await res.json();
+        setLiveData(data);
+        setLastUpdated(new Date());
+      }
+    } catch (e) {
+      console.error("[MonitorView/LiveTab] Erro ao buscar dados ao vivo:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [tenant, demoMode, dateFilter, opIdFilter, searchTerm]);
+
+  useEffect(() => {
+    fetchLive();
+    const interval = setInterval(fetchLive, 8_000);
+    return () => clearInterval(interval);
+  }, [fetchLive]);
+
+  // Encontrar conversa selecionada em qualquer seção
+  const allConvs = [
+    ...(liveData?.operators.flatMap((op) => op.conversations) ?? []),
+    ...(liveData?.unassigned ?? []),
+  ];
+  const selectedConv = allConvs.find((c) => c.id === selectedConvId) ?? null;
+  const selectedOpName = liveData?.operators.find((op) =>
+    op.conversations.some((c) => c.id === selectedConvId)
+  )?.operatorName ?? null;
+
+  // Filtro de busca local (aplicado na sidebar apenas)
+  const searchLower = searchTerm.toLowerCase();
+  const matchesSearch = (c: LiveConversation) =>
+    !searchTerm ||
+    c.contactName.toLowerCase().includes(searchLower) ||
+    c.contactPhone.includes(searchTerm);
+
+  // Lista de operadores disponíveis para o dropdown
+  const allOperators = liveData?.operators ?? [];
+
+  // Ref para auto-scroll do chat
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedConvId, selectedConv?.messages?.length]);
+
+  // ── Renderização ────────────────────────────────────────────────────────────
+  return (
     <div className="flex h-full min-h-[500px] divide-x divide-line rounded-2xl border border-border overflow-hidden bg-card">
-      {/* Sidebar de Operadores e Conversas */}
+
+      {/* ── SIDEBAR ─────────────────────────────────────────────────────────── */}
       <div className="w-80 flex flex-col min-h-0 bg-muted/10 shrink-0">
-        <div className="p-3 border-b border-line shrink-0">
+
+        {/* Barra de busca */}
+        <div className="p-3 border-b border-line shrink-0 space-y-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Buscar operador ou cliente..."
+              placeholder="Buscar por nome ou número..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-muted/60 border border-border rounded-xl pl-9 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
             />
           </div>
+
+          {/* Filtros: Data + Operador */}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Calendar className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="w-full bg-muted/60 border border-border rounded-lg pl-7 pr-2 py-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div className="relative flex-1">
+              <Users className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+              <select
+                value={opIdFilter}
+                onChange={(e) => setOpIdFilter(e.target.value)}
+                className="w-full bg-muted/60 border border-border rounded-lg pl-7 pr-2 py-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
+              >
+                <option value="">Todos</option>
+                {allOperators.map((op) => (
+                  <option key={op.operatorId} value={op.operatorId}>{op.operatorName}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Filtros ativos */}
+          {(dateFilter || opIdFilter) && (
+            <div className="flex items-center gap-1 flex-wrap">
+              {dateFilter && (
+                <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                  {new Date(dateFilter).toLocaleDateString("pt-BR")}
+                  <button onClick={() => setDateFilter("")}><X className="h-2.5 w-2.5" /></button>
+                </span>
+              )}
+              {opIdFilter && (
+                <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                  {allOperators.find((o) => o.operatorId === opIdFilter)?.operatorName ?? "Operador"}
+                  <button onClick={() => setOpIdFilter("")}><X className="h-2.5 w-2.5" /></button>
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
+        {/* Lista de conversas agrupadas */}
         <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-4">
-          {operators.map((op: LiveOperator) => {
-            const filteredConvs = op.conversations.filter((c: LiveConversation) => 
-              c.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              op.operatorName.toLowerCase().includes(searchTerm.toLowerCase())
-            );
+          {loading && (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/40" />
+            </div>
+          )}
 
-            if (filteredConvs.length === 0 && searchTerm) return null;
-
-            return (
-              <div key={op.operatorId} className="space-y-1.5">
-                {/* Cabeçalho do Operador */}
-                <div className="flex items-center justify-between px-2 py-1 shrink-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`h-2 w-2 rounded-full ${
-                      op.status === "disponivel" ? "bg-primary" :
-                      op.status === "ocupado" ? "bg-amber-500" :
-                      "bg-slate-400"
-                    }`} />
-                    <span className="text-xs font-bold text-foreground">{op.operatorName}</span>
-                  </div>
-                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase ${
-                    op.status === "disponivel" ? "text-primary bg-primary/10" :
-                    op.status === "ocupado" ? "text-amber-700 bg-amber-50" :
-                    "text-slate-600 bg-slate-100"
-                  }`}>
-                    {op.status === "disponivel" ? "Livre" : op.status === "ocupado" ? "Ocupado" : "Pausa"}
-                  </span>
-                </div>
-
-                {/* Lista de Conversas do Operador */}
-                <div className="space-y-1 pl-2">
-                  {filteredConvs.map((conv: LiveConversation) => {
-                    const isSelected = conv.id === selectedConvId;
-                    return (
-                      <button
-                        key={conv.id}
-                        onClick={() => setSelectedConvId(conv.id)}
-                        className={`w-full text-left p-2.5 rounded-xl transition flex flex-col gap-1 cursor-pointer border ${
-                          isSelected 
-                            ? "bg-primary text-primary-foreground border-primary" 
-                            : "bg-card border-border hover:bg-muted/40 text-foreground"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold truncate pr-2">{conv.contactName}</span>
-                          {conv.isUnanswered && (
-                            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
-                              isSelected ? "bg-white/20 text-white" : "bg-red-50 text-red-600 border border-red-100 animate-pulse"
-                            }`}>
-                              Aguardando {conv.waitingMinutes}m
-                            </span>
-                          )}
-                        </div>
-                        <p className={`text-[10px] truncate ${isSelected ? "text-primary-foreground/75" : "text-muted-foreground"}`}>
-                          {conv.lastMessage}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
+          {/* ── Seção: Na Fila (sem operador) ─────────────────────────────── */}
+          {!loading && (liveData?.unassigned.filter(matchesSearch).length ?? 0) > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 px-2 py-1">
+                <Clock className="h-3.5 w-3.5 text-amber-500" />
+                <span className="text-[10px] font-extrabold text-amber-600 uppercase tracking-wider">
+                  Na Fila · {liveData!.unassigned.filter(matchesSearch).length}
+                </span>
               </div>
-            );
-          })}
+              {liveData!.unassigned.filter(matchesSearch).map((conv) => (
+                <LiveConvCard
+                  key={conv.id}
+                  conv={conv}
+                  isSelected={conv.id === selectedConvId}
+                  onClick={() => setSelectedConvId(conv.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* ── Seção: Com Valentina (automação) ──────────────────────────── */}
+          {!loading && !opIdFilter && (liveData?.automation.filter(matchesSearch).length ?? 0) > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 px-2 py-1">
+                <Bot className="h-3.5 w-3.5 text-primary" />
+                <span className="text-[10px] font-extrabold text-primary uppercase tracking-wider">
+                  Com Valentina · {liveData!.automation.filter(matchesSearch).length}
+                </span>
+              </div>
+              {liveData!.automation.filter(matchesSearch).map((conv) => (
+                <LiveConvCard
+                  key={conv.id}
+                  conv={conv}
+                  isSelected={false}
+                  locked
+                  onClick={() => setValentinaPending(conv)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* ── Seção: Operadores ─────────────────────────────────────────── */}
+          {!loading && allOperators
+            .filter((op) => opIdFilter ? op.operatorId === opIdFilter : true)
+            .map((op) => {
+              const filtered = op.conversations.filter(matchesSearch);
+              if (filtered.length === 0 && searchTerm) return null;
+              return (
+                <div key={op.operatorId} className="space-y-1">
+                  <div className="flex items-center justify-between px-2 py-1 shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-full ${
+                        op.status === "disponivel" ? "bg-primary" :
+                        op.status === "ocupado" ? "bg-amber-500" :
+                        "bg-slate-400"
+                      }`} />
+                      <span className="text-[11px] font-bold text-foreground truncate max-w-[120px]">{op.operatorName}</span>
+                    </div>
+                    <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase ${
+                      op.status === "disponivel" ? "text-primary bg-primary/10" :
+                      op.status === "ocupado" ? "text-amber-700 bg-amber-50" :
+                      "text-slate-600 bg-slate-100"
+                    }`}>
+                      {op.conversations.length} atend.
+                    </span>
+                  </div>
+                  {filtered.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground pl-4 italic">Sem conversas ativas</p>
+                  ) : (
+                    filtered.map((conv) => (
+                      <LiveConvCard
+                        key={conv.id}
+                        conv={conv}
+                        isSelected={conv.id === selectedConvId}
+                        onClick={() => setSelectedConvId(conv.id)}
+                      />
+                    ))
+                  )}
+                </div>
+              );
+            })
+          }
+
+          {!loading && !liveData?.operators.length && !liveData?.unassigned.length && !liveData?.automation.length && (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
+              <Radio className="h-8 w-8 opacity-20" />
+              <span className="text-xs">Nenhum atendimento ativo agora</span>
+            </div>
+          )}
         </div>
+
+        {/* Rodapé com timestamp de atualização */}
+        {lastUpdated && (
+          <div className="px-3 py-2 border-t border-line shrink-0 flex items-center gap-1.5">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
+            </span>
+            <span className="text-[9px] text-muted-foreground">
+              Atualizado às {lastUpdated.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Janela de Conversa em Tempo Real */}
+      {/* ── ÁREA PRINCIPAL: Chat em Tempo Real ──────────────────────────────── */}
       <div className="flex-1 flex flex-col min-h-0 bg-muted/5">
         {selectedConv ? (
           <>
-            {/* Header da Conversa */}
+            {/* Header da conversa */}
             <div className="px-5 py-3 border-b border-line bg-card flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <Avatar name={selectedConv.contactName} size="md" />
                 <div>
                   <h3 className="text-xs font-extrabold text-foreground">{selectedConv.contactName}</h3>
                   <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {selectedConv.contactPhone} · Operador: <span className="font-semibold text-foreground">{selectedOpName}</span>
+                    {selectedConv.contactPhone}
+                    {selectedOpName && (
+                      <> · Operador: <span className="font-semibold text-foreground">{selectedOpName}</span></>
+                    )}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                </span>
-                AO VIVO
+              <div className="flex items-center gap-2">
+                {/* Botão Abrir Conversa */}
+                <button
+                  onClick={() => {
+                    setSelectedChatId(selectedConv.id);
+                    setActiveView("chat");
+                  }}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary bg-primary/10 hover:bg-primary/15 border border-primary/20 px-3 py-1.5 rounded-lg transition cursor-pointer"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Abrir Conversa
+                </button>
+                {/* Badge AO VIVO */}
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-red-50 border border-red-100 text-red-600 text-[10px] font-bold">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                  </span>
+                  AO VIVO
+                </div>
               </div>
             </div>
 
-            {/* Balões de Mensagem */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-3 bg-slate-50/30">
-              {selectedConv.messages.map((msg: any) => {
-                const isAgent = msg.sender === "agent";
-                return (
-                  <div
-                    key={msg.id}
-                    className={`flex ${isAgent ? "justify-end" : "justify-start"}`}
-                  >
-                    <div className={`max-w-[70%] rounded-2xl px-3.5 py-2 shadow-soft text-xs leading-relaxed ${
-                      isAgent
-                        ? "bg-primary text-primary-foreground rounded-tr-none"
-                        : "bg-card text-foreground border border-border rounded-tl-none"
-                    }`}>
-                      <p>{msg.text}</p>
-                      <span className={`text-[8px] block text-right mt-1.5 select-none ${
-                        isAgent ? "text-primary-foreground/60" : "text-muted-foreground/60"
-                      }`}>
-                        {msg.time}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+            {/* Balões de Mensagem com suporte a mídia */}
+            <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-2">
+              {selectedConv.messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+                  <MessageSquare className="h-8 w-8 opacity-20" />
+                  <span className="text-xs">Nenhuma mensagem ainda</span>
+                </div>
+              ) : (
+                selectedConv.messages.map((msg) => {
+                  const isAgent = msg.senderType === "agent" || msg.senderType === "bot";
+                  return <LiveMessageBubble key={msg.id} msg={msg} isAgent={isAgent} />;
+                })
+              )}
+              <div ref={messagesEndRef} />
             </div>
 
-            {/* Footer de Modo Supervisor */}
+            {/* Footer Modo Supervisor */}
             <div className="px-5 py-2.5 border-t border-line bg-card flex items-center justify-between shrink-0 text-[10px] text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
                 </span>
-                Modo Supervisor: Espiando chat em tempo real
+                Modo Supervisor · Espiando chat em tempo real
               </div>
               <div className="text-[9px] font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded-lg">
                 Somente Visualização
@@ -1330,13 +1565,122 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
-            <MessageSquare className="h-8 w-8 opacity-30" />
-            <span className="text-xs">Nenhum atendimento ativo selecionado</span>
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
+            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <Eye className="h-8 w-8 text-primary/40" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-bold text-foreground">Selecione um atendimento</p>
+              <p className="text-xs mt-1">Clique em uma conversa na lista para espiá-la em tempo real</p>
+            </div>
           </div>
         )}
       </div>
+
+      {/* ── MODAL: Confirmação para ver atendimento da Valentina ─────────────── */}
+      <AnimatePresence>
+        {valentinaPending && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={() => setValentinaPending(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl shadow-xl p-7 max-w-sm w-full mx-4 flex flex-col gap-5"
+            >
+              {/* Ícone */}
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+                  <Bot className="h-7 w-7 text-primary" />
+                </div>
+                <h3 className="text-base font-black text-foreground leading-snug">
+                  Atendimento em Triagem
+                </h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  <strong className="text-foreground">{valentinaPending.contactName}</strong> está em triagem com a Valentina SDR.
+                  <br />
+                  Gostaria de ver esse atendimento?
+                </p>
+              </div>
+
+              {/* Ações */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setValentinaPending(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-border text-sm font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedChatId(valentinaPending.id);
+                    setActiveView("valentina");
+                    setValentinaPending(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition cursor-pointer"
+                >
+                  Ver na Valentina
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+/** Card de conversa na sidebar */
+function LiveConvCard({
+  conv,
+  isSelected,
+  onClick,
+  locked = false,
+}: {
+  conv: LiveConversation;
+  isSelected: boolean;
+  onClick: () => void;
+  locked?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left p-2.5 rounded-xl transition flex flex-col gap-1 cursor-pointer border relative ${
+        isSelected
+          ? "bg-primary text-primary-foreground border-primary"
+          : locked
+          ? "bg-muted/30 border-border hover:bg-muted/50 text-foreground opacity-80"
+          : "bg-card border-border hover:bg-muted/40 text-foreground"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-xs font-bold truncate pr-1">{conv.contactName}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          {locked && (
+            <Bot className={`h-3 w-3 ${isSelected ? "text-primary-foreground/80" : "text-primary"}`} />
+          )}
+          {conv.isUnanswered && (
+            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
+              isSelected ? "bg-white/20 text-white" : "bg-red-50 text-red-600 border border-red-100 animate-pulse"
+            }`}>
+              {conv.waitingMinutes}m
+            </span>
+          )}
+        </div>
+      </div>
+      <p className={`text-[10px] truncate ${
+        isSelected ? "text-primary-foreground/75" : "text-muted-foreground"
+      }`}>
+        {conv.lastMessage}
+      </p>
+    </button>
   );
 }
 

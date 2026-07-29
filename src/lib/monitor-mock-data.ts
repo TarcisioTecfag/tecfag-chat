@@ -13,27 +13,42 @@
 
 export type LiveMessage = {
   id: string;
-  sender: "agent" | "client";
-  text: string;
-  time: string;
+  senderType: "client" | "agent" | "bot" | "system";
+  senderName: string;
+  content: string;        // texto puro ou [MEDIA:image|video|audio|document|sticker]msgId
+  sentAt: string;         // ISO string
+  isInternalNote: boolean;
 };
 
 export type LiveConversation = {
   id: string;
   contactName: string;
   contactPhone: string;
+  contactAvatar: string | null;
+  queueState: string;
   lastMessage: string;
+  lastMessageTime: string;
   waitingMinutes: number;
   isUnanswered: boolean;
+  operatorId: string | null;
+  operatorName: string | null;
   messages: LiveMessage[];
 };
 
 export type LiveOperator = {
   operatorId: string;
   operatorName: string;
+  operatorAvatar: string | null;
   status: "disponivel" | "ocupado" | "ausente";
   conversations: LiveConversation[];
 };
+
+export type LiveData = {
+  operators: LiveOperator[];
+  unassigned: LiveConversation[];   // Na fila sem operador
+  automation: LiveConversation[];   // Com Valentina (automação)
+};
+
 
 // ── Tipos (espelhando MonitorView.tsx) ────────────────────────────────────────
 
