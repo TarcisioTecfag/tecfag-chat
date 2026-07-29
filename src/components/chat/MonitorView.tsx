@@ -1257,6 +1257,36 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
   const [dateFilter, setDateFilter] = useState("");          // YYYY-MM-DD
   const [opIdFilter, setOpIdFilter] = useState("");          // operatorId
 
+  // Histórico completo (carregado sob demanda)
+  const [fullHistory, setFullHistory] = useState<LiveMessage[]>([]);
+  const [fullHistoryLoading, setFullHistoryLoading] = useState(false);
+  const [fullHistoryConvId, setFullHistoryConvId] = useState<string | null>(null);
+
+  // Quando a conversa muda, limpa histórico completo
+  useEffect(() => {
+    setFullHistory([]);
+    setFullHistoryConvId(null);
+  }, [selectedConvId]);
+
+  const loadFullHistory = useCallback(async (convId: string) => {
+    if (!convId || demoMode) return;
+    setFullHistoryLoading(true);
+    try {
+      const res = await fetch(
+        `/api/gestao/messages?tenantId=${tenant}&conversationId=${convId}`
+      );
+      if (res.ok) {
+        const data: LiveMessage[] = await res.json();
+        setFullHistory(data);
+        setFullHistoryConvId(convId);
+      }
+    } catch (e) {
+      console.error("[LiveTab] Erro ao carregar histórico completo:", e);
+    } finally {
+      setFullHistoryLoading(false);
+    }
+  }, [tenant, demoMode]);
+
   // Fetch de dados com filtros
   const fetchLive = useCallback(async () => {
     if (demoMode) {
@@ -1535,32 +1565,75 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
             </div>
 
             {/* Balões de Mensagem com suporte a mídia */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-2">
-              {selectedConv.messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-                  <MessageSquare className="h-8 w-8 opacity-20" />
-                  <span className="text-xs">Nenhuma mensagem ainda</span>
+            <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col">
+
+              {/* Banner de carregar histórico completo */}
+              {selectedConv.messages.length > 0 && fullHistoryConvId !== selectedConvId && (
+                <div className="px-5 pt-4 pb-2 shrink-0">
+                  <button
+                    onClick={() => loadFullHistory(selectedConvId!)}
+                    disabled={fullHistoryLoading}
+                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-border bg-muted/30 hover:bg-muted/60 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                  >
+                    {fullHistoryLoading ? (
+                      <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Carregando histórico...</>
+                    ) : (
+                      <><Clock className="h-3.5 w-3.5" /> Carregar histórico completo ({selectedConv.messages.length} recentes)
+                      </>
+                    )}
+                  </button>
                 </div>
-              ) : (
-                selectedConv.messages.map((msg) => {
-                  const isAgent = msg.senderType === "agent" || msg.senderType === "bot";
-                  return <LiveMessageBubble key={msg.id} msg={msg} isAgent={isAgent} />;
-                })
               )}
-              <div ref={messagesEndRef} />
+
+              {/* Mensagens: histórico completo OU últimas 50 */}
+              <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-2">
+                {selectedConv.messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+                    <MessageSquare className="h-8 w-8 opacity-20" />
+                    <span className="text-xs">Nenhuma mensagem ainda</span>
+                  </div>
+                ) : (
+                  (fullHistoryConvId === selectedConvId ? fullHistory : selectedConv.messages).map((msg) => {
+                    const isAgent = msg.senderType === "agent" || msg.senderType === "bot";
+                    return <LiveMessageBubble key={msg.id} msg={msg} isAgent={isAgent} />;
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </div>
             </div>
 
             {/* Footer Modo Supervisor */}
             <div className="px-5 py-2.5 border-t border-line bg-card flex items-center justify-between shrink-0 text-[10px] text-muted-foreground">
               <div className="flex items-center gap-1.5">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-                </span>
-                Modo Supervisor · Espiando chat em tempo real
+                {fullHistoryConvId === selectedConvId ? (
+                  <>
+                    <Clock className="h-3.5 w-3.5 text-amber-500" />
+                    <span className="text-amber-600 font-semibold">
+                      Histórico completo · {fullHistory.length} mensagens
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                    </span>
+                    Modo Supervisor · Espiando chat em tempo real
+                  </>
+                )}
               </div>
-              <div className="text-[9px] font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded-lg">
-                Somente Visualização
+              <div className="flex items-center gap-2">
+                {fullHistoryConvId === selectedConvId && (
+                  <button
+                    onClick={() => { setFullHistory([]); setFullHistoryConvId(null); }}
+                    className="text-[9px] font-semibold text-primary bg-primary/10 hover:bg-primary/15 px-2 py-0.5 rounded-lg transition cursor-pointer"
+                  >
+                    Voltar ao vivo
+                  </button>
+                )}
+                <div className="text-[9px] font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded-lg">
+                  Somente Visualização
+                </div>
               </div>
             </div>
           </>

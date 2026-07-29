@@ -34,6 +34,7 @@ import { Route as ApiGestaoReportsRouteImport } from './routes/api/gestao/report
 import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
 import { Route as ApiGestaoOperatorHistoryRouteImport } from './routes/api/gestao/operator-history'
 import { Route as ApiGestaoMyMetricsRouteImport } from './routes/api/gestao/my-metrics'
+import { Route as ApiGestaoMessagesRouteImport } from './routes/api/gestao/messages'
 import { Route as ApiGestaoLiveRouteImport } from './routes/api/gestao/live'
 import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
 import { Route as ApiGestaoCostsRouteImport } from './routes/api/gestao/costs'
@@ -181,6 +182,11 @@ const ApiGestaoMyMetricsRoute = ApiGestaoMyMetricsRouteImport.update({
   path: '/api/gestao/my-metrics',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGestaoMessagesRoute = ApiGestaoMessagesRouteImport.update({
+  id: '/api/gestao/messages',
+  path: '/api/gestao/messages',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGestaoLiveRoute = ApiGestaoLiveRouteImport.update({
   id: '/api/gestao/live',
   path: '/api/gestao/live',
@@ -313,6 +319,7 @@ export interface FileRoutesByFullPath {
   '/api/gestao/costs': typeof ApiGestaoCostsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/live': typeof ApiGestaoLiveRoute
+  '/api/gestao/messages': typeof ApiGestaoMessagesRoute
   '/api/gestao/my-metrics': typeof ApiGestaoMyMetricsRoute
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
@@ -360,6 +367,7 @@ export interface FileRoutesByTo {
   '/api/gestao/costs': typeof ApiGestaoCostsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/live': typeof ApiGestaoLiveRoute
+  '/api/gestao/messages': typeof ApiGestaoMessagesRoute
   '/api/gestao/my-metrics': typeof ApiGestaoMyMetricsRoute
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
@@ -408,6 +416,7 @@ export interface FileRoutesById {
   '/api/gestao/costs': typeof ApiGestaoCostsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/live': typeof ApiGestaoLiveRoute
+  '/api/gestao/messages': typeof ApiGestaoMessagesRoute
   '/api/gestao/my-metrics': typeof ApiGestaoMyMetricsRoute
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
@@ -457,6 +466,7 @@ export interface FileRouteTypes {
     | '/api/gestao/costs'
     | '/api/gestao/health'
     | '/api/gestao/live'
+    | '/api/gestao/messages'
     | '/api/gestao/my-metrics'
     | '/api/gestao/operator-history'
     | '/api/gestao/overview'
@@ -504,6 +514,7 @@ export interface FileRouteTypes {
     | '/api/gestao/costs'
     | '/api/gestao/health'
     | '/api/gestao/live'
+    | '/api/gestao/messages'
     | '/api/gestao/my-metrics'
     | '/api/gestao/operator-history'
     | '/api/gestao/overview'
@@ -551,6 +562,7 @@ export interface FileRouteTypes {
     | '/api/gestao/costs'
     | '/api/gestao/health'
     | '/api/gestao/live'
+    | '/api/gestao/messages'
     | '/api/gestao/my-metrics'
     | '/api/gestao/operator-history'
     | '/api/gestao/overview'
@@ -596,6 +608,7 @@ export interface RootRouteChildren {
   ApiGestaoCostsRoute: typeof ApiGestaoCostsRoute
   ApiGestaoHealthRoute: typeof ApiGestaoHealthRoute
   ApiGestaoLiveRoute: typeof ApiGestaoLiveRoute
+  ApiGestaoMessagesRoute: typeof ApiGestaoMessagesRoute
   ApiGestaoMyMetricsRoute: typeof ApiGestaoMyMetricsRoute
   ApiGestaoOperatorHistoryRoute: typeof ApiGestaoOperatorHistoryRoute
   ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
@@ -787,6 +800,13 @@ declare module '@tanstack/react-router' {
       path: '/api/gestao/my-metrics'
       fullPath: '/api/gestao/my-metrics'
       preLoaderRoute: typeof ApiGestaoMyMetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/messages': {
+      id: '/api/gestao/messages'
+      path: '/api/gestao/messages'
+      fullPath: '/api/gestao/messages'
+      preLoaderRoute: typeof ApiGestaoMessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/gestao/live': {
@@ -1008,6 +1028,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoCostsRoute: ApiGestaoCostsRoute,
   ApiGestaoHealthRoute: ApiGestaoHealthRoute,
   ApiGestaoLiveRoute: ApiGestaoLiveRoute,
+  ApiGestaoMessagesRoute: ApiGestaoMessagesRoute,
   ApiGestaoMyMetricsRoute: ApiGestaoMyMetricsRoute,
   ApiGestaoOperatorHistoryRoute: ApiGestaoOperatorHistoryRoute,
   ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
