@@ -83,8 +83,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
                 if (op.length > 0) operatorName = op[0].name;
               }
 
-              // Busca a última mensagem do cliente na conversa para exibição rápida
-              let lastMessagePreview = "boa tarde alguem pode me atender?????";
+              let lastMessagePreview = "Aguardando retorno do atendimento...";
               try {
                 const msg = await db
                   .select({ content: messages.content })

@@ -28,7 +28,7 @@ import {
 // ══════════════════════════════════════════════════════════════════════════════
 // 🧪 DEMO MODE — troque para false para usar dados reais da API
 // ══════════════════════════════════════════════════════════════════════════════
-const DEMO_MODE = true;
+const DEMO_MODE = false;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 type MonitorTab = "live" | "alerts" | "operators" | "audits" | "tasks";
@@ -1122,11 +1122,38 @@ function AuditsTab({
   );
 }
 
-function LiveTab() {
-  const [selectedConvId, setSelectedConvId] = useState<string>("lconv-001");
+function LiveTab({ demoMode }: { demoMode: boolean }) {
+  const { tenant } = useChat();
+  const [operators, setOperators] = useState<LiveOperator[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const operators = MOCK_LIVE as LiveOperator[];
+  useEffect(() => {
+    if (demoMode) {
+      setOperators(MOCK_LIVE as LiveOperator[]);
+      setLoading(false);
+      return;
+    }
+
+    const fetchLive = async () => {
+      try {
+        const res = await fetch(`/api/gestao/live?tenantId=${tenant}`);
+        if (res.ok) {
+          const data = await res.json();
+          setOperators(data);
+        }
+      } catch (e) {
+        console.error("[MonitorView] Erro ao buscar dados ao vivo:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLive();
+    const interval = setInterval(fetchLive, 10_000);
+    return () => clearInterval(interval);
+  }, [tenant, demoMode]);
   
   let selectedConv: any = null;
   let selectedOpName = "";
@@ -1140,9 +1167,14 @@ function LiveTab() {
     }
   }
 
-  if (!selectedConv && operators.length > 0 && operators[0].conversations.length > 0) {
-    selectedConv = operators[0].conversations[0];
-    selectedOpName = operators[0].operatorName;
+  if (!selectedConv && operators.length > 0) {
+    for (const op of operators) {
+      if (op.conversations.length > 0) {
+        selectedConv = op.conversations[0];
+        selectedOpName = op.operatorName;
+        break;
+      }
+    }
   }
 
   return (
@@ -2672,7 +2704,7 @@ export function MonitorView() {
             className="flex flex-col flex-1 overflow-hidden"
           >
             {activeTab === "live" && (
-              <LiveTab />
+              <LiveTab demoMode={DEMO_MODE} />
             )}
             {activeTab === "alerts" && (
               <AlertsTab alerts={alerts} loading={loadingAlerts} />
