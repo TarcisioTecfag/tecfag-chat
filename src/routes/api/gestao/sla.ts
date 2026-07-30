@@ -88,7 +88,7 @@ export const Route = createFileRoute("/api/gestao/sla")({
 
               const opTotal = logsRes.length;
               const opOverdue = logsRes.filter((l) => l.isOverdue).length;
-              const slaPct = opTotal > 0 ? Math.round(((opTotal - opOverdue) / opTotal) * 100) : 100;
+              const slaPct = opTotal > 0 ? Math.round(((opTotal - opOverdue) / opTotal) * 100) : 0;
 
               return {
                 id: op.id,

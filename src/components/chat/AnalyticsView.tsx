@@ -369,16 +369,22 @@ function SlaTab({
                     <td className="px-5 py-3 text-foreground font-bold">{op.name}</td>
                     <td className="px-5 py-3 text-muted-foreground">{op.chats}</td>
                     <td className="px-5 py-3 text-foreground">
-                      {op.avgResponseSeconds >= 60
-                        ? `${Math.floor(op.avgResponseSeconds / 60)}min ${op.avgResponseSeconds % 60}s`
-                        : `${op.avgResponseSeconds}s`}
+                      {op.chats > 0 && op.avgResponseSeconds > 0
+                        ? (op.avgResponseSeconds >= 60
+                            ? `${Math.floor(op.avgResponseSeconds / 60)}min ${op.avgResponseSeconds % 60}s`
+                            : `${op.avgResponseSeconds}s`)
+                        : "–"}
                     </td>
                     <td className="px-5 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                        op.slaPct >= 90 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
-                      }`}>
-                        {op.slaPct}%
-                      </span>
+                      {op.chats > 0 ? (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          op.slaPct >= 90 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                        }`}>
+                          {op.slaPct}%
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground font-mono text-xs">–</span>
+                      )}
                     </td>
                   </tr>
                 ))}
