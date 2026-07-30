@@ -993,6 +993,43 @@ function AuditsTab({
     fetchAudits();
   }, [fetchAudits]);
 
+  // ── Reprocessamento de auditorias com erro ────────────────────────
+  const [retrying, setRetrying] = useState(false);
+
+  const retryAudit = useCallback(async (auditId: string) => {
+    setRetrying(true);
+    try {
+      await fetch("/api/gestao/audits", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: tenant, auditId }),
+      });
+      setSelected(null);
+      setTimeout(fetchAudits, 800);
+    } catch (e) {
+      console.error("[AuditsTab] Erro ao reprocessar auditoria:", e);
+    } finally {
+      setRetrying(false);
+    }
+  }, [tenant, fetchAudits]);
+
+  const retryAll = useCallback(async () => {
+    setRetrying(true);
+    try {
+      await fetch("/api/gestao/audits", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: tenant, action: "retry_all" }),
+      });
+      setSelected(null);
+      setTimeout(fetchAudits, 800);
+    } catch (e) {
+      console.error("[AuditsTab] Erro ao reprocessar todas:", e);
+    } finally {
+      setRetrying(false);
+    }
+  }, [tenant, fetchAudits]);
+
   // Quando selectedAuditId chega via navegação do OperatorsTab → abre detalhe
   useEffect(() => {
     if (selectedAuditId && audits.length > 0) {
@@ -1093,6 +1130,20 @@ function AuditsTab({
               {audits.length} resultado{audits.length !== 1 ? "s" : ""}
               {lastRefresh && ` · ${lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
             </span>
+          )}
+          {/* Botão Reprocessar Todos (apenas na aba Com Erro e com resultados) */}
+          {statusFilter === "error" && audits.length > 0 && (
+            <button
+              onClick={retryAll}
+              disabled={retrying || loading}
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-40"
+            >
+              {retrying
+                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                : <Activity className="h-3.5 w-3.5" />
+              }
+              Reprocessar Todos
+            </button>
           )}
           <button
             onClick={fetchAudits}
@@ -1229,9 +1280,22 @@ function AuditsTab({
                   </div>
                 )}
                 {selected.status === "error" && (
-                  <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-600 mb-1">⚠️ Erro no processamento</p>
-                    <p className="text-sm text-red-900">{selected.errorMessage ?? "Erro desconhecido durante a auditoria."}</p>
+                  <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-600 mb-1">⚠️ Erro no processamento</p>
+                      <p className="text-sm text-red-900 break-words">{selected.errorMessage ?? "Erro desconhecido durante a auditoria."}</p>
+                    </div>
+                    <button
+                      onClick={() => retryAudit(selected.id)}
+                      disabled={retrying}
+                      className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {retrying
+                        ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        : <Activity className="h-3.5 w-3.5" />
+                      }
+                      Reprocessar
+                    </button>
                   </div>
                 )}
 

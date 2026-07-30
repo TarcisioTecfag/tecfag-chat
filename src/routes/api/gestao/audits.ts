@@ -10,7 +10,7 @@ AuditService.getInstance().start();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, PATCH, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -122,6 +122,91 @@ export const Route = createFileRoute("/api/gestao/audits")({
           console.error("[gestao/audits] ERRO:", JSON.stringify(errDetail));
           return new Response(JSON.stringify([]), {
             status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      },
+
+      PATCH: async ({ request }) => {
+        /**
+         * Reseta auditorias com erro de volta para 'pending' para reprocessamento.
+         * Body: { auditId?: string, action?: 'retry_all', tenantId: string }
+         * - auditId: reseta uma auditoria específica
+         * - action='retry_all': reseta TODAS as auditorias com erro do tenant
+         */
+        try {
+          const body = await request.json() as { auditId?: string; action?: string; tenantId?: string };
+          const { auditId, action, tenantId } = body;
+
+          if (!tenantId) {
+            return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          if (action === "retry_all") {
+            // Reseta TODAS as auditorias com erro do tenant
+            const result = await db
+              .update(aiConversationAudits)
+              .set({
+                status: "pending",
+                errorMessage: null,
+                auditedAt: null,
+              })
+              .where(
+                and(
+                  eq(aiConversationAudits.tenantId, tenantId),
+                  eq(aiConversationAudits.status, "error")
+                )
+              );
+
+            console.log(`[gestao/audits PATCH] retry_all: auditorias resetadas para pending no tenant ${tenantId}`);
+            
+            // Força o AuditService a processar imediatamente
+            AuditService.getInstance().start();
+
+            return new Response(JSON.stringify({ success: true, action: "retry_all" }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          if (auditId) {
+            // Reseta uma auditoria específica
+            await db
+              .update(aiConversationAudits)
+              .set({
+                status: "pending",
+                errorMessage: null,
+                auditedAt: null,
+              })
+              .where(
+                and(
+                  eq(aiConversationAudits.id, auditId),
+                  eq(aiConversationAudits.tenantId, tenantId),
+                  eq(aiConversationAudits.status, "error")
+                )
+              );
+
+            console.log(`[gestao/audits PATCH] Auditoria ${auditId} resetada para pending.`);
+
+            // Força o AuditService a processar imediatamente
+            AuditService.getInstance().start();
+
+            return new Response(JSON.stringify({ success: true, auditId }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          return new Response(JSON.stringify({ error: "Forneça auditId ou action='retry_all'" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        } catch (e: any) {
+          console.error("[gestao/audits PATCH] Erro:", e?.message);
+          return new Response(JSON.stringify({ error: e?.message || "Erro interno" }), {
+            status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
