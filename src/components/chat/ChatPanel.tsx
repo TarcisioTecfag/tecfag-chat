@@ -1183,77 +1183,97 @@ export function ChatPanel() {
         {/* Handover Operations Actions */}
         <div className="flex items-center gap-2 relative">
           {!rightSidebarOpen && activeChat.id !== "valentina" && (
-            <button
-              onClick={() => setRightSidebarOpen(true)}
-              className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
-              title="Mostrar Painel de Informações"
-            >
-              <ChevronLeft className="h-4.5 w-4.5" strokeWidth={2.5} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setRightSidebarOpen(true)}
+                  className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  <ChevronLeft className="h-4.5 w-4.5" strokeWidth={2.5} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Mostrar Painel de Informações</TooltipContent>
+            </Tooltip>
           )}
           {activeChat.queue === "meus" ? (
             <>
               {/* Search button */}
-              <button
-                onClick={() => setShowMsgSearch((v) => !v)}
-                className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
-                  showMsgSearch
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
-                }`}
-                title="Buscar mensagem"
-              >
-                <Search className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowMsgSearch((v) => !v)}
+                    className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                      showMsgSearch
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Buscar mensagem</TooltipContent>
+              </Tooltip>
 
               {/* Filtros de mensagens da Valentina */}
               {activeChat.id === "valentina" && (
                 <>
                   {/* Filtrar Avisos */}
-                  <button
-                    onClick={() => setShowValWarnings((v) => !v)}
-                    className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
-                      showValWarnings
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                    title="Avisos de Valentina"
-                  >
-                    <AlertCircle className="h-3.5 w-3.5" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setShowValWarnings((v) => !v)}
+                        className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                          showValWarnings
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <AlertCircle className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Avisos de Valentina</TooltipContent>
+                  </Tooltip>
 
                   {/* Filtrar Respostas/Conversas */}
-                  <button
-                    onClick={() => setShowValResponses((v) => !v)}
-                    className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
-                      showValResponses
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                    title="Respostas/Conversas de Valentina"
-                  >
-                    <MessageSquare className="h-3.5 w-3.5" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setShowValResponses((v) => !v)}
+                        className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                          showValResponses
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Respostas/Conversas de Valentina</TooltipContent>
+                  </Tooltip>
                 </>
               )}
 
               {/* Local Dial Button (VigosPhone) */}
               {activeChat.id !== "valentina" && (
-                <a
-                  href={(() => {
-                    if (!activeChat.phone) return "#";
-                    let n = activeChat.phone.replace(/\D/g, "");
-                    if (n.startsWith("55") && n.length > 10) n = n.substring(2);
-                    if (n.startsWith("0")) n = n.substring(1);
-                    if (n.startsWith("14")) n = n.substring(2);
-                    return `tel:${n}`;
-                  })()}
-                  onClick={logVigosPhoneCall}
-                  className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
-                  title="Discar via VigosPhone (Softphone Local)"
-                >
-                  <PhoneCall className="h-3.5 w-3.5" />
-                </a>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={(() => {
+                        if (!activeChat.phone) return "#";
+                        let n = activeChat.phone.replace(/\D/g, "");
+                        if (n.startsWith("55") && n.length > 10) n = n.substring(2);
+                        if (n.startsWith("0")) n = n.substring(1);
+                        if (n.startsWith("14")) n = n.substring(2);
+                        return `tel:${n}`;
+                      })()}
+                      onClick={logVigosPhoneCall}
+                      className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
+                    >
+                      <PhoneCall className="h-3.5 w-3.5" />
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Discar via VigosPhone (Softphone Local)</TooltipContent>
+                </Tooltip>
               )}
 
               {/* Transfer Menu — apenas para o dono com canTransferChat */}

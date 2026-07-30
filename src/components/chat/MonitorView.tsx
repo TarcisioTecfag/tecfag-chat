@@ -2095,6 +2095,16 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
               </div>
               <div className="flex items-center gap-2">
                 {fullHistoryConvId === selectedConvId && (
+                  <button
+                    onClick={() => setFullHistoryConvId(null)}
+                    className="text-[10px] text-muted-foreground hover:text-foreground font-semibold underline cursor-pointer"
+                  >
+                    Voltar ao tempo real
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
             <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
