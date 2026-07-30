@@ -35,8 +35,54 @@ export type RodizioOperator = {
   }>;
 };
 
+function OperatorAvatar({
+  name,
+  avatar,
+  size = "h-10 w-10",
+  fontSize = "text-xs",
+}: {
+  name: string;
+  avatar?: string | null;
+  size?: string;
+  fontSize?: string;
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [avatar]);
+
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0])
+    .filter(Boolean)
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
+  if (avatar && avatar.trim() !== "" && !imgError) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        className={`${size} rounded-full object-cover shrink-0 border border-primary/20 shadow-sm`}
+        onError={() => setImgError(true)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`${size} rounded-full bg-primary-soft flex items-center justify-center font-black ${fontSize} text-primary shrink-0 border border-primary/20`}
+    >
+      {initials}
+    </div>
+  );
+}
+
 export function RodizioTab() {
-  const { tenant, setActiveView, setSelectedChatId } = useChat();
+  const { tenant, operators: globalOperators, setActiveView, setSelectedChatId } = useChat();
 
   const [operators, setOperators] = useState<RodizioOperator[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -215,9 +261,12 @@ export function RodizioTab() {
                 >
                   {/* Nome & Status Badge (Harmonia Verde) */}
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-primary-soft flex items-center justify-center font-black text-xs text-primary shrink-0 border border-primary/20">
-                      {op.name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)}
-                    </div>
+                    <OperatorAvatar
+                      name={op.name}
+                      avatar={op.avatar || globalOperators?.find((g) => g.id === op.id || (g.email && op.email && g.email.toLowerCase() === op.email.toLowerCase()))?.avatar}
+                      size="h-10 w-10"
+                      fontSize="text-xs"
+                    />
                     <div>
                       <h3 className="text-xs font-extrabold text-foreground">{op.name}</h3>
                       <div className="flex items-center gap-1.5 mt-1">
@@ -342,6 +391,12 @@ export function RodizioTab() {
                           <span className="text-[10px] font-black text-primary bg-primary-soft px-1.5 py-0.5 rounded-md">
                             {idx + 1}º
                           </span>
+                          <OperatorAvatar
+                            name={op.name}
+                            avatar={op.avatar || globalOperators?.find((g) => g.id === op.id || (g.email && op.email && g.email.toLowerCase() === op.email.toLowerCase()))?.avatar}
+                            size="h-6 w-6"
+                            fontSize="text-[9px]"
+                          />
                           <span className="text-xs font-extrabold text-foreground">{op.name}</span>
                         </div>
                         <span className="text-[10px] font-extrabold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-md">

@@ -407,9 +407,7 @@ export class SessionManager {
     }
   }
 
-  public getSession(tenantId: string): WASocket | undefined {
-    return this.sessions.get(tenantId);
-  }
+
 
   private async handleIncomingMessage(tenantId: string, rawMsg: any) {
     const jid = rawMsg.key.remoteJid;

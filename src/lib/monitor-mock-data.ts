@@ -13,32 +13,35 @@
 
 export type LiveMessage = {
   id: string;
-  senderType: "client" | "agent" | "bot" | "system";
-  senderName: string;
-  content: string;        // texto puro ou [MEDIA:image|video|audio|document|sticker]msgId
-  sentAt: string;         // ISO string
-  isInternalNote: boolean;
+  senderType?: "client" | "agent" | "bot" | "system";
+  senderName?: string;
+  sender?: string;
+  text?: string;
+  time?: string;
+  content?: string;        // texto puro ou [MEDIA:image|video|audio|document|sticker]msgId
+  sentAt?: string;         // ISO string
+  isInternalNote?: boolean;
 };
 
 export type LiveConversation = {
   id: string;
   contactName: string;
   contactPhone: string;
-  contactAvatar: string | null;
-  queueState: string;
+  contactAvatar?: string | null;
+  queueState?: string;
   lastMessage: string;
-  lastMessageTime: string;
+  lastMessageTime?: string;
   waitingMinutes: number;
   isUnanswered: boolean;
-  operatorId: string | null;
-  operatorName: string | null;
+  operatorId?: string | null;
+  operatorName?: string | null;
   messages: LiveMessage[];
 };
 
 export type LiveOperator = {
   operatorId: string;
   operatorName: string;
-  operatorAvatar: string | null;
+  operatorAvatar?: string | null;
   status: "disponivel" | "ocupado" | "ausente";
   conversations: LiveConversation[];
 };
