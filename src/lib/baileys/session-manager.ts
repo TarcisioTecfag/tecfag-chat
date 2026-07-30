@@ -3,7 +3,8 @@ import makeWASocket, {
   WASocket, 
   initAuthCreds,
   downloadMediaMessage,
-  proto
+  proto,
+  fetchLatestBaileysVersion
 } from "@whiskeysockets/baileys";
 import NodeCache from "node-cache";
 import pino from "pino";
@@ -205,6 +206,16 @@ export class SessionManager {
     // Obter estado de autenticação baseado no Drizzle
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
 
+    // Obter a versão mais recente do WhatsApp Web para evitar rejeição de protocolo
+    let version: [number, number, number] | undefined;
+    try {
+      const fetched = await fetchLatestBaileysVersion();
+      version = fetched.version;
+      console.log(`[SessionManager] Versão do WhatsApp Web obtida: v${version.join(".")}`);
+    } catch (e) {
+      console.warn("[SessionManager] Erro ao buscar versão do Baileys, usando fallback interno:", e);
+    }
+
     // Cache de retry de mensagens — necessário para que o WA possa pedir retransmissão
     const msgRetryCounterCache = new NodeCache({ stdTTL: 60, useClones: false });
     this.msgRetryCounterCaches.set(tenantId, msgRetryCounterCache);
@@ -212,10 +223,14 @@ export class SessionManager {
     // Inicializar o socket do Baileys
     const makeSocketFn = (makeWASocket as any).default || makeWASocket;
     const sock = makeSocketFn({
+      version,
+      browser: ["Valem Chat", "Chrome", "1.0.0"],
       auth: state,
       logger,
       printQRInTerminal: false,
       msgRetryCounterCache,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
       // Permite que o Baileys reenvie mensagens quando o WA pede retransmissão (retry)
       getMessage: async (key: proto.IMessageKey) => {
         // Tenta buscar a mensagem do banco para permitir reenvio
