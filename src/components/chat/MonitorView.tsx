@@ -11,7 +11,7 @@ import {
   Play, Volume2, FileText, Radio, ChevronDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MOCK_LIVE, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
+import { MOCK_LIVE, MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -100,6 +100,8 @@ type AuditItem = {
   actionableInsight: string | null;
   flagCount: number;
   auditedAt: string | null;
+  status: string;
+  errorMessage?: string | null;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -944,48 +946,60 @@ function OperatorsTab({
 }
 
 function AuditsTab({ 
-  audits, 
-  loading, 
   selectedAuditId, 
-  onSelectAudit 
+  onSelectAudit,
+  operators = [],
 }: { 
-  audits: AuditItem[]; 
-  loading: boolean; 
   selectedAuditId?: string | null;
   onSelectAudit?: (id: string | null) => void;
+  operators?: OperatorMetric[];
 }) {
+  const { tenant } = useChat();
+  const [audits, setAudits] = useState<AuditItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<AuditItem | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+
+  // ── Filtros ───────────────────────────────────────────────────────────────
+  const [dateFilter, setDateFilter] = useState("");
+  const [operatorIdFilter, setOperatorIdFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"done" | "pending" | "error">("done");
+
+  // ── Fetch próprio ─────────────────────────────────────────────────────────
+  const fetchAudits = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ tenantId: tenant, limit: "50" });
+      if (dateFilter) params.set("date", dateFilter);
+      if (operatorIdFilter) params.set("operatorId", operatorIdFilter);
+      params.set("status", statusFilter);
+      // Quando filtrando por pendentes/erros, remove restrição de setor Comercial
+      if (statusFilter !== "done") params.set("includeAll", "true");
+
+      const res = await fetch(`/api/gestao/audits?${params.toString()}`);
+      if (res.ok) {
+        const data: AuditItem[] = await res.json();
+        setAudits(data);
+        setLastRefresh(new Date());
+      }
+    } catch (e) {
+      console.error("[AuditsTab] Erro ao buscar auditorias:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [tenant, dateFilter, operatorIdFilter, statusFilter]);
 
   useEffect(() => {
-    if (selectedAuditId) {
+    fetchAudits();
+  }, [fetchAudits]);
+
+  // Quando selectedAuditId chega via navegação do OperatorsTab → abre detalhe
+  useEffect(() => {
+    if (selectedAuditId && audits.length > 0) {
       const found = audits.find((a) => a.id === selectedAuditId);
-      if (found) {
-        setSelected(found);
-      }
+      if (found) setSelected(found);
     }
   }, [selectedAuditId, audits]);
-
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground/40" />
-      </div>
-    );
-  }
-
-  if (audits.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
-        <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-          <Zap className="h-8 w-8 text-primary/50" />
-        </div>
-        <div className="text-center max-w-sm">
-          <p className="font-bold text-foreground mb-1">Nenhuma auditoria ainda</p>
-          <p className="text-sm">As auditorias aparecem automaticamente quando atendimentos são finalizados.</p>
-        </div>
-      </div>
-    );
-  }
 
   const sentimentEmoji: Record<string, string> = {
     satisfeito: "😊",
@@ -993,136 +1007,300 @@ function AuditsTab({
     frustrado: "😞",
   };
 
+  // ── Badge de status para auditorias não concluídas ────────────────────────
+  function AuditStatusBadge({ status }: { status: string }) {
+    if (status === "done") return null;
+    if (status === "processing") return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-extrabold">
+        <Cpu className="h-3 w-3 animate-pulse" /> Processando
+      </span>
+    );
+    if (status === "pending") return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-extrabold">
+        <Clock className="h-3 w-3" /> Pendente
+      </span>
+    );
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[10px] font-extrabold">
+        <XCircle className="h-3 w-3" /> Erro
+      </span>
+    );
+  }
+
   return (
-    <div className="flex gap-4 h-full overflow-hidden">
-      {/* Lista */}
-      <div className="w-64 shrink-0 flex flex-col gap-2 overflow-y-auto scrollbar-thin pr-1">
-        {audits.map((audit) => (
-          <button
-            key={audit.id}
-            onClick={() => {
-              setSelected(audit);
-              if (onSelectAudit) onSelectAudit(audit.id);
-            }}
-            className={`w-full text-left p-3.5 rounded-2xl border transition cursor-pointer ${
-              selected?.id === audit.id
-                ? "border-primary bg-primary/5"
-                : "border-border bg-card hover:bg-muted/50"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold text-foreground truncate">
-                {audit.contactName ?? "Desconhecido"}
-              </span>
-              <ScoreBadge score={audit.performanceScore} />
-            </div>
-            <p className="text-[10px] text-muted-foreground truncate">{audit.operatorName}</p>
-            <div className="flex items-center gap-1 mt-2">
-              <span className="text-sm">{sentimentEmoji[audit.clientSentiment ?? ""] ?? "–"}</span>
-              {audit.flagCount > 0 && (
-                <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-md">
-                  {audit.flagCount} falha{audit.flagCount > 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
-          </button>
-        ))}
-      </div>
+    <div className="flex flex-col h-full gap-3 overflow-hidden">
 
-      {/* Detalhe */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {!selected ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-            Selecione uma auditoria para ver o detalhe
-          </div>
-        ) : (
-          <motion.div
-            key={selected.id}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col gap-4"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="font-extrabold text-foreground text-base">
-                  {selected.contactName ?? "Desconhecido"}
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  Atendente: {selected.operatorName}
-                  {selected.auditedAt && ` · ${new Date(selected.auditedAt).toLocaleDateString("pt-BR")}`}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{sentimentEmoji[selected.clientSentiment ?? ""] ?? "–"}</span>
-                <ScoreBadge score={selected.performanceScore} />
-              </div>
-            </div>
+      {/* ── Toolbar de Filtros ─────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 shrink-0 flex-wrap pb-1 border-b border-line">
 
-            {/* Insight Acionável */}
-            {selected.actionableInsight && (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600 mb-1">⚡ Insight da IA para agir agora</p>
-                <p className="text-sm font-semibold text-amber-900">{selected.actionableInsight}</p>
-              </div>
-            )}
+        {/* Tabs de Status */}
+        <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1 shrink-0">
+          {(["done", "pending", "error"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                statusFilter === s
+                  ? "bg-card shadow-sm text-foreground border border-border/50"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {s === "done" ? "✅ Concluídas" : s === "pending" ? "⏳ Pendentes" : "❌ Com Erro"}
+            </button>
+          ))}
+        </div>
 
-            {/* Flags */}
-            {selected.flagCount > 0 && (
-              <div className="grid grid-cols-2 gap-2">
-                {selected.hadLongResponseGap && (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                    <Clock className="h-3.5 w-3.5 text-red-500" />
-                    <span className="text-xs font-semibold text-red-700">Demora excessiva</span>
-                  </div>
-                )}
-                {selected.hadMissedObjection && (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                    <XCircle className="h-3.5 w-3.5 text-red-500" />
-                    <span className="text-xs font-semibold text-red-700">Objeção ignorada</span>
-                  </div>
-                )}
-                {selected.hadRudeLanguage && (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
-                    <span className="text-xs font-semibold text-red-700">Linguagem inadequada</span>
-                  </div>
-                )}
-                {selected.hadNoFollowUp && (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                    <Minus className="h-3.5 w-3.5 text-red-500" />
-                    <span className="text-xs font-semibold text-red-700">Sem próximo passo</span>
-                  </div>
-                )}
-              </div>
-            )}
+        {/* Date Picker */}
+        <div className="w-36 shrink-0">
+          <LiveDatePicker value={dateFilter} onChange={setDateFilter} />
+        </div>
 
-            {/* Resumo */}
-            {selected.summary && (
-              <div className="bg-card border border-border rounded-2xl p-4">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground mb-2">Resumo</p>
-                <p className="text-sm text-foreground leading-relaxed">{selected.summary}</p>
-              </div>
-            )}
-
-            {/* Pontos Fortes e Fracos */}
-            <div className="grid grid-cols-2 gap-3">
-              {selected.strengths && (
-                <div className="bg-primary/5 border border-primary/15 rounded-2xl p-4">
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-2">✅ Pontos Fortes</p>
-                  <p className="text-xs text-foreground/80 leading-relaxed">{selected.strengths}</p>
-                </div>
-              )}
-              {selected.weaknesses && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-700 mb-2">❌ Falhas</p>
-                  <p className="text-xs text-red-900 leading-relaxed">{selected.weaknesses}</p>
-                </div>
-              )}
-            </div>
-          </motion.div>
+        {/* Operator Dropdown (só aparece se houver operadores) */}
+        {operators.length > 0 && (
+          <LiveOperatorSelect
+            value={operatorIdFilter}
+            onChange={setOperatorIdFilter}
+            operators={operators as any}
+          />
         )}
+
+        {/* Chips de filtros ativos */}
+        {(dateFilter || operatorIdFilter) && (
+          <div className="flex items-center gap-1">
+            {dateFilter && (
+              <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                {new Date(dateFilter + "T12:00:00").toLocaleDateString("pt-BR")}
+                <button onClick={() => setDateFilter("")} className="cursor-pointer">
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            )}
+            {operatorIdFilter && (
+              <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                {operators.find((o) => o.operatorId === operatorIdFilter)?.operatorName ?? "Operador"}
+                <button onClick={() => setOperatorIdFilter("")} className="cursor-pointer">
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Refresh + contador */}
+        <div className="ml-auto flex items-center gap-2">
+          {!loading && (
+            <span className="text-[10px] text-muted-foreground">
+              {audits.length} resultado{audits.length !== 1 ? "s" : ""}
+              {lastRefresh && ` · ${lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
+            </span>
+          )}
+          <button
+            onClick={fetchAudits}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted px-2.5 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-40"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </button>
+        </div>
       </div>
+
+      {/* ── Conteúdo ──────────────────────────────────────────────────────── */}
+      {loading ? (
+        <div className="flex flex-1 items-center justify-center">
+          <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground/40" />
+        </div>
+      ) : audits.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
+          <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+            <Zap className="h-8 w-8 text-primary/50" />
+          </div>
+          <div className="text-center max-w-sm">
+            <p className="font-bold text-foreground mb-1">Nenhuma auditoria ainda</p>
+            <p className="text-sm">
+              {statusFilter === "done"
+                ? "As auditorias aparecem automaticamente quando atendimentos são finalizados."
+                : statusFilter === "pending"
+                ? "Nenhum atendimento aguardando processamento no momento."
+                : "Nenhum erro de processamento encontrado."}
+            </p>
+            {(dateFilter || operatorIdFilter) && (
+              <button
+                onClick={() => { setDateFilter(""); setOperatorIdFilter(""); }}
+                className="mt-3 text-xs text-primary font-semibold underline cursor-pointer hover:opacity-75 transition"
+              >
+                Limpar filtros
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-4 flex-1 overflow-hidden">
+
+          {/* Lista de auditorias */}
+          <div className="w-64 shrink-0 flex flex-col gap-2 overflow-y-auto scrollbar-thin pr-1">
+            {audits.map((audit) => (
+              <button
+                key={audit.id}
+                onClick={() => {
+                  setSelected(audit);
+                  if (onSelectAudit) onSelectAudit(audit.id);
+                }}
+                className={`w-full text-left p-3.5 rounded-2xl border transition cursor-pointer ${
+                  selected?.id === audit.id
+                    ? "border-primary bg-primary/5"
+                    : "border-border bg-card hover:bg-muted/50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-foreground truncate max-w-[110px]">
+                    {audit.contactName ?? "Desconhecido"}
+                  </span>
+                  {audit.performanceScore !== null
+                    ? <ScoreBadge score={audit.performanceScore} />
+                    : <AuditStatusBadge status={audit.status} />
+                  }
+                </div>
+                <p className="text-[10px] text-muted-foreground truncate">{audit.operatorName}</p>
+                <div className="flex items-center gap-1 mt-2">
+                  <span className="text-sm">{sentimentEmoji[audit.clientSentiment ?? ""] ?? "–"}</span>
+                  {audit.flagCount > 0 && (
+                    <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-md">
+                      {audit.flagCount} falha{audit.flagCount > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {audit.auditedAt && (
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {new Date(audit.auditedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Painel de Detalhe */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin">
+            {!selected ? (
+              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                Selecione uma auditoria para ver o detalhe
+              </div>
+            ) : (
+              <motion.div
+                key={selected.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col gap-4"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-extrabold text-foreground text-base">
+                      {selected.contactName ?? "Desconhecido"}
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                      Atendente: {selected.operatorName}
+                      {selected.auditedAt && ` · ${new Date(selected.auditedAt).toLocaleDateString("pt-BR")}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{sentimentEmoji[selected.clientSentiment ?? ""] ?? "–"}</span>
+                    {selected.performanceScore !== null
+                      ? <ScoreBadge score={selected.performanceScore} />
+                      : <AuditStatusBadge status={selected.status} />
+                    }
+                  </div>
+                </div>
+
+                {/* Estados de Pendente / Processando / Erro */}
+                {(selected.status === "pending" || selected.status === "processing") && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
+                    <RefreshCw className={`h-5 w-5 text-amber-500 shrink-0 ${selected.status === "processing" ? "animate-spin" : ""}`} />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-900">
+                        {selected.status === "processing" ? "Processando agora..." : "Aguardando processamento"}
+                      </p>
+                      <p className="text-xs text-amber-700">
+                        {selected.status === "processing"
+                          ? "A Vertex AI está analisando este atendimento. Atualize em alguns instantes."
+                          : "A IA irá analisar este atendimento no próximo ciclo (a cada 5 minutos)."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {selected.status === "error" && (
+                  <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-600 mb-1">⚠️ Erro no processamento</p>
+                    <p className="text-sm text-red-900">{selected.errorMessage ?? "Erro desconhecido durante a auditoria."}</p>
+                  </div>
+                )}
+
+                {/* Insight Acionável */}
+                {selected.actionableInsight && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600 mb-1">⚡ Insight da IA para agir agora</p>
+                    <p className="text-sm font-semibold text-amber-900">{selected.actionableInsight}</p>
+                  </div>
+                )}
+
+                {/* Flags de Problemas */}
+                {selected.flagCount > 0 && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {selected.hadLongResponseGap && (
+                      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                        <Clock className="h-3.5 w-3.5 text-red-500" />
+                        <span className="text-xs font-semibold text-red-700">Demora excessiva</span>
+                      </div>
+                    )}
+                    {selected.hadMissedObjection && (
+                      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                        <XCircle className="h-3.5 w-3.5 text-red-500" />
+                        <span className="text-xs font-semibold text-red-700">Objeção ignorada</span>
+                      </div>
+                    )}
+                    {selected.hadRudeLanguage && (
+                      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                        <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                        <span className="text-xs font-semibold text-red-700">Linguagem inadequada</span>
+                      </div>
+                    )}
+                    {selected.hadNoFollowUp && (
+                      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                        <Minus className="h-3.5 w-3.5 text-red-500" />
+                        <span className="text-xs font-semibold text-red-700">Sem próximo passo</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Resumo */}
+                {selected.summary && (
+                  <div className="bg-card border border-border rounded-2xl p-4">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground mb-2">Resumo</p>
+                    <p className="text-sm text-foreground leading-relaxed">{selected.summary}</p>
+                  </div>
+                )}
+
+                {/* Pontos Fortes e Fracos */}
+                <div className="grid grid-cols-2 gap-3">
+                  {selected.strengths && (
+                    <div className="bg-primary/5 border border-primary/15 rounded-2xl p-4">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-2">✅ Pontos Fortes</p>
+                      <p className="text-xs text-foreground/80 leading-relaxed">{selected.strengths}</p>
+                    </div>
+                  )}
+                  {selected.weaknesses && (
+                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-700 mb-2">❌ Falhas</p>
+                      <p className="text-xs text-red-900 leading-relaxed">{selected.weaknesses}</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3372,10 +3550,9 @@ export function MonitorView() {
             )}
             {activeTab === "audits" && (
               <AuditsTab 
-                audits={audits} 
-                loading={loadingAudits} 
                 selectedAuditId={selectedAuditId}
                 onSelectAudit={setSelectedAuditId}
+                operators={overview?.operators ?? []}
               />
             )}
             {activeTab === "tasks" && (

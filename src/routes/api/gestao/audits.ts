@@ -24,7 +24,8 @@ export const Route = createFileRoute("/api/gestao/audits")({
         const tenantId = url.searchParams.get("tenantId");
         const date = url.searchParams.get("date");           // 'YYYY-MM-DD', opcional
         const operatorId = url.searchParams.get("operatorId"); // opcional
-        const status = url.searchParams.get("status") ?? "done"; // 'done' | 'pending' | 'error'
+        const statusParam = url.searchParams.get("status") ?? "done"; // 'done' | 'pending' | 'processing' | 'error' | 'all'
+        const includeAll = url.searchParams.get("includeAll") === "true"; // se true, remove filtro de setor Comercial
         const limitParam = url.searchParams.get("limit") ?? "30";
         const limit = Math.min(parseInt(limitParam), 100);
 
@@ -37,14 +38,18 @@ export const Route = createFileRoute("/api/gestao/audits")({
 
         try {
           // 0. IDs dos operadores do setor Comercial (regra de negócio)
-          // Auditorias só são exibidas para operadores do setor Comercial.
-          const comercialIds = await getComercialOperatorIds(tenantId);
+          // Auditorias só são exibidas para operadores do setor Comercial (a não ser que includeAll=true).
+          const comercialIds = includeAll ? null : await getComercialOperatorIds(tenantId);
 
           // Monta filtros dinâmicos
           const filters: any[] = [
             eq(aiConversationAudits.tenantId, tenantId),
-            eq(aiConversationAudits.status, status),
           ];
+
+          // Filtro de status — 'all' significa sem restrição de status
+          if (statusParam !== "all") {
+            filters.push(eq(aiConversationAudits.status, statusParam));
+          }
 
           // Filtro por operador específico (param da URL) tem prioridade
           if (operatorId) {
@@ -79,12 +84,14 @@ export const Route = createFileRoute("/api/gestao/audits")({
               weaknesses: aiConversationAudits.weaknesses,
               actionableInsight: aiConversationAudits.actionableInsight,
               status: aiConversationAudits.status,
+              errorMessage: aiConversationAudits.errorMessage,
               auditedAt: aiConversationAudits.auditedAt,
               createdAt: aiConversationAudits.createdAt,
             })
             .from(aiConversationAudits)
             .where(and(...filters))
-            .orderBy(desc(aiConversationAudits.auditedAt))
+            // Para status 'done', ordena pela data da auditoria; para outros, pelo createdAt
+            .orderBy(desc(statusParam === "done" ? aiConversationAudits.auditedAt : aiConversationAudits.createdAt))
             .limit(limit);
 
           // Busca nomes dos operadores em batch
