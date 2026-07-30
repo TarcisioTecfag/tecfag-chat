@@ -17,6 +17,7 @@ export const Route = createFileRoute("/api/baileys/connect")({
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId");
+        const force = url.searchParams.get("force") === "true";
 
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
@@ -47,13 +48,21 @@ export const Route = createFileRoute("/api/baileys/connect")({
 
             // Notificar status inicial se a sessão já estiver ativa
             const currentStatus = sessionManager.getStatus(tenantId);
+            const currentQr = sessionManager.getQr(tenantId);
             const sock = sessionManager.getSession(tenantId);
             if (currentStatus !== "disconnected") {
               const phone = sock?.user?.id ? sock.user.id.split(":")[0] : undefined;
               controller.enqueue(`data: ${JSON.stringify({ type: "status", status: currentStatus, phone })}\n\n`);
+              if (currentStatus === "qr_ready" && currentQr) {
+                controller.enqueue(`data: ${JSON.stringify({ type: "qr", qr: currentQr })}\n\n`);
+              }
             }
 
-            sessionManager.initSession(tenantId).catch((err) => {
+            const initPromise = force
+              ? sessionManager.resetAndInitSession(tenantId)
+              : sessionManager.initSession(tenantId);
+
+            initPromise.catch((err) => {
               console.error("Erro ao inicializar sessão Baileys:", err);
               try {
                 controller.enqueue(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);

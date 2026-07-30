@@ -147,6 +147,39 @@ export class SessionManager {
     }
   }
 
+  /** Resetar sessão e limpar chaves antigas do banco para forçar a emissão de um novo QR Code limpo */
+  public async resetAndInitSession(tenantId: string): Promise<WASocket> {
+    console.log(`[SessionManager] Resetando chaves de sessão antigas e solicitando novo QR Code para o tenant: ${tenantId}`);
+    
+    const existingSock = this.sessions.get(tenantId);
+    if (existingSock) {
+      try {
+        existingSock.end(undefined);
+      } catch (e) {}
+      this.sessions.delete(tenantId);
+    }
+
+    this.sessionStatuses.set(tenantId, "disconnected");
+    this.sessionQrs.delete(tenantId);
+    this.notify(tenantId, { type: "status", status: "disconnected" });
+
+    try {
+      await db
+        .update(channelConfigs)
+        .set({
+          baileysSessionStatus: "disconnected",
+          baileysPairedPhone: null,
+          baileysAuthKeys: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(channelConfigs.tenantId, tenantId));
+    } catch (e) {
+      console.error("[SessionManager] Erro ao limpar chaves antigas no DB:", e);
+    }
+
+    return this.initSession(tenantId);
+  }
+
   public async initSession(tenantId: string): Promise<WASocket> {
     if (this.sessions.has(tenantId)) {
       return this.sessions.get(tenantId)!;

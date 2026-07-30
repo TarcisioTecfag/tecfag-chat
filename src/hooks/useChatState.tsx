@@ -142,7 +142,7 @@ type ChatContextType = {
   clientTypingStatus: Record<string, { status: "composing" | "recording"; timestamp: number } | null>;
   isValentinaTyping: boolean;
   disconnectBaileys: () => void;
-  connectBaileys: () => void;
+  connectBaileys: (forceNew?: boolean) => void;
  
   // Authentication
   isAuthenticated: boolean;
@@ -1959,7 +1959,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => clearInterval(interval);
   }, []);
 
-  const connectBaileys = () => {
+  const connectBaileys = (forceNew: boolean = false) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -1970,7 +1970,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       qrCodeUrl: prev.status === "connected" ? "" : prev.qrCodeUrl,
     }));
 
-    const eventSource = new EventSource(`${BACKEND_URL}/api/baileys/connect?tenantId=valem`);
+    const url = `${BACKEND_URL}/api/baileys/connect?tenantId=valem${forceNew ? "&force=true" : ""}`;
+    const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 
     eventSource.onmessage = (event) => {

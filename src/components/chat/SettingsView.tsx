@@ -437,7 +437,7 @@ export function SettingsView() {
                       Para que o Valem Chat possa enviar e receber mensagens usando o Baileys, você precisa estabelecer a conexão.
                     </p>
                     <button
-                      onClick={connectBaileys}
+                      onClick={() => connectBaileys(true)}
                       className="mt-6 h-10 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:opacity-90 transition cursor-pointer"
                     >
                       Gerar Código QR de Conexão
