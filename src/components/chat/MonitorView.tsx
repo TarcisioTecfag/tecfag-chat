@@ -1,4 +1,11 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import React, { useState, useEffect, useCallback } from "react";
 import { useChat } from "@/hooks/useChatState";
 import {
@@ -2471,18 +2478,19 @@ function GlobalTasksTab() {
 
         <div className="flex items-center gap-3 w-full md:w-auto justify-end">
           {/* Seletor de Operador */}
-          <select
-            value={operatorFilter}
-            onChange={(e) => setOperatorFilter(e.target.value)}
-            className="h-9 rounded-xl bg-card border border-border px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer max-w-[180px]"
-          >
-            <option value="all">Todos Operadores</option>
-            {uniqueOperatorsList.map((op) => (
-              <option key={op.email} value={op.email || ""}>
-                {op.name}
-              </option>
-            ))}
-          </select>
+          <Select value={operatorFilter} onValueChange={setOperatorFilter}>
+            <SelectTrigger className="h-9 w-[180px] rounded-xl bg-card border border-border px-3 text-xs text-foreground focus:ring-1 focus:ring-primary">
+              <SelectValue placeholder="Todos Operadores" />
+            </SelectTrigger>
+            <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+              <SelectItem value="all" className="cursor-pointer text-xs">Todos Operadores</SelectItem>
+              {uniqueOperatorsList.map((op) => (
+                <SelectItem key={op.email || op.name} value={op.email || op.name} className="cursor-pointer text-xs">
+                  {op.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <button
             onClick={() => setIsAllTasksModalOpen(true)}
@@ -2840,18 +2848,19 @@ function GlobalTasksTab() {
                 </div>
 
                 {/* Operator Selector */}
-                <select
-                  value={operatorFilter}
-                  onChange={(e) => setOperatorFilter(e.target.value)}
-                  className="h-10 rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent cursor-pointer w-full md:w-44 shrink-0"
-                >
-                  <option value="all">Todos Operadores</option>
-                  {uniqueOperatorsList.map((op) => (
-                    <option key={op.email} value={op.email || ""}>
-                      {op.name}
-                    </option>
-                  ))}
-                </select>
+                <Select value={operatorFilter} onValueChange={setOperatorFilter}>
+                  <SelectTrigger className="h-10 w-full md:w-44 shrink-0 rounded-xl bg-muted px-3 text-xs text-foreground border border-transparent focus:ring-1 focus:ring-primary">
+                    <SelectValue placeholder="Todos Operadores" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+                    <SelectItem value="all" className="cursor-pointer text-xs">Todos Operadores</SelectItem>
+                    {uniqueOperatorsList.map((op) => (
+                      <SelectItem key={op.email || op.name} value={op.email || op.name} className="cursor-pointer text-xs">
+                        {op.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
                 {/* Status Toggle */}
                 <div className="flex bg-muted rounded-xl p-1 shrink-0 w-full md:w-auto">
@@ -3150,27 +3159,29 @@ export function CostsTab({ tenant }: { tenant: string }) {
             </button>
           </div>
 
-          <select
-            value={featureFilter}
-            onChange={(e) => setFeatureFilter(e.target.value)}
-            className="bg-card text-foreground text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-line outline-none focus:border-primary transition cursor-pointer"
-          >
-            <option value="all">Todas Funcionalidades</option>
-            <option value="sdr_agent">SDR Bot (Triagem)</option>
-            <option value="conversation_audit">Auditoria QA</option>
-            <option value="supervisor_chat">Valentina Chat</option>
-            <option value="sla_advisor">Análise SLA</option>
-          </select>
+          <Select value={featureFilter} onValueChange={setFeatureFilter}>
+            <SelectTrigger className="w-auto h-8 text-xs font-semibold rounded-xl bg-card border-line px-3 py-1.5 focus:ring-primary/20">
+              <SelectValue placeholder="Todas Funcionalidades" />
+            </SelectTrigger>
+            <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+              <SelectItem value="all" className="cursor-pointer text-xs">Todas Funcionalidades</SelectItem>
+              <SelectItem value="sdr_agent" className="cursor-pointer text-xs">SDR Bot (Triagem)</SelectItem>
+              <SelectItem value="conversation_audit" className="cursor-pointer text-xs">Auditoria QA</SelectItem>
+              <SelectItem value="supervisor_chat" className="cursor-pointer text-xs">Valentina Chat</SelectItem>
+              <SelectItem value="sla_advisor" className="cursor-pointer text-xs">Análise SLA</SelectItem>
+            </SelectContent>
+          </Select>
 
-          <select
-            value={modelFilter}
-            onChange={(e) => setModelFilter(e.target.value)}
-            className="bg-card text-foreground text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-line outline-none focus:border-primary transition cursor-pointer"
-          >
-            <option value="all">Todos os Modelos</option>
-            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-          </select>
+          <Select value={modelFilter} onValueChange={setModelFilter}>
+            <SelectTrigger className="w-auto h-8 text-xs font-semibold rounded-xl bg-card border-line px-3 py-1.5 focus:ring-primary/20">
+              <SelectValue placeholder="Todos os Modelos" />
+            </SelectTrigger>
+            <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+              <SelectItem value="all" className="cursor-pointer text-xs">Todos os Modelos</SelectItem>
+              <SelectItem value="gemini-2.5-pro" className="cursor-pointer text-xs">Gemini 2.5 Pro</SelectItem>
+              <SelectItem value="gemini-1.5-flash" className="cursor-pointer text-xs">Gemini 1.5 Flash</SelectItem>
+            </SelectContent>
+          </Select>
 
           <button
             onClick={fetchCosts}
