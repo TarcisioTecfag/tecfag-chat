@@ -534,7 +534,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     try {
-      await fetch(`${BACKEND_URL}/api/operators?id=${id}`, {
+      await fetch(`${BACKEND_URL}/api/operators?id=${id}&tenantId=${tenant}`, {
         method: "DELETE",
       });
     } catch (err) {
@@ -622,7 +622,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setOperators((prev) => prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op)));
 
     try {
-      await fetch(`${BACKEND_URL}/api/groups?id=${id}`, {
+      await fetch(`${BACKEND_URL}/api/groups?id=${id}&tenantId=${tenant}`, {
         method: "DELETE",
       });
       toast.success("Grupo de acesso excluído com sucesso!");

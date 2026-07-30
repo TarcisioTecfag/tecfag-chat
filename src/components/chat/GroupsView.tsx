@@ -978,11 +978,28 @@ export function GroupsView() {
                           onClick={() => handleAvatarClick(op.id)} 
                           className="relative group cursor-pointer h-12 w-12 shrink-0 rounded-full overflow-hidden border border-border shadow-xs"
                         >
-                          <img
-                            src={op.avatar || "https://i.pravatar.cc/80"}
-                            alt={op.name}
-                            className="h-full w-full object-cover border-0"
-                          />
+                          {op.avatar ? (
+                            <img
+                              src={op.avatar}
+                              alt={op.name}
+                              className="h-full w-full object-cover border-0"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = "none";
+                                const parent = e.currentTarget.parentElement;
+                                if (parent) {
+                                  const fallback = parent.querySelector('[data-initials]') as HTMLElement;
+                                  if (fallback) fallback.style.display = "flex";
+                                }
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            data-initials
+                            style={{ display: op.avatar ? "none" : "flex" }}
+                            className="absolute inset-0 items-center justify-center bg-primary/10 text-primary font-black text-sm select-none"
+                          >
+                            {op.name.trim().split(/\s+/).map((w: string) => w[0]).filter(Boolean).join("").toUpperCase().slice(0, 2)}
+                          </div>
                           <div className="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <Camera className="h-4 w-4 text-white animate-in zoom-in-75 duration-100" />
                           </div>

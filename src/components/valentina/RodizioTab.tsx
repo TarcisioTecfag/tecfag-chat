@@ -38,7 +38,6 @@ export type RodizioOperator = {
 function OperatorAvatar({
   name,
   avatar,
-  id,
   size = "h-10 w-10",
   fontSize = "text-xs",
 }: {
@@ -54,12 +53,6 @@ function OperatorAvatar({
     setImgError(false);
   }, [avatar]);
 
-  // Se não houver foto cadastrada no banco de dados, gera uma foto padrão estilizada por operador
-  const resolvedAvatar =
-    avatar && avatar.trim() !== ""
-      ? avatar
-      : `https://i.pravatar.cc/150?u=${encodeURIComponent(id || name)}`;
-
   const initials = name
     .trim()
     .split(/\s+/)
@@ -69,10 +62,11 @@ function OperatorAvatar({
     .toUpperCase()
     .slice(0, 2);
 
-  if (resolvedAvatar && !imgError) {
+  // Tem foto real e não houve erro de carregamento → exibe a foto
+  if (avatar && avatar.trim() !== "" && !imgError) {
     return (
       <img
-        src={resolvedAvatar}
+        src={avatar}
         alt={name}
         className={`${size} rounded-full object-cover shrink-0 border border-primary/20 shadow-sm`}
         onError={() => setImgError(true)}
@@ -80,14 +74,16 @@ function OperatorAvatar({
     );
   }
 
+  // Sem foto ou erro de carregamento → iniciais (sem serviço externo)
   return (
     <div
-      className={`${size} rounded-full bg-primary-soft flex items-center justify-center font-black ${fontSize} text-primary shrink-0 border border-primary/20`}
+      className={`${size} rounded-full bg-primary/10 flex items-center justify-center font-black ${fontSize} text-primary shrink-0 border border-primary/20`}
     >
       {initials}
     </div>
   );
 }
+
 
 export function RodizioTab() {
   const { tenant, operators: globalOperators, setActiveView, setSelectedChatId } = useChat();
