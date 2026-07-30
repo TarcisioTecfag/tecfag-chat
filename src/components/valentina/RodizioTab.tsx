@@ -38,11 +38,13 @@ export type RodizioOperator = {
 function OperatorAvatar({
   name,
   avatar,
+  id,
   size = "h-10 w-10",
   fontSize = "text-xs",
 }: {
   name: string;
   avatar?: string | null;
+  id?: string;
   size?: string;
   fontSize?: string;
 }) {
@@ -51,6 +53,12 @@ function OperatorAvatar({
   useEffect(() => {
     setImgError(false);
   }, [avatar]);
+
+  // Se não houver foto cadastrada no banco de dados, gera uma foto padrão estilizada por operador
+  const resolvedAvatar =
+    avatar && avatar.trim() !== ""
+      ? avatar
+      : `https://i.pravatar.cc/150?u=${encodeURIComponent(id || name)}`;
 
   const initials = name
     .trim()
@@ -61,10 +69,10 @@ function OperatorAvatar({
     .toUpperCase()
     .slice(0, 2);
 
-  if (avatar && avatar.trim() !== "" && !imgError) {
+  if (resolvedAvatar && !imgError) {
     return (
       <img
-        src={avatar}
+        src={resolvedAvatar}
         alt={name}
         className={`${size} rounded-full object-cover shrink-0 border border-primary/20 shadow-sm`}
         onError={() => setImgError(true)}
@@ -262,6 +270,7 @@ export function RodizioTab() {
                   {/* Nome & Status Badge (Harmonia Verde) */}
                   <div className="flex items-center gap-3">
                     <OperatorAvatar
+                      id={op.id}
                       name={op.name}
                       avatar={op.avatar || globalOperators?.find((g) => g.id === op.id || (g.email && op.email && g.email.toLowerCase() === op.email.toLowerCase()))?.avatar}
                       size="h-10 w-10"
@@ -392,6 +401,7 @@ export function RodizioTab() {
                             {idx + 1}º
                           </span>
                           <OperatorAvatar
+                            id={op.id}
                             name={op.name}
                             avatar={op.avatar || globalOperators?.find((g) => g.id === op.id || (g.email && op.email && g.email.toLowerCase() === op.email.toLowerCase()))?.avatar}
                             size="h-6 w-6"

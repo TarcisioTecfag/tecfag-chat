@@ -118,16 +118,19 @@ export class SdrEngine {
     try {
       if (!batchItems || batchItems.length === 0) return false;
 
-      // 1. Carregar Configuração do Agente SDR no Banco
+      // 1. Carregar Configuração do Agente SDR no Banco — OBRIGATÓRIO filtrar por tenant.
+      //    NUNCA usar fallback sem tenant: isso causa uso de config/prompt do tenant errado.
       let dbConfig = await db.query.agentConfigs.findFirst({
         where: (table, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
       });
 
       if (!dbConfig) {
-        dbConfig = await db.query.agentConfigs.findFirst({
-          where: (table, { eq: dEq }) => dEq(table.agentType, "sdr"),
-        });
+        console.warn(
+          `[SdrEngine] agentConfig do tipo "sdr" não encontrado para tenant "${tenantId}". ` +
+          `SDR desativado para este tenant. Crie o agentConfig no banco para ativar.`
+        );
+        return false;
       }
 
       const configData = (dbConfig?.config as Record<string, any>) || {};

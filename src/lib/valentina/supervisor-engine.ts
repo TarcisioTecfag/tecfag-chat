@@ -1,7 +1,14 @@
 import { db } from "../../db";
 import { conversations, contacts, messages, internalMessages, operators } from "../../db/schema";
-import { eq, ne, desc, and } from "drizzle-orm";
+import { eq, ne, desc, and, inArray } from "drizzle-orm";
 import crypto from "crypto";
+
+/**
+ * Tenants com Supervisor ativo.
+ * Tecfag está INATIVO — não processa suas conversas.
+ * Quando tecfag entrar em produção, adicionar "tecfag" aqui.
+ */
+const SUPERVISOR_ACTIVE_TENANTS = ["valem"] as const;
 
 /**
  * Supervisor Engine — Motor de Supervisão em Tempo Real
@@ -59,7 +66,8 @@ export class SupervisorEngine {
    * Executa a varredura das regras de negócio
    */
   private async runChecks() {
-    // 1. Buscar todas as conversas ativas (não finalizadas)
+    // 1. Buscar conversas ativas SOMENTE dos tenants com Supervisor ativo.
+    //    NUNCA processar conversas de tenants inativos (ex: tecfag).
     const activeConvs = await db
       .select({
         id: conversations.id,
@@ -69,7 +77,12 @@ export class SupervisorEngine {
       })
       .from(conversations)
       .leftJoin(contacts, eq(conversations.contactId, contacts.id))
-      .where(ne(conversations.queueState, "finalizados"));
+      .where(
+        and(
+          ne(conversations.queueState, "finalizados"),
+          inArray(conversations.tenantId, SUPERVISOR_ACTIVE_TENANTS as unknown as string[])
+        )
+      );
 
     const operatorLoads = new Map<string, number>();
 

@@ -26,12 +26,16 @@ export const Route = createFileRoute("/api/groups")({
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId");
 
-        try {
-          const query = tenantId 
-            ? db.select().from(accessGroups).where(eq(accessGroups.tenantId, tenantId))
-            : db.select().from(accessGroups);
+        // tenantId é OBRIGATÓRIO — nunca retornar grupos de múltiplos tenants
+        if (!tenantId) {
+          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
-          const list = await query;
+        try {
+          const list = await db.select().from(accessGroups).where(eq(accessGroups.tenantId, tenantId));
 
           return new Response(JSON.stringify(list), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -127,6 +131,7 @@ export const Route = createFileRoute("/api/groups")({
 
         const url = new URL(request.url);
         const id = url.searchParams.get("id");
+        const tenantId = url.searchParams.get("tenantId");
 
         if (!id) {
           return new Response(JSON.stringify({ error: "id é obrigatório" }), {
@@ -135,7 +140,34 @@ export const Route = createFileRoute("/api/groups")({
           });
         }
 
+        if (!tenantId) {
+          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         try {
+          // Verificar pertinência ao tenant antes de deletar
+          const existing = await db.query.accessGroups.findFirst({
+            where: eq(accessGroups.id, id),
+          });
+
+          if (!existing) {
+            return new Response(JSON.stringify({ error: "Grupo não encontrado" }), {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          if (existing.tenantId !== tenantId) {
+            console.warn(`[DELETE /api/groups] Tentativa de deletar grupo ${id} do tenant ${existing.tenantId} pelo tenant ${tenantId}. Bloqueado.`);
+            return new Response(JSON.stringify({ error: "Acesso negado: grupo não pertence ao seu tenant" }), {
+              status: 403,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
           await db.delete(accessGroups).where(eq(accessGroups.id, id));
           return new Response(JSON.stringify({ success: true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

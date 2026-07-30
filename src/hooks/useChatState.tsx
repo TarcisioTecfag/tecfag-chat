@@ -155,7 +155,9 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [tenant, setTenantState] = useState<"tecfag" | "valem">("tecfag");
+  // Tenant ativo. Fallback para 'valem' (tenant em produção) enquanto o localStorage ainda não foi lido.
+  // O useEffect abaixo substitui o valor correto do localStorage logo na montagem.
+  const [tenant, setTenantState] = useState<"tecfag" | "valem">("valem");
   const [activeQueue, setActiveQueue] = useState<QueueType>("meus");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -269,8 +271,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {}
       }
 
-      // Sincronizar operadores do banco
-      fetch(`${BACKEND_URL}/api/operators`)
+      // Sincronizar operadores do banco — sempre com tenantId para evitar vazamento entre tenants.
+      // Lê o tenant salvo no localStorage (ou usa 'valem' como fallback do tenant ativo).
+      const tenantForFetch = (savedTenant === "valem" || savedTenant === "tecfag")
+        ? savedTenant
+        : "valem";
+      fetch(`${BACKEND_URL}/api/operators?tenantId=${tenantForFetch}`)
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data) && data.length > 0) {

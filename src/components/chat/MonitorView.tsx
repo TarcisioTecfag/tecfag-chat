@@ -11,6 +11,7 @@ import {
   Play, Volume2, FileText, Radio, ChevronDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getAiPersona } from "@/lib/ai-persona";
 import { MOCK_LIVE, MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
 import {
   ResponsiveContainer,
@@ -1725,6 +1726,7 @@ function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolea
 
 function LiveTab({ demoMode }: { demoMode: boolean }) {
   const { tenant, setSelectedChatId, setActiveView } = useChat();
+  const aiPersona = getAiPersona(tenant);
 
   // Estado principal
   const [liveData, setLiveData] = useState<LiveData | null>(null);
@@ -1913,7 +1915,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
               <div className="flex items-center gap-1.5 px-2 py-1">
                 <Bot className="h-3.5 w-3.5 text-primary" />
                 <span className="text-[10px] font-extrabold text-primary uppercase tracking-wider">
-                  Com Valentina · {liveData!.automation.filter(matchesSearch).length}
+                  Com {aiPersona.name} · {liveData!.automation.filter(matchesSearch).length}
                 </span>
               </div>
               {liveData!.automation.filter(matchesSearch).map((conv) => (
@@ -2093,19 +2095,6 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
               </div>
               <div className="flex items-center gap-2">
                 {fullHistoryConvId === selectedConvId && (
-                  <button
-                    onClick={() => { setFullHistory([]); setFullHistoryConvId(null); }}
-                    className="text-[9px] font-semibold text-primary bg-primary/10 hover:bg-primary/15 px-2 py-0.5 rounded-lg transition cursor-pointer"
-                  >
-                    Voltar ao vivo
-                  </button>
-                )}
-                <div className="text-[9px] font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded-lg">
-                  Somente Visualização
-                </div>
-              </div>
-            </div>
-          </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
             <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
@@ -2168,7 +2157,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition cursor-pointer"
                 >
-                  Ver na Valentina
+                  Ver n{aiPersona.gender === 'female' ? 'a' : 'o'} {aiPersona.name}
                 </button>
               </div>
             </motion.div>
