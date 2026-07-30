@@ -34,7 +34,10 @@ export async function useDrizzleAuthState(tenantId: string): Promise<{ state: Au
     keys: {},
   };
 
-  if (config.baileysAuthKeys) {
+  // Se não houver telefone pareado, forçar credenciais limpas para permitir a emissão de QR Code
+  if (!config.baileysPairedPhone && config.baileysSessionStatus !== "connected") {
+    authData.creds = initAuthCreds();
+  } else if (config.baileysAuthKeys) {
     try {
       // Como o drizzle pode retornar como objeto parseado, passamos por stringify
       // e depois reviver com BufferJSON para recuperar instâncias de Buffer

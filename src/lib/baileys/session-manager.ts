@@ -181,8 +181,18 @@ export class SessionManager {
   }
 
   public async initSession(tenantId: string): Promise<WASocket> {
-    if (this.sessions.has(tenantId)) {
+    const existingStatus = this.sessionStatuses.get(tenantId);
+    if (this.sessions.has(tenantId) && existingStatus && existingStatus !== "disconnected") {
       return this.sessions.get(tenantId)!;
+    }
+
+    // Se existia um socket antigo desconectado, finalizá-lo antes de criar novo
+    const oldSock = this.sessions.get(tenantId);
+    if (oldSock) {
+      try {
+        oldSock.end(undefined);
+      } catch (e) {}
+      this.sessions.delete(tenantId);
     }
 
     console.log(`Iniciando sessão do Baileys para o tenant: ${tenantId}`);
@@ -233,7 +243,7 @@ export class SessionManager {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        console.log(`QR Code gerado para o tenant ${tenantId}`);
+        console.log(`✅ QR Code gerado com sucesso para o tenant ${tenantId}`);
         this.sessionStatuses.set(tenantId, "qr_ready");
         this.sessionQrs.set(tenantId, qr);
         this.notify(tenantId, { type: "status", status: "qr_ready" });
@@ -251,21 +261,25 @@ export class SessionManager {
       }
 
       if (connection === "close") {
-        const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
-        console.log(`Conexão do tenant ${tenantId} fechada devido a:`, lastDisconnect?.error, `. Tentando reconectar: ${shouldReconnect}`);
+        const isPaired = !!sock.user?.id;
+        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const shouldReconnect = isPaired && statusCode !== DisconnectReason.loggedOut;
+        
+        console.log(`Conexão do tenant ${tenantId} fechada. Dispositivo Pareado: ${isPaired}, Status Error: ${statusCode}. Tentando reconectar: ${shouldReconnect}`);
         
         this.sessions.delete(tenantId);
         this.sessionStatuses.set(tenantId, "disconnected");
         this.sessionQrs.delete(tenantId);
         this.notify(tenantId, { type: "status", status: "disconnected" });
 
-        // Salvar status no banco
+        // Salvar status no banco e limpar chaves se não estivesse pareado
         try {
           await db
             .update(channelConfigs)
             .set({ 
               baileysSessionStatus: "disconnected", 
-              baileysPairedPhone: null,
+              baileysPairedPhone: isPaired ? undefined : null,
+              baileysAuthKeys: isPaired ? undefined : null,
               updatedAt: new Date() 
             })
             .where(eq(channelConfigs.tenantId, tenantId));
@@ -274,7 +288,7 @@ export class SessionManager {
         }
 
         if (shouldReconnect) {
-          // Tentar reconectar em 5 segundos
+          // Tentar reconectar em 5 segundos apenas se estiver pareado
           setTimeout(() => this.initSession(tenantId), 5000);
         }
       } else if (connection === "open") {
