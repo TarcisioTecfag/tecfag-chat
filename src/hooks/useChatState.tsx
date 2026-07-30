@@ -2407,8 +2407,73 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, passwordHash: string): Promise<boolean> => {
-    console.log("[Login Debug] Tentativa de login para email:", email);
-    console.log("[Login Debug] Lista de emails de operadores cadastrados:", operators.map(o => o.email));
+    console.log("[Login Debug] Tentativa de login no servidor para email:", email);
+    
+    try {
+      // 1. Tentar autenticar via servidor PostgreSQL (/api/auth/login)
+      const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: passwordHash }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.operator) {
+          const matchedOp = data.operator;
+          console.log("[Login Debug] Operador autenticado com sucesso pelo servidor:", matchedOp);
+
+          // Atualizar estado de operadores incluindo o operador logado
+          setOperators((prev) => {
+            const exists = prev.some((o) => o.id === matchedOp.id);
+            return exists ? prev.map((o) => (o.id === matchedOp.id ? matchedOp : o)) : [...prev, matchedOp];
+          });
+
+          setCurrentOperatorId(matchedOp.id);
+
+          // Sincronizar o tenant ativo com o tenant do operador
+          if (matchedOp.tenantId) {
+            setTenantState(matchedOp.tenantId);
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem("chat_tenant", matchedOp.tenantId);
+              } catch (e) {}
+            }
+            document.title = matchedOp.tenantId === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+
+            // Buscar todos os operadores do tenant autenticado
+            fetch(`${BACKEND_URL}/api/operators?tenantId=${matchedOp.tenantId}`)
+              .then((res) => res.json())
+              .then((opList) => {
+                if (Array.isArray(opList) && opList.length > 0) {
+                  setOperators(opList);
+                  if (typeof window !== "undefined") {
+                    try {
+                      localStorage.setItem("rbac_operators", JSON.stringify(opList));
+                    } catch (e) {}
+                  }
+                }
+              })
+              .catch((err) => console.error("Erro ao sincronizar operadores pós-login:", err));
+          }
+
+          setIsAuthenticated(true);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("chat_is_authenticated", "true");
+              localStorage.setItem("rbac_current_operator_id", matchedOp.id);
+            } catch (e) {
+              console.error("Erro ao salvar dados de autenticação:", e);
+            }
+          }
+          return true;
+        }
+      }
+    } catch (err) {
+      console.warn("[Login Debug] Erro ao conectar à API de autenticação, tentando fallback local:", err);
+    }
+
+    // Fallback local caso a API não esteja acessível (ex: offline)
     const matchedOp = operators.find(
       (op) => op.email.toLowerCase() === email.toLowerCase() && op.passwordHash === passwordHash
     );
@@ -2419,23 +2484,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           localStorage.setItem("chat_is_authenticated", "true");
           localStorage.setItem("rbac_current_operator_id", matchedOp.id);
-          
-          // Sincronizar o tenant ativo com base no grupo de acesso do operador
-          const opGroup = accessGroups.find((g) => g.id === matchedOp.groupId);
-          if (opGroup) {
-            const firstAllowed = opGroup.allowedTenants[0];
-            if (firstAllowed) {
-              setTenantState(firstAllowed);
-              localStorage.setItem("chat_tenant", firstAllowed);
-              document.title = firstAllowed === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
-            }
-          }
-        } catch (e) {
-          console.error("Erro ao salvar dados de autenticação:", e);
-        }
+        } catch (e) {}
       }
       return true;
     }
+
     return false;
   };
 

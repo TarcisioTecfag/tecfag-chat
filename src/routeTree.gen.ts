@@ -54,6 +54,7 @@ import { Route as ApiBaileysPresenceRouteImport } from './routes/api/baileys/pre
 import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
 import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
 import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAdminResetRouteImport } from './routes/api/admin/reset'
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
@@ -286,6 +287,11 @@ const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
   path: '/api/baileys/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAdminResetRoute = ApiAdminResetRouteImport.update({
   id: '/api/admin/reset',
   path: '/api/admin/reset',
@@ -322,6 +328,7 @@ export interface FileRoutesByFullPath {
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -373,6 +380,7 @@ export interface FileRoutesByTo {
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -425,6 +433,7 @@ export interface FileRoutesById {
   '/api/templates': typeof ApiTemplatesRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -478,6 +487,7 @@ export interface FileRouteTypes {
     | '/api/templates'
     | '/call/$roomId'
     | '/api/admin/reset'
+    | '/api/auth/login'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -529,6 +539,7 @@ export interface FileRouteTypes {
     | '/api/templates'
     | '/call/$roomId'
     | '/api/admin/reset'
+    | '/api/auth/login'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -580,6 +591,7 @@ export interface FileRouteTypes {
     | '/api/templates'
     | '/call/$roomId'
     | '/api/admin/reset'
+    | '/api/auth/login'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -632,6 +644,7 @@ export interface RootRouteChildren {
   ApiTemplatesRoute: typeof ApiTemplatesRoute
   CallRoomIdRoute: typeof CallRoomIdRoute
   ApiAdminResetRoute: typeof ApiAdminResetRoute
+  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
   ApiBaileysDisconnectRoute: typeof ApiBaileysDisconnectRoute
   ApiBaileysMediaRoute: typeof ApiBaileysMediaRoute
@@ -982,6 +995,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBaileysConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/admin/reset': {
       id: '/api/admin/reset'
       path: '/api/admin/reset'
@@ -1076,6 +1096,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTemplatesRoute: ApiTemplatesRoute,
   CallRoomIdRoute: CallRoomIdRoute,
   ApiAdminResetRoute: ApiAdminResetRoute,
+  ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiBaileysConnectRoute: ApiBaileysConnectRoute,
   ApiBaileysDisconnectRoute: ApiBaileysDisconnectRoute,
   ApiBaileysMediaRoute: ApiBaileysMediaRoute,

@@ -105,6 +105,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" },
+      { name: "google", content: "notranslate" },
       { title: "Tec Chat / Valem Chat" },
       { name: "description", content: "Plataforma de Comunicação Comercial Multi-tenant" },
       { name: "author", content: "Lovable" },
@@ -136,7 +137,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="pt-BR" className="notranslate" translate="no">
       <head>
         <HeadContent />
       </head>
