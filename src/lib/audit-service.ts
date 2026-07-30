@@ -203,8 +203,8 @@ export class AuditService {
       // 5. Monta o prompt completo
       const prompt = buildAuditPrompt(transcript, slaContext);
 
-      // 6. Chama o Gemini
-      const result = await this.callGemini(prompt);
+      // 6. Chama o Gemini passando o contexto de custo correto para o painel financeiro
+      const result = await this.callGemini(prompt, tenantId, conversationId);
       if (!result) throw new Error("Gemini retornou resposta vazia ou inválida.");
 
       // 7. Salva o resultado
@@ -249,17 +249,26 @@ export class AuditService {
 
   /**
    * Chama o Gemini 2.5 Pro via Vertex AI com suporte a JSON estruturado.
+   * Recebe tenantId e conversationId para registrar o custo corretamente
+   * na tabela ai_usage_logs (painel Custos do Monitoramento).
    */
-  private async callGemini(prompt: string, attempt = 1): Promise<AuditResult | null> {
+  private async callGemini(
+    prompt: string,
+    tenantId: string,
+    conversationId: string,
+    attempt = 1
+  ): Promise<AuditResult | null> {
     try {
       const { vertexAi } = await import("./vertex-ai");
       const parsed = await vertexAi.generateStructuredJson<AuditResult>(prompt, "gemini-2.5-pro", undefined, {
         feature: "conversation_audit",
+        tenantId,
+        metadata: { conversationId },
       });
       if (!parsed) {
         if (attempt < 3) {
           await new Promise((r) => setTimeout(r, 3000));
-          return this.callGemini(prompt, attempt + 1);
+          return this.callGemini(prompt, tenantId, conversationId, attempt + 1);
         }
         return null;
       }
@@ -279,7 +288,7 @@ export class AuditService {
     } catch (e: any) {
       if (attempt < 3) {
         await new Promise((r) => setTimeout(r, 3000));
-        return this.callGemini(prompt, attempt + 1);
+        return this.callGemini(prompt, tenantId, conversationId, attempt + 1);
       }
       throw e;
     }
