@@ -13,9 +13,6 @@ import {
   Tooltip, Legend, BarChart, Bar, Cell, PieChart, Pie, RadialBarChart, RadialBar
 } from "recharts";
 
-// 🧪 DEMO MODE — troque para false para usar dados reais da API
-const DEMO_MODE = true;
-
 // ── Tipos ───────────────────────────────────────────────────────────────────
 type AnalyticsTab = "overview" | "performance" | "sla" | "contacts" | "reports" | "costs";
 
@@ -40,6 +37,7 @@ type SectorPerformance = {
 };
 
 type OperatorPerformance = {
+  id?: string;
   name: string;
   chats: number;
   avgResponseSeconds: number;
@@ -59,91 +57,6 @@ type AiReportData = {
   reportMarkdown: string;
   generatedAt: string;
 };
-
-// ── Dados Mockados Ricos (BI) ────────────────────────────────────────────────
-const MOCK_HISTORICAL_VOLUMES: HistoricalVolume[] = [
-  { name: "Seg", chats: 145, atendidos: 140, sla: 92 },
-  { name: "Ter", chats: 182, atendidos: 179, sla: 89 },
-  { name: "Qua", chats: 195, atendidos: 191, sla: 94 },
-  { name: "Qui", chats: 168, atendidos: 164, sla: 91 },
-  { name: "Sex", chats: 210, atendidos: 205, sla: 85 },
-  { name: "Sáb", chats: 45, atendidos: 42, sla: 98 },
-  { name: "Dom", chats: 12, atendidos: 10, sla: 100 },
-];
-
-const MOCK_CHANNELS: ChannelVolume[] = [
-  { name: "WhatsApp", value: 685, color: "#10b981" },
-  { name: "Instagram", value: 240, color: "#a855f7" },
-  { name: "Messenger", value: 95, color: "#3b82f6" },
-];
-
-const MOCK_SECTORS: SectorPerformance[] = [
-  { name: "Comercial", avgResponse: 180, completed: 420, slaPct: 91 },
-  { name: "Suporte", avgResponse: 480, completed: 310, slaPct: 83 },
-  { name: "Financeiro", avgResponse: 240, completed: 155, slaPct: 95 },
-  { name: "Triagem", avgResponse: 60, completed: 135, slaPct: 98 },
-];
-
-const MOCK_OPERATORS: OperatorPerformance[] = [
-  { name: "Faggner (Vendas)", chats: 142, avgResponseSeconds: 95, slaPct: 96 },
-  { name: "Ana Paula (Comercial)", chats: 125, avgResponseSeconds: 110, slaPct: 94 },
-  { name: "Pedro (Suporte)", chats: 164, avgResponseSeconds: 420, slaPct: 82 },
-  { name: "Juliana (Financeiro)", chats: 98, avgResponseSeconds: 220, slaPct: 93 },
-  { name: "Marcos (Suporte)", chats: 112, avgResponseSeconds: 510, slaPct: 80 },
-];
-
-const MOCK_CLIENTS: ClientMetric[] = [
-  { name: "Semana 1", novos: 45, recorrentes: 92 },
-  { name: "Semana 2", novos: 58, recorrentes: 110 },
-  { name: "Semana 3", novos: 72, recorrentes: 104 },
-  { name: "Semana 4", novos: 65, recorrentes: 125 },
-];
-
-const MOCK_REPORTS: AiReportData[] = [
-  {
-    id: "rep-001",
-    type: "weekly",
-    period: "2026-W27",
-    generatedAt: "2026-07-05T18:30:00.000Z",
-    reportMarkdown: `## Relatório Analítico Semanal da Operação
-*Período: 29 de Junho a 05 de Julho de 2026*
-
-### 1. Resumo Executivo
-Esta semana a operação registrou um volume total de **1.020 conversas atendidas**, representando um aumento de **14%** em relação à semana anterior. O tempo médio de primeira resposta da equipe geral foi de **142 segundos (2.3 minutos)**, o que está confortavelmente abaixo da meta interna de 15 minutos (SLA cumprido em 90.5% dos casos).
-
-### 2. Destaques Positivos (Pontos Fortes)
-* **Agilidade no Comercial:** O time comercial reduziu o tempo médio de primeira resposta de 2.8 minutos para 1.8 minutos.
-* **Retenção de Clientes:** A taxa de clientes recorrentes cresceu 18%, sugerindo boa eficiência no follow-up pós-venda.
-* **CSAT por I.A.:** 82% das auditorias qualitativas encerradas indicaram o humor final dos clientes como "Satisfeito".
-
-### 3. Oportunidades de Melhoria (Falhas Detectadas)
-* **Gargalo no Suporte Técnico:** O tempo médio de resposta no setor de suporte subiu para 8 minutos (aumento de 24%). O volume de chamados de suporte técnico concentrou-se entre 14h e 16h na quarta-feira.
-* **Objeções não tratadas:** A IA detectou 12 instâncias onde clientes do setor financeiro questionaram sobre prazos de faturamento e o operador encerrou sem propor alternativas.
-
-> [!NOTE]
-> **Recomendação:** Revezar operadores da triagem para cobrir o pico do suporte técnico às quartas-feiras das 14h às 16h para equilibrar o SLA.
-`
-  },
-  {
-    id: "rep-002",
-    type: "daily",
-    period: "2026-07-05",
-    generatedAt: "2026-07-05T18:00:00.000Z",
-    reportMarkdown: `## Relatório Executivo Diário
-*Data: 05 de Julho de 2026 (Domingo)*
-
-### 1. Visão Geral
-Atendimento de fim de semana reduzido. Registrados **12 chats ativos**, sendo 10 finalizados dentro do SLA de 15 minutos.
-
-* **SLA Geral:** 100% de conformidade.
-* **CSAT Estimado:** 90% Satisfeito.
-* **Tempo Médio de Resposta:** 45 segundos.
-
-> [!NOTE]
-> Operação estável e com fluxo normal para plantão de domingo. Nenhuma anomalia detectada nas filas.
-`
-  }
-];
 
 // ── Helpers de Renderização de Markdown Simples ──────────────────────────────
 function parseMarkdown(md: string) {
@@ -175,7 +88,7 @@ function parseMarkdown(md: string) {
       );
     }
     if (trimmed.startsWith("> [!NOTE]")) {
-      return null; // Tratado abaixo acumulando a recomendação
+      return null;
     }
     if (line.startsWith("> ")) {
       return (
@@ -216,32 +129,38 @@ function PerformanceTab({ volumes, channels, sectors }: {
             <p className="text-[10px] text-muted-foreground">Evolução de chats recebidos vs. finalizados por dia</p>
           </div>
           <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 flex items-center gap-0.5">
-            <ArrowUpRight className="h-3.5 w-3.5" />
-            +14%
+            <TrendingUp className="h-3.5 w-3.5" />
+            Operação Ativa
           </span>
         </div>
         <div className="flex-1 w-full h-[220px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={volumes} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorChats" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.15}/>
-                  <stop offset="95%" stopColor="var(--primary)" stopOpacity={0.01}/>
-                </linearGradient>
-                <linearGradient id="colorAtendidos" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
-                  <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.01}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
-              <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
-              <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: 12, fontSize: 11 }} />
-              <Area type="monotone" dataKey="chats" name="Recebidas" stroke="var(--primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorChats)" />
-              <Area type="monotone" dataKey="atendidos" name="Finalizadas" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorAtendidos)" />
-              <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: 10 }} />
-            </AreaChart>
-          </ResponsiveContainer>
+          {volumes.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={volumes} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorChats" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.15}/>
+                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0.01}/>
+                  </linearGradient>
+                  <linearGradient id="colorAtendidos" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
+                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.01}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
+                <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
+                <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: 12, fontSize: 11 }} />
+                <Area type="monotone" dataKey="chats" name="Recebidas" stroke="var(--primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorChats)" />
+                <Area type="monotone" dataKey="atendidos" name="Finalizadas" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorAtendidos)" />
+                <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: 10 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+              Sem dados de volumetria registrados nos últimos 7 dias.
+            </div>
+          )}
         </div>
       </div>
 
@@ -282,7 +201,7 @@ function PerformanceTab({ volumes, channels, sectors }: {
                 <span className="h-2 w-2 rounded-full" style={{ background: chan.color }} />
                 <span className="text-muted-foreground">{chan.name}</span>
               </div>
-              <span className="text-foreground">{chan.value} ({Math.round((chan.value / totalVolume) * 100)}%)</span>
+              <span className="text-foreground">{chan.value} ({totalVolume > 0 ? Math.round((chan.value / totalVolume) * 100) : 0}%)</span>
             </div>
           ))}
         </div>
@@ -295,37 +214,39 @@ function PerformanceTab({ volumes, channels, sectors }: {
           <p className="text-[10px] text-muted-foreground">Atendimento e cumprimento de SLA consolidado</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-muted/40 text-muted-foreground font-semibold border-b border-line">
-                <th className="px-5 py-3">Setor</th>
-                <th className="px-5 py-3">Conversas Concluídas</th>
-                <th className="px-5 py-3">TME de Resposta</th>
-                <th className="px-5 py-3">SLA Cumprido</th>
-                <th className="px-5 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {sectors.map((sec) => (
-                <tr key={sec.name} className="hover:bg-muted/30 transition font-medium">
-                  <td className="px-5 py-3 text-foreground font-bold">{sec.name}</td>
-                  <td className="px-5 py-3 text-muted-foreground">{sec.completed}</td>
-                  <td className="px-5 py-3 text-foreground">
-                    {sec.avgResponse >= 60 ? `${Math.floor(sec.avgResponse / 60)}min` : `${sec.avgResponse}s`}
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`h-1.5 w-1.5 rounded-full ${sec.slaPct >= 90 ? "bg-emerald-500" : "bg-amber-400"}`} />
-                      <span className={sec.slaPct >= 90 ? "text-emerald-600 font-bold" : "text-amber-600"}>{sec.slaPct}%</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <button className="text-primary font-bold hover:underline cursor-pointer">Ver Detalhe</button>
-                  </td>
+          {sectors.length === 0 ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">
+              Nenhum setor cadastrado ou com atendimentos registrados.
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-muted/40 text-muted-foreground font-semibold border-b border-line">
+                  <th className="px-5 py-3">Setor</th>
+                  <th className="px-5 py-3">Conversas Concluídas</th>
+                  <th className="px-5 py-3">TME de Resposta</th>
+                  <th className="px-5 py-3">SLA Cumprido</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {sectors.map((sec) => (
+                  <tr key={sec.name} className="hover:bg-muted/30 transition font-medium">
+                    <td className="px-5 py-3 text-foreground font-bold">{sec.name}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{sec.completed}</td>
+                    <td className="px-5 py-3 text-foreground">
+                      {sec.avgResponse >= 60 ? `${Math.floor(sec.avgResponse / 60)}min` : `${sec.avgResponse}s`}
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`h-1.5 w-1.5 rounded-full ${sec.slaPct >= 90 ? "bg-emerald-500" : "bg-amber-400"}`} />
+                        <span className={sec.slaPct >= 90 ? "text-emerald-600 font-bold" : "text-amber-600"}>{sec.slaPct}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
@@ -333,9 +254,16 @@ function PerformanceTab({ volumes, channels, sectors }: {
 }
 
 // 2. Aba: SLA e Tempos
-function SlaTab({ operators }: { operators: OperatorPerformance[] }) {
-  // Configuração fictícia de Gauge circular para SLA
-  const avgSla = Math.round(operators.reduce((sum, o) => sum + o.slaPct, 0) / operators.length);
+function SlaTab({
+  overallSlaPct,
+  overdueCount,
+  operators,
+}: {
+  overallSlaPct: number;
+  overdueCount: number;
+  operators: OperatorPerformance[];
+}) {
+  const avgSla = overallSlaPct;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 overflow-y-auto scrollbar-thin pr-1">
@@ -363,18 +291,24 @@ function SlaTab({ operators }: { operators: OperatorPerformance[] }) {
           </ResponsiveContainer>
           <div className="absolute text-center">
             <span className="text-3xl font-black text-foreground">{avgSla}%</span>
-            <p className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 mt-0.5">DENTRO DA META</p>
+            <p className={`text-[9px] font-bold px-2 py-0.5 rounded-full border mt-0.5 ${
+              avgSla >= 90 ? "text-emerald-600 bg-emerald-50 border-emerald-100" : "text-amber-600 bg-amber-50 border-amber-100"
+            }`}>
+              {avgSla >= 90 ? "DENTRO DA META" : "ATENÇÃO"}
+            </p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 border-t border-line pt-4 w-full text-xs font-semibold">
           <div>
-            <span className="text-muted-foreground block text-[10px] uppercase">Meta</span>
+            <span className="text-muted-foreground block text-[10px] uppercase">Meta SLA</span>
             <span className="text-foreground font-black text-sm">15 min</span>
           </div>
           <div>
             <span className="text-muted-foreground block text-[10px] uppercase">Excedidos</span>
-            <span className="text-red-500 font-black text-sm">11 chats</span>
+            <span className={`font-black text-sm ${overdueCount > 0 ? "text-red-500" : "text-foreground"}`}>
+              {overdueCount} chats
+            </span>
           </div>
         </div>
       </div>
@@ -386,19 +320,25 @@ function SlaTab({ operators }: { operators: OperatorPerformance[] }) {
           <p className="text-[10px] text-muted-foreground">Ranking de conformidade por agente</p>
         </div>
         <div className="flex-1 w-full h-[200px] mt-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={operators} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--line)" />
-              <XAxis type="number" stroke="#94a3b8" fontSize={9} domain={[0, 100]} />
-              <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={9} width={90} tickLine={false} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
-              <Bar dataKey="slaPct" name="SLA %" radius={[0, 4, 4, 0]}>
-                {operators.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.slaPct >= 90 ? "var(--primary)" : "#f59e0b"} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {operators.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={operators} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--line)" />
+                <XAxis type="number" stroke="#94a3b8" fontSize={9} domain={[0, 100]} />
+                <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={9} width={90} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 11 }} />
+                <Bar dataKey="slaPct" name="SLA %" radius={[0, 4, 4, 0]}>
+                  {operators.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.slaPct >= 90 ? "var(--primary)" : "#f59e0b"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+              Nenhum operador com métricas de SLA registradas.
+            </div>
+          )}
         </div>
       </div>
 
@@ -409,36 +349,42 @@ function SlaTab({ operators }: { operators: OperatorPerformance[] }) {
           <p className="text-[10px] text-muted-foreground">Visão detalhada e desagregada da performance diária</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-muted/40 text-muted-foreground font-semibold border-b border-line">
-                <th className="px-5 py-3">Agente</th>
-                <th className="px-5 py-3">Atendimentos</th>
-                <th className="px-5 py-3">Tempo Médio de Resposta</th>
-                <th className="px-5 py-3">SLA Cumprido</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {operators.map((op) => (
-                <tr key={op.name} className="hover:bg-muted/30 transition font-medium">
-                  <td className="px-5 py-3 text-foreground font-bold">{op.name}</td>
-                  <td className="px-5 py-3 text-muted-foreground">{op.chats}</td>
-                  <td className="px-5 py-3 text-foreground">
-                    {op.avgResponseSeconds >= 60
-                      ? `${Math.floor(op.avgResponseSeconds / 60)}min ${op.avgResponseSeconds % 60}s`
-                      : `${op.avgResponseSeconds}s`}
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                      op.slaPct >= 90 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
-                    }`}>
-                      {op.slaPct}%
-                    </span>
-                  </td>
+          {operators.length === 0 ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">
+              Sem dados de atendimento por operador.
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-muted/40 text-muted-foreground font-semibold border-b border-line">
+                  <th className="px-5 py-3">Agente</th>
+                  <th className="px-5 py-3">Atendimentos</th>
+                  <th className="px-5 py-3">Tempo Médio de Resposta</th>
+                  <th className="px-5 py-3">SLA Cumprido</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {operators.map((op) => (
+                  <tr key={op.name} className="hover:bg-muted/30 transition font-medium">
+                    <td className="px-5 py-3 text-foreground font-bold">{op.name}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{op.chats}</td>
+                    <td className="px-5 py-3 text-foreground">
+                      {op.avgResponseSeconds >= 60
+                        ? `${Math.floor(op.avgResponseSeconds / 60)}min ${op.avgResponseSeconds % 60}s`
+                        : `${op.avgResponseSeconds}s`}
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        op.slaPct >= 90 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                      }`}>
+                        {op.slaPct}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
@@ -446,7 +392,17 @@ function SlaTab({ operators }: { operators: OperatorPerformance[] }) {
 }
 
 // 3. Aba: Clientes e Frequência
-function ContactsTab({ clientMetrics }: { clientMetrics: ClientMetric[] }) {
+function ContactsTab({
+  clientMetrics,
+  avgDaysWithoutService,
+  avgFrequency,
+  ragConversionPct,
+}: {
+  clientMetrics: ClientMetric[];
+  avgDaysWithoutService: number;
+  avgFrequency: number;
+  ragConversionPct: number;
+}) {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 overflow-y-auto scrollbar-thin pr-1">
       {/* Novos vs Recorrentes */}
@@ -456,17 +412,23 @@ function ContactsTab({ clientMetrics }: { clientMetrics: ClientMetric[] }) {
           <p className="text-[10px] text-muted-foreground">Aquisição de novos leads vs. retenção de contatos ativos</p>
         </div>
         <div className="flex-1 w-full h-[200px] mt-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={clientMetrics} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
-              <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} />
-              <YAxis stroke="#94a3b8" fontSize={9} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
-              <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" />
-              <Bar dataKey="novos" name="Novos Clientes" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="recorrentes" name="Recorrentes" fill="#6366f1" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {clientMetrics.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={clientMetrics} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
+                <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} />
+                <YAxis stroke="#94a3b8" fontSize={9} />
+                <Tooltip contentStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" />
+                <Bar dataKey="novos" name="Novos Clientes" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="recorrentes" name="Recorrentes" fill="#6366f1" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+              Sem dados de aquisição de contatos nas últimas semanas.
+            </div>
+          )}
         </div>
       </div>
 
@@ -474,20 +436,24 @@ function ContactsTab({ clientMetrics }: { clientMetrics: ClientMetric[] }) {
       <div className="space-y-4">
         <div className="bg-card rounded-2xl p-5 border border-border shadow-soft">
           <span className="text-[10px] font-bold text-muted-foreground uppercase">Tempo Médio Sem Atendimento</span>
-          <p className="text-2xl font-black text-foreground mt-1">12 dias</p>
+          <p className="text-2xl font-black text-foreground mt-1">
+            {avgDaysWithoutService > 0 ? `${avgDaysWithoutService} dias` : "–"}
+          </p>
           <p className="text-[10px] text-muted-foreground mt-1">Média desde o último atendimento finalizado</p>
         </div>
         
         <div className="bg-card rounded-2xl p-5 border border-border shadow-soft">
           <span className="text-[10px] font-bold text-muted-foreground uppercase">Frequência Média</span>
-          <p className="text-2xl font-black text-foreground mt-1">2.4 vezes/mês</p>
+          <p className="text-2xl font-black text-foreground mt-1">
+            {avgFrequency > 0 ? `${avgFrequency} vezes/mês` : "–"}
+          </p>
           <p className="text-[10px] text-muted-foreground mt-1">Contatos recorrentes que reabrem chats</p>
         </div>
 
         <div className="bg-card rounded-2xl p-5 border border-border shadow-soft">
-          <span className="text-[10px] font-bold text-muted-foreground uppercase">Taxa de Conversão RAG</span>
-          <p className="text-2xl font-black text-foreground mt-1">84%</p>
-          <p className="text-[10px] text-muted-foreground mt-1">Satisfação estimada em atendimentos com contatos recorrentes</p>
+          <span className="text-[10px] font-bold text-muted-foreground uppercase">Taxa de Conversão RAG/CSAT</span>
+          <p className="text-2xl font-black text-foreground mt-1">{ragConversionPct}%</p>
+          <p className="text-[10px] text-muted-foreground mt-1">Satisfação estimada em auditorias de contatos recorrentes</p>
         </div>
       </div>
     </div>
@@ -496,7 +462,13 @@ function ContactsTab({ clientMetrics }: { clientMetrics: ClientMetric[] }) {
 
 // 4. Aba: Relatórios Automáticos de IA
 function ReportsTab({ reports, loading }: { reports: AiReportData[]; loading: boolean }) {
-  const [selectedReportId, setSelectedReportId] = useState<string>("rep-001");
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (reports.length > 0 && !selectedReportId) {
+      setSelectedReportId(reports[0].id);
+    }
+  }, [reports, selectedReportId]);
 
   if (loading) {
     return (
@@ -515,27 +487,33 @@ function ReportsTab({ reports, loading }: { reports: AiReportData[]; loading: bo
         <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider px-2 block mb-1">
           Histórico de Relatórios
         </span>
-        {reports.map((rep) => (
-          <button
-            key={rep.id}
-            onClick={() => setSelectedReportId(rep.id)}
-            className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
-              selectedReportId === rep.id
-                ? "border-primary bg-primary-soft/50 text-primary font-bold shadow-soft"
-                : "border-border bg-card text-foreground hover:bg-muted/40"
-            }`}
-          >
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="capitalize">{rep.type === "weekly" ? "Semanal" : "Diário"}</span>
-              <span className="text-[9px] text-muted-foreground font-mono">
-                {rep.period}
-              </span>
-            </div>
-            <p className="text-[9px] text-muted-foreground/80">
-              Gerado em: {new Date(rep.generatedAt).toLocaleDateString("pt-BR")}
-            </p>
-          </button>
-        ))}
+        {reports.length === 0 ? (
+          <div className="p-4 text-xs text-muted-foreground border border-dashed border-border rounded-xl text-center">
+            Nenhum relatório de IA gerado ainda. Os relatórios são compilados diariamente às 18h.
+          </div>
+        ) : (
+          reports.map((rep) => (
+            <button
+              key={rep.id}
+              onClick={() => setSelectedReportId(rep.id)}
+              className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
+                selectedReportId === rep.id
+                  ? "border-primary bg-primary-soft/50 text-primary font-bold shadow-soft"
+                  : "border-border bg-card text-foreground hover:bg-muted/40"
+              }`}
+            >
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="capitalize">{rep.type === "weekly" ? "Semanal" : "Diário"}</span>
+                <span className="text-[9px] text-muted-foreground font-mono">
+                  {rep.period}
+                </span>
+              </div>
+              <p className="text-[9px] text-muted-foreground/80">
+                Gerado em: {new Date(rep.generatedAt).toLocaleDateString("pt-BR")}
+              </p>
+            </button>
+          ))
+        )}
       </div>
 
       {/* Principal: Visualizador Markdown */}
@@ -577,33 +555,101 @@ export function AnalyticsView() {
   const { tenant } = useChat();
   const [activeTab, setActiveTab] = useState<AnalyticsTab>("overview");
   const [loading, setLoading] = useState(false);
-  const [reports, setReports] = useState<AiReportData[]>(MOCK_REPORTS);
   const [lastRefresh, setLastRefresh] = useState(new Date());
-  // Estado para a aba Visão Geral (dados reais)
+
+  // Estados para dados reais das abas
   const [overview, setOverview] = useState<any | null>(null);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [audits, setAudits] = useState<any[]>([]);
 
+  const [performanceData, setPerformanceData] = useState<{
+    volumes: HistoricalVolume[];
+    channels: ChannelVolume[];
+    sectors: SectorPerformance[];
+  }>({
+    volumes: [],
+    channels: [],
+    sectors: [],
+  });
+
+  const [slaData, setSlaData] = useState<{
+    overallSlaPct: number;
+    overdueCount: number;
+    operators: OperatorPerformance[];
+  }>({
+    overallSlaPct: 100,
+    overdueCount: 0,
+    operators: [],
+  });
+
+  const [contactsData, setContactsData] = useState<{
+    clientMetrics: ClientMetric[];
+    avgDaysWithoutService: number;
+    avgFrequency: number;
+    ragConversionPct: number;
+  }>({
+    clientMetrics: [],
+    avgDaysWithoutService: 0,
+    avgFrequency: 0,
+    ragConversionPct: 100,
+  });
+
+  const [reports, setReports] = useState<AiReportData[]>([]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Buscar relatórios de IA gerados no banco
-      const [repRes, ovRes, alRes, auRes] = await Promise.all([
-        fetch(`/api/gestao/reports?tenantId=${tenant}`),
+      // Buscar dados reais de todas as APIs do módulo de estatísticas em paralelo
+      const [ovRes, alRes, auRes, perfRes, slaRes, contRes, repRes] = await Promise.all([
         fetch(`/api/gestao/overview?tenantId=${tenant}`),
         fetch(`/api/gestao/alerts?tenantId=${tenant}`),
         fetch(`/api/gestao/audits?tenantId=${tenant}&limit=50`),
+        fetch(`/api/gestao/performance?tenantId=${tenant}`),
+        fetch(`/api/gestao/sla?tenantId=${tenant}`),
+        fetch(`/api/gestao/contacts-analytics?tenantId=${tenant}`),
+        fetch(`/api/gestao/reports?tenantId=${tenant}`),
       ]);
-      if (repRes.ok) {
-        const data = await repRes.json();
-        if (Array.isArray(data) && data.length > 0) setReports(data);
+
+      if (ovRes.ok) setOverview(await ovRes.json());
+      if (alRes.ok) setAlerts(await alRes.json());
+      if (auRes.ok) setAudits(await auRes.json());
+
+      if (perfRes.ok) {
+        const pData = await perfRes.json();
+        setPerformanceData({
+          volumes: pData.volumes || [],
+          channels: pData.channels || [],
+          sectors: pData.sectors || [],
+        });
       }
-      if (ovRes.ok)  setOverview(await ovRes.json());
-      if (alRes.ok)  setAlerts(await alRes.json());
-      if (auRes.ok)  setAudits(await auRes.json());
+
+      if (slaRes.ok) {
+        const sData = await slaRes.json();
+        setSlaData({
+          overallSlaPct: sData.overallSlaPct ?? 100,
+          overdueCount: sData.overdueCount ?? 0,
+          operators: sData.operators || [],
+        });
+      }
+
+      if (contRes.ok) {
+        const cData = await contRes.json();
+        setContactsData({
+          clientMetrics: cData.clientMetrics || [],
+          avgDaysWithoutService: cData.avgDaysWithoutService ?? 0,
+          avgFrequency: cData.avgFrequency ?? 0,
+          ragConversionPct: cData.ragConversionPct ?? 100,
+        });
+      }
+
+      if (repRes.ok) {
+        const rData = await repRes.json();
+        if (Array.isArray(rData)) setReports(rData);
+      }
+
       setLastRefresh(new Date());
     } catch (e) {
-      console.error("[AnalyticsView] Erro ao carregar dados:", e);
+      console.error("[AnalyticsView] Erro ao carregar dados reais de BI:", e);
     } finally {
       setLoading(false);
     }
@@ -630,12 +676,6 @@ export function AnalyticsView() {
           <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
             <BarChart2 className="h-4.5 w-4.5 text-primary" />
             Estatísticas da Operação
-            {DEMO_MODE && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 text-[10px] font-extrabold border border-amber-300 animate-pulse">
-                <Activity className="h-3 w-3" />
-                MODO DEMO
-              </span>
-            )}
           </h1>
           <p className="text-[11px] text-muted-foreground mt-0.5">Análise e BI de performance histórica consolidada</p>
         </div>
@@ -644,7 +684,7 @@ export function AnalyticsView() {
           title="Atualizar agora"
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer"
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
           {lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
         </button>
       </div>
@@ -683,16 +723,25 @@ export function AnalyticsView() {
         )}
         {activeTab === "performance" && (
           <PerformanceTab
-            volumes={MOCK_HISTORICAL_VOLUMES}
-            channels={MOCK_CHANNELS}
-            sectors={MOCK_SECTORS}
+            volumes={performanceData.volumes}
+            channels={performanceData.channels}
+            sectors={performanceData.sectors}
           />
         )}
         {activeTab === "sla" && (
-          <SlaTab operators={MOCK_OPERATORS} />
+          <SlaTab
+            overallSlaPct={slaData.overallSlaPct}
+            overdueCount={slaData.overdueCount}
+            operators={slaData.operators}
+          />
         )}
         {activeTab === "contacts" && (
-          <ContactsTab clientMetrics={MOCK_CLIENTS} />
+          <ContactsTab
+            clientMetrics={contactsData.clientMetrics}
+            avgDaysWithoutService={contactsData.avgDaysWithoutService}
+            avgFrequency={contactsData.avgFrequency}
+            ragConversionPct={contactsData.ragConversionPct}
+          />
         )}
         {activeTab === "reports" && (
           <ReportsTab reports={reports} loading={loading} />
