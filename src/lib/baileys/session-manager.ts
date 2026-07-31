@@ -4,7 +4,7 @@ import makeWASocket, {
   initAuthCreds,
   downloadMediaMessage,
   proto,
-  fetchLatestBaileysVersion
+  Browsers
 } from "@whiskeysockets/baileys";
 import NodeCache from "node-cache";
 import pino from "pino";
@@ -206,25 +206,22 @@ export class SessionManager {
     // Obter estado de autenticação baseado no Drizzle
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
 
-    // Obter a versão mais recente do WhatsApp Web para evitar rejeição de protocolo
-    let version: [number, number, number] | undefined;
-    try {
-      const fetched = await fetchLatestBaileysVersion();
-      version = fetched.version;
-      console.log(`[SessionManager] Versão do WhatsApp Web obtida: v${version.join(".")}`);
-    } catch (e) {
-      console.warn("[SessionManager] Erro ao buscar versão do Baileys, usando fallback interno:", e);
-    }
+    // Versão do protocolo WhatsApp Web — valor fixo estável, evita dependência de chamada HTTP
+    // que pode falhar em produção e deixar o protocolo em versão desatualizada (causa rejeição)
+    const version: [number, number, number] = [2, 3000, 1023430502];
+    console.log(`[SessionManager] Usando versão do protocolo WA: v${version.join(".")}`);
 
     // Cache de retry de mensagens — necessário para que o WA possa pedir retransmissão
     const msgRetryCounterCache = new NodeCache({ stdTTL: 60, useClones: false });
     this.msgRetryCounterCaches.set(tenantId, msgRetryCounterCache);
 
     // Inicializar o socket do Baileys
+    // Browsers.ubuntu('Chrome') é o preset oficial reconhecido pelo WhatsApp
+    // Usar identificador customizado (ex: "Valem Chat") causa rejeição ao escanear o QR
     const makeSocketFn = (makeWASocket as any).default || makeWASocket;
     const sock = makeSocketFn({
       version,
-      browser: ["Valem Chat", "Chrome", "1.0.0"],
+      browser: Browsers.ubuntu('Chrome'),
       auth: state,
       logger,
       printQRInTerminal: false,

@@ -223,6 +223,17 @@ export class SupervisorEngine {
     const messageId = crypto.randomUUID();
 
     try {
+      // Verificar se o operador existe antes de inserir (evita FK violation se operador foi deletado)
+      const operatorExists = await db.query.operators.findFirst({
+        where: eq(operators.id, operatorId),
+        columns: { id: true },
+      });
+
+      if (!operatorExists) {
+        console.warn(`[SupervisorEngine] Operador ${operatorId} não encontrado no banco — notificação descartada.`);
+        return;
+      }
+
       await db.insert(internalMessages).values({
         id: messageId,
         tenantId,

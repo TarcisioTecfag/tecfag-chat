@@ -34,8 +34,12 @@ export async function useDrizzleAuthState(tenantId: string): Promise<{ state: Au
     keys: {},
   };
 
-  // Se não houver telefone pareado, forçar credenciais limpas para permitir a emissão de QR Code
-  if (!config.baileysPairedPhone && config.baileysSessionStatus !== "connected") {
+  // Se o status for "disconnected" (sem sessão ativa), forçar credenciais limpas.
+  // Isso garante que o Baileys emita um novo QR Code ao iniciar.
+  // IMPORTANTE: não limpar quando status for "qr_ready" — as chaves temporárias geradas
+  // durante o handshake do QR são necessárias para completar o pareamento no celular.
+  // Apagar essas chaves causa o erro "Linking device failed" ao escanear.
+  if (config.baileysSessionStatus === "disconnected") {
     authData.creds = initAuthCreds();
   } else if (config.baileysAuthKeys) {
     try {
