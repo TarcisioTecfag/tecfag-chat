@@ -271,12 +271,24 @@ export class SessionManager {
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
     console.log(`[SessionManager] Estado de autenticação carregado para tenant ${tenantId}`);
 
-    // Versão do protocolo WhatsApp Web — mantida atualizada manualmente.
-    // NOTA: fetchLatestBaileysVersion() foi REMOVIDO propositalmente:
-    //   ele faz uma chamada HTTP para servidores WA que pode travar em produção (Railway).
-    //   Atualizar esta versão quando o Baileys reportar "versão desatualizada".
-    const version: [number, number, number] = [2, 3000, 1043857760];
-    console.log(`[SessionManager] Usando versão WA: ${version.join(".")}`);
+    // Versão do protocolo WhatsApp Web
+    // Tenta buscar a versão mais recente com timeout de 5s.
+    // Se falhar (sem rede, Railway, etc), usa a última versão conhecida como fallback.
+    let version: [number, number, number] = [2, 3000, 1043857760];
+    try {
+      const { fetchLatestBaileysVersion } = await import("@whiskeysockets/baileys");
+      const result = await Promise.race([
+        fetchLatestBaileysVersion(),
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000))
+      ]) as { version: [number, number, number] } | null;
+      if (result?.version) {
+        version = result.version;
+        console.log(`[SessionManager] Versão WA obtida dinamicamente: ${version.join(".")}`);
+      }
+    } catch (e) {
+      console.warn(`[SessionManager] Não foi possível buscar versão WA — usando fallback ${version.join(".")}`);
+    }
+
 
     // Cache de retry de mensagens
     const msgRetryCounterCache = new NodeCache({ stdTTL: 60, useClones: false });
