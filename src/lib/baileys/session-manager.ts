@@ -296,11 +296,18 @@ export class SessionManager {
       }
 
       if (connection === "close") {
-        const isPaired = !!sock.user?.id;
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const loggedOut = statusCode === DisconnectReason.loggedOut;
-        const shouldReconnect = isPaired && !loggedOut;
-        console.log(`[SessionManager] Conexão fechada para tenant ${tenantId} — pareado: ${isPaired}, statusCode: ${statusCode}, reconectar: ${shouldReconnect}`);
+
+        // ATENÇÃO: NÃO usar sock.user?.id para decidir se reconectar.
+        // Quando o QR é escaneado, o Baileys fecha a conexão QR (código 515 ou similar)
+        // e reabre como autenticada — mas sock.user ainda é null nesse momento.
+        // Verificar se há credenciais salvas em banco é a forma correta.
+        // Regra: reconectar SEMPRE, exceto logout explícito (código 401).
+        const shouldReconnect = !loggedOut;
+        const isPaired = !!sock.user?.id;
+
+        console.log(`[SessionManager] Conexão fechada para tenant ${tenantId} — statusCode: ${statusCode}, loggedOut: ${loggedOut}, sock.user: ${sock.user?.id || "null"}, reconectar: ${shouldReconnect}`);
 
         this.sessions.delete(tenantId);
         this.sessionStatuses.set(tenantId, "disconnected");
@@ -311,7 +318,9 @@ export class SessionManager {
           await db.update(channelConfigs)
             .set({
               baileysSessionStatus: "disconnected",
-              baileysPairedPhone: isPaired ? undefined : null,
+              // Só apagar o telefone pareado se houve logout explícito
+              baileysPairedPhone: loggedOut ? null : (isPaired ? sock.user!.id.split(":")[0] : undefined),
+              // Só apagar as chaves se houve logout explícito
               baileysAuthKeys: loggedOut ? null : undefined,
               updatedAt: new Date(),
             })
@@ -319,8 +328,10 @@ export class SessionManager {
         } catch (e) { console.error("Erro ao salvar status disconnected:", e); }
 
         if (shouldReconnect) {
-          console.log(`[SessionManager] Reconectando tenant ${tenantId} em 5s...`);
-          setTimeout(() => this.initSession(tenantId), 5000);
+          console.log(`[SessionManager] Reconectando tenant ${tenantId} em 3s...`);
+          setTimeout(() => this.initSession(tenantId), 3000);
+        } else {
+          console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
         }
       }
     });
