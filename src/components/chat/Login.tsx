@@ -73,18 +73,18 @@ export function Login() {
         transition={panelTransition}
         className={`relative flex flex-col justify-between p-6 md:p-12 overflow-hidden bg-slate-950 text-white ${
           isValem ? "order-1 md:order-2" : "order-1 md:order-1"
-        } md:col-span-2 h-[34vh] min-h-[240px] max-h-[300px] md:h-auto md:min-h-screen md:max-h-none`}
+        } md:col-span-2 h-[36vh] min-h-[250px] max-h-[320px] md:h-auto md:min-h-screen md:max-h-none`}
       >
         {/* Fundo com a foto do Tecfag */}
         <div 
-          className={`absolute inset-0 z-0 bg-cover bg-center transition-all duration-1000 ease-out ${
+          className={`absolute inset-0 z-0 bg-cover bg-[position:75%_12%] md:bg-center transition-all duration-1000 ease-out ${
             activeTenant === "tecfag" ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-105 blur-[2px]"
           }`} 
           style={{ backgroundImage: "url('/bg_login.png')" }} 
         />
         {/* Fundo com a foto do Valem */}
         <div 
-          className={`absolute inset-0 z-0 bg-cover bg-center transition-all duration-1000 ease-out ${
+          className={`absolute inset-0 z-0 bg-cover bg-[position:50%_15%] md:bg-center transition-all duration-1000 ease-out ${
             activeTenant === "valem" ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-105 blur-[2px]"
           }`} 
           style={{ backgroundImage: "url('/bg_login_valem.png')" }} 
@@ -108,13 +108,13 @@ export function Login() {
         </div>
 
         {/* CITAÇÃO INFERIOR */}
-        <div className="relative z-10 max-w-md mt-auto pt-2 md:pt-16 min-h-0 md:min-h-[160px] flex items-end">
+        <div className="relative z-10 max-w-md mt-auto pt-2 md:pt-16 pb-8 md:pb-0 min-h-0 md:min-h-[160px] flex items-end">
           <div className="relative w-full">
             {/* Citação Tecfag */}
             <div className={`transition-all duration-700 transform ease-out ${
               activeTenant === "tecfag" ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none absolute inset-x-0 bottom-0"
             }`}>
-              <blockquote className="text-sm sm:text-base md:text-2xl font-medium leading-relaxed tracking-tight mb-2 md:mb-6 line-clamp-2 md:line-clamp-none">
+              <blockquote className="text-xs sm:text-base md:text-2xl font-medium leading-snug md:leading-relaxed tracking-tight mb-1 md:mb-6 line-clamp-2 md:line-clamp-none">
                 “Simplesmente todas as ferramentas que minha equipe e eu precisamos.”
               </blockquote>
               <div>
@@ -127,7 +127,7 @@ export function Login() {
             <div className={`transition-all duration-700 transform ease-out ${
               activeTenant === "valem" ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none absolute inset-x-0 bottom-0"
             }`}>
-              <blockquote className="text-sm sm:text-base md:text-2xl font-medium leading-relaxed tracking-tight mb-2 md:mb-6 line-clamp-2 md:line-clamp-none">
+              <blockquote className="text-xs sm:text-base md:text-2xl font-medium leading-snug md:leading-relaxed tracking-tight mb-1 md:mb-6 line-clamp-2 md:line-clamp-none">
                 “Com experiência, vendemos rápido.<br className="hidden md:inline" />
                 Com estratégia, vendemos muito.”
               </blockquote>
