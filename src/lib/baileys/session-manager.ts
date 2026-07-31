@@ -163,7 +163,8 @@ export class SessionManager {
 
     this.sessionStatuses.set(tenantId, "disconnected");
     this.sessionQrs.delete(tenantId);
-    this.notify(tenantId, { type: "status", status: "disconnected" });
+    // Não notificar 'disconnected' aqui — o frontend acabou de pedir o QR,
+    // notificar disconnected antes do QR gerar confunde o estado da UI.
 
     try {
       await db
@@ -199,7 +200,9 @@ export class SessionManager {
 
     console.log(`Iniciando sessão do Baileys para o tenant: ${tenantId}`);
     this.sessionStatuses.set(tenantId, "disconnected");
-    this.notify(tenantId, { type: "status", status: "disconnected" });
+    // Não disparar evento 'disconnected' aqui: o frontend já sabe que está desconectado
+    // e está aguardando o QR — qualquer notify de disconnected antes do QR gerar
+    // faz a UI regredir para a tela "Nenhuma Sessão Ativa" imediatamente.
 
     // Criar logger silencioso para o Baileys
     const logger = pino({ level: "info" });

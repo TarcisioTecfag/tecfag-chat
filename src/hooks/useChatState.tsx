@@ -1967,8 +1967,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setBaileysConfig((prev) => ({
       ...prev,
-      status: prev.status === "connected" ? "connected" : "connecting",
-      qrCodeUrl: prev.status === "connected" ? "" : prev.qrCodeUrl,
+      status: "connecting",
+      qrCodeUrl: "",
     }));
 
     const url = `${BACKEND_URL}/api/baileys/connect?tenantId=valem${forceNew ? "&force=true" : ""}`;
@@ -2393,7 +2393,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...prev,
               status: data.status,
               pairedPhone: data.pairedPhone ? `+${data.pairedPhone}` : data.pairedPhone || "",
-              qrCodeUrl: data.qr ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data.qr)}` : "",
+              // Não usar api.qrserver.com — QR é gerado localmente via biblioteca qrcode
             }));
           }
         })
