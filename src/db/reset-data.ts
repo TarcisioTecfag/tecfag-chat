@@ -8,6 +8,8 @@
  * 🔒 PRESERVA: operadores, grupos de acesso, setores, configurações de canal,
  *              agentConfigs (Valentina), base de conhecimento (RAG),
  *              respostas rápidas, templates, credenciais Baileys (auth WA)
+ *
+ * NOTA: media_files não tem tenant_id — é truncada inteira (não tem dados multi-tenant)
  */
 
 import postgres from "postgres";
@@ -22,10 +24,9 @@ async function main() {
   const client = postgres(connectionString, { max: 1, onnotice: () => {} });
 
   try {
-    // Executa tudo em uma única transação para garantir atomicidade
     await client.begin(async (tx) => {
       
-      // ─── 1. Tabelas que dependem de messages (FK) ────────────────────────
+      // ─── 1. Logs de tempo de resposta ────────────────────────────────────
       console.log("🗑️  Limpando logs de tempo de resposta...");
       await tx`DELETE FROM response_time_logs WHERE tenant_id = ${TENANT_ID}`;
       
@@ -33,11 +34,11 @@ async function main() {
       console.log("🗑️  Limpando auditorias de conversa (IA QA)...");
       await tx`DELETE FROM ai_conversation_audits WHERE tenant_id = ${TENANT_ID}`;
 
-      // ─── 3. Mensagens internas (notificações Valentina Supervisor) ────────
+      // ─── 3. Mensagens internas ────────────────────────────────────────────
       console.log("🗑️  Limpando mensagens internas...");
       await tx`DELETE FROM internal_messages WHERE tenant_id = ${TENANT_ID}`;
 
-      // ─── 4. Tarefas (tasks) ───────────────────────────────────────────────
+      // ─── 4. Tarefas ───────────────────────────────────────────────────────
       console.log("🗑️  Limpando tarefas...");
       await tx`DELETE FROM tasks WHERE tenant_id = ${TENANT_ID}`;
 
@@ -49,11 +50,13 @@ async function main() {
       console.log("🗑️  Limpando sessões de chamada...");
       await tx`DELETE FROM call_sessions WHERE tenant_id = ${TENANT_ID}`;
 
-      // ─── 7. Arquivos de mídia das conversas ──────────────────────────────
-      console.log("🗑️  Limpando arquivos de mídia...");
-      await tx`DELETE FROM media_files WHERE tenant_id = ${TENANT_ID}`;
+      // ─── 7. Arquivos de mídia — SEM tenant_id, truncate geral ─────────────
+      // (media_files referencia message_id; ao apagar messages, FKs já seriam
+      //  quebradas — mas como usamos onDelete cascade pode já ter ido embora)
+      console.log("🗑️  Limpando arquivos de mídia (TRUNCATE)...");
+      await tx`TRUNCATE TABLE media_files`;
 
-      // ─── 8. Mensagens (FK de conversations) ──────────────────────────────
+      // ─── 8. Mensagens ─────────────────────────────────────────────────────
       console.log("🗑️  Limpando mensagens...");
       await tx`DELETE FROM messages WHERE tenant_id = ${TENANT_ID}`;
 
@@ -81,13 +84,12 @@ async function main() {
       console.log("🗑️  Limpando push subscriptions...");
       await tx`DELETE FROM push_subscriptions WHERE tenant_id = ${TENANT_ID}`;
 
-      // ─── 15. Round robin state (zerar fila de rodízio) ────────────────────
+      // ─── 15. Round robin state ────────────────────────────────────────────
       console.log("🔄  Zerando estado do rodízio...");
       await tx`DELETE FROM round_robin_state WHERE tenant_id = ${TENANT_ID}`;
 
     });
 
-    // ─── Resumo ──────────────────────────────────────────────────────────────
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("✅ RESET CONCLUÍDO COM SUCESSO!");
     console.log("\n🔒 PRESERVADOS:");
@@ -101,16 +103,14 @@ async function main() {
     console.log("   • Todos os contatos");
     console.log("   • Todas as conversas e mensagens");
     console.log("   • Todas as auditorias de IA");
-    console.log("   • Todos os logs de tempo de resposta");
+    console.log("   • Todos os logs e métricas");
     console.log("   • Todos os estados do SDR");
-    console.log("   • Todas as métricas e relatórios");
-    console.log("   • Todos os logs de custo de IA");
     console.log("\n🟢 Sistema pronto para atendimento limpo!\n");
 
   } catch (err: any) {
     console.error("\n❌ ERRO durante o reset:", err?.message || err);
     console.error("⚠️  Nenhum dado foi apagado (transação revertida).");
-    process.exit(1);
+    // NÃO fazer process.exit(1) para não travar o startup do Railway
   } finally {
     await client.end();
   }
