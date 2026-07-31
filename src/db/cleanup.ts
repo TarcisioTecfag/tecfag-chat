@@ -4,7 +4,9 @@ const connectionString = process.env.DATABASE_URL || "postgres://postgres:postgr
 
 async function main() {
   console.log("🧹 Executando pré-migração e limpeza de integridade referencial...");
-  const client = postgres(connectionString, { max: 1 });
+  // onnotice: () => {} suprime mensagens NOTICE do PostgreSQL (ex: "column already exists")
+  // que aparecem como erro falso no Railway mas sao inofensivas
+  const client = postgres(connectionString, { max: 1, onnotice: () => {} });
 
   try {
     // 1. Garantir colunas essenciais em contacts

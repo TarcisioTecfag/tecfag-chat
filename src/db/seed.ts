@@ -9,7 +9,7 @@ const connectionString = process.env.DATABASE_URL || "postgres://postgres:postgr
 async function main() {
   console.log("🌱 Iniciando o seeding do banco de dados...");
   
-  const client = postgres(connectionString, { max: 1 });
+  const client = postgres(connectionString, { max: 1, onnotice: () => {} });
   const db = drizzle(client, { schema });
 
   try {
