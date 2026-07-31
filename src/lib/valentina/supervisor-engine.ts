@@ -155,9 +155,12 @@ export class SupervisorEngine {
       alertMessage = `🚨 TEMPO CRÍTICO! O cliente ${conv.contactName || "Desconhecido"} está aguardando resposta há mais de 15 minutos!`;
     }
 
+    // Se não há operador responsável, não há destinatário — notificação descartada silenciosamente.
+    if (!conv.operatorId) return;
+
     await this.dispatchInternalNotification(
       conv.tenantId,
-      conv.operatorId || "system",
+      conv.operatorId,
       alertMessage,
       {
         type: is24h ? "no_response" : "sla_alert",

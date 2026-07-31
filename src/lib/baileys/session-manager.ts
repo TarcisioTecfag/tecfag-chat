@@ -169,9 +169,19 @@ export class SessionManager {
       const jidsToSubscribe: string[] = [];
 
       if (jid.includes("@")) {
+        // Validar que o número antes do @ não está vazio (ex: "@s.whatsapp.net" é inválido)
+        const numberPart = jid.split("@")[0];
+        if (!numberPart || numberPart.length < 5) {
+          console.warn(`[Baileys Presence] JID inválido ignorado para tenant ${tenantId}: "${jid}"`);
+          return;
+        }
         jidsToSubscribe.push(jid);
       } else {
         let digits = jid.replace(/\D/g, "");
+        if (!digits) {
+          console.warn(`[Baileys Presence] Número vazio ignorado para tenant ${tenantId}`);
+          return;
+        }
         // Se o número não tem o código do país '55' (tem 10 ou 11 dígitos, ex: 14981123456)
         if (digits.length === 10 || digits.length === 11) {
           digits = `55${digits}`;
@@ -195,6 +205,7 @@ export class SessionManager {
       console.error(`[Baileys Presence] Erro ao subscrever presença de ${jid}:`, e);
     }
   }
+
 
   /**
    * Força uma sessão completamente limpa: encerra o socket atual, apaga as chaves
