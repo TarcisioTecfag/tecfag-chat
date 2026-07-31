@@ -3,110 +3,87 @@ import { db } from "../../db";
 import { channelConfigs } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
-export async function useDrizzleAuthState(tenantId: string): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
-  // Buscar a configuração do canal para este tenant
+export async function useDrizzleAuthState(
+  tenantId: string
+): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
+  // Garantir que existe registro no banco para este tenant
   let config = await db.query.channelConfigs.findFirst({
     where: eq(channelConfigs.tenantId, tenantId),
   });
 
   if (!config) {
-    console.log(`[drizzle-auth] Configuração de canal não encontrada para o tenant ${tenantId}. Criando registro inicial no banco...`);
-    await db.insert(channelConfigs).values({
-      tenantId,
-      channelType: tenantId === "valem" ? "baileys" : "meta",
-      baileysSessionStatus: "disconnected",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    config = await db.query.channelConfigs.findFirst({
-      where: eq(channelConfigs.tenantId, tenantId),
-    });
+    throw new Error(`[drizzle-auth] Nenhum channelConfig encontrado para tenant ${tenantId}. Verifique se a seed foi executada corretamente.`);
   }
 
-  if (!config) {
-    throw new Error(`Não foi possível inicializar a configuração de canal para o tenant ${tenantId}`);
-  }
-
-  // Carregar os dados salvos anteriormente ou iniciar novos
-  let authData: { creds: any; keys: { [key: string]: any } } = {
+  // Estado de autenticação em memória — será persistido via saveState()
+  const authData: { creds: any; keys: { [key: string]: any } } = {
     creds: null,
     keys: {},
   };
 
-  // Se o status for "disconnected" (sem sessão ativa), forçar credenciais limpas.
-  // Isso garante que o Baileys emita um novo QR Code ao iniciar.
-  // IMPORTANTE: não limpar quando status for "qr_ready" — as chaves temporárias geradas
-  // durante o handshake do QR são necessárias para completar o pareamento no celular.
-  // Apagar essas chaves causa o erro "Linking device failed" ao escanear.
-  if (config.baileysSessionStatus === "disconnected") {
-    authData.creds = initAuthCreds();
-  } else if (config.baileysAuthKeys) {
+  // Tentar carregar chaves existentes do banco
+  if (config.baileysAuthKeys) {
     try {
-      // Como o drizzle pode retornar como objeto parseado, passamos por stringify
-      // e depois reviver com BufferJSON para recuperar instâncias de Buffer
       const rawStr = JSON.stringify(config.baileysAuthKeys);
-      authData = JSON.parse(rawStr, BufferJSON.reviver);
+      const parsed = JSON.parse(rawStr, BufferJSON.reviver);
+      if (parsed?.creds) {
+        authData.creds = parsed.creds;
+        authData.keys = parsed.keys || {};
+        console.log(`[drizzle-auth] Chaves de autenticação carregadas do banco para tenant ${tenantId}`);
+      } else {
+        console.warn(`[drizzle-auth] Chaves no banco estão em formato inválido para tenant ${tenantId} — iniciando limpas`);
+      }
     } catch (e) {
-      console.error("Erro ao fazer parse das chaves de autenticação do Baileys:", e);
+      console.error(`[drizzle-auth] Erro ao parsear chaves do banco para tenant ${tenantId}:`, e);
     }
   }
 
-  // Se não houver credenciais salvas, inicializar uma nova
+  // Se não há credenciais válidas, iniciar do zero (vai gerar QR)
   if (!authData.creds) {
+    console.log(`[drizzle-auth] Nenhuma credencial encontrada — iniciando sessão limpa para tenant ${tenantId}`);
     authData.creds = initAuthCreds();
   }
 
   const saveState = async () => {
-    // Serializar usando BufferJSON replacer e jogar de volta no formato objeto que o Drizzle aceita
-    const rawStr = JSON.stringify(authData, BufferJSON.replacer);
-    const jsonbData = JSON.parse(rawStr);
-
-    await db
-      .update(channelConfigs)
-      .set({
-        baileysAuthKeys: jsonbData,
-        updatedAt: new Date(),
-      })
-      .where(eq(channelConfigs.tenantId, tenantId));
-  };
-
-  const creds = authData.creds;
-
-  const keys = {
-    get: async (type: string, ids: string[]) => {
-      const data: { [id: string]: any } = {};
-      for (const id of ids) {
-        const value = authData.keys[`${type}:${id}`];
-        if (value) {
-          data[id] = value;
-        }
-      }
-      return data;
-    },
-    set: async (data: any) => {
-      for (const category in data) {
-        for (const id in data[category]) {
-          const value = data[category][id];
-          const key = `${category}:${id}`;
-          if (value) {
-            authData.keys[key] = value;
-          } else {
-            delete authData.keys[key];
-          }
-        }
-      }
-      await saveState();
-    },
+    try {
+      const rawStr = JSON.stringify(authData, BufferJSON.replacer);
+      const jsonbData = JSON.parse(rawStr);
+      await db
+        .update(channelConfigs)
+        .set({ baileysAuthKeys: jsonbData, updatedAt: new Date() })
+        .where(eq(channelConfigs.tenantId, tenantId));
+    } catch (e) {
+      console.error(`[drizzle-auth] Erro ao salvar estado de autenticação para tenant ${tenantId}:`, e);
+    }
   };
 
   return {
     state: {
-      creds,
-      keys,
+      creds: authData.creds,
+      keys: {
+        get: async (type: string, ids: string[]) => {
+          const result: { [id: string]: any } = {};
+          for (const id of ids) {
+            const val = authData.keys[`${type}:${id}`];
+            if (val !== undefined) result[id] = val;
+          }
+          return result;
+        },
+        set: async (data: any) => {
+          for (const category in data) {
+            for (const id in data[category]) {
+              const key = `${category}:${id}`;
+              if (data[category][id] !== null && data[category][id] !== undefined) {
+                authData.keys[key] = data[category][id];
+              } else {
+                delete authData.keys[key];
+              }
+            }
+          }
+          await saveState();
+        },
+      },
     },
-    saveCreds: async () => {
-      await saveState();
-    },
+    saveCreds: saveState,
   };
 }

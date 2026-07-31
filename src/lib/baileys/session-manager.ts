@@ -5,7 +5,6 @@ import makeWASocket, {
   downloadMediaMessage,
   proto,
   Browsers,
-  fetchLatestBaileysVersion
 } from "@whiskeysockets/baileys";
 import NodeCache from "node-cache";
 import pino from "pino";
@@ -50,6 +49,8 @@ export class SessionManager {
   private listeners = new Map<string, Set<SessionListener>>();
   // Cache de mensagens para permitir retransmissão (obrigatório para evitar timeouts no sendMessage)
   private msgRetryCounterCaches = new Map<string, NodeCache>();
+  // Mutex por tenant: evita duas inicializações simultâneas de sessão
+  private initMutex = new Map<string, Promise<WASocket>>();
 
   private constructor() {}
 
@@ -150,191 +151,176 @@ export class SessionManager {
     }
   }
 
-  /** Resetar sessão e limpar chaves antigas do banco para forçar a emissão de um novo QR Code limpo */
+  /**
+   * Força uma sessão completamente limpa: encerra o socket atual, apaga as chaves
+   * do banco e inicia uma nova sessão (vai gerar novo QR Code).
+   */
   public async resetAndInitSession(tenantId: string): Promise<WASocket> {
-    console.log(`[SessionManager] Resetando chaves de sessão antigas e solicitando novo QR Code para o tenant: ${tenantId}`);
-    
+    console.log(`[SessionManager] Resetando sessão para forçar novo QR Code — tenant: ${tenantId}`);
+
+    // Cancelar inicialização em progresso para este tenant
+    this.initMutex.delete(tenantId);
+
+    // Encerrar socket existente
     const existingSock = this.sessions.get(tenantId);
     if (existingSock) {
-      try {
-        existingSock.end(undefined);
-      } catch (e) {}
+      try { existingSock.end(undefined); } catch (_) {}
       this.sessions.delete(tenantId);
     }
-
     this.sessionStatuses.set(tenantId, "disconnected");
     this.sessionQrs.delete(tenantId);
-    // Não notificar 'disconnected' aqui — o frontend acabou de pedir o QR,
-    // notificar disconnected antes do QR gerar confunde o estado da UI.
 
+    // Limpar chaves do banco — sessão completamente nova
     try {
       await db
         .update(channelConfigs)
-        .set({
-          baileysSessionStatus: "disconnected",
-          baileysPairedPhone: null,
-          baileysAuthKeys: null,
-          updatedAt: new Date(),
-        })
+        .set({ baileysSessionStatus: "disconnected", baileysPairedPhone: null, baileysAuthKeys: null, updatedAt: new Date() })
         .where(eq(channelConfigs.tenantId, tenantId));
+      console.log(`[SessionManager] Chaves do banco limpas para tenant ${tenantId}`);
     } catch (e) {
-      console.error("[SessionManager] Erro ao limpar chaves antigas no DB:", e);
+      console.error(`[SessionManager] Erro ao limpar chaves no DB:`, e);
     }
 
     return this.initSession(tenantId);
   }
 
+  /**
+   * Inicia (ou reutiliza) a sessão Baileys de um tenant.
+   * Usa mutex por tenant para evitar inicializações concorrentes.
+   */
   public async initSession(tenantId: string): Promise<WASocket> {
+    // Se já há uma sessão ativa (conectada ou aguardando QR), reutilizar
     const existingStatus = this.sessionStatuses.get(tenantId);
     if (this.sessions.has(tenantId) && existingStatus && existingStatus !== "disconnected") {
+      console.log(`[SessionManager] Sessão já ativa (status: ${existingStatus}) para tenant ${tenantId} — reutilizando`);
       return this.sessions.get(tenantId)!;
     }
 
-    // Se existia um socket antigo desconectado, finalizá-lo antes de criar novo
+    // Mutex: evitar duas inicializações simultâneas para o mesmo tenant
+    const existingMutex = this.initMutex.get(tenantId);
+    if (existingMutex) {
+      console.log(`[SessionManager] Inicialização já em progresso para tenant ${tenantId} — aguardando`);
+      return existingMutex;
+    }
+
+    const initPromise = this._doInitSession(tenantId);
+    this.initMutex.set(tenantId, initPromise);
+    initPromise.finally(() => this.initMutex.delete(tenantId));
+    return initPromise;
+  }
+
+  private async _doInitSession(tenantId: string): Promise<WASocket> {
+    // Encerrar socket antigo se existir
     const oldSock = this.sessions.get(tenantId);
     if (oldSock) {
-      try {
-        oldSock.end(undefined);
-      } catch (e) {}
+      try { oldSock.end(undefined); } catch (_) {}
       this.sessions.delete(tenantId);
     }
 
-    console.log(`Iniciando sessão do Baileys para o tenant: ${tenantId}`);
-    this.sessionStatuses.set(tenantId, "disconnected");
-    // Não disparar evento 'disconnected' aqui: o frontend já sabe que está desconectado
-    // e está aguardando o QR — qualquer notify de disconnected antes do QR gerar
-    // faz a UI regredir para a tela "Nenhuma Sessão Ativa" imediatamente.
+    console.log(`[SessionManager] Iniciando sessão Baileys para tenant: ${tenantId}`);
 
-    // Criar logger silencioso para o Baileys
-    const logger = pino({ level: "info" });
+    // Logger silencioso — logs do Baileys são muito verbosos e poluem o output
+    const logger = pino({ level: "silent" });
 
-    // Obter estado de autenticação baseado no Drizzle
+    // Carregar estado de autenticação do banco
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
+    console.log(`[SessionManager] Estado de autenticação carregado para tenant ${tenantId}`);
 
-    // Buscar a versão atual do protocolo WhatsApp Web dinamicamente.
-    // Versões desatualizadas causam fechamento do WebSocket pelo WA antes de emitir o QR.
-    let version: [number, number, number] = [2, 3000, 1043857760]; // fallback atualizado
-    try {
-      const { version: latestVersion } = await fetchLatestBaileysVersion();
-      version = latestVersion;
-      console.log(`[SessionManager] Versão WA obtida: v${version.join(".")}`);
-    } catch (e) {
-      console.warn(`[SessionManager] Falha ao buscar versão WA dinâmica, usando fallback v${version.join(".")}`)
-    }
+    // Versão do protocolo WhatsApp Web — mantida atualizada manualmente.
+    // NOTA: fetchLatestBaileysVersion() foi REMOVIDO propositalmente:
+    //   ele faz uma chamada HTTP para servidores WA que pode travar em produção (Railway).
+    //   Atualizar esta versão quando o Baileys reportar "versão desatualizada".
+    const version: [number, number, number] = [2, 3000, 1043857760];
+    console.log(`[SessionManager] Usando versão WA: ${version.join(".")}`);
 
-
-    // Cache de retry de mensagens — necessário para que o WA possa pedir retransmissão
+    // Cache de retry de mensagens
     const msgRetryCounterCache = new NodeCache({ stdTTL: 60, useClones: false });
     this.msgRetryCounterCaches.set(tenantId, msgRetryCounterCache);
 
-    // Inicializar o socket do Baileys
-    // Browsers.ubuntu('Chrome') é o preset oficial reconhecido pelo WhatsApp
-    // Usar identificador customizado (ex: "Valem Chat") causa rejeição ao escanear o QR
     const makeSocketFn = (makeWASocket as any).default || makeWASocket;
     const sock = makeSocketFn({
       version,
-      browser: Browsers.ubuntu('Chrome'),
+      browser: Browsers.ubuntu("Chrome"),
       auth: state,
       logger,
       printQRInTerminal: false,
       msgRetryCounterCache,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      // Permite que o Baileys reenvie mensagens quando o WA pede retransmissão (retry)
       getMessage: async (key: proto.IMessageKey) => {
-        // Tenta buscar a mensagem do banco para permitir reenvio
         try {
           const stored = await db.query.messages.findFirst({
-            where: (t, { eq: dEq }) => dEq(t.id, key.id ?? "")
+            where: (t, { eq: dEq }) => dEq(t.id, key.id ?? ""),
           });
-          if (stored?.content) {
-            return { conversation: stored.content } as proto.IMessage;
-          }
-        } catch (e) {
-          // silencia erros de lookup
-        }
+          if (stored?.content) return { conversation: stored.content } as proto.IMessage;
+        } catch (_) {}
         return undefined;
       },
     });
 
     this.sessions.set(tenantId, sock);
+    console.log(`[SessionManager] Socket criado e registrado para tenant ${tenantId}`);
 
-    // Salvar credenciais quando atualizadas
+    // Persistir credenciais ao serem atualizadas pelo handshake
     sock.ev.on("creds.update", saveCreds);
 
-    // Tratar eventos de conexão
+    // Handler principal de mudanças de estado da conexão
     sock.ev.on("connection.update", async (update: any) => {
       const { connection, lastDisconnect, qr } = update;
+      console.log(`[SessionManager][${tenantId}] connection.update:`, JSON.stringify({ connection, qr: !!qr, statusCode: (lastDisconnect?.error as any)?.output?.statusCode }));
 
       if (qr) {
-        console.log(`✅ QR Code gerado com sucesso para o tenant ${tenantId}`);
+        console.log(`[SessionManager] ✅ QR Code gerado para tenant ${tenantId}`);
         this.sessionStatuses.set(tenantId, "qr_ready");
         this.sessionQrs.set(tenantId, qr);
         this.notify(tenantId, { type: "status", status: "qr_ready" });
         this.notify(tenantId, { type: "qr", qr });
-
-        // Salvar status no banco
         try {
-          await db
-            .update(channelConfigs)
+          await db.update(channelConfigs)
             .set({ baileysSessionStatus: "qr_ready", updatedAt: new Date() })
             .where(eq(channelConfigs.tenantId, tenantId));
-        } catch (e) {
-          console.error("Erro ao atualizar status do QR no DB:", e);
-        }
+        } catch (e) { console.error("Erro ao salvar status qr_ready:", e); }
+      }
+
+      if (connection === "open") {
+        const phone = sock.user?.id?.split(":")[0];
+        console.log(`[SessionManager] ✅ Conexão estabelecida para tenant ${tenantId} — telefone: ${phone}`);
+        this.sessionStatuses.set(tenantId, "connected");
+        this.sessionQrs.delete(tenantId);
+        this.notify(tenantId, { type: "status", status: "connected", phone });
+        try {
+          await db.update(channelConfigs)
+            .set({ baileysSessionStatus: "connected", baileysPairedPhone: phone, updatedAt: new Date() })
+            .where(eq(channelConfigs.tenantId, tenantId));
+        } catch (e) { console.error("Erro ao salvar status connected:", e); }
       }
 
       if (connection === "close") {
         const isPaired = !!sock.user?.id;
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        const shouldReconnect = isPaired && statusCode !== DisconnectReason.loggedOut;
-        
-        console.log(`Conexão do tenant ${tenantId} fechada. Dispositivo Pareado: ${isPaired}, Status Error: ${statusCode}. Tentando reconectar: ${shouldReconnect}`);
-        
+        const loggedOut = statusCode === DisconnectReason.loggedOut;
+        const shouldReconnect = isPaired && !loggedOut;
+        console.log(`[SessionManager] Conexão fechada para tenant ${tenantId} — pareado: ${isPaired}, statusCode: ${statusCode}, reconectar: ${shouldReconnect}`);
+
         this.sessions.delete(tenantId);
         this.sessionStatuses.set(tenantId, "disconnected");
         this.sessionQrs.delete(tenantId);
         this.notify(tenantId, { type: "status", status: "disconnected" });
 
-        // Salvar status no banco e limpar chaves se não estivesse pareado
         try {
-          await db
-            .update(channelConfigs)
-            .set({ 
-              baileysSessionStatus: "disconnected", 
+          await db.update(channelConfigs)
+            .set({
+              baileysSessionStatus: "disconnected",
               baileysPairedPhone: isPaired ? undefined : null,
-              baileysAuthKeys: isPaired ? undefined : null,
-              updatedAt: new Date() 
+              baileysAuthKeys: loggedOut ? null : undefined,
+              updatedAt: new Date(),
             })
             .where(eq(channelConfigs.tenantId, tenantId));
-        } catch (e) {
-          console.error("Erro ao atualizar status de desconectado no DB:", e);
-        }
+        } catch (e) { console.error("Erro ao salvar status disconnected:", e); }
 
         if (shouldReconnect) {
-          // Tentar reconectar em 5 segundos apenas se estiver pareado
+          console.log(`[SessionManager] Reconectando tenant ${tenantId} em 5s...`);
           setTimeout(() => this.initSession(tenantId), 5000);
-        }
-      } else if (connection === "open") {
-        console.log(`Conexão do tenant ${tenantId} estabelecida com sucesso!`);
-        const phone = sock.user?.id.split(":")[0];
-        
-        this.sessionStatuses.set(tenantId, "connected");
-        this.sessionQrs.delete(tenantId);
-        this.notify(tenantId, { type: "status", status: "connected", phone });
-
-        // Salvar status e telefone no banco
-        try {
-          await db
-            .update(channelConfigs)
-            .set({ 
-              baileysSessionStatus: "connected", 
-              baileysPairedPhone: phone,
-              updatedAt: new Date() 
-            })
-            .where(eq(channelConfigs.tenantId, tenantId));
-        } catch (e) {
-          console.error("Erro ao atualizar status de conectado no DB:", e);
         }
       }
     });
