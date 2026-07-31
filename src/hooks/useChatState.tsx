@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import QRCode from "qrcode";
 import { toast } from "sonner";
 import {
   Conversation,
@@ -2000,12 +2001,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .catch(() => {}); // Silencioso
           }
         } else if (data.type === "qr") {
-          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data.qr)}`;
-          setBaileysConfig((prev) => ({
-            ...prev,
-            status: "qr_ready",
-            qrCodeUrl: qrUrl,
-          }));
+          // Gera o QR Code localmente como Data URL — sem dependência de serviço externo
+          QRCode.toDataURL(data.qr, { width: 250, margin: 1, errorCorrectionLevel: "M" })
+            .then((qrUrl) => {
+              setBaileysConfig((prev) => ({
+                ...prev,
+                status: "qr_ready",
+                qrCodeUrl: qrUrl,
+              }));
+            })
+            .catch((err) => {
+              console.error("[QRCode] Erro ao gerar QR Code local:", err);
+            });
         } else if (data.type === "contact_avatar") {
           setConversations((prev) =>
             prev.map((c) => {
