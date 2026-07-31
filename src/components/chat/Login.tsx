@@ -71,20 +71,20 @@ export function Login() {
       <motion.div
         layout
         transition={panelTransition}
-        className={`relative flex flex-col justify-between p-5 sm:p-6 md:p-12 overflow-hidden bg-slate-950 text-white ${
+        className={`relative flex flex-col justify-between p-6 md:p-12 overflow-hidden bg-slate-950 text-white ${
           isValem ? "order-1 md:order-2" : "order-1 md:order-1"
-        } md:col-span-2 h-[32vh] min-h-[230px] max-h-[270px] md:h-auto md:min-h-screen md:max-h-none`}
+        } md:col-span-2 h-[34vh] min-h-[240px] max-h-[300px] md:h-auto md:min-h-screen md:max-h-none`}
       >
         {/* Fundo com a foto do Tecfag */}
         <div 
-          className={`absolute inset-0 z-0 bg-cover bg-top md:bg-center transition-all duration-1000 ease-out ${
+          className={`absolute inset-0 z-0 bg-cover bg-center transition-all duration-1000 ease-out ${
             activeTenant === "tecfag" ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-105 blur-[2px]"
           }`} 
           style={{ backgroundImage: "url('/bg_login.png')" }} 
         />
         {/* Fundo com a foto do Valem */}
         <div 
-          className={`absolute inset-0 z-0 bg-cover bg-top md:bg-center transition-all duration-1000 ease-out ${
+          className={`absolute inset-0 z-0 bg-cover bg-center transition-all duration-1000 ease-out ${
             activeTenant === "valem" ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-105 blur-[2px]"
           }`} 
           style={{ backgroundImage: "url('/bg_login_valem.png')" }} 
@@ -114,7 +114,7 @@ export function Login() {
             <div className={`transition-all duration-700 transform ease-out ${
               activeTenant === "tecfag" ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none absolute inset-x-0 bottom-0"
             }`}>
-              <blockquote className="text-xs sm:text-base md:text-2xl font-medium leading-snug md:leading-relaxed tracking-tight mb-1.5 md:mb-6 line-clamp-2 md:line-clamp-none">
+              <blockquote className="text-sm sm:text-base md:text-2xl font-medium leading-relaxed tracking-tight mb-2 md:mb-6 line-clamp-2 md:line-clamp-none">
                 “Simplesmente todas as ferramentas que minha equipe e eu precisamos.”
               </blockquote>
               <div>
@@ -127,7 +127,7 @@ export function Login() {
             <div className={`transition-all duration-700 transform ease-out ${
               activeTenant === "valem" ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none absolute inset-x-0 bottom-0"
             }`}>
-              <blockquote className="text-xs sm:text-base md:text-2xl font-medium leading-snug md:leading-relaxed tracking-tight mb-1.5 md:mb-6 line-clamp-2 md:line-clamp-none">
+              <blockquote className="text-sm sm:text-base md:text-2xl font-medium leading-relaxed tracking-tight mb-2 md:mb-6 line-clamp-2 md:line-clamp-none">
                 “Com experiência, vendemos rápido.<br className="hidden md:inline" />
                 Com estratégia, vendemos muito.”
               </blockquote>
@@ -146,24 +146,24 @@ export function Login() {
         transition={panelTransition}
         className={`bg-white ${
           isValem ? "order-2 md:order-1" : "order-2 md:order-2"
-        } md:col-span-3 flex items-center justify-center px-5 pt-5 pb-6 sm:p-10 md:p-20 relative z-10 -mt-5 md:mt-0 rounded-t-[28px] md:rounded-none shadow-[0_-12px_40px_rgba(0,0,0,0.15)] md:shadow-none flex-1 min-h-fit md:min-h-screen`}
+        } md:col-span-3 flex flex-col items-center justify-center p-6 sm:p-12 md:p-20 relative z-10 -mt-8 md:mt-0 rounded-t-[32px] md:rounded-none shadow-[0_-12px_40px_rgba(0,0,0,0.15)] md:shadow-none flex-1 min-h-fit md:min-h-screen`}
       >
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: "spring", damping: 25, stiffness: 220 }}
-          className="w-full max-w-[420px] flex flex-col"
+          className="w-full max-w-[420px] flex flex-col my-auto"
         >
           
           {/* Cabeçalho */}
-          <div className="text-center md:text-left mb-4 md:mb-8">
+          <div className="text-center md:text-left mb-6 md:mb-8">
             {/* Logo do Tenant */}
-            <div className="relative h-10 md:h-16 w-full mb-3 md:mb-6 flex justify-center md:justify-start">
+            <div className="relative h-14 md:h-16 w-full mb-4 md:mb-6 flex justify-center md:justify-start">
               {/* Logo Tecfag */}
               <img
                 src="/logo_tecfag.png"
                 alt="Tecfag Logo"
-                className={`absolute h-10 md:h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-1.5 md:p-2 transition-all duration-700 hover:scale-105 ${
+                className={`absolute h-14 md:h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-2 transition-all duration-700 hover:scale-105 ${
                   activeTenant === "tecfag" ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
                 }`}
               />
@@ -171,12 +171,12 @@ export function Login() {
               <img
                 src="/logo_valem.jpg"
                 alt="Valem Logo"
-                className={`absolute h-10 md:h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-1.5 md:p-2 transition-all duration-700 hover:scale-105 ${
+                className={`absolute h-14 md:h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-2 transition-all duration-700 hover:scale-105 ${
                   activeTenant === "valem" ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
                 }`}
               />
             </div>
-            <h2 className="text-xl md:text-3xl font-extrabold tracking-tight text-slate-900 mb-1 md:mb-2.5">
+            <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 mb-2 md:mb-2.5">
               Boas-vindas de volta
             </h2>
             <p className="text-xs md:text-sm text-slate-500 leading-relaxed">
@@ -187,11 +187,11 @@ export function Login() {
           </div>
 
           {/* Formulário */}
-          <form onSubmit={handleSubmit} className="space-y-2.5 md:space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-3.5 md:space-y-4">
             
             {/* Input E-mail */}
-            <div className="relative border border-slate-200 rounded-xl px-3 py-1.5 md:px-4 md:py-2.5 bg-white transition-all duration-500 focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[var(--primary)]/10">
-              <label className="block text-[9px] md:text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">
+            <div className="relative border border-slate-200 rounded-xl px-4 py-2 md:px-4 md:py-2.5 bg-white transition-all duration-500 focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[var(--primary)]/10">
+              <label className="block text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">
                 E-mail
               </label>
               <input
@@ -201,13 +201,13 @@ export function Login() {
                 placeholder="exemplo@tecfag.com.br"
                 required
                 disabled={isLoading}
-                className="block w-full text-xs md:text-sm text-slate-900 bg-transparent border-0 p-0 focus:ring-0 focus:outline-none placeholder:text-slate-300 transition-all duration-500"
+                className="block w-full text-sm text-slate-900 bg-transparent border-0 p-0 focus:ring-0 focus:outline-none placeholder:text-slate-300 transition-all duration-500"
               />
             </div>
 
             {/* Input Senha */}
-            <div className="relative border border-slate-200 rounded-xl px-3 py-1.5 md:px-4 md:py-2.5 bg-white transition-all duration-500 focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[var(--primary)]/10">
-              <label className="block text-[9px] md:text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">
+            <div className="relative border border-slate-200 rounded-xl px-4 py-2 md:px-4 md:py-2.5 bg-white transition-all duration-500 focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[var(--primary)]/10">
+              <label className="block text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">
                 Senha
               </label>
               <div className="flex items-center">
@@ -218,14 +218,14 @@ export function Login() {
                   placeholder="••••••••"
                   required
                   disabled={isLoading}
-                  className="block w-full text-xs md:text-sm text-slate-900 bg-transparent border-0 p-0 focus:ring-0 focus:outline-none placeholder:text-slate-300 transition-all duration-500"
+                  className="block w-full text-sm text-slate-900 bg-transparent border-0 p-0 focus:ring-0 focus:outline-none placeholder:text-slate-300 transition-all duration-500"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="text-slate-400 hover:text-slate-600 focus:outline-none ml-2 transition-colors duration-500"
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4 md:h-4.5 md:w-4.5" /> : <Eye className="h-4 w-4 md:h-4.5 md:w-4.5" />}
+                  {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
                 </button>
               </div>
             </div>
@@ -236,25 +236,25 @@ export function Login() {
                 href="https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br&message=Olá,%20preciso%20de%20ajuda%20para%20recuperar%20minha%20senha%20no%20sistema."
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[11px] md:text-xs font-bold text-[var(--primary)] hover:text-[var(--primary-hover)] transition-all duration-500"
+                className="text-xs font-bold text-[var(--primary)] hover:text-[var(--primary-hover)] transition-all duration-500"
               >
                 Esqueceu a senha?
               </a>
             </div>
 
             {/* Lembrar Dados de Acesso */}
-            <div className="flex items-center justify-between py-1 md:py-2 border-b border-slate-100">
+            <div className="flex items-center justify-between py-1.5 md:py-2 border-b border-slate-100">
               <span className="text-xs text-slate-500 font-medium">Lembrar dados de acesso</span>
               <button
                 type="button"
                 onClick={() => setRememberMe(!rememberMe)}
-                className={`relative inline-flex h-5 w-10 md:h-6 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-all duration-500 ease-in-out focus:outline-none ${
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-all duration-500 ease-in-out focus:outline-none ${
                   rememberMe ? "bg-[var(--primary)]" : "bg-slate-200"
                 }`}
               >
                 <span
-                  className={`pointer-events-none inline-block h-4 w-4 md:h-5 md:w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-500 ease-in-out ${
-                    rememberMe ? "translate-x-5 md:translate-x-5" : "translate-x-0"
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-500 ease-in-out ${
+                    rememberMe ? "translate-x-5" : "translate-x-0"
                   }`}
                 />
               </button>
@@ -264,16 +264,16 @@ export function Login() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs md:text-sm font-bold py-2.5 md:py-3.5 px-4 rounded-xl md:rounded-2xl shadow-sm transition-all duration-500 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/50 focus:ring-offset-2 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-3 md:mt-6"
+              className="w-full bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-sm font-bold py-3.5 px-4 rounded-xl md:rounded-2xl shadow-sm transition-all duration-500 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/50 focus:ring-offset-2 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-4 md:mt-6"
             >
               {isLoading ? "Entrando..." : "Entrar"}
             </button>
           </form>
 
           {/* Divisor OU */}
-          <div className="flex items-center my-3 md:my-6">
+          <div className="flex items-center my-4 md:my-6">
             <div className="flex-1 h-[1px] bg-slate-100"></div>
-            <span className="px-3 text-[9px] md:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+            <span className="px-3.5 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
               ou
             </span>
             <div className="flex-1 h-[1px] bg-slate-100"></div>
@@ -284,9 +284,9 @@ export function Login() {
             href="https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br"
             target="_blank"
             rel="noopener noreferrer"
-            className="w-full flex items-center justify-center gap-2.5 bg-slate-50 hover:bg-slate-100/80 text-slate-700 text-xs md:text-sm font-bold py-2.5 md:py-3.5 px-4 rounded-xl md:rounded-2xl border border-slate-100 transition-all duration-500 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:ring-offset-1 cursor-pointer decoration-none"
+            className="w-full flex items-center justify-center gap-3 bg-slate-50 hover:bg-slate-100/80 text-slate-700 text-sm font-bold py-3.5 px-4 rounded-xl md:rounded-2xl border border-slate-100 transition-all duration-500 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:ring-offset-1 cursor-pointer decoration-none"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" className="text-[#6264A7] transition-colors duration-500 md:w-[18px] md:h-[18px]" viewBox="0 0 16 16">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" className="text-[#6264A7] transition-colors duration-500" viewBox="0 0 16 16">
               <path d="M9.186 4.797a2.42 2.42 0 1 0-2.86-2.448h1.178c.929 0 1.682.753 1.682 1.682zm-4.295 7.738h2.613c.929 0 1.682-.753 1.682-1.682V5.58h2.783a.7.7 0 0 1 .682.716v4.294a4.197 4.197 0 0 1-4.093 4.293c-1.618-.04-3-.99-3.667-2.35Zm10.737-9.372a1.674 1.674 0 1 1-3.349 0 1.674 1.674 0 0 1 3.349 0m-2.238 9.488-.12-.002a5.2 5.2 0 0 0 .381-2.07V6.306a1.7 1.7 0 0 0-.15-.725h1.792c.39 0 .707.317.707.707v3.765a2.6 2.6 0 0 1-2.598 2.598z"/>
               <path d="M.682 3.349h6.822c.377 0 .682.305.682.682v6.822a.68.68 0 0 1-.682.682H.682A.68.68 0 0 1 0 10.853V4.03c0-.377.305-.682.682-.682Zm5.206 2.596v-.72h-3.59v.72h1.357V9.66h.87V5.945z"/>
             </svg>
@@ -294,8 +294,8 @@ export function Login() {
           </a>
 
           {/* Cadastro */}
-          <div className="text-center mt-4 md:mt-8">
-            <p className="text-[11px] md:text-xs text-slate-500 font-medium">
+          <div className="text-center mt-6 md:mt-8">
+            <p className="text-xs text-slate-500 font-medium">
               Não tem uma conta?{" "}
               <a
                 href="https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br&message=Olá,%20gostaria%20de%20solicitar%20a%20criação%20de%20uma%20conta%20de%20operador%20no%20sistema."
