@@ -1200,12 +1200,29 @@ export class SessionManager {
 }
 
 /**
+ * Cache em memória de JIDs já resolvidos via onWhatsApp.
+ * Evita chamar sock.onWhatsApp repetidamente para o mesmo número
+ * e previne erros de rate-overlimit.
+ * TTL: 24 horas (86.400.000 ms).
+ */
+const jidCache = new Map<string, { jid: string; expiresAt: number }>();
+const JID_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+/**
  * Resolve o JID real registrado no WhatsApp para um dado telefone.
  * Lida com o problema de 8 vs 9 dígitos no Brasil usando o método sock.onWhatsApp.
+ * Utiliza cache em memória (TTL 24h) para evitar chamadas desnecessarias ao WA.
  */
 export async function resolveRealJid(sock: any, phone: string, fallbackJid?: string): Promise<string> {
   const cleanPhone = phone.replace(/\D/g, "");
   if (!cleanPhone) return fallbackJid || `${phone}@s.whatsapp.net`;
+
+  // Verificar cache antes de qualquer chamada de rede
+  const cached = jidCache.get(cleanPhone);
+  if (cached && cached.expiresAt > Date.now()) {
+    console.log(`[JID Resolver] Cache hit para ${cleanPhone}: ${cached.jid}`);
+    return cached.jid;
+  }
 
   const numbersToTry: string[] = [];
 
@@ -1264,6 +1281,8 @@ export async function resolveRealJid(sock: any, phone: string, fallbackJid?: str
         const res = results[0];
         if (res && res.exists && res.jid) {
           console.log(`[JID Resolver] JID real resolvido para ${phone}: ${res.jid}`);
+          // Salvar no cache para evitar chamadas repetidas ao WA
+          jidCache.set(cleanPhone, { jid: res.jid, expiresAt: Date.now() + JID_CACHE_TTL_MS });
           return res.jid;
         }
       }

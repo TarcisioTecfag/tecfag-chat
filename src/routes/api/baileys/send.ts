@@ -128,7 +128,26 @@ export const Route = createFileRoute("/api/baileys/send")({
             };
           }
 
-          const sentMsg = await sock.sendMessage(jid, { text }, options);
+          // Enviar com retry em caso de rate-overlimit
+          let sentMsg: any;
+          let lastErr: any;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              sentMsg = await sock.sendMessage(jid, { text }, options);
+              lastErr = null;
+              break; // sucesso — sai do loop
+            } catch (sendErr: any) {
+              lastErr = sendErr;
+              if (sendErr?.message?.includes("rate-overlimit") && attempt < 2) {
+                const delay = (attempt + 1) * 2000; // 2s, 4s
+                console.warn(`[Baileys Send] rate-overlimit — aguardando ${delay}ms antes de retry ${attempt + 1}/2...`);
+                await new Promise(r => setTimeout(r, delay));
+              } else {
+                break; // erro diferente ou última tentativa — sai
+              }
+            }
+          }
+          if (lastErr) throw lastErr;
 
           // Se temos conversationId, salvar no DB
           if (conversationId) {
