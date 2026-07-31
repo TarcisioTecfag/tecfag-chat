@@ -2374,8 +2374,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
+    // Controle de tentativas de reconexão automática do SSE
+    let sseErrorCount = 0;
     eventSource.onerror = (err) => {
-      console.error("Erro ou oscilação na conexão SSE do Baileys (o navegador tentará reconectar):", err);
+      sseErrorCount++;
+      console.warn(`[SSE] Erro/queda na conexão SSE (tentativa ${sseErrorCount}). O navegador tentará reconectar automaticamente.`, err);
+
+      // Após 3 erros consecutivos sem reconexão bem-sucedida, alertar o usuário
+      if (sseErrorCount === 3) {
+        setBaileysConfig((prev) => ({
+          ...prev,
+          status: "disconnected",
+        }));
+        console.warn("[SSE] Muitas falhas consecutivas — marcando como desconectado.");
+      }
+    };
+
+    // Quando o SSE reconectar após uma queda, resetar contador de erros
+    eventSource.onopen = () => {
+      if (sseErrorCount > 0) {
+        console.log("[SSE] Conexão SSE restaurada após erro.");
+        sseErrorCount = 0;
+      }
     };
   };
 

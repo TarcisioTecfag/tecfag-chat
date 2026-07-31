@@ -51,14 +51,59 @@ export class SessionManager {
   private msgRetryCounterCaches = new Map<string, NodeCache>();
   // Mutex por tenant: evita duas inicializações simultâneas de sessão
   private initMutex = new Map<string, Promise<WASocket>>();
+  // Flag para evitar boot duplo
+  private booted = false;
 
   private constructor() {}
 
   public static getInstance(): SessionManager {
     if (!SessionManager.instance) {
       SessionManager.instance = new SessionManager();
+      // Auto-boot: reconectar sessões persistidas no banco ao iniciar o servidor
+      SessionManager.instance.autoBootFromDB().catch((err) =>
+        console.error("[SessionManager] Erro no auto-boot:", err)
+      );
     }
     return SessionManager.instance;
+  }
+
+  /**
+   * Ao iniciar o servidor, busca todos os tenants que possuem
+   * credenciais Baileys salvas no banco e tenta reconectar automaticamente.
+   * Isso garante que após restart do Railway (deploy/crash), a sessão
+   * volta sozinha sem necessidade de gerar novo QR Code.
+   */
+  private async autoBootFromDB(): Promise<void> {
+    if (this.booted) return;
+    this.booted = true;
+
+    try {
+      // Aguarda 2s para o banco estar disponível após o boot
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      const configs = await db.query.channelConfigs.findMany();
+      const tenantsWithKeys = configs.filter(
+        (c) => c.baileysAuthKeys !== null && c.baileysAuthKeys !== undefined
+      );
+
+      if (tenantsWithKeys.length === 0) {
+        console.log("[SessionManager] Auto-boot: nenhum tenant com credenciais salvas — aguardando QR manual.");
+        return;
+      }
+
+      console.log(`[SessionManager] Auto-boot: reconectando ${tenantsWithKeys.length} tenant(s) com credenciais salvas: ${tenantsWithKeys.map((c) => c.tenantId).join(", ")}`);
+
+      for (const config of tenantsWithKeys) {
+        console.log(`[SessionManager] Auto-boot: iniciando sessão para tenant ${config.tenantId}...`);
+        this.initSession(config.tenantId).catch((err) =>
+          console.error(`[SessionManager] Auto-boot: erro ao reconectar tenant ${config.tenantId}:`, err)
+        );
+        // Pequeno intervalo entre tenants para não sobrecarregar
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    } catch (err) {
+      console.error("[SessionManager] Auto-boot: erro ao buscar configs no banco:", err);
+    }
   }
 
   public registerListener(tenantId: string, listener: SessionListener) {
