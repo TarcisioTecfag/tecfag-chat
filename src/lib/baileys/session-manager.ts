@@ -4,7 +4,8 @@ import makeWASocket, {
   initAuthCreds,
   downloadMediaMessage,
   proto,
-  Browsers
+  Browsers,
+  fetchLatestBaileysVersion
 } from "@whiskeysockets/baileys";
 import NodeCache from "node-cache";
 import pino from "pino";
@@ -210,10 +211,17 @@ export class SessionManager {
     // Obter estado de autenticação baseado no Drizzle
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
 
-    // Versão do protocolo WhatsApp Web — valor fixo estável, evita dependência de chamada HTTP
-    // que pode falhar em produção e deixar o protocolo em versão desatualizada (causa rejeição)
-    const version: [number, number, number] = [2, 3000, 1023430502];
-    console.log(`[SessionManager] Usando versão do protocolo WA: v${version.join(".")}`);
+    // Buscar a versão atual do protocolo WhatsApp Web dinamicamente.
+    // Versões desatualizadas causam fechamento do WebSocket pelo WA antes de emitir o QR.
+    let version: [number, number, number] = [2, 3000, 1043857760]; // fallback atualizado
+    try {
+      const { version: latestVersion } = await fetchLatestBaileysVersion();
+      version = latestVersion;
+      console.log(`[SessionManager] Versão WA obtida: v${version.join(".")}`);
+    } catch (e) {
+      console.warn(`[SessionManager] Falha ao buscar versão WA dinâmica, usando fallback v${version.join(".")}`)
+    }
+
 
     // Cache de retry de mensagens — necessário para que o WA possa pedir retransmissão
     const msgRetryCounterCache = new NodeCache({ stdTTL: 60, useClones: false });
