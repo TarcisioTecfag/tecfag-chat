@@ -18,6 +18,7 @@ import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { urlToBase64 } from "../utils";
+import { sendPushToOperator } from "../push-notifications";
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connected";
 
@@ -953,11 +954,22 @@ export class SessionManager {
         sentAt: new Date(),
       }).onConflictDoNothing();
 
-      // ── SLA Engine: rastreamento de tempo de resposta via Baileys ─────────
-      // Espelha a mesma lógica de chats.ts POST para mensagens nativas do WA.
+      // ── SLA Engine & Web Push Notification ─────────
       try {
         const now = new Date();
         if (finalSenderType === "client") {
+          // Disparar Web Push Notification EXCLUSIVAMENTE para o operador atribuído à conversa (se houver)
+          if (targetOperatorId) {
+            sendPushToOperator(tenantId, targetOperatorId, {
+              title: name || "Nova Mensagem",
+              body: text || "Mensagem no WhatsApp",
+              conversationId: convId,
+              tenantId,
+              icon: tenantId === "valem" ? "/logo_valem.jpg" : "/logo_tecfag.png",
+              url: `/?chatId=${convId}`,
+            }).catch((err) => console.error("[Push] Erro ao enviar notificação no Baileys:", err));
+          }
+
           // Cliente enviou: abre um novo ciclo de SLA
           await db.insert(responseTimeLogs).values({
             id: `sla-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,

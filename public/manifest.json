@@ -1,0 +1,17 @@
+{
+  "short_name": "Tecfag Chat",
+  "name": "Tecfag & Valem Chat",
+  "description": "Atendimento Comercial e Suporte em Tempo Real",
+  "icons": [
+    {
+      "src": "/logo_tecfag.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#df3d3d",
+  "display": "standalone",
+  "orientation": "portrait"
+}

@@ -413,6 +413,18 @@ export const aiUsageLogs = pgTable("ai_usage_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 24. PUSH SUBSCRIPTIONS (Dispositivos Móveis para Notificações Web Push) ──
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "cascade" }).notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -440,5 +452,7 @@ export type RoundRobinState = typeof roundRobinState.$inferSelect;
 export type InternalMessage = typeof internalMessages.$inferSelect;
 export type KnowledgeFolder = typeof knowledgeFolders.$inferSelect;
 export type KnowledgeFileRecord = typeof knowledgeFiles.$inferSelect;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+
 
 

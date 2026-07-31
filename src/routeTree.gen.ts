@@ -15,6 +15,7 @@ import { Route as ApiTemplatesRouteImport } from './routes/api/templates'
 import { Route as ApiTasksRouteImport } from './routes/api/tasks'
 import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
 import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
+import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
@@ -88,6 +89,11 @@ const ApiSectorsRoute = ApiSectorsRouteImport.update({
 const ApiQuickResponsesRoute = ApiQuickResponsesRouteImport.update({
   id: '/api/quick-responses',
   path: '/api/quick-responses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPushRoute = ApiPushRouteImport.update({
+  id: '/api/push',
+  path: '/api/push',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
@@ -322,6 +328,7 @@ export interface FileRoutesByFullPath {
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/groups': typeof ApiGroupsRoute
   '/api/operators': typeof ApiOperatorsRoute
+  '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
   '/api/tasks': typeof ApiTasksRoute
@@ -374,6 +381,7 @@ export interface FileRoutesByTo {
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/groups': typeof ApiGroupsRoute
   '/api/operators': typeof ApiOperatorsRoute
+  '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
   '/api/tasks': typeof ApiTasksRoute
@@ -427,6 +435,7 @@ export interface FileRoutesById {
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/groups': typeof ApiGroupsRoute
   '/api/operators': typeof ApiOperatorsRoute
+  '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
   '/api/tasks': typeof ApiTasksRoute
@@ -481,6 +490,7 @@ export interface FileRouteTypes {
     | '/api/contacts'
     | '/api/groups'
     | '/api/operators'
+    | '/api/push'
     | '/api/quick-responses'
     | '/api/sectors'
     | '/api/tasks'
@@ -533,6 +543,7 @@ export interface FileRouteTypes {
     | '/api/contacts'
     | '/api/groups'
     | '/api/operators'
+    | '/api/push'
     | '/api/quick-responses'
     | '/api/sectors'
     | '/api/tasks'
@@ -585,6 +596,7 @@ export interface FileRouteTypes {
     | '/api/contacts'
     | '/api/groups'
     | '/api/operators'
+    | '/api/push'
     | '/api/quick-responses'
     | '/api/sectors'
     | '/api/tasks'
@@ -638,6 +650,7 @@ export interface RootRouteChildren {
   ApiContactsRoute: typeof ApiContactsRouteWithChildren
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiOperatorsRoute: typeof ApiOperatorsRoute
+  ApiPushRoute: typeof ApiPushRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
   ApiSectorsRoute: typeof ApiSectorsRoute
   ApiTasksRoute: typeof ApiTasksRoute
@@ -720,6 +733,13 @@ declare module '@tanstack/react-router' {
       path: '/api/quick-responses'
       fullPath: '/api/quick-responses'
       preLoaderRoute: typeof ApiQuickResponsesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/push': {
+      id: '/api/push'
+      path: '/api/push'
+      fullPath: '/api/push'
+      preLoaderRoute: typeof ApiPushRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/operators': {
@@ -1090,6 +1110,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiContactsRoute: ApiContactsRouteWithChildren,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiOperatorsRoute: ApiOperatorsRoute,
+  ApiPushRoute: ApiPushRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
   ApiSectorsRoute: ApiSectorsRoute,
   ApiTasksRoute: ApiTasksRoute,

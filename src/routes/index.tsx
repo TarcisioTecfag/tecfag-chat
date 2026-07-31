@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileLayout } from "@/components/mobile/MobileLayout";
+import { PushNotificationPrompt } from "@/components/chat/PushNotificationPrompt";
 
 export const Route = createFileRoute("/")({
   ssr: true,
@@ -60,6 +61,7 @@ function Index() {
         <AnimatePresence>
           {isProfileModalOpen && <ProfileModal />}
         </AnimatePresence>
+        <PushNotificationPrompt />
       </div>
     );
   }
@@ -191,6 +193,7 @@ function Index() {
       <AnimatePresence>
         {isProfileModalOpen && <ProfileModal />}
       </AnimatePresence>
+      <PushNotificationPrompt />
     </div>
   );
 }
