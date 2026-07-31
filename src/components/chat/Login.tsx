@@ -64,16 +64,16 @@ export function Login() {
 
   return (
     <div
-      className="min-h-screen w-full bg-background flex flex-col md:grid md:grid-cols-5 text-foreground transition-all duration-500 select-none font-sans"
+      className="min-h-[100dvh] w-full bg-slate-950 md:bg-background flex flex-col md:grid md:grid-cols-5 text-foreground transition-all duration-500 select-none font-sans overflow-y-auto md:overflow-hidden"
       style={themeStyles}
     >
-      {/* PAINEL DA ESQUERDA: Espaço para Foto & Citação */}
+      {/* PAINEL DA ESQUERDA / TOPO MOBILE: Espaço para Foto & Citação */}
       <motion.div
         layout
         transition={panelTransition}
-        className={`relative md:col-span-2 flex flex-col justify-between p-8 md:p-12 overflow-hidden min-h-[400px] md:min-h-screen bg-slate-950 text-white ${
-          isValem ? "order-2 md:order-2" : "order-1 md:order-1"
-        }`}
+        className={`relative flex flex-col justify-between p-6 md:p-12 overflow-hidden bg-slate-950 text-white ${
+          isValem ? "order-1 md:order-2" : "order-1 md:order-1"
+        } md:col-span-2 h-[30vh] min-h-[210px] max-h-[250px] md:h-auto md:min-h-screen md:max-h-none`}
       >
         {/* Fundo com a foto do Tecfag */}
         <div 
@@ -90,36 +90,36 @@ export function Login() {
           style={{ backgroundImage: "url('/bg_login_valem.png')" }} 
         />
         {/* Camada de sobreposição escura (overlay) para garantir contraste do texto */}
-        <div className="absolute inset-0 z-0 bg-black/40" />
+        <div className="absolute inset-0 z-0 bg-black/40 md:bg-black/40" />
 
         {/* LOGO SUPERIOR */}
         <div className="relative z-10 flex items-center">
-          <div className="flex items-center gap-1.5 mr-3 bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/10">
-            <svg className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+          <div className="flex items-center gap-1.5 mr-2.5 md:mr-3 bg-white/10 p-1.5 md:p-2 rounded-xl backdrop-blur-md border border-white/10">
+            <svg className="h-4 w-4 md:h-5 md:w-5 text-white" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="8" cy="8" r="4" />
               <circle cx="16" cy="8" r="4" />
               <circle cx="8" cy="16" r="4" />
               <circle cx="16" cy="16" r="3" />
             </svg>
           </div>
-          <span className="text-lg font-bold tracking-tight transition-all duration-500">
+          <span className="text-base md:text-lg font-bold tracking-tight transition-all duration-500">
             {activeTenant === "tecfag" ? "Tecfag Chat" : "Valem Chat"}
           </span>
         </div>
 
         {/* CITAÇÃO INFERIOR */}
-        <div className="relative z-10 max-w-md mt-auto pt-16 min-h-[160px] flex items-end">
+        <div className="relative z-10 max-w-md mt-auto pt-2 md:pt-16 min-h-0 md:min-h-[160px] flex items-end">
           <div className="relative w-full">
             {/* Citação Tecfag */}
             <div className={`transition-all duration-700 transform ease-out ${
               activeTenant === "tecfag" ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none absolute inset-x-0 bottom-0"
             }`}>
-              <blockquote className="text-xl md:text-2xl font-medium leading-relaxed tracking-tight mb-6">
+              <blockquote className="text-sm sm:text-base md:text-2xl font-medium leading-snug md:leading-relaxed tracking-tight mb-2 md:mb-6 line-clamp-2 md:line-clamp-none">
                 “Simplesmente todas as ferramentas que minha equipe e eu precisamos.”
               </blockquote>
               <div>
-                <cite className="not-italic block font-bold text-sm text-white">Gilson Donato</cite>
-                <span className="text-xs text-white/60">Chief Executive Officer da Tecfag Group</span>
+                <cite className="not-italic block font-bold text-xs md:text-sm text-white">Gilson Donato</cite>
+                <span className="text-[10px] md:text-xs text-white/60">Chief Executive Officer da Tecfag Group</span>
               </div>
             </div>
 
@@ -127,26 +127,26 @@ export function Login() {
             <div className={`transition-all duration-700 transform ease-out ${
               activeTenant === "valem" ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none absolute inset-x-0 bottom-0"
             }`}>
-              <blockquote className="text-xl md:text-2xl font-medium leading-relaxed tracking-tight mb-6">
-                “Com experiência, vendemos rápido.<br />
+              <blockquote className="text-sm sm:text-base md:text-2xl font-medium leading-snug md:leading-relaxed tracking-tight mb-2 md:mb-6 line-clamp-2 md:line-clamp-none">
+                “Com experiência, vendemos rápido.<br className="hidden md:inline" />
                 Com estratégia, vendemos muito.”
               </blockquote>
               <div>
-                <cite className="not-italic block font-bold text-sm text-white">João Rodolfo Lanza</cite>
-                <span className="text-xs text-white/60">Chief Operating Officer da Tecfag Group</span>
+                <cite className="not-italic block font-bold text-xs md:text-sm text-white">João Rodolfo Lanza</cite>
+                <span className="text-[10px] md:text-xs text-white/60">Chief Operating Officer da Tecfag Group</span>
               </div>
             </div>
           </div>
         </div>
       </motion.div>
 
-      {/* PAINEL DA DIREITA: Formulário de Login */}
+      {/* PAINEL DA DIREITA / WIDGET MOBILE: Formulário de Login */}
       <motion.div
         layout
         transition={panelTransition}
-        className={`md:col-span-3 flex items-center justify-center p-6 sm:p-12 md:p-20 bg-white ${
-          isValem ? "order-1 md:order-1" : "order-2 md:order-2"
-        }`}
+        className={`bg-white ${
+          isValem ? "order-2 md:order-1" : "order-2 md:order-2"
+        } md:col-span-3 flex items-center justify-center p-6 sm:p-12 md:p-20 relative z-10 -mt-6 md:mt-0 rounded-t-[32px] md:rounded-none shadow-[0_-12px_40px_rgba(0,0,0,0.15)] md:shadow-none flex-1 min-h-fit md:min-h-screen`}
       >
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -156,14 +156,14 @@ export function Login() {
         >
           
           {/* Cabeçalho */}
-          <div className="text-center md:text-left mb-8">
+          <div className="text-center md:text-left mb-6 md:mb-8">
             {/* Logo do Tenant */}
-            <div className="relative h-16 w-full mb-6 flex justify-center md:justify-start">
+            <div className="relative h-12 md:h-16 w-full mb-4 md:mb-6 flex justify-center md:justify-start">
               {/* Logo Tecfag */}
               <img
                 src="/logo_tecfag.png"
                 alt="Tecfag Logo"
-                className={`absolute h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-2 transition-all duration-700 hover:scale-105 ${
+                className={`absolute h-12 md:h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-2 transition-all duration-700 hover:scale-105 ${
                   activeTenant === "tecfag" ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
                 }`}
               />
@@ -171,15 +171,15 @@ export function Login() {
               <img
                 src="/logo_valem.jpg"
                 alt="Valem Logo"
-                className={`absolute h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-2 transition-all duration-700 hover:scale-105 ${
+                className={`absolute h-12 md:h-16 w-auto object-contain rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 bg-white p-2 transition-all duration-700 hover:scale-105 ${
                   activeTenant === "valem" ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
                 }`}
               />
             </div>
-            <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 mb-2.5">
+            <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 mb-1.5 md:mb-2.5">
               Boas-vindas de volta
             </h2>
-            <p className="text-sm text-slate-500 leading-relaxed">
+            <p className="text-xs md:text-sm text-slate-500 leading-relaxed">
               {activeTenant === "valem"
                 ? "Valentina separou leads quentes para você"
                 : "Fagner separou leads quentes para você"}
@@ -187,11 +187,11 @@ export function Login() {
           </div>
 
           {/* Formulário */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-3.5 md:space-y-4">
             
             {/* Input E-mail */}
-            <div className="relative border border-slate-200 rounded-xl px-4 py-2.5 bg-white transition-all duration-500 focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[var(--primary)]/10">
-              <label className="block text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">
+            <div className="relative border border-slate-200 rounded-xl px-3.5 py-2 md:px-4 md:py-2.5 bg-white transition-all duration-500 focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[var(--primary)]/10">
+              <label className="block text-[9px] md:text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">
                 E-mail
               </label>
               <input
@@ -206,8 +206,8 @@ export function Login() {
             </div>
 
             {/* Input Senha */}
-            <div className="relative border border-slate-200 rounded-xl px-4 py-2.5 bg-white transition-all duration-500 focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[var(--primary)]/10">
-              <label className="block text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">
+            <div className="relative border border-slate-200 rounded-xl px-3.5 py-2 md:px-4 md:py-2.5 bg-white transition-all duration-500 focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[var(--primary)]/10">
+              <label className="block text-[9px] md:text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">
                 Senha
               </label>
               <div className="flex items-center">
@@ -231,7 +231,7 @@ export function Login() {
             </div>
 
             {/* Esqueceu a Senha */}
-            <div className="text-left py-1">
+            <div className="text-left py-0.5 md:py-1">
               <a
                 href="https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br&message=Olá,%20preciso%20de%20ajuda%20para%20recuperar%20minha%20senha%20no%20sistema."
                 target="_blank"
@@ -243,7 +243,7 @@ export function Login() {
             </div>
 
             {/* Lembrar Dados de Acesso */}
-            <div className="flex items-center justify-between py-2 border-b border-slate-100">
+            <div className="flex items-center justify-between py-1.5 md:py-2 border-b border-slate-100">
               <span className="text-xs text-slate-500 font-medium">Lembrar dados de acesso</span>
               <button
                 type="button"
@@ -264,14 +264,14 @@ export function Login() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-sm font-bold py-3.5 px-4 rounded-2xl shadow-sm transition-all duration-500 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/50 focus:ring-offset-2 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-6"
+              className="w-full bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-sm font-bold py-3 md:py-3.5 px-4 rounded-xl md:rounded-2xl shadow-sm transition-all duration-500 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/50 focus:ring-offset-2 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-4 md:mt-6"
             >
               {isLoading ? "Entrando..." : "Entrar"}
             </button>
           </form>
 
           {/* Divisor OU */}
-          <div className="flex items-center my-6">
+          <div className="flex items-center my-4 md:my-6">
             <div className="flex-1 h-[1px] bg-slate-100"></div>
             <span className="px-3.5 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
               ou
@@ -284,7 +284,7 @@ export function Login() {
             href="https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br"
             target="_blank"
             rel="noopener noreferrer"
-            className="w-full flex items-center justify-center gap-3 bg-slate-50 hover:bg-slate-100/80 text-slate-700 text-sm font-bold py-3.5 px-4 rounded-2xl border border-slate-100 transition-all duration-500 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:ring-offset-1 cursor-pointer decoration-none"
+            className="w-full flex items-center justify-center gap-3 bg-slate-50 hover:bg-slate-100/80 text-slate-700 text-sm font-bold py-3 md:py-3.5 px-4 rounded-xl md:rounded-2xl border border-slate-100 transition-all duration-500 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:ring-offset-1 cursor-pointer decoration-none"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" className="text-[#6264A7] transition-colors duration-500" viewBox="0 0 16 16">
               <path d="M9.186 4.797a2.42 2.42 0 1 0-2.86-2.448h1.178c.929 0 1.682.753 1.682 1.682zm-4.295 7.738h2.613c.929 0 1.682-.753 1.682-1.682V5.58h2.783a.7.7 0 0 1 .682.716v4.294a4.197 4.197 0 0 1-4.093 4.293c-1.618-.04-3-.99-3.667-2.35Zm10.737-9.372a1.674 1.674 0 1 1-3.349 0 1.674 1.674 0 0 1 3.349 0m-2.238 9.488-.12-.002a5.2 5.2 0 0 0 .381-2.07V6.306a1.7 1.7 0 0 0-.15-.725h1.792c.39 0 .707.317.707.707v3.765a2.6 2.6 0 0 1-2.598 2.598z"/>
@@ -294,7 +294,7 @@ export function Login() {
           </a>
 
           {/* Cadastro */}
-          <div className="text-center mt-8">
+          <div className="text-center mt-6 md:mt-8">
             <p className="text-xs text-slate-500 font-medium">
               Não tem uma conta?{" "}
               <a
