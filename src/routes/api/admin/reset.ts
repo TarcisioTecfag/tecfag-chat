@@ -76,6 +76,41 @@ export const Route = createFileRoute("/api/admin/reset")({
           });
         }
 
+        // ─── GET ?action=rd-stages ────────────────────────────────────────────
+        // Busca os nomes dos stages do FUNIL VÁLVULAS.
+        // Uso: GET /api/admin/reset?action=rd-stages&tenantId=valem&token=VALEM_ADMIN_2024
+        if (action === "rd-stages") {
+          const VALVULAS_STAGE_IDS = [
+            "6967f181aed2510013671a15",
+            "6980b17faa2a4c0016d28ac0",
+            "6967f1eba86785001d83fd3e",
+            "6967f181aed2510013671a16",
+            "6967f181aed2510013671a17",
+            "6967f181aed2510013671a18",
+            "6967f182aed2510013671a19",
+            "6970dd8c3f269500131a9d74",
+          ];
+          const stageResults: any[] = [];
+          for (const stageId of VALVULAS_STAGE_IDS) {
+            try {
+              const res = await rdRequest<any>(tenantId, "GET", `/deal_stages/${stageId}`);
+              stageResults.push({ id: stageId, data: res });
+            } catch (err: any) {
+              // Tenta endpoint alternativo
+              try {
+                const res2 = await rdRequest<any>(tenantId, "GET", `/stages/${stageId}`);
+                stageResults.push({ id: stageId, data: res2 });
+              } catch (err2: any) {
+                stageResults.push({ id: stageId, error: err?.message });
+              }
+            }
+          }
+          return new Response(JSON.stringify({ ok: true, stages: stageResults }, null, 2), {
+            status: 200,
+            headers: corsHeaders,
+          });
+        }
+
         if (action !== "fix-duplicates") {
           return new Response(JSON.stringify({ error: "Actions disponíveis: fix-duplicates, rd-pipelines" }), { status: 400, headers: corsHeaders });
         }
