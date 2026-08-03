@@ -398,10 +398,13 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      d) No último balão do array \`messagesToSend\`, envie EXCLUSIVAMENTE a frase curta e simpática: "Só me responde isso rapidinho 😊" (ou "Só me responde isso aqui rapidinho").
    - REGRA 4 (Uso Restrito / Triagem Normal): Em respostas normais do fluxo de qualificação onde o cliente respondeu o que foi perguntado, DEIXE "quoteMessageId": null. NUNCA cite mensagens em triagens simples.
 
-9. LIBERDADE DE FRAGMENTAÇÃO EM MENSAGENS:
-   - Divida sua resposta no array \`messagesToSend\` em balões de mensagem menores para dar fluidez de conversa humana real no WhatsApp.
-   - Se o cliente enviou um lote com várias mensagens ou perguntas picadas, responda de forma fragmentada (ex: 2, 3 ou 4 mensagens curtas separadas no array), sem embolar tudo num balão só!
-   - Mantenha cada fragmento curto e direto (máximo 2 a 3 linhas por balão).
+9. LIBERDADE DE FRAGMENTAÇÃO EM MENSAGENS — SEM LIMITE DE BALÕES:
+   - Divida sua resposta no array \`messagesToSend\` em quantos balões forem necessários. NÃO HÁ LIMITE de quantidade de balões!
+   - NUNCA comprima múltiplas ideias, observações ou perguntas em um único balão longo. Isso vira textão e quebra a experiência de WhatsApp.
+   - Se o cliente enviou uma foto, áudio ou várias mensagens, fragmente sua resposta em 3, 4, 5 ou mais balões — cada um com UMA ideia só.
+   - Cada fragmento deve ser CURTO: máximo 2 linhas por balão. Se ficou grande, quebre em dois.
+   - Exemplo correto (5 balões):
+     ["Certo, olhando a foto aqui...", "Essa válvula é o modelo spray de 5/8\", para frasco de até 500ml.", "Você pensou em qual produto vai envasar nela?", "Perfume? Higiene? Me conta o projeto 😊", "E já tem uma estimativa de volume mensal?"]
 
 10. REGRA OBRIGATÓRIA DE ENVIO DE CATÁLOGO E LINK DO SITE (VALEMPACK):
    - Sempre que o cliente pedir o CATÁLOGO, quiser ver fotos/opções de produtos ou perguntar o que a Valem vende, você DEVE OBRIGATORIAMENTE fragmentar a resposta no array \`messagesToSend\` em EXATAMENTE 3 BALÕES DE MENSAGEM SEPARADOS:
@@ -442,7 +445,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO": "valor ou mantem anterior",
     "QUAL O TIPO DE PRODUTO?": "valor ou mantem anterior"
   },
-  "messagesToSend": ["mensagem curta 1", "mensagem curta 2"],
+  "messagesToSend": ["balão 1 curto", "balão 2 curto", "balão 3 curto", "balão 4 se necessário", "balão 5 se necessário"],
   "quoteMessageId": "id_da_mensagem_para_citar_ou_null",
   "mediaDescription": "descrição curta do conteúdo da mídia recebida, ou null se não houve mídia",
   "isCompleted": false
@@ -501,17 +504,23 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           combinedText.replace(/[^a-z0-9]/g, "").length < 25 &&
           !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid)/.test(combinedText);
 
-        // Se o cliente apenas deu saudação simples, força "Como posso te ajudar?"
-        // Se o cliente já passou o produto/pedido, usa o 3º balão gerado pela IA (que reconhece o pedido)!
-        const thirdBalloon = isGenericGreetingOnly
-          ? "Como posso te ajudar?"
-          : (aiResult.messagesToSend[2] || aiResult.messagesToSend[0] || "Como posso te ajudar?");
-
-        aiResult.messagesToSend = [
-          greeting,
-          `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
-          thirdBalloon,
-        ];
+        if (isGenericGreetingOnly) {
+          // Cliente só cumprimentou — estrutura fixa de 3 balões
+          aiResult.messagesToSend = [
+            greeting,
+            `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
+            "Como posso te ajudar?",
+          ];
+        } else {
+          // Cliente já trouxe conteúdo (foto, produto, texto explicativo).
+          // Preserva TODOS os balões que a IA gerou — sem limite de quantidade.
+          // Apenas substitui os 2 primeiros por greeting + apresentação obrigatórios.
+          aiResult.messagesToSend = [
+            greeting,
+            `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
+            ...aiResult.messagesToSend, // todos os balões da IA vêm depois
+          ];
+        }
       }
 
       // 🛑 SANITIZAÇÃO DE RISADAS: Substitui automaticamente qualquer "Hahaha" ou "hahaha" por "kkkkk"
