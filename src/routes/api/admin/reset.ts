@@ -59,32 +59,21 @@ export const Route = createFileRoute("/api/admin/reset")({
         // Retorna todos os funis do RD CRM com IDs exatos de pipeline e stages.
         // Uso: GET /api/admin/reset?action=rd-pipelines&tenantId=valem&token=VALEM_ADMIN_2024
         if (action === "rd-pipelines") {
-          try {
-            const pipelinesRes = await rdRequest<any>(tenantId, "GET", "/deal_pipelines");
-            const pipelines: any[] = Array.isArray(pipelinesRes)
-              ? pipelinesRes
-              : pipelinesRes?.deal_pipelines || pipelinesRes?.data || [];
-
-            const summary = pipelines.map((p: any) => ({
-              pipeline_name: p.name,
-              pipeline_id: p.id || p._id,
-              stages: (p.deal_stages || p.stages || []).map((s: any) => ({
-                stage_name: s.name,
-                stage_id: s.id || s._id,
-                order: s.step ?? s.order ?? null,
-              })),
-            }));
-
-            return new Response(JSON.stringify({ ok: true, pipelines: summary }, null, 2), {
-              status: 200,
-              headers: corsHeaders,
-            });
-          } catch (err: any) {
-            return new Response(JSON.stringify({ ok: false, error: err?.message || String(err) }), {
-              status: 500,
-              headers: corsHeaders,
-            });
+          const results: Record<string, any> = {};
+          // Testa múltiplos endpoints possíveis da RD CRM v2
+          const endpoints = ["/funnels", "/pipelines", "/deals/funnels", "/stages"];
+          for (const ep of endpoints) {
+            try {
+              const res = await rdRequest<any>(tenantId, "GET", ep);
+              results[ep] = res;
+            } catch (err: any) {
+              results[ep] = { error: err?.message };
+            }
           }
+          return new Response(JSON.stringify({ ok: true, results }, null, 2), {
+            status: 200,
+            headers: corsHeaders,
+          });
         }
 
         if (action !== "fix-duplicates") {
