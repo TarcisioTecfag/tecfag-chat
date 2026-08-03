@@ -374,11 +374,48 @@ export function GroupsView() {
     quickResponses,
     createQuickResponse,
     updateQuickResponse,
-    deleteQuickResponse
+    deleteQuickResponse,
+    tenant,
   } = useChat();
 
   // Active sub-views / tabs
   const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors" | "wallets" | "templates">("users");
+
+  // Modal de confirmação de exclusão de operador
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    operatorId: string;
+    operatorName: string;
+    linkedCount: number;
+    activeCount: number;
+    loading: boolean;
+  } | null>(null);
+
+  const handleDeleteClick = async (op: any) => {
+    // Consulta o backend: quantos atendimentos estão vinculados a este operador
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || "";
+      const res = await fetch(`${backendUrl}/api/operators?action=count-linked&id=${op.id}&tenantId=${tenant}`);
+      const data = res.ok ? await res.json() : { total: 0, active: 0 };
+      setDeleteConfirm({
+        operatorId: op.id,
+        operatorName: op.name,
+        linkedCount: data.total ?? 0,
+        activeCount: data.active ?? 0,
+        loading: false,
+      });
+    } catch {
+      // Se falhar, abre o modal com count 0 mesmo assim
+      setDeleteConfirm({ operatorId: op.id, operatorName: op.name, linkedCount: 0, activeCount: 0, loading: false });
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleteConfirm((prev) => prev ? { ...prev, loading: true } : null);
+    await deleteOperator(deleteConfirm.operatorId);
+    toast.success(`Operador "${deleteConfirm.operatorName}" excluído. Atendimentos desvinculados.`);
+    setDeleteConfirm(null);
+  };
 
   // Quick Responses Form States
   const [showQrModal, setShowQrModal] = useState(false);
@@ -1064,8 +1101,7 @@ export function GroupsView() {
                     <button
                       disabled={isMe}
                       onClick={() => {
-                        deleteOperator(op.id);
-                        toast.success("Operador excluído.");
+                        if (!isMe) handleDeleteClick(op);
                       }}
                       className={`grid h-8 w-8 place-items-center rounded-lg transition ${
                         isMe 
@@ -1912,6 +1948,116 @@ export function GroupsView() {
             </form>
           </div>
         </div>
+      )}
+      {/* Modal de Confirmação de Exclusão de Operador */}
+      {deleteConfirm && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget && !deleteConfirm.loading) setDeleteConfirm(null); }}
+        >
+          <div
+            className="relative w-full max-w-md rounded-2xl shadow-2xl overflow-hidden"
+            style={{ background: "var(--card, #fff)", border: "1px solid var(--border, #e5e7eb)" }}
+          >
+            {/* Cabeçalho verde */}
+            <div className="flex items-center gap-3 px-6 pt-6 pb-4" style={{ borderBottom: "1px solid var(--border, #e5e7eb)" }}>
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+                style={{ background: "rgba(var(--primary-rgb, 22,163,74), 0.12)" }}
+              >
+                <Trash className="h-5 w-5" style={{ color: "var(--primary, #16a34a)" }} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold" style={{ color: "var(--foreground)" }}>
+                  Excluir Atendente
+                </h3>
+                <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                  Esta ação não pode ser desfeita
+                </p>
+              </div>
+            </div>
+
+            {/* Corpo */}
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm" style={{ color: "var(--foreground)" }}>
+                Você está prestes a excluir o atendente{" "}
+                <span className="font-semibold">"{deleteConfirm.operatorName}"</span>.
+              </p>
+
+              {deleteConfirm.linkedCount > 0 ? (
+                <div
+                  className="rounded-xl p-4 space-y-1.5"
+                  style={{ background: "rgba(var(--primary-rgb, 22,163,74), 0.07)", border: "1px solid rgba(var(--primary-rgb, 22,163,74), 0.2)" }}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full shrink-0" style={{ background: "var(--primary, #16a34a)" }} />
+                    <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
+                      {deleteConfirm.linkedCount} atendimento{deleteConfirm.linkedCount !== 1 ? "s" : ""} vinculado{deleteConfirm.linkedCount !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  {deleteConfirm.activeCount > 0 && (
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full shrink-0" style={{ background: "#f59e0b" }} />
+                      <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+                        {deleteConfirm.activeCount} em andamento ou na fila
+                      </p>
+                    </div>
+                  )}
+                  <p className="text-xs pt-1" style={{ color: "var(--muted-foreground)" }}>
+                    Todos os atendimentos serão movidos para <strong>Sem Responsável</strong> automaticamente.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  Este atendente não possui atendimentos vinculados.
+                </p>
+              )}
+            </div>
+
+            {/* Rodapé */}
+            <div className="flex items-center justify-end gap-3 px-6 pb-6">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleteConfirm.loading}
+                className="rounded-xl px-4 py-2 text-sm font-medium transition cursor-pointer"
+                style={{
+                  background: "var(--muted, #f3f4f6)",
+                  color: "var(--muted-foreground)",
+                  opacity: deleteConfirm.loading ? 0.5 : 1,
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={deleteConfirm.loading}
+                className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-white transition cursor-pointer"
+                style={{
+                  background: deleteConfirm.loading ? "var(--primary, #16a34a)" : "#dc2626",
+                  opacity: deleteConfirm.loading ? 0.7 : 1,
+                  boxShadow: "0 2px 8px rgba(220,38,38,0.25)",
+                }}
+              >
+                {deleteConfirm.loading ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+                      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                    </svg>
+                    Excluindo...
+                  </>
+                ) : (
+                  <>
+                    <Trash className="h-4 w-4" />
+                    Sim, excluir
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </section>
   );

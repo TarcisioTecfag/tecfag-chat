@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { operators } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { operators, conversations } from "../../db/schema";
+import { eq, and, isNotNull } from "drizzle-orm";
 
 export const Route = createFileRoute("/api/operators")({
   server: {
@@ -25,6 +25,8 @@ export const Route = createFileRoute("/api/operators")({
 
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId");
+        const action   = url.searchParams.get("action");
+        const id       = url.searchParams.get("id");
 
         // tenantId é OBRIGATÓRIO — nunca retornar operadores de múltiplos tenants
         if (!tenantId) {
@@ -32,6 +34,26 @@ export const Route = createFileRoute("/api/operators")({
             status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
+        }
+
+        // GET ?action=count-linked&id=<operatorId> — conta conversas vinculadas
+        if (action === "count-linked" && id) {
+          try {
+            const linked = await db
+              .select({ id: conversations.id, queueState: conversations.queueState })
+              .from(conversations)
+              .where(and(eq(conversations.tenantId, tenantId), eq(conversations.operatorId as any, id)));
+
+            const active = linked.filter((c) => c.queueState !== "finalizados").length;
+            return new Response(JSON.stringify({ total: linked.length, active }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          } catch (e: any) {
+            return new Response(JSON.stringify({ error: e.message }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
         }
 
         try {
@@ -159,8 +181,35 @@ export const Route = createFileRoute("/api/operators")({
             });
           }
 
+          // Contar atendimentos vinculados (para resposta informativa ao frontend)
+          const linkedConvs = await db
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.tenantId, tenantId),
+                eq(conversations.operatorId as any, id)
+              )
+            );
+          const linkedCount = linkedConvs.length;
+
+          // Zerar operatorId em todas as conversas do operador antes de deletar
+          // (garantia extra — o FK onDelete:set null pode não estar ativo no Railway)
+          if (linkedCount > 0) {
+            await db
+              .update(conversations)
+              .set({ operatorId: null })
+              .where(
+                and(
+                  eq(conversations.tenantId, tenantId),
+                  eq(conversations.operatorId as any, id)
+                )
+              );
+            console.log(`[DELETE /api/operators] ${linkedCount} conversa(s) desvinculadas do operador ${id}.`);
+          }
+
           await db.delete(operators).where(eq(operators.id, id));
-          return new Response(JSON.stringify({ success: true }), {
+          return new Response(JSON.stringify({ success: true, unlinkedConversations: linkedCount }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
