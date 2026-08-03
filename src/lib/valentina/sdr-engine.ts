@@ -14,6 +14,7 @@ export interface SdrAiResult {
   extractedData?: Record<string, any>;
   messagesToSend: string[];
   quoteMessageId?: string | null;
+  mediaDescription?: string | null; // Interpretação textual da mídia recebida (imagem/áudio/PDF)
   isCompleted?: boolean;
 }
 
@@ -196,28 +197,38 @@ export class SdrEngine {
         return false;
       }
 
-      // 3. Buscar Histórico Recente de Mensagens Reais do Banco
+      // 3. Buscar Histórico Recente de Mensagens Reais do Banco (últimas 80)
       const historyMsgs = await db
         .select()
         .from(messages)
         .where(eq(messages.conversationId, conversationId))
         .orderBy(asc(messages.sentAt))
-        .limit(50);
+        .limit(80);
 
       let hasPreviousEmoji = false;
       const conversationHistoryText = historyMsgs
-        .map((m) => {
+        .map((m: any) => {
           if (m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)) {
             hasPreviousEmoji = true;
           }
           const sender = m.senderType === "client" ? "Cliente" : "Valentina (SDR)";
-          return `[ID MENSAGEM: ${m.id}] [${sender}]: ${m.content}`;
+          // Se a mensagem do cliente tinha mídia e a IA já interpretou, exibe a interpretação
+          // para que a Valentina se lembre do que foi visto/ouvido sem renviar o binário
+          const mediaCtx = m.mediaInterpretation ? ` [MÍDIA ENVIADA — O QUE FOI VISTO/OUVIDO: "${m.mediaInterpretation}"]` : "";
+          return `[ID MENSAGEM: ${m.id}] [${sender}]${mediaCtx}: ${m.content}`;
         })
         .join("\n");
 
       // 4. Formatar o Lote Consolidado Atual de Mensagens com IDs
+      // Descreve a mídia de forma natural para o Gemini entender o contexto
       const batchSummary = batchItems
-        .map((m) => `[ID MENSAGEM: ${m.messageId || 'msg'}] Cliente (${m.mediaType || 'texto'}): "${m.text}"`)
+        .map((m) => {
+          let mediaLabel = "";
+          if (m.mediaType === "image") mediaLabel = " [ENVIOU UMA IMAGEM — analise visualmente o conteúdo anexado]";
+          else if (m.mediaType === "audio") mediaLabel = " [ENVIOU UM ÁUDIO — transcreva e interprete o que foi dito]";
+          else if (m.mediaType === "document") mediaLabel = " [ENVIOU UM DOCUMENTO/PDF — leia e extraia os dados relevantes]";
+          return `[ID MENSAGEM: ${m.messageId || "msg"}] Cliente${mediaLabel}: "${m.text}"`;
+        })
         .join("\n");
 
       // 5. Montar Prompt Estruturado para o Gemini 2.5 Pro
@@ -343,13 +354,39 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - Se o cliente responder que o nome não é esse ou corrigir, aceite o nome digitado pelo cliente IMEDIATAMENTE com muita elegância humana: "Ah, me desculpe pelo equívoco! Qual é o nome correto da sua empresa para eu registrar aqui?".
    - Se o CNPJ for inválido ou tiver erro nos dígitos, diga educadamente: "Ops, parece que esse CNPJ tem algum dígito incorreto ou faltando. Consegue me enviar novamente por favor?". NUNCA invente nome de empresa nem preencha CNPJ inválido.
 
-7. LEITURA E EXTRAÇÃO AUTOMÁTICA DE DOCUMENTOS E PDFS:
-   - Se o cliente enviar um documento ou arquivo PDF (como Cartão CNPJ, Ficha Cadastral, Contrato Social, Nota Fiscal, etc.):
-     a) Analise 100% dos dados contidos no arquivo PDF através da sua capacidade multimodal do Gemini 2.5 Pro.
-     b) Extraia automaticamente a Razão Social/Empresa, o CNPJ/CPF, o Nome do Contato e o que for relevante.
-     c) Preencha com exatidão os campos em \`extractedData\` (CNPJ OU CPF, EMPRESA, NOME COMPLETO).
-     d) Responda ao cliente confirmando que você leu o documento PDF e registrou as informações da empresa (ex: "Recebi seu PDF! Já registrei o CNPJ e os dados da sua empresa aqui no sistema.").
-     e) NUNCA torne a solicitar o CNPJ ou Nome de Empresa se essas informações constavam no PDF!
+7. REGRAS DE IMAGEM, ÁUDIO E DOCUMENTO — PROIBIÇÃO DE CONFIRMAÇÕES MECÂNICAS:
+
+   ❌ É ESTRITAMENTE PROIBIDO dizer frases de confirmação robótica de recebimento de mídia como:
+      - "Recebi a imagem!", "Imagem recebida!", "Vi sua foto!", "Foto recebida!"
+      - "Recebi seu áudio!", "Ouvi sua mensagem de voz!"
+      - "Recebi seu PDF!", "Documento recebido!", "Já registrei no sistema!"
+      Qualquer frase desse tipo soa como robô e quebra completamente a experiência de conversa humana.
+
+   ✅ REGRA OBRIGATÓRIA: Você DEVE começar a resposta JÁ USANDO o conteúdo da mídia, como uma pessoa real faria:
+      - Para IMAGEM: "Certo, olhando a foto que você mandou... [observação sobre o produto/conteúdo]"
+        ou: "Pelo que vi aqui, parece ser [identificação do produto], é esse mesmo?"
+        ou: "Essa valvula da foto é o modelo [X] — você quer esse tipo mesmo?"
+      - Para ÁUDIO: "Então, pelo que ouvi você precisa de [resumo do que foi dito]..."
+        ou: "Entendi! Você falou que quer [resumo do áudio], certo?"
+      - Para PDF/DOCUMENTO: "Vi aqui no documento que a empresa é [Nome Empresa] e o CNPJ é [CNPJ]..."
+        ou: "Com base no PDF, já registrei seus dados — empresa [X], CNPJ [Y]."
+
+   REGRA ESPECIAL — IMAGEM SEM TEXTO (cliente só mandou foto, sem escrever nada):
+      Se o cliente enviou apenas uma imagem sem nenhum texto explicativo:
+      a) Analise visualmente o produto/conteúdo da imagem.
+      b) Faça uma observação natural sobre o que você está vendo (ex: "Olhando aqui... parece uma válvula para aerossol de acionamento vertical").
+      c) Pergunte se é aquele modelo que ele está buscando (ex: "É esse tipo que você precisa?").
+      d) NÃO pergunte "O que você quer saber sobre isso?" — seja mais consultiva e específica.
+
+   CAMPO OBRIGATÓRIO NO JSON — mediaDescription:
+      Em toda resposta que envolva imagem, áudio ou documento, você DEVE preencher o campo:
+      "mediaDescription": "descrição curta (máximo 2 linhas) do que foi visto/ouvido/lido na mídia"
+      Exemplos:
+        - Imagem: "Válvula de acionamento vertical, tipo spray, para frasco de 100ml a 500ml"
+        - Áudio: "Cliente solicitou 5000 unidades de frasco pet 50ml para produto de higiene"
+        - PDF: "Cartão CNPJ da empresa Distribuidora XYZ Ltda, CNPJ 12.345.678/0001-99"
+      Se não houver mídia no lote atual, defina: "mediaDescription": null
+
 
 8. REGRAS DE MENSAGENS CITADAS (REPLY / QUOTE NO WHATSAPP):
    - REGRA 1 (Áudio, Imagem ou PDF enviado pelo cliente): Se o lote contiver algum Áudio, Imagem ou Documento PDF, você DEVE retornar em "quoteMessageId" o ID exato dessa mensagem do cliente.
@@ -407,6 +444,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
   },
   "messagesToSend": ["mensagem curta 1", "mensagem curta 2"],
   "quoteMessageId": "id_da_mensagem_para_citar_ou_null",
+  "mediaDescription": "descrição curta do conteúdo da mídia recebida, ou null se não houve mídia",
   "isCompleted": false
 }`;
 
@@ -694,6 +732,24 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           await syncContactDataFromTriage(tenantId, convCheck.contactId, updatedCollectedData);
         }
       }
+
+      // ── Salvar interpretação de mídia na mensagem do cliente (memória visual futura) ──
+      // Se o Gemini retornou uma mediaDescription, salvamos na mensagem do cliente que
+      // continha a mídia para que em turnos futuros a Valentina saiba o que foi visto/ouvido
+      // sem precisar reenviar o binário da imagem/áudio/PDF.
+      if (aiResult.mediaDescription && mediaItem) {
+        try {
+          await db
+            .update(messages)
+            .set({ mediaInterpretation: aiResult.mediaDescription } as any)
+            .where(eq(messages.id, mediaItem.messageId || ""));
+          console.log(`[SdrEngine] 📸 Interpretação de mídia salva na mensagem ${mediaItem.messageId}: "${aiResult.mediaDescription.slice(0, 60)}..."`);
+        } catch (mediaErr: any) {
+          // Não é crítico — falha silenciosa para não bloquear o fluxo
+          console.warn("[SdrEngine] Aviso: não foi possível salvar mediaInterpretation:", mediaErr?.message);
+        }
+      }
+      // ── Fim memória visual ──────────────────────────────────────────────────────────
 
       if (signal?.aborted) return false;
 

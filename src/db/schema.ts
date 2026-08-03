@@ -149,6 +149,11 @@ export const messages = pgTable("messages", {
   quotedMessageSender: text("quoted_message_sender"),
   quotedMessageContent: text("quoted_message_content"),
 
+  // Interpretação textual de mídia feita pelo Gemini (imagem, áudio, PDF).
+  // Salva o que foi "visto/ouvido" em turnos anteriores para que a Valentina
+  // mantenha memória visual sem precisar reenviar o binário da mídia.
+  mediaInterpretation: text("media_interpretation"),
+
   sentAt: timestamp("sent_at").defaultNow().notNull(),
 });
 

@@ -13,6 +13,9 @@ async function main() {
     await client`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS responsible_name text DEFAULT 'Na Fila' NOT NULL;`;
     await client`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS cnpj_details jsonb DEFAULT '{}'::jsonb NOT NULL;`;
 
+    // 2. Garantir coluna de interpretação de mídia em messages (memória visual da Valentina)
+    await client`ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_interpretation text;`;
+
     // 2. Limpar qualquer group_id órfão em operators que não exista mais em access_groups (evita erro FK 23503)
     await client`UPDATE operators SET group_id = NULL WHERE group_id IS NOT NULL AND group_id NOT IN (SELECT id FROM access_groups);`;
 
