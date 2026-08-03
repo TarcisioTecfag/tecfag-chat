@@ -362,6 +362,18 @@ export class SessionManager {
             .set({ baileysSessionStatus: "connected", baileysPairedPhone: phone, updatedAt: new Date() })
             .where(eq(channelConfigs.tenantId, tenantId));
         } catch (e) { console.error("Erro ao salvar status connected:", e); }
+
+        // ── Recovery de conversas interrompidas por deploy ──────────────────────────
+        // Aguarda 5s para o socket estabilizar antes de reiniciar processamentos pendentes.
+        // Janela: apenas conversas interrompidas nos últimos 30 minutos serão reativadas.
+        setTimeout(() => {
+          import("../valentina/sdr-recovery").then(({ recoverInterruptedConversations }) => {
+            recoverInterruptedConversations(tenantId).catch((err: any) => {
+              console.error(`[SessionManager] Erro no SDR Recovery para tenant ${tenantId}:`, err?.message);
+            });
+          });
+        }, 5000);
+        // ── Fim recovery ────────────────────────────────────────────────────────────
       }
 
       if (connection === "close") {
