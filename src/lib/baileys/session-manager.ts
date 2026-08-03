@@ -19,6 +19,7 @@ import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { urlToBase64 } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
+import { shouldIgnoreJid, ignoreReason } from "./jid-validator";
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connected";
 
@@ -435,6 +436,16 @@ export class SessionManager {
         const jid = rawContact.id;
         if (!jid) continue;
 
+        // ── FILTRO DE GRUPOS / STATUS / BROADCAST ──────────────────────────────
+        // Ignorar grupos (@g.us), status (status@broadcast), listas de transmissão
+        // e canais (@newsletter). NÃO usar o número para detectar grupos — números
+        // americanos também começam com '1' e são clientes legítimos.
+        if (shouldIgnoreJid(jid)) {
+          console.log(`[Baileys Contacts] JID ignorado (${ignoreReason(jid)}): ${jid}`);
+          continue;
+        }
+        // ── FIM FILTRO ─────────────────────────────────────────────────────────
+
         // Extrai o nome de exibição
         const name = rawContact.name || rawContact.verifiedName || rawContact.notify || `Contato (${jid.split("@")[0]})`;
         
@@ -548,6 +559,16 @@ export class SessionManager {
   private async handleIncomingMessage(tenantId: string, rawMsg: any) {
     const jid = rawMsg.key.remoteJid;
     if (!jid) return;
+
+    // ── FILTRO DE GRUPOS / STATUS / BROADCAST (primeira checagem — antes de qualquer I/O) ──
+    // Rejeita grupos (@g.us), status do WhatsApp, listas de transmissão e canais.
+    // Este return precisa ser o PRIMEIRO para evitar download de mídia, criação de
+    // contato/conversa, disparo do SLA engine e ativação da Valentina SDR desnecessariamente.
+    if (shouldIgnoreJid(jid)) {
+      console.log(`[Baileys] Mensagem ignorada — ${ignoreReason(jid)} — JID: ${jid}`);
+      return;
+    }
+    // ── FIM FILTRO ───────────────────────────────────────────────────────────────────────────
     
     // Tenta obter o JID alternativo clássico com o número de telefone se o JID principal for do tipo @lid
     let resolvedPhoneJid = jid;

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { contacts, conversations, operators } from "../../db/schema";
 import { eq } from "drizzle-orm";
+import { shouldIgnoreJid } from "../../lib/baileys/jid-validator";
 
 export const Route = createFileRoute("/api/contacts")({
   server: {
@@ -32,6 +33,16 @@ export const Route = createFileRoute("/api/contacts")({
               status: 400,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
+          }
+
+          // Rejeita JIDs de grupo, status ou broadcast como campo phone.
+          // Nota: não bloquear números internacionais — a validação é baseada
+          // no sufixo JID, não no prefixo numérico.
+          if (phone && shouldIgnoreJid(phone)) {
+            return new Response(
+              JSON.stringify({ error: "Telefone inválido: grupos, status e listas de transmissão não são aceitos como contato." }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
           const finalContactId = contactId || `cont-${Date.now()}`;
