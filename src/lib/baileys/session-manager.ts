@@ -481,12 +481,17 @@ export class SessionManager {
         if (phone.includes(":")) phone = phone.split(":")[0];
 
         try {
-          // Busca se o contato já existe no banco
+          // Busca se o contato já existe no banco — PRIMEIRO pelo JID, depois pelo phone.
+          // A busca por phone é o fallback crítico para evitar duplicação quando o JID
+          // muda (reinstalação do WhatsApp, troca de dispositivo, @lid → @s.whatsapp.net).
           let contact = await db.query.contacts.findFirst({
-            where: (contactsTable, { eq: dEq, and: dAnd }) =>
+            where: (contactsTable, { eq: dEq, and: dAnd, or: dOr }) =>
               dAnd(
                 dEq(contactsTable.tenantId, tenantId),
-                dEq(contactsTable.whatsappJid, jid)
+                dOr(
+                  dEq(contactsTable.whatsappJid, jid),
+                  dEq(contactsTable.phone, phone)
+                )
               )
           });
 
@@ -504,10 +509,16 @@ export class SessionManager {
               createdAt: new Date(),
             });
           } else {
-            // Se já existe, atualiza as informações caso o telefone antes estivesse como LID e agora conseguimos resolver
+            // Contato existe — atualizar JID e/ou phone se estiverem desatualizados
             const updates: any = {};
-            
-            // Atualiza telefone se o anterior era diferente e agora temos o telefone real resolved
+
+            // Atualiza o JID se o contato existia mas foi encontrado pelo phone
+            // (o JID pode ter mudado por reinstalação ou troca de dispositivo)
+            if (contact.whatsappJid !== jid && isResolved) {
+              updates.whatsappJid = jid;
+            }
+
+            // Atualiza telefone se o anterior era LID e agora resolvemos o número real
             if (contact.phone !== phone && isResolved) {
               updates.phone = phone;
             }
