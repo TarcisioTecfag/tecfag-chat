@@ -33,9 +33,9 @@ const VALEM_FIELD_IDS = {
   feitoPor: "69b1638eb0e1180014224ca3",
 };
 
-// ID hardcoded do Pipeline FUNIL VÁLVULAS (obtido via API)
-// Será atualizado dinamicamente na busca, mas serve como fallback definitivo
-const VALEM_PIPELINE_ID = ""; // será preenchido dinamicamente
+// IDs fixos do RD CRM — obtidos via API em 2026-08-03, nunca alterar sem confirmar na API
+const VALEM_PIPELINE_ID  = "6967f181aed2510013671a13"; // FUNIL VÁLVULAS
+const VALEM_STAGE_ID     = "6967f181aed2510013671a15"; // 1º stage (Recebidos)
 
 // ─── HELPER: Limpeza e Normalização de Nomes de Empresa ──────────────────────────────
 function cleanName(s: string): string {
@@ -395,62 +395,10 @@ export async function autoCreateOrUpdateRdCrmDeal({
       feitoPor: findField(VALEM_FIELD_IDS.feitoPor, "FEITO POR"),
     };
 
-    // 4. Buscar Funil "FUNIL VÁLVULAS" no RD CRM e etapa "Recebidos"
-    let dealStageId: string | undefined = undefined;
-    let dealPipelineId: string | undefined = undefined;
-
-    try {
-      // Tenta endpoint correto da API v2
-      let pipelinesRes = await rdRequest<any>(tenantId, "GET", "/deal_pipelines").catch(() => null);
-      if (!pipelinesRes) {
-        pipelinesRes = await rdRequest<any>(tenantId, "GET", "/pipelines").catch(() => null);
-      }
-
-      const pipelines: any[] = Array.isArray(pipelinesRes)
-        ? pipelinesRes
-        : (pipelinesRes && Array.isArray(pipelinesRes.deal_pipelines)
-            ? pipelinesRes.deal_pipelines
-            : (pipelinesRes && Array.isArray(pipelinesRes.pipelines)
-                ? pipelinesRes.pipelines
-                : (pipelinesRes && Array.isArray(pipelinesRes.data) ? pipelinesRes.data : [])));
-
-      console.log(`[RD CRM Auto] 📋 Pipelines encontrados: ${pipelines.map((p) => p.name).join(" | ")}`);
-
-      // Busca específica: "FUNIL VÁLVULAS" ou "FUNIL VALVULAS"
-      const valvulasPipeline = pipelines.find((p) => {
-        const norm = normalizeStr(p.name || "");
-        // Aceita tanto "valvula" quanto "valvulas" e ignora acentos
-        return norm.includes("valvula");
-      });
-
-      if (valvulasPipeline) {
-        dealPipelineId = valvulasPipeline.id || valvulasPipeline._id;
-        const stages: any[] = valvulasPipeline.deal_stages || valvulasPipeline.stages || [];
-        console.log(`[RD CRM Auto] 🎯 Funil Válvulas encontrado! ID: ${dealPipelineId}`);
-        console.log(`[RD CRM Auto] 📋 Stages disponíveis: ${stages.map((s: any) => s.name).join(" | ")}`);
-
-        // Busca etapa "Recebidos" (primeira etapa de entrada)
-        const recebidosStage = stages.find((s: any) => {
-          const norm = normalizeStr(s.name || "");
-          return norm.includes("recebido") || norm.includes("recebidos") || norm.includes("entrada") || norm.includes("novo") || norm.includes("novos");
-        });
-
-        if (recebidosStage) {
-          dealStageId = recebidosStage.id || recebidosStage._id;
-          console.log(`[RD CRM Auto] ✅ Stage "Recebidos" encontrado: ${dealStageId} ("${recebidosStage.name}")`);
-        } else if (stages.length > 0) {
-          // Se não encontrou "Recebidos", usa o PRIMEIRO stage do funil (menor ordem = entrada)
-          const sortedStages = [...stages].sort((a, b) => (a.step || a.order || 0) - (b.step || b.order || 0));
-          dealStageId = sortedStages[0].id || sortedStages[0]._id;
-          console.log(`[RD CRM Auto] ⚠️ Stage "Recebidos" não encontrado, usando primeiro stage: ${dealStageId} ("${sortedStages[0].name}")`);
-        }
-      } else {
-        // NÃO usar fallback para outro funil — isso causava o card ir para "FUNIL TÉCNICA"
-        console.error(`[RD CRM Auto] ❌ FUNIL VÁLVULAS não encontrado entre: ${pipelines.map((p) => p.name).join(", ")}. Card NÃO será criado sem o funil correto.`);
-      }
-    } catch (pErr: any) {
-      console.error(`[RD CRM Auto] ❌ Erro ao buscar pipelines:`, pErr?.message);
-    }
+    // 4. IDs fixos do FUNIL VÁLVULAS no RD CRM (obtidos via API em 2026-08-03)
+    const dealPipelineId: string = VALEM_PIPELINE_ID;
+    const dealStageId: string    = VALEM_STAGE_ID;
+    console.log(`[RD CRM Auto] 🎯 Usando FUNIL VÁLVULAS fixo: pipeline=${dealPipelineId} | stage=${dealStageId}`);
 
     // 5. Extrair os valores coletados pela Valentina na triagem
     const clientName = collectedData["NOME COMPLETO"]?.value || contact.name || `Cliente ${contactPhone}`;
