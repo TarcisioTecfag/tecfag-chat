@@ -16,11 +16,13 @@ import {
   callSessions,
   tasks,
 } from "../../../db/schema";
+import { eq, and } from "drizzle-orm";
+import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 
 const corsHeaders = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -35,7 +37,113 @@ export const Route = createFileRoute("/api/admin/reset")({
         return new Response(null, { status: 204, headers: corsHeaders });
       },
 
-      POST: async ({ request }) => {
+      // ─── GET /api/admin/reset?action=fix-duplicates ─────────────────────────
+      // Encontra contatos duplicados (mesmo phone + tenant) e faz o merge/reset.
+      // ROTA TEMPORÁRIA — remover após uso!
+      // Uso: GET /api/admin/reset?action=fix-duplicates&tenantId=valem&token=VALEM_ADMIN_2024
+      GET: async ({ request }: any) => {
+        const url = new URL(request.url);
+        const action   = url.searchParams.get("action");
+        const tenantId = url.searchParams.get("tenantId");
+        const token    = url.searchParams.get("token");
+
+        if (action !== "fix-duplicates") {
+          return new Response(JSON.stringify({ error: "Use ?action=fix-duplicates" }), { status: 400, headers: corsHeaders });
+        }
+        if (token !== "VALEM_ADMIN_2024") {
+          return new Response(JSON.stringify({ error: "Token invalido" }), { status: 403, headers: corsHeaders });
+        }
+        if (!tenantId) {
+          return new Response(JSON.stringify({ error: "tenantId obrigatorio" }), { status: 400, headers: corsHeaders });
+        }
+
+        const log: string[] = [];
+        let mergedGroups = 0;
+        let deletedContacts = 0;
+
+        try {
+          // 1. Buscar todos os contatos do tenant com phone preenchido
+          const allContacts = await db
+            .select({ id: contacts.id, name: contacts.name, phone: contacts.phone, createdAt: contacts.createdAt })
+            .from(contacts)
+            .where(eq(contacts.tenantId, tenantId));
+
+          // 2. Agrupar por phone normalizado para detectar duplicados
+          const byPhone = new Map<string, Array<{ id: string; name: string | null; phone: string | null; createdAt: Date }>>();
+          for (const c of allContacts) {
+            if (!c.phone) continue;
+            const key = c.phone.replace(/\D/g, "");
+            if (!byPhone.has(key)) byPhone.set(key, []);
+            byPhone.get(key)!.push(c);
+          }
+
+          // 3. Processar grupos com duplicados
+          for (const [phone, group] of byPhone.entries()) {
+            if (group.length < 2) continue;
+            mergedGroups++;
+
+            // O mais antigo (menor createdAt) é o contato principal — preservar
+            group.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            const primary  = group[0];
+            const dupes    = group.slice(1);
+
+            log.push(`[GRUPO] Phone ${phone}: mantendo ${primary.id} (${primary.name}), removendo ${dupes.map(d => d.id).join(", ")}`);
+
+            // Remover contatos duplicados e suas conversas
+            for (const dupe of dupes) {
+              const dupeConvs = await db
+                .select({ id: conversations.id })
+                .from(conversations)
+                .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, dupe.id)));
+
+              for (const conv of dupeConvs) {
+                SdrDebouncer.getInstance().clearSession(conv.id);
+                await db.delete(agentFlowStates).where(eq(agentFlowStates.conversationId, conv.id));
+                await db.delete(messages).where(eq(messages.conversationId, conv.id));
+                await db.delete(conversations).where(eq(conversations.id, conv.id));
+                log.push(`  Conversa duplicada ${conv.id} removida`);
+              }
+
+              await db.delete(contacts).where(eq(contacts.id, dupe.id));
+              deletedContacts++;
+              log.push(`  Contato duplicado ${dupe.id} deletado`);
+            }
+
+            // Resetar conversas do contato PRINCIPAL para começar do zero
+            const primaryConvs = await db
+              .select({ id: conversations.id })
+              .from(conversations)
+              .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, primary.id)));
+
+            for (const conv of primaryConvs) {
+              SdrDebouncer.getInstance().clearSession(conv.id);
+              await db.delete(agentFlowStates).where(eq(agentFlowStates.conversationId, conv.id));
+              await db.delete(messages).where(eq(messages.conversationId, conv.id));
+              await db.update(conversations)
+                .set({ queueState: "automacao", operatorId: null, unreadCount: 0, lastMessageText: null })
+                .where(eq(conversations.id, conv.id));
+              log.push(`  Conversa principal ${conv.id} resetada (fresh start)`);
+            }
+          }
+
+          return new Response(JSON.stringify({
+            ok: true,
+            mergedGroups,
+            deletedContacts,
+            log,
+            message: mergedGroups === 0
+              ? "Nenhum duplicado encontrado. Tudo limpo!"
+              : `${mergedGroups} grupo(s) corrigido(s). Proxima msg do cliente começa do zero.`,
+          }), { status: 200, headers: corsHeaders });
+
+        } catch (err: any) {
+          return new Response(JSON.stringify({ ok: false, error: err?.message || String(err), log }), {
+            status: 500, headers: corsHeaders,
+          });
+        }
+      },
+
+      POST: async ({ request }: any) => {
         try {
           const body = await request.json().catch(() => ({}));
 
