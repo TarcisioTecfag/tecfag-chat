@@ -1,7 +1,7 @@
 import { WebSocketServer } from "ws";
 import type { Server } from "http";
-// Import ESTÁTICO — o bundler resolve o path corretamente em produção
-import { MediaStreamHandler } from "../../src/lib/voice/media-streams-handler";
+// NÃO importamos MediaStreamHandler no topo — ele puxa db/vertex-ai que crasham no load do plugin.
+// O import é feito de forma lazy dentro do handler do upgrade.
 
 let wss: WebSocketServer | null = null;
 let serverListenerAttached = false;
@@ -12,14 +12,21 @@ function attachWebSocketServer(server: Server, label: string) {
 
   wss = new WebSocketServer({ noServer: true });
 
-  server.on("upgrade", (request, socket, head) => {
+  server.on("upgrade", async (request, socket, head) => {
     const url = request.url || "";
     console.log(`[Nitro WS] Upgrade request recebido: ${url}`);
 
     if (url.startsWith("/api/voice-stream")) {
-      wss!.handleUpgrade(request, socket, head, (ws) => {
+      wss!.handleUpgrade(request, socket, head, async (ws) => {
         console.log(`[${label}] ✅ Twilio MediaStream conectado!`);
-        new MediaStreamHandler(ws as any);
+        try {
+          // Import lazy: só carrega quando o Twilio conecta, não no startup
+          const { MediaStreamHandler } = await import("../../src/lib/voice/media-streams-handler.js");
+          new MediaStreamHandler(ws as any);
+        } catch (err: any) {
+          console.error(`[${label}] ❌ Falha ao carregar MediaStreamHandler:`, err?.message || err);
+          ws.close(1011, "Handler load failed");
+        }
       });
     } else {
       console.log(`[Nitro WS] URL não mapeada, destruindo socket: ${url}`);
