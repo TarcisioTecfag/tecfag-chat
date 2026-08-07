@@ -4,8 +4,14 @@ export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "sk_78e73bd4
 export const MARIANNE_VOICE_ID = "uYn64k2L7SzZRFmekMti"; // Valentina — voz customizada (Voice Design, plano free ✅)
 
 /**
+ * Twilio Media Stream exige chunks de exatamente 160 bytes (20ms @ 8000Hz mu-law).
+ * Esta função garante que os chunks da ElevenLabs sejam rechunkeados no tamanho correto.
+ */
+const TWILIO_CHUNK_SIZE = 160; // 20ms de áudio mu-law 8000Hz
+
+/**
  * Faz streaming de áudio da ElevenLabs via API REST (eleven_turbo_v2_5)
- * Retorna chunks de buffer MP3 conforme chegam da API
+ * Retorna chunks de EXATAMENTE 160 bytes (mu-law 8000Hz) para compatibilidade com Twilio
  */
 export async function* streamElevenLabsTts(
   text: string,
@@ -42,8 +48,26 @@ export async function* streamElevenLabsTts(
     throw new Error("[ElevenLabs TTS] Resposta sem body");
   }
 
-  // Node.js / Fetch Body Stream Reader
-  for await (const chunk of response.body as any) {
-    yield Buffer.from(chunk);
+  // Acumula bytes e emite chunks de exatamente 160 bytes (exigido pelo Twilio)
+  let leftover = Buffer.alloc(0);
+
+  for await (const rawChunk of response.body as any) {
+    const combined = Buffer.concat([leftover, Buffer.from(rawChunk)]);
+    let offset = 0;
+
+    while (offset + TWILIO_CHUNK_SIZE <= combined.length) {
+      yield combined.subarray(offset, offset + TWILIO_CHUNK_SIZE);
+      offset += TWILIO_CHUNK_SIZE;
+    }
+
+    // Guarda o restante para o próximo chunk
+    leftover = combined.subarray(offset);
+  }
+
+  // Emite o último chunk (pode ser menor que 160 bytes — padding com silêncio mu-law = 0x7F)
+  if (leftover.length > 0) {
+    const padded = Buffer.alloc(TWILIO_CHUNK_SIZE, 0x7f); // silêncio mu-law
+    leftover.copy(padded, 0);
+    yield padded;
   }
 }
