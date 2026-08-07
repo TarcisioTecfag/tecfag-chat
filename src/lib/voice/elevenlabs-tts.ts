@@ -1,7 +1,7 @@
 // Usando fetch nativo do Node 18+ (não precisa de node-fetch)
 
 export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "sk_78e73bd4e14dc41a256b44797f742dda9db5fdba2cc65c8a";
-export const MARIANNE_VOICE_ID = "BKv4Uz2HPF6TFlDgFBKN";
+export const MARIANNE_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // Rachel — voz gratuita (Marianne requer plano pago)
 
 /**
  * Faz streaming de áudio da ElevenLabs via API REST (eleven_turbo_v2_5)
