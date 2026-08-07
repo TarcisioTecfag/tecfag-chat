@@ -242,6 +242,8 @@ class VertexAiService {
           ],
           generationConfig: {
             temperature: 0.2,
+            maxOutputTokens: 200,
+            thinkingConfig: { thinkingBudget: 0 },
           },
         }),
         signal,
@@ -342,7 +344,11 @@ class VertexAiService {
       },
       body: JSON.stringify({
         contents: [{ role: "user", parts }],
-        generationConfig: { temperature: 0.2 },
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 80,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
       signal,
     });

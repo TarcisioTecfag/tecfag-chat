@@ -117,14 +117,13 @@ function gather(): string {
 
 /**
  * Extrai a primeira frase do texto (terminada em . ! ?).
- * Mínimo 15 chars para evitar "Ok." como primeira frase.
+ * Mínimo 20 chars para evitar frases muito curtas como "Ótimo!".
+ * NÃO usa fallback por comprimento — evita cortes no meio da frase.
  */
 function extractFirstSentence(text: string): string | null {
-  // Tenta encontrar uma frase completa com pontuação
-  const match = text.match(/^(.{15,}?[.!?])\s*/);
+  // Lazy match: pega a menor string com >=20 chars que termine em .!?
+  const match = text.match(/^(.{20,}?[.!?])(?:\s|$)/);
   if (match) return match[1].trim();
-  // Fallback: se texto completo ainda não tem pontuação mas é longo o suficiente
-  if (text.length >= 40) return text.trim();
   return null;
 }
 
@@ -142,6 +141,12 @@ function startStreamingPipeline(
 ): Promise<string | null> {
   const prompt = buildVoicePrompt(messages, TENANT_ID);
   const buffer = createStreamBuffer();
+
+  // Limpa qualquer buffer anterior do mesmo callSid (evita race condition)
+  const oldBuffer = streamBuffers.get(callSid);
+  if (oldBuffer && !oldBuffer.done) {
+    oldBuffer.notifyDone(); // Libera qualquer waiter pendente
+  }
   streamBuffers.set(callSid, buffer);
 
   let firstSentenceResolve: ((s: string | null) => void) | null = null;
