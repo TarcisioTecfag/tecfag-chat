@@ -14,9 +14,11 @@ export default defineConfig({
   },
   nitro: {
     // Externalizar socket.io e groq-sdk do bundle do servidor
-    // Eles usam APIs Node.js nativas e não podem ser bundlados no Cloudflare Worker
+    // Eles usam APIs Node.js nativas e não podem ser bundlados
     externals: {
       external: ["socket.io", "groq-sdk"],
     },
+    // Incluir explicitamente os plugins do servidor (ex: WebSocket handler)
+    plugins: ["server/plugins/websocket.ts"],
   } as any,
 });
