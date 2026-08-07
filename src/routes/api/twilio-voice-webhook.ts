@@ -357,16 +357,19 @@ export const Route = createFileRoute("/api/twilio-voice-webhook")({
   server: {
     handlers: {
       GET: async () => {
-        return new Response(
-          '<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" /></Connect></Response>',
-          { headers: { "Content-Type": "text/xml" } }
-        );
-      },
-      POST: async () => {
-        // TwiML Híbrido: Valentina se apresenta via TwiML instantâneo E conecta o MediaStream para o tempo real
+        // Conecta direto ao WebSocket — Valentina fala via ElevenLabs
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say language="pt-BR" voice="Google.pt-BR-Neural2-C">Olá! Aqui é a Valentina da Valem Válvulas. Em que posso te ajudar?</Say>
+  <Connect>
+    <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
+  </Connect>
+</Response>`;
+        return new Response(body, { headers: { "Content-Type": "text/xml" } });
+      },
+      POST: async () => {
+        // Sem <Say> — Valentina fala APENAS via ElevenLabs pelo WebSocket MediaStream
+        const body = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
   <Connect>
     <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
   </Connect>

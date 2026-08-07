@@ -24,6 +24,8 @@ export class MediaStreamHandler {
   }
 
   private setupListeners() {
+    console.log(`[MediaStream] ✅ WebSocket conectado! Aguardando evento 'start' do Twilio...`);
+
     this.ws.on("message", async (data: string) => {
       try {
         const msg = JSON.parse(data);
@@ -32,7 +34,7 @@ export class MediaStreamHandler {
           case "start":
             this.streamSid = msg.start.streamSid;
             this.callSid = msg.start.callSid;
-            console.log(`[MediaStream] Sessão iniciada. StreamSid=${this.streamSid} | CallSid=${this.callSid}`);
+            console.log(`[MediaStream] ✅ Sessão iniciada. StreamSid=${this.streamSid} | CallSid=${this.callSid}`);
             await this.sendInitialGreeting();
             break;
 
@@ -51,9 +53,13 @@ export class MediaStreamHandler {
       }
     });
 
-    this.ws.on("close", () => {
+    this.ws.on("close", (code, reason) => {
       this.clearSilenceTimer();
-      console.log(`[MediaStream] Conexão fechada para ${this.callSid}`);
+      console.log(`[MediaStream] Conexão fechada para ${this.callSid} — code=${code} reason=${reason?.toString() || '(none)'}`);
+    });
+
+    this.ws.on("error", (err) => {
+      console.error(`[MediaStream] Erro no WebSocket:`, err.message);
     });
   }
 
@@ -126,28 +132,35 @@ export class MediaStreamHandler {
    * Envia a fala da Valentina para o Twilio via ElevenLabs TTS (formato ulaw_8000)
    */
   public async speakText(text: string) {
-    if (!this.streamSid || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.streamSid || this.ws.readyState !== WebSocket.OPEN) {
+      console.error(`[MediaStream] speakText ABORTADO — streamSid=${this.streamSid} | wsState=${this.ws.readyState}`);
+      return;
+    }
 
     try {
-      console.log(`[MediaStream] Gerando fala ElevenLabs (Marianne): "${text}"`);
+      console.log(`[MediaStream] 🎤 Chamando ElevenLabs para: "${text.slice(0, 60)}..."`);
       const audioStream = streamElevenLabsTts(text, MARIANNE_VOICE_ID);
 
+      let chunkCount = 0;
       for await (const chunk of audioStream) {
-        if (this.ws.readyState !== WebSocket.OPEN) break;
+        if (this.ws.readyState !== WebSocket.OPEN) {
+          console.error(`[MediaStream] WebSocket fechou durante streaming de áudio! chunkCount=${chunkCount}`);
+          break;
+        }
 
         const payload = chunk.toString("base64");
         const mediaMsg = JSON.stringify({
           event: "media",
           streamSid: this.streamSid,
-          media: {
-            payload,
-          },
+          media: { payload },
         });
 
         this.ws.send(mediaMsg);
+        chunkCount++;
       }
+      console.log(`[MediaStream] ✅ Áudio enviado para Twilio — ${chunkCount} chunks`);
     } catch (err: any) {
-      console.error("[MediaStream] Erro ao sintetizar áudio ElevenLabs:", err?.message || err);
+      console.error("[MediaStream] ❌ Erro ElevenLabs TTS:", err?.message || err);
     }
   }
 
