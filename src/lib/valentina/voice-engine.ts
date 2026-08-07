@@ -92,9 +92,11 @@ ${historyText || "(conversa iniciando agora)"}
 
 Responda AGORA como Valentina. Apenas texto puro, sem formatação, sem aspas externas.`;
 
+  // VOICE usa gemini-2.5-flash: 5-10x mais rápido que Pro, essencial para não
+  // exceder o timeout de 15s do Twilio no webhook.
   const response = await vertexAi.generateText(
     systemPrompt,
-    "gemini-2.5-pro",
+    "gemini-2.5-flash",
     signal,
     {
       tenantId,
