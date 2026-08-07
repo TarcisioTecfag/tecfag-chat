@@ -1,67 +1,49 @@
 import { WebSocketServer } from "ws";
 import type { Server } from "http";
-
-// Importação dinâmica para evitar problemas de bundling
-let MediaStreamHandlerClass: any = null;
-async function getMediaStreamHandler() {
-  if (!MediaStreamHandlerClass) {
-    const mod = await import("../../src/lib/voice/media-streams-handler.js");
-    MediaStreamHandlerClass = mod.MediaStreamHandler;
-  }
-  return MediaStreamHandlerClass;
-}
+// Import ESTÁTICO — o bundler resolve o path corretamente em produção
+import { MediaStreamHandler } from "../../src/lib/voice/media-streams-handler";
 
 let wss: WebSocketServer | null = null;
 let serverListenerAttached = false;
 
-// Nitro chama plugin(nitroApp) diretamente — defineNitroPlugin é apenas identidade
-// e não está disponível nesta versão do build. Exportamos a função pura.
+function attachWebSocketServer(server: Server, label: string) {
+  if (serverListenerAttached) return;
+  serverListenerAttached = true;
+
+  wss = new WebSocketServer({ noServer: true });
+
+  server.on("upgrade", (request, socket, head) => {
+    const url = request.url || "";
+    console.log(`[Nitro WS] Upgrade request recebido: ${url}`);
+
+    if (url.startsWith("/api/voice-stream")) {
+      wss!.handleUpgrade(request, socket, head, (ws) => {
+        console.log(`[${label}] ✅ Twilio MediaStream conectado!`);
+        new MediaStreamHandler(ws as any);
+      });
+    } else {
+      console.log(`[Nitro WS] URL não mapeada, destruindo socket: ${url}`);
+      socket.destroy();
+    }
+  });
+
+  console.log(`[${label}] ✅ Servidor WebSocket ativo em /api/voice-stream`);
+}
+
+// Nitro chama plugin(nitroApp) diretamente — exportamos a função pura.
 export default function websocketPlugin(nitroApp: any) {
   // Hook que roda quando o servidor HTTP Node.js começa a escutar
   nitroApp.hooks.hook("listen", (server: Server) => {
-    if (serverListenerAttached) return;
-    serverListenerAttached = true;
-
-    wss = new WebSocketServer({ noServer: true });
-
-    server.on("upgrade", async (request, socket, head) => {
-      const url = request.url || "";
-      if (url.startsWith("/api/voice-stream")) {
-        const Handler = await getMediaStreamHandler();
-        wss?.handleUpgrade(request, socket, head, (ws: any) => {
-          console.log("[Nitro WS Plugin] ✅ Twilio MediaStream conectado via WebSocket!");
-          new Handler(ws);
-        });
-      } else {
-        socket.destroy();
-      }
-    });
-
-    console.log("[Nitro WS Plugin] ✅ Servidor WebSocket ativo em /api/voice-stream");
+    console.log("[Nitro WS] Hook 'listen' disparou!");
+    attachWebSocketServer(server, "Nitro WS Plugin");
   });
 
-  // Fallback: hook request para tentar capturar o servidor se "listen" não disparar
+  // Fallback: hook request para capturar o servidor se "listen" não disparar
   nitroApp.hooks.hook("request", (event: any) => {
     if (serverListenerAttached) return;
     const server: Server | undefined = event?.node?.res?.socket?.server;
     if (!server) return;
-
-    serverListenerAttached = true;
-    wss = new WebSocketServer({ noServer: true });
-
-    server.on("upgrade", async (request, socket, head) => {
-      const url = request.url || "";
-      if (url.startsWith("/api/voice-stream")) {
-        const Handler = await getMediaStreamHandler();
-        wss?.handleUpgrade(request, socket, head, (ws: any) => {
-          console.log("[Nitro WS Fallback] ✅ Twilio MediaStream conectado via WebSocket!");
-          new Handler(ws);
-        });
-      } else {
-        socket.destroy();
-      }
-    });
-
-    console.log("[Nitro WS Fallback] ✅ Servidor WebSocket ativo via fallback request hook");
+    console.log("[Nitro WS] Fallback via 'request' hook disparou!");
+    attachWebSocketServer(server, "Nitro WS Fallback");
   });
 }
