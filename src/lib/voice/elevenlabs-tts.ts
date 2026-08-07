@@ -1,4 +1,4 @@
-import fetch from "node-fetch";
+// Usando fetch nativo do Node 18+ (não precisa de node-fetch)
 
 export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "sk_78e73bd4e14dc41a256b44797f742dda9db5fdba2cc65c8a";
 export const MARIANNE_VOICE_ID = "BKv4Uz2HPF6TFlDgFBKN";
