@@ -314,6 +314,96 @@ class VertexAiService {
   }
 
   /**
+   * Streaming de geração de texto via streamGenerateContent (SSE).
+   * Yields chunks de texto conforme chegam, permitindo pipeline de latência baixa.
+   */
+  public async *generateTextStream(
+    promptInput: string | MultimodalPart[],
+    modelName?: string,
+    signal?: AbortSignal,
+    context?: VertexCallContext
+  ): AsyncGenerator<string, void, unknown> {
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) throw new Error("[VertexAI Stream] Sem token de acesso");
+
+    const model = modelName || this.defaultModelName;
+    const url =
+      `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}` +
+      `/locations/${this.location}/publishers/google/models/${model}:streamGenerateContent?alt=sse`;
+
+    const parts: MultimodalPart[] =
+      typeof promptInput === "string" ? [{ text: promptInput }] : promptInput;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: { temperature: 0.2 },
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`[VertexAI Stream] HTTP ${response.status}: ${errText.slice(0, 200)}`);
+    }
+
+    if (!response.body) throw new Error("[VertexAI Stream] Sem body na resposta");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buf += decoder.decode(value, { stream: true });
+
+        // Processa linhas SSE conforme chegam
+        let idx: number;
+        while ((idx = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6);
+          if (jsonStr === "[DONE]") return;
+
+          try {
+            const json = JSON.parse(jsonStr);
+            const text: string =
+              json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+            if (text) yield text;
+          } catch {
+            // chunk JSON inválido — ignorar
+          }
+        }
+      }
+
+      // Processa sobra do buffer
+      if (buf.trim().startsWith("data: ")) {
+        const jsonStr = buf.slice(buf.indexOf("data: ") + 6).trim();
+        if (jsonStr && jsonStr !== "[DONE]") {
+          try {
+            const json = JSON.parse(jsonStr);
+            const text: string =
+              json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+            if (text) yield text;
+          } catch {}
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /**
    * Gera uma resposta estruturada em JSON parseada garantida.
    * Suporta partes multimodais, AbortSignal e contexto de telemetria.
    */
