@@ -11,6 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
+import { Route as ApiVoiceStreamRouteImport } from './routes/api/voice-stream'
+import { Route as ApiVoiceBufferRouteImport } from './routes/api/voice-buffer'
+import { Route as ApiValentinaVoiceRouteImport } from './routes/api/valentina-voice'
+import { Route as ApiTwilioVoiceWebhookRouteImport } from './routes/api/twilio-voice-webhook'
 import { Route as ApiTemplatesRouteImport } from './routes/api/templates'
 import { Route as ApiTasksRouteImport } from './routes/api/tasks'
 import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
@@ -57,9 +61,11 @@ import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/d
 import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAdminResetRouteImport } from './routes/api/admin/reset'
+import { Route as ApiValentinaVoiceChatCompletionsRouteImport } from './routes/api/valentina-voice/chat/completions'
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
+import { Route as ApiValentinaVoiceV1ChatCompletionsRouteImport } from './routes/api/valentina-voice/v1/chat/completions'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -69,6 +75,26 @@ const IndexRoute = IndexRouteImport.update({
 const CallRoomIdRoute = CallRoomIdRouteImport.update({
   id: '/call/$roomId',
   path: '/call/$roomId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVoiceStreamRoute = ApiVoiceStreamRouteImport.update({
+  id: '/api/voice-stream',
+  path: '/api/voice-stream',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVoiceBufferRoute = ApiVoiceBufferRouteImport.update({
+  id: '/api/voice-buffer',
+  path: '/api/voice-buffer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaVoiceRoute = ApiValentinaVoiceRouteImport.update({
+  id: '/api/valentina-voice',
+  path: '/api/valentina-voice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTwilioVoiceWebhookRoute = ApiTwilioVoiceWebhookRouteImport.update({
+  id: '/api/twilio-voice-webhook',
+  path: '/api/twilio-voice-webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiTemplatesRoute = ApiTemplatesRouteImport.update({
@@ -303,6 +329,12 @@ const ApiAdminResetRoute = ApiAdminResetRouteImport.update({
   path: '/api/admin/reset',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiValentinaVoiceChatCompletionsRoute =
+  ApiValentinaVoiceChatCompletionsRouteImport.update({
+    id: '/chat/completions',
+    path: '/chat/completions',
+    getParentRoute: () => ApiValentinaVoiceRoute,
+  } as any)
 const ApiSettingsRdCrmFieldsRoute = ApiSettingsRdCrmFieldsRouteImport.update({
   id: '/fields',
   path: '/fields',
@@ -320,6 +352,12 @@ const ApiContactsContactIdRdDealRoute =
     path: '/rd-deal',
     getParentRoute: () => ApiContactsContactIdRoute,
   } as any)
+const ApiValentinaVoiceV1ChatCompletionsRoute =
+  ApiValentinaVoiceV1ChatCompletionsRouteImport.update({
+    id: '/v1/chat/completions',
+    path: '/v1/chat/completions',
+    getParentRoute: () => ApiValentinaVoiceRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -333,6 +371,10 @@ export interface FileRoutesByFullPath {
   '/api/sectors': typeof ApiSectorsRoute
   '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
+  '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
+  '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
+  '/api/voice-buffer': typeof ApiVoiceBufferRoute
+  '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
@@ -373,6 +415,8 @@ export interface FileRoutesByFullPath {
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -386,6 +430,10 @@ export interface FileRoutesByTo {
   '/api/sectors': typeof ApiSectorsRoute
   '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
+  '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
+  '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
+  '/api/voice-buffer': typeof ApiVoiceBufferRoute
+  '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
@@ -426,6 +474,8 @@ export interface FileRoutesByTo {
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -440,6 +490,10 @@ export interface FileRoutesById {
   '/api/sectors': typeof ApiSectorsRoute
   '/api/tasks': typeof ApiTasksRoute
   '/api/templates': typeof ApiTemplatesRoute
+  '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
+  '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
+  '/api/voice-buffer': typeof ApiVoiceBufferRoute
+  '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
@@ -480,6 +534,8 @@ export interface FileRoutesById {
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -495,6 +551,10 @@ export interface FileRouteTypes {
     | '/api/sectors'
     | '/api/tasks'
     | '/api/templates'
+    | '/api/twilio-voice-webhook'
+    | '/api/valentina-voice'
+    | '/api/voice-buffer'
+    | '/api/voice-stream'
     | '/call/$roomId'
     | '/api/admin/reset'
     | '/api/auth/login'
@@ -535,6 +595,8 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/valentina-voice/chat/completions'
+    | '/api/valentina-voice/v1/chat/completions'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -548,6 +610,10 @@ export interface FileRouteTypes {
     | '/api/sectors'
     | '/api/tasks'
     | '/api/templates'
+    | '/api/twilio-voice-webhook'
+    | '/api/valentina-voice'
+    | '/api/voice-buffer'
+    | '/api/voice-stream'
     | '/call/$roomId'
     | '/api/admin/reset'
     | '/api/auth/login'
@@ -588,6 +654,8 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/valentina-voice/chat/completions'
+    | '/api/valentina-voice/v1/chat/completions'
   id:
     | '__root__'
     | '/'
@@ -601,6 +669,10 @@ export interface FileRouteTypes {
     | '/api/sectors'
     | '/api/tasks'
     | '/api/templates'
+    | '/api/twilio-voice-webhook'
+    | '/api/valentina-voice'
+    | '/api/voice-buffer'
+    | '/api/voice-stream'
     | '/call/$roomId'
     | '/api/admin/reset'
     | '/api/auth/login'
@@ -641,6 +713,8 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/rd-deal'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/valentina-voice/chat/completions'
+    | '/api/valentina-voice/v1/chat/completions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -655,6 +729,10 @@ export interface RootRouteChildren {
   ApiSectorsRoute: typeof ApiSectorsRoute
   ApiTasksRoute: typeof ApiTasksRoute
   ApiTemplatesRoute: typeof ApiTemplatesRoute
+  ApiTwilioVoiceWebhookRoute: typeof ApiTwilioVoiceWebhookRoute
+  ApiValentinaVoiceRoute: typeof ApiValentinaVoiceRouteWithChildren
+  ApiVoiceBufferRoute: typeof ApiVoiceBufferRoute
+  ApiVoiceStreamRoute: typeof ApiVoiceStreamRoute
   CallRoomIdRoute: typeof CallRoomIdRoute
   ApiAdminResetRoute: typeof ApiAdminResetRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
@@ -705,6 +783,34 @@ declare module '@tanstack/react-router' {
       path: '/call/$roomId'
       fullPath: '/call/$roomId'
       preLoaderRoute: typeof CallRoomIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/voice-stream': {
+      id: '/api/voice-stream'
+      path: '/api/voice-stream'
+      fullPath: '/api/voice-stream'
+      preLoaderRoute: typeof ApiVoiceStreamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/voice-buffer': {
+      id: '/api/voice-buffer'
+      path: '/api/voice-buffer'
+      fullPath: '/api/voice-buffer'
+      preLoaderRoute: typeof ApiVoiceBufferRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina-voice': {
+      id: '/api/valentina-voice'
+      path: '/api/valentina-voice'
+      fullPath: '/api/valentina-voice'
+      preLoaderRoute: typeof ApiValentinaVoiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/twilio-voice-webhook': {
+      id: '/api/twilio-voice-webhook'
+      path: '/api/twilio-voice-webhook'
+      fullPath: '/api/twilio-voice-webhook'
+      preLoaderRoute: typeof ApiTwilioVoiceWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/templates': {
@@ -1029,6 +1135,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminResetRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/valentina-voice/chat/completions': {
+      id: '/api/valentina-voice/chat/completions'
+      path: '/chat/completions'
+      fullPath: '/api/valentina-voice/chat/completions'
+      preLoaderRoute: typeof ApiValentinaVoiceChatCompletionsRouteImport
+      parentRoute: typeof ApiValentinaVoiceRoute
+    }
     '/api/settings/rd-crm/fields': {
       id: '/api/settings/rd-crm/fields'
       path: '/fields'
@@ -1049,6 +1162,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/contacts/$contactId/rd-deal'
       preLoaderRoute: typeof ApiContactsContactIdRdDealRouteImport
       parentRoute: typeof ApiContactsContactIdRoute
+    }
+    '/api/valentina-voice/v1/chat/completions': {
+      id: '/api/valentina-voice/v1/chat/completions'
+      path: '/v1/chat/completions'
+      fullPath: '/api/valentina-voice/v1/chat/completions'
+      preLoaderRoute: typeof ApiValentinaVoiceV1ChatCompletionsRouteImport
+      parentRoute: typeof ApiValentinaVoiceRoute
     }
   }
 }
@@ -1090,6 +1210,20 @@ const ApiContactsRouteWithChildren = ApiContactsRoute._addFileChildren(
   ApiContactsRouteChildren,
 )
 
+interface ApiValentinaVoiceRouteChildren {
+  ApiValentinaVoiceChatCompletionsRoute: typeof ApiValentinaVoiceChatCompletionsRoute
+  ApiValentinaVoiceV1ChatCompletionsRoute: typeof ApiValentinaVoiceV1ChatCompletionsRoute
+}
+
+const ApiValentinaVoiceRouteChildren: ApiValentinaVoiceRouteChildren = {
+  ApiValentinaVoiceChatCompletionsRoute: ApiValentinaVoiceChatCompletionsRoute,
+  ApiValentinaVoiceV1ChatCompletionsRoute:
+    ApiValentinaVoiceV1ChatCompletionsRoute,
+}
+
+const ApiValentinaVoiceRouteWithChildren =
+  ApiValentinaVoiceRoute._addFileChildren(ApiValentinaVoiceRouteChildren)
+
 interface ApiSettingsRdCrmRouteChildren {
   ApiSettingsRdCrmCallbackRoute: typeof ApiSettingsRdCrmCallbackRoute
   ApiSettingsRdCrmFieldsRoute: typeof ApiSettingsRdCrmFieldsRoute
@@ -1115,6 +1249,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSectorsRoute: ApiSectorsRoute,
   ApiTasksRoute: ApiTasksRoute,
   ApiTemplatesRoute: ApiTemplatesRoute,
+  ApiTwilioVoiceWebhookRoute: ApiTwilioVoiceWebhookRoute,
+  ApiValentinaVoiceRoute: ApiValentinaVoiceRouteWithChildren,
+  ApiVoiceBufferRoute: ApiVoiceBufferRoute,
+  ApiVoiceStreamRoute: ApiVoiceStreamRoute,
   CallRoomIdRoute: CallRoomIdRoute,
   ApiAdminResetRoute: ApiAdminResetRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
