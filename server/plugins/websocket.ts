@@ -14,7 +14,9 @@ async function getMediaStreamHandler() {
 let wss: WebSocketServer | null = null;
 let serverListenerAttached = false;
 
-export default defineNitroPlugin((nitroApp: any) => {
+// Nitro chama plugin(nitroApp) diretamente — defineNitroPlugin é apenas identidade
+// e não está disponível nesta versão do build. Exportamos a função pura.
+export default function websocketPlugin(nitroApp: any) {
   // Hook que roda quando o servidor HTTP Node.js começa a escutar
   nitroApp.hooks.hook("listen", (server: Server) => {
     if (serverListenerAttached) return;
@@ -62,4 +64,4 @@ export default defineNitroPlugin((nitroApp: any) => {
 
     console.log("[Nitro WS Fallback] ✅ Servidor WebSocket ativo via fallback request hook");
   });
-});
+}
