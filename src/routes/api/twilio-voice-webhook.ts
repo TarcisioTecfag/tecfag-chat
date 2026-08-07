@@ -358,12 +358,21 @@ export const Route = createFileRoute("/api/twilio-voice-webhook")({
     handlers: {
       GET: async () => {
         return new Response(
-          '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="pt-BR" voice="Google.pt-BR-Neural2-C">Valentina Voice Webhook ativo — streaming pipeline.</Say></Response>',
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" /></Connect></Response>',
           { headers: { "Content-Type": "text/xml" } }
         );
       },
-      POST: async ({ request }: { request: Request }) => {
-        return handleWebhook(request);
+      POST: async () => {
+        // Retorna o TwiML ordenando ao Twilio que abra a conexão de áudio em tempo real via WebSocket
+        const body = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
+  </Connect>
+</Response>`;
+        return new Response(body, {
+          headers: { "Content-Type": "text/xml; charset=utf-8" },
+        });
       },
     },
   },
