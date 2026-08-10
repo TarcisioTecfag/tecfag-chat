@@ -707,7 +707,7 @@ export function GroupsView() {
   };
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-6 shadow-soft overflow-y-auto scrollbar-thin select-none">
+    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border p-6 shadow-soft overflow-y-auto scrollbar-thin select-none">
       <input
         type="file"
         ref={fileInputRef}
@@ -730,28 +730,28 @@ export function GroupsView() {
       </header>
 
       {/* Simulator Section */}
-      <div className="mb-6 rounded-2xl bg-primary p-5 text-white shadow-soft relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div className="absolute right-0 top-0 h-32 w-32 translate-x-8 -translate-y-8 rounded-full bg-white/10 blur-xl" />
+      <div className="mb-6 rounded-2xl bg-card border border-border shadow-soft p-5 relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
+        <div className="absolute right-0 top-0 h-40 w-40 translate-x-12 -translate-y-12 rounded-full bg-primary/8 blur-2xl pointer-events-none" />
         <div className="relative flex items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center rounded-xl bg-white/20 text-white">
+          <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-primary shrink-0">
             <UserCheck className="h-6 w-6" strokeWidth={2.5} />
           </div>
           <div>
-            <h3 className="text-base font-bold">Modo de Simulação de Permissões</h3>
-            <p className="text-xs text-white/80 max-w-lg mt-0.5">
-              Simule a experiência do sistema operando sob o perfil de outro usuário. Veja a barra de tenants, lista de chats e filtros de canal se reconfigurarem instantaneamente.
+            <h3 className="text-sm font-bold text-foreground">Modo de Simulação de Permissões</h3>
+            <p className="text-xs text-muted-foreground max-w-lg mt-0.5 leading-relaxed">
+              Simule a experiência do sistema operando sob o perfil de outro usuário. A barra de tenants, lista de chats e filtros de canal se reconfiguram instantaneamente.
             </p>
           </div>
         </div>
-        <div className="relative flex items-center gap-3 self-start md:self-auto shrink-0 bg-white/10 hover:bg-white/20 p-2 rounded-xl border border-white/20 transition-all duration-200">
-          <label className="text-xs font-extrabold uppercase tracking-wide whitespace-nowrap pl-1">
+        <div className="relative flex items-center gap-3 self-start md:self-auto shrink-0 bg-muted hover:bg-muted/80 p-2 rounded-xl border border-border transition-all duration-200">
+          <label className="text-[10px] font-extrabold uppercase tracking-wide whitespace-nowrap pl-1 text-muted-foreground">
             Operador Ativo:
           </label>
           <div className="relative flex items-center">
             <select
               value={currentOperatorId}
               onChange={(e) => impersonateOperator(e.target.value)}
-              className="appearance-none bg-card text-foreground rounded-lg pl-3 pr-8 py-1.5 text-xs font-bold outline-none border border-transparent focus:border-white/30 cursor-pointer select-none"
+              className="appearance-none bg-card text-foreground rounded-lg pl-3 pr-8 py-1.5 text-xs font-bold outline-none border border-border focus:border-primary/50 focus:ring-1 focus:ring-primary/30 cursor-pointer select-none"
             >
               {operators.map((op) => {
                 const group = accessGroups.find(g => g.id === op.groupId);
@@ -762,7 +762,7 @@ export function GroupsView() {
                 );
               })}
             </select>
-            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-foreground/75">
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
               <ChevronDown className="h-3 w-3" />
             </span>
           </div>

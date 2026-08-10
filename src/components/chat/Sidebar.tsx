@@ -34,13 +34,14 @@ export function Sidebar() {
   ];
 
   const decorativeItems = [
-    { id: "valentina", icon: Bot, label: "Valentina", isAvailable: true },
-    { id: "ligacoes", icon: PhoneCall, label: "Ligações", isAvailable: true },
-    { id: "groups", icon: Shield, label: "Grupo de Acesso", isAvailable: true },
-    { id: "monitor", icon: Eye, label: "Monitorar", isAvailable: true },
-    { id: "analytics", icon: BarChart2, label: "Estatísticas", isAvailable: true },
-    { id: "settings", icon: Settings, label: "Ajustes", isAvailable: true },
+    { id: "valentina", icon: Bot,      label: "Valentina",           isAvailable: true },
+    { id: "ligacoes",  icon: PhoneCall, label: "Ligações",           isAvailable: true },
+    { id: "monitor",   icon: Eye,       label: "Monitorar",          isAvailable: true },
+    { id: "analytics", icon: BarChart2, label: "Estatísticas",       isAvailable: true },
+    { id: "groups",    icon: Shield,    label: "Grupo de Acesso",    isAvailable: true },
+    { id: "settings",  icon: Settings,  label: "Ajustes",            isAvailable: true },
   ];
+
 
   return (
     <aside className="flex h-full w-[72px] shrink-0 flex-col items-center justify-between py-6 relative z-50">
