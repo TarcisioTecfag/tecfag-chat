@@ -335,7 +335,6 @@ import {
   Send,
   Eye,
   EyeOff,
-  UserCheck,
   Building2,
   Lock,
   Edit,
@@ -358,7 +357,6 @@ export function GroupsView() {
     sectors,
     currentOperatorId,
     currentGroup,
-    impersonateOperator,
     createOperator,
     updateOperator,
     deleteOperator,
@@ -706,8 +704,16 @@ export function GroupsView() {
     toast.success("Permissões do grupo atualizadas.");
   };
 
+  const tabs = [
+    { id: "users" as const,     label: "Operadores & Usuários", icon: Users },
+    { id: "groups" as const,    label: "Grupos de Acesso",      icon: FolderLock },
+    { id: "sectors" as const,   label: "Setores",               icon: Building2 },
+    { id: "wallets" as const,   label: "Carteiras Globais",     icon: Wallet },
+    { id: "templates" as const, label: "Templates Globais",     icon: LayoutTemplate },
+  ];
+
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border p-6 shadow-soft overflow-y-auto scrollbar-thin select-none">
+    <div className="flex flex-col h-full bg-card rounded-3xl border border-border shadow-soft overflow-hidden select-none">
       <input
         type="file"
         ref={fileInputRef}
@@ -715,149 +721,42 @@ export function GroupsView() {
         accept="image/*"
         className="hidden"
       />
-      
-      {/* 1. Header & Perms Simulation Banner */}
-      <header className="mb-6 shrink-0">
-        <span className="text-xs font-bold uppercase tracking-wider text-primary">
-          Segurança & Acessos
-        </span>
-        <h2 className="text-2xl font-black text-foreground mt-0.5">
-          Painel de Controle de Grupos de Acesso
-        </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Gerencie usuários cadastrados, defina senhas e controle limites de visibilidade por tenant e canal.
-        </p>
-      </header>
 
-      {/* Simulator Section */}
-      <div className="mb-6 rounded-2xl bg-card border border-border shadow-soft p-5 relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div className="absolute right-0 top-0 h-40 w-40 translate-x-12 -translate-y-12 rounded-full bg-primary/8 blur-2xl pointer-events-none" />
-        <div className="relative flex items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-primary shrink-0">
-            <UserCheck className="h-6 w-6" strokeWidth={2.5} />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-foreground">Modo de Simulação de Permissões</h3>
-            <p className="text-xs text-muted-foreground max-w-lg mt-0.5 leading-relaxed">
-              Simule a experiência do sistema operando sob o perfil de outro usuário. A barra de tenants, lista de chats e filtros de canal se reconfiguram instantaneamente.
-            </p>
-          </div>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+        <div>
+          <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
+            <Shield className="h-4 w-4 text-primary" />
+            Grupos de Acesso
+          </h1>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Segurança & Acessos — operadores, grupos, setores e carteiras</p>
         </div>
-        <div className="relative flex items-center gap-3 self-start md:self-auto shrink-0 bg-muted hover:bg-muted/80 p-2 rounded-xl border border-border transition-all duration-200">
-          <label className="text-[10px] font-extrabold uppercase tracking-wide whitespace-nowrap pl-1 text-muted-foreground">
-            Operador Ativo:
-          </label>
-          <div className="relative flex items-center">
-            <select
-              value={currentOperatorId}
-              onChange={(e) => impersonateOperator(e.target.value)}
-              className="appearance-none bg-card text-foreground rounded-lg pl-3 pr-8 py-1.5 text-xs font-bold outline-none border border-border focus:border-primary/50 focus:ring-1 focus:ring-primary/30 cursor-pointer select-none"
+      </div>
+
+      {/* Pill Tab Bar */}
+      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
             >
-              {operators.map((op) => {
-                const group = accessGroups.find(g => g.id === op.groupId);
-                return (
-                  <option key={op.id} value={op.id} className="text-foreground font-semibold">
-                    {op.name} ({group?.name || "Sem Grupo"})
-                  </option>
-                );
-              })}
-            </select>
-            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-              <ChevronDown className="h-3 w-3" />
-            </span>
-          </div>
-        </div>
+              <Icon className="h-3.5 w-3.5" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex border-b border-line mb-6 gap-6 shrink-0 relative">
-        <button
-          onClick={() => setActiveTab("users")}
-          className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
-            activeTab === "users" ? "text-primary font-black" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <Users className="h-4 w-4" /> Operadores & Usuários
-          </span>
-          {activeTab === "users" && (
-            <motion.span
-              layoutId="activeGroupsTabIndicator"
-              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
-              transition={{ type: "spring", stiffness: 350, damping: 25 }}
-            />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab("groups")}
-          className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
-            activeTab === "groups" ? "text-primary font-black" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <FolderLock className="h-4 w-4" /> Grupos de Acesso
-          </span>
-          {activeTab === "groups" && (
-            <motion.span
-              layoutId="activeGroupsTabIndicator"
-              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
-              transition={{ type: "spring", stiffness: 350, damping: 25 }}
-            />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab("sectors")}
-          className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
-            activeTab === "sectors" ? "text-primary font-black" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <Building2 className="h-4 w-4" /> Setores
-          </span>
-          {activeTab === "sectors" && (
-            <motion.span
-              layoutId="activeGroupsTabIndicator"
-              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
-              transition={{ type: "spring", stiffness: 350, damping: 25 }}
-            />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab("wallets")}
-          className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
-            activeTab === "wallets" ? "text-primary font-black" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <Wallet className="h-4 w-4" /> Carteiras Globais
-          </span>
-          {activeTab === "wallets" && (
-            <motion.span
-              layoutId="activeGroupsTabIndicator"
-              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
-              transition={{ type: "spring", stiffness: 350, damping: 25 }}
-            />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab("templates")}
-          className={`pb-3 text-sm font-extrabold tracking-tight relative transition-all duration-200 cursor-pointer ${
-            activeTab === "templates" ? "text-primary font-black" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <LayoutTemplate className="h-4 w-4" /> Templates Globais
-          </span>
-          {activeTab === "templates" && (
-            <motion.span
-              layoutId="activeGroupsTabIndicator"
-              className="absolute bottom-0 left-0 right-0 h-[3px] rounded bg-primary"
-              transition={{ type: "spring", stiffness: 350, damping: 25 }}
-            />
-          )}
-        </button>
-      </div>
-
+      {/* Scrollable Content Area */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
 
       {/* Tab Contents */}
       {activeTab === "users" ? (
@@ -2059,6 +1958,7 @@ export function GroupsView() {
         </div>,
         document.body
       )}
-    </section>
+      </div>{/* /flex-1 scrollable content */}
+    </div>
   );
 }
