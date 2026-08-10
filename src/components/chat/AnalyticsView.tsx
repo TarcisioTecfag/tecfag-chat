@@ -719,44 +719,45 @@ export function AnalyticsView() {
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-hidden px-5 py-4 flex flex-col">
-        {activeTab === "overview" && (
-          <OverviewTab
-            overview={overview}
-            alerts={alerts}
-            audits={audits}
-            onSwitchTab={() => {}}
-          />
-        )}
-        {activeTab === "performance" && (
-          <PerformanceTab
-            volumes={performanceData.volumes}
-            channels={performanceData.channels}
-            sectors={performanceData.sectors}
-          />
-        )}
-        {activeTab === "sla" && (
-          <SlaTab
-            overallSlaPct={slaData.overallSlaPct}
-            overdueCount={slaData.overdueCount}
-            operators={slaData.operators}
-          />
-        )}
-        {activeTab === "contacts" && (
-          <ContactsTab
-            clientMetrics={contactsData.clientMetrics}
-            avgDaysWithoutService={contactsData.avgDaysWithoutService}
-            avgFrequency={contactsData.avgFrequency}
-            ragConversionPct={contactsData.ragConversionPct}
-          />
-        )}
-        {activeTab === "reports" && (
-          <ReportsIATab tenant={tenant} />
-        )}
-        {activeTab === "costs" && (
-          <CostsTab tenant={tenant} />
-        )}
-      </div>
+      {activeTab === "reports" ? (
+        <ReportsIATab tenant={tenant} />
+      ) : (
+        <div className="flex-1 overflow-hidden px-5 py-4 flex flex-col">
+          {activeTab === "overview" && (
+            <OverviewTab
+              overview={overview}
+              alerts={alerts}
+              audits={audits}
+              onSwitchTab={() => {}}
+            />
+          )}
+          {activeTab === "performance" && (
+            <PerformanceTab
+              volumes={performanceData.volumes}
+              channels={performanceData.channels}
+              sectors={performanceData.sectors}
+            />
+          )}
+          {activeTab === "sla" && (
+            <SlaTab
+              overallSlaPct={slaData.overallSlaPct}
+              overdueCount={slaData.overdueCount}
+              operators={slaData.operators}
+            />
+          )}
+          {activeTab === "contacts" && (
+            <ContactsTab
+              clientMetrics={contactsData.clientMetrics}
+              avgDaysWithoutService={contactsData.avgDaysWithoutService}
+              avgFrequency={contactsData.avgFrequency}
+              ragConversionPct={contactsData.ragConversionPct}
+            />
+          )}
+          {activeTab === "costs" && (
+            <CostsTab tenant={tenant} />
+          )}
+        </div>
+      )}
     </div>
   );
 }

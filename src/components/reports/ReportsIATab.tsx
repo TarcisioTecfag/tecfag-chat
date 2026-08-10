@@ -235,9 +235,8 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
 
   // ── Render principal (mesma estrutura do insight-navigator/index.tsx) ──
   return (
-    <div className="aurora" style={{ minHeight: "calc(100vh - 200px)" }}>
-      <div className="grid-lines h-full">
-        <main className="grid items-start gap-5 px-2 py-4 lg:grid-cols-[minmax(230px,250px)_minmax(0,1fr)] 2xl:grid-cols-[250px_minmax(0,1fr)_320px]">
+    <div className="w-full flex-1 min-h-0 aurora grid-lines overflow-y-auto scrollbar-thin">
+      <main className="grid items-start gap-5 p-4 lg:p-6 lg:grid-cols-[minmax(230px,250px)_minmax(0,1fr)] 2xl:grid-cols-[250px_minmax(0,1fr)_320px]">
           {/* ── Sidebar ── */}
           <div className="lg:sticky lg:top-4 space-y-4">
             <ReportSidebar reports={reports} activeId={activeId} onSelect={setActiveId} />
@@ -499,7 +498,6 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
             </section>
           </div>
         </main>
-      </div>
     </div>
   );
 }

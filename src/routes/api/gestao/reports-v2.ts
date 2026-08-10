@@ -291,7 +291,7 @@ async function autoSeedMockReports(tenantId: string) {
         "SLA em tempo real",
         "Sentimento IA",
       ],
-      stage: (dateOffsetDays === 0 ? "rascunho" : dateOffsetDays === 1 ? "revisao" : "aprovado") as const,
+      stage: (dateOffsetDays === 0 ? "rascunho" : dateOffsetDays === 1 ? "revisao" : "aprovado") as ("rascunho" | "revisao" | "aprovado" | "enviado"),
       currentVersion: "v1",
       versions: [
         {
@@ -299,7 +299,7 @@ async function autoSeedMockReports(tenantId: string) {
           createdAt: fmtBRTime,
           author: "IA · sla_advisor",
           note: "Síntese automática de BI gerada pela IA.",
-          stage: (dateOffsetDays === 0 ? "rascunho" : dateOffsetDays === 1 ? "revisao" : "aprovado") as const,
+          stage: (dateOffsetDays === 0 ? "rascunho" : dateOffsetDays === 1 ? "revisao" : "aprovado") as ("rascunho" | "revisao" | "aprovado" | "enviado"),
         },
       ],
       review: [
