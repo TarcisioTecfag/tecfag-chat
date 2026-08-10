@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { aiReports, aiReportVersions, aiReportFeedback } from "./src/db/schema";
+import { aiReports, aiReportVersions, aiReportFeedback } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
 
 async function main() {

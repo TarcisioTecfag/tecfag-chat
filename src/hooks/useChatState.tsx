@@ -297,9 +297,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Sincronizar grupos, setores e respostas rápidas do banco de dados quando o tenant mudar
+  // Sincronizar grupos, setores, respostas rápidas e operadores do banco de dados quando o tenant mudar
   useEffect(() => {
     if (typeof window !== "undefined") {
+      fetch(`${BACKEND_URL}/api/operators?tenantId=${tenant}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data) && data.length > 0) {
+            setOperators(data);
+            try {
+              localStorage.setItem("rbac_operators", JSON.stringify(data));
+            } catch (e) {}
+          }
+        })
+        .catch((err) => console.error("Erro ao sincronizar operadores do banco:", err));
+
       fetch(`${BACKEND_URL}/api/groups?tenantId=${tenant}`)
         .then((res) => res.json())
         .then((data) => {
@@ -343,7 +355,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [tenant, currentOperatorId]);
 
-  // Persistir alterações apenas após o cliente estar pronto (evita sobrescrever dados com o padrão de render)
+  // Garantir que currentOperatorId seja sempre um operador válido na lista do tenant.
+  // Se o operador ativo salvo em localStorage não existir no tenant atual,
+  // faz o fallback automático para o primeiro operador válido (ex: Fagner) em vez de travar em "Carregando...".
+  useEffect(() => {
+    if (operators.length > 0) {
+      const exists = operators.some((op) => op.id === currentOperatorId);
+      if (!exists) {
+        console.warn(`[useChatState] Operador ativo '${currentOperatorId}' não encontrado no tenant '${tenant}'. Ajustando para '${operators[0].id}' (${operators[0].name}).`);
+        setCurrentOperatorId(operators[0].id);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("rbac_current_operator_id", operators[0].id);
+          } catch (e) {}
+        }
+      }
+    }
+  }, [operators, currentOperatorId, tenant]);
+
+  // Persistir alterações apenas após o cliente estar pronto
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
       try {
@@ -382,7 +412,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     canCreateUser: true,
     canResetPassword: true,
     canEditProfile: true,
-    // Admins têm todas as permissões de atendimento habilitadas
     canCaptureChat: true,
     canTransferChat: true,
     canFinishChat: true,
@@ -392,7 +421,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const defaultOperator: Operator = {
     id: "op-1",
-    name: "Carregando...",
+    name: "Operador",
     email: "",
     avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop",
     status: "disponivel",
@@ -400,7 +429,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     groupId: "group-admin",
   };
 
-  const currentOperator = operators.find((op) => op.id === currentOperatorId) || defaultOperator;
+  const currentOperator = operators.find((op) => op.id === currentOperatorId)
+    || (operators.length > 0 ? operators[0] : defaultOperator);
+
   const currentGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || defaultAdminGroup;
 
   const operatorProfile: OperatorProfile = {
