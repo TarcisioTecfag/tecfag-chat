@@ -556,24 +556,44 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteOperator = async (id: string) => {
     if (id === currentOperatorId) return;
+
+    // Otimista: remove da UI imediatamente
+    const previousOperators = operators;
     setOperators((prev) => {
       const updated = prev.filter((op) => op.id !== id);
       if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_operators", JSON.stringify(updated));
-        } catch (e) {}
+        try { localStorage.setItem("rbac_operators", JSON.stringify(updated)); } catch (e) {}
       }
       return updated;
     });
 
     try {
-      await fetch(`${BACKEND_URL}/api/operators?id=${id}&tenantId=${tenant}`, {
+      const res = await fetch(`${BACKEND_URL}/api/operators?id=${id}&tenantId=${tenant}`, {
         method: "DELETE",
       });
+
+      if (!res.ok) {
+        // ── DELETE falhou no backend → reverter estado ──────────────────────
+        const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        console.error("[deleteOperator] Erro no backend:", errBody);
+        // Rollback: restaura lista anterior
+        setOperators(previousOperators);
+        if (typeof window !== "undefined") {
+          try { localStorage.setItem("rbac_operators", JSON.stringify(previousOperators)); } catch (e) {}
+        }
+        toast.error(`Erro ao excluir operador: ${errBody.error || res.statusText}`);
+      }
     } catch (err) {
-      console.error("Erro ao deletar operador no DB:", err);
+      console.error("[deleteOperator] Falha na requisição:", err);
+      // Rollback em caso de erro de rede
+      setOperators(previousOperators);
+      if (typeof window !== "undefined") {
+        try { localStorage.setItem("rbac_operators", JSON.stringify(previousOperators)); } catch (e) {}
+      }
+      toast.error("Erro de conexão ao tentar excluir o operador.");
     }
   };
+
 
   const resetOperatorPassword = async (id: string, newPasswordHash: string) => {
     setOperators((prev) => {
