@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { operators, conversations } from "../../db/schema";
-import { eq, and, isNotNull } from "drizzle-orm";
+import { operators, conversations, internalMessages } from "../../db/schema";
+import { eq, and } from "drizzle-orm";
 
 export const Route = createFileRoute("/api/operators")({
   server: {
@@ -207,6 +207,14 @@ export const Route = createFileRoute("/api/operators")({
               );
             console.log(`[DELETE /api/operators] ${linkedCount} conversa(s) desvinculadas do operador ${id}.`);
           }
+
+          // ── Limpar internal_messages do operador (FK sem CASCADE no banco legado) ──
+          // Sem isso, o DELETE falha com FK violation se o operador tiver
+          // logs do Supervisor (internalMessages.operatorId → operators.id).
+          await db
+            .delete(internalMessages)
+            .where(eq(internalMessages.operatorId, id));
+          console.log(`[DELETE /api/operators] internal_messages do operador ${id} removidas.`);
 
           await db.delete(operators).where(eq(operators.id, id));
           return new Response(JSON.stringify({ success: true, unlinkedConversations: linkedCount }), {

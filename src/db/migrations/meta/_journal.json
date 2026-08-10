@@ -36,6 +36,13 @@
       "when": 1786389043859,
       "tag": "0004_supervisor_log_dedup",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786391648475,
+      "tag": "0005_fix_internal_messages_operator_fk_cascade",
+      "breakpoints": true
     }
   ]
 }

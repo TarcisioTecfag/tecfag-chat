@@ -403,7 +403,7 @@ export const roundRobinState = pgTable("round_robin_state", {
 export const internalMessages = pgTable("internal_messages", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
-  operatorId: text("operator_id").references(() => operators.id).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "cascade" }).notNull(),
   direction: text("direction").notNull(), // 'to_agent' | 'from_agent'
   agentType: text("agent_type").notNull(), // 'supervisor'
   content: text("content").notNull(),
