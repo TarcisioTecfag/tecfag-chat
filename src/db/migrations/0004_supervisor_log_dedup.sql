@@ -1,0 +1,2 @@
+ALTER TABLE "internal_messages" ADD COLUMN "repeat_count" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "internal_messages" ADD COLUMN "last_fired_at" timestamp DEFAULT now() NOT NULL;

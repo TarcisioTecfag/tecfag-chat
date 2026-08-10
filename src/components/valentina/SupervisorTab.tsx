@@ -9,7 +9,7 @@ import {
   Bell, MessageSquare, AlertTriangle, ArrowRight,
   Clock, Eye, BarChart2, Send as SendIcon, Zap, Users,
   Loader2, Inbox, MessageCircleQuestion, Filter, Calendar,
-  ExternalLink, Star, X,
+  ExternalLink, Star, X, ChevronDown, ChevronUp, Repeat2,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 
@@ -26,7 +26,11 @@ interface Notification {
   priority: string;
   conversationId: string | null;
   contactName: string | null;
+  // Campos de deduplicação (agrupamento inteligente)
+  repeatCount?: number;       // Quantas vezes esse evento disparou na janela de 4h
+  lastFiredAt?: string;       // ISO — último disparo (pode ser diferente do createdAt)
 }
+
 
 interface RecentQuestion {
   id: string;
@@ -280,6 +284,15 @@ export function SupervisorTab() {
   const [customTo, setCustomTo] = useState<string>("");
   const [activeType, setActiveType] = useState<string>("all");
 
+  // IDs de notificações com accordion aberto
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) =>
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
   const { from, to } = useMemo(
     () => getDateRange(period, customFrom, customTo),
     [period, customFrom, customTo]
@@ -394,7 +407,10 @@ export function SupervisorTab() {
                 <div className="space-y-1">
                   {notifications.map((notif, idx) => {
                     const { icon: NotifIcon, color } = getNotifIcon(notif.type);
-                    const isSla = notif.type === "sla_alert";
+                    const isSla = notif.type === "sla_alert" || notif.type === "no_response";
+                    const isGrouped = (notif.repeatCount ?? 1) > 1;
+                    const isExpanded = expandedIds.has(notif.id);
+
                     return (
                       <motion.div
                         key={notif.id}
@@ -404,8 +420,14 @@ export function SupervisorTab() {
                         className="flex gap-3 py-2.5 relative"
                       >
                         {/* Ícone */}
-                        <div className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${color} z-10`}>
+                        <div className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${color} z-10 relative`}>
                           <NotifIcon className="h-3 w-3" />
+                          {/* Bolinha de contagem se agrupado */}
+                          {isGrouped && (
+                            <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-violet-500 text-white text-[8px] font-extrabold flex items-center justify-center leading-none">
+                              {notif.repeatCount}
+                            </span>
+                          )}
                         </div>
 
                         {/* Conteúdo */}
@@ -415,7 +437,23 @@ export function SupervisorTab() {
                             <span className="text-xs font-bold text-foreground truncate flex-1">
                               {notif.title}
                             </span>
-                            {/* Botão "Ver conversa" — só em SLA alerts com conversationId */}
+
+                            {/* Badge de agrupamento */}
+                            {isGrouped && (
+                              <button
+                                onClick={() => toggleExpand(notif.id)}
+                                title={isExpanded ? "Recolher" : `${notif.repeatCount} ocorrências — clique para ver`}
+                                className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-100 hover:bg-violet-200 text-violet-700 text-[9px] font-bold transition-colors"
+                              >
+                                <Repeat2 className="h-2.5 w-2.5" />
+                                ×{notif.repeatCount}
+                                {isExpanded
+                                  ? <ChevronUp className="h-2.5 w-2.5" />
+                                  : <ChevronDown className="h-2.5 w-2.5" />}
+                              </button>
+                            )}
+
+                            {/* Botão "Ver conversa" */}
                             {isSla && notif.conversationId && (
                               <button
                                 onClick={() => handleOpenConversation(notif.conversationId!)}
@@ -427,15 +465,30 @@ export function SupervisorTab() {
                               </button>
                             )}
                           </div>
+
                           <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2">
                             {notif.description}
                           </p>
-                          <div className="flex items-center gap-2 mt-1">
+
+                          {/* Timestamps — início e última ocorrência */}
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
                             <span className="text-[9px] text-muted-foreground font-medium">{notif.operatorName}</span>
                             <span className="text-[9px] text-muted-foreground/60">·</span>
-                            <span className="text-[9px] text-muted-foreground/60" title={formatDateTime(notif.timestamp)}>
-                              {formatRelativeTime(notif.timestamp)}
-                            </span>
+                            {isGrouped ? (
+                              <>
+                                <span className="text-[9px] text-muted-foreground/60">
+                                  início: <span title={formatDateTime(notif.timestamp)}>{formatRelativeTime(notif.timestamp)}</span>
+                                </span>
+                                <span className="text-[9px] text-muted-foreground/60">·</span>
+                                <span className="text-[9px] text-violet-600 font-semibold">
+                                  última: {formatRelativeTime(notif.lastFiredAt ?? notif.timestamp)}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[9px] text-muted-foreground/60" title={formatDateTime(notif.timestamp)}>
+                                {formatRelativeTime(notif.timestamp)}
+                              </span>
+                            )}
                             {notif.contactName && (
                               <>
                                 <span className="text-[9px] text-muted-foreground/60">·</span>
@@ -443,6 +496,37 @@ export function SupervisorTab() {
                               </>
                             )}
                           </div>
+
+                          {/* Accordion — histórico de ocorrências agrupadas */}
+                          <AnimatePresence>
+                            {isGrouped && isExpanded && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="mt-1.5 overflow-hidden"
+                              >
+                                <div className="rounded-lg border border-violet-200/60 bg-violet-50/40 dark:bg-violet-900/10 dark:border-violet-700/30 px-2.5 py-2 space-y-1">
+                                  <p className="text-[9px] text-violet-600 font-bold uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                                    <Repeat2 className="h-2.5 w-2.5" />
+                                    {notif.repeatCount} disparos agrupados — janela de 4h
+                                  </p>
+                                  <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+                                    <span>🟢 Primeiro alerta</span>
+                                    <span className="font-medium">{formatDateTime(notif.timestamp)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+                                    <span>🔴 Último alerta</span>
+                                    <span className="font-medium text-violet-600">{formatDateTime(notif.lastFiredAt ?? notif.timestamp)}</span>
+                                  </div>
+                                  <p className="text-[9px] text-muted-foreground/70 pt-0.5 border-t border-violet-200/40 mt-1">
+                                    Alertas repetidos sobre o mesmo evento são agrupados automaticamente.
+                                    Cada disparo atualiza o contador — sem poluição no histórico.
+                                  </p>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </motion.div>
                     );

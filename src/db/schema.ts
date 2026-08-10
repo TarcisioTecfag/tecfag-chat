@@ -410,6 +410,11 @@ export const internalMessages = pgTable("internal_messages", {
   metadata: jsonb("metadata").default({}).notNull(),
   read: integer("read").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // ── Deduplicação de alertas repetidos (Supervisor) ──────────────────────────
+  // repeatCount: quantas vezes este mesmo alerta disparou dentro da janela de 4h
+  // lastFiredAt: timestamp do último disparo real (para exibir "última ocorrência")
+  repeatCount: integer("repeat_count").default(1).notNull(),
+  lastFiredAt: timestamp("last_fired_at").defaultNow().notNull(),
 });
 
 // ─── 19. BASE DE CONHECIMENTO VALENTINA ────────────────────────────────────

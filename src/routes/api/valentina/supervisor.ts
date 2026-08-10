@@ -70,6 +70,8 @@ export const Route = createFileRoute("/api/valentina/supervisor")({
               createdAt:    internalMessages.createdAt,
               operatorName: operators.name,
               operatorId:   internalMessages.operatorId,
+              repeatCount:  internalMessages.repeatCount,
+              lastFiredAt:  internalMessages.lastFiredAt,
             })
             .from(internalMessages)
             .leftJoin(operators, eq(internalMessages.operatorId, operators.id))
@@ -97,6 +99,8 @@ export const Route = createFileRoute("/api/valentina/supervisor")({
               priority:       meta.priority || "medium",
               conversationId: meta.conversationId || null,
               contactName:    meta.contactName || null,
+              repeatCount:    n.repeatCount ?? 1,
+              lastFiredAt:    n.lastFiredAt ? n.lastFiredAt.toISOString() : n.createdAt.toISOString(),
             };
           });
 

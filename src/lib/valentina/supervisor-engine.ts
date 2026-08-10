@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { conversations, contacts, messages, internalMessages, operators } from "../../db/schema";
-import { eq, ne, desc, and, inArray } from "drizzle-orm";
+import { eq, ne, desc, and, inArray, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 
 /**
@@ -11,18 +11,28 @@ import crypto from "crypto";
 const SUPERVISOR_ACTIVE_TENANTS = ["valem"] as const;
 
 /**
+ * Janela de deduplicação em milissegundos (4 horas).
+ * Alertas do mesmo tipo + mesma conversa dentro desta janela são agrupados
+ * em vez de gerar novas linhas no banco.
+ */
+const DEDUP_WINDOW_MS = 4 * 60 * 60 * 1000;
+
+/**
  * Supervisor Engine — Motor de Supervisão em Tempo Real
- * 
+ *
  * Job em background que monitora ativamente as conversas em andamento
  * e detecta gargalos de SLA, falta de resposta ou sobrecarga dos operadores.
+ *
+ * Deduplicação: alertas repetidos do mesmo tipo+conversa dentro de 4h são
+ * agrupados em uma única linha (repeatCount++) em vez de poluir o banco.
  */
 export class SupervisorEngine {
   private static instance: SupervisorEngine;
   private jobInterval: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
-  
-  // Controle de rate limit: Map<conversationId | operatorId, timestamp>
-  // Evita flood de notificações (1 alerta a cada 20 minutos por entidade)
+
+  // Rate-limit em memória APENAS como cache rápido entre ciclos de 60s.
+  // A deduplicação real é feita no banco (persistente entre reinicializações).
   private lastNotified = new Map<string, number>();
 
   private constructor() {}
@@ -66,8 +76,6 @@ export class SupervisorEngine {
    * Executa a varredura das regras de negócio
    */
   private async runChecks() {
-    // 1. Buscar conversas ativas SOMENTE dos tenants com Supervisor ativo.
-    //    NUNCA processar conversas de tenants inativos (ex: tecfag).
     const activeConvs = await db
       .select({
         id: conversations.id,
@@ -87,12 +95,10 @@ export class SupervisorEngine {
     const operatorLoads = new Map<string, number>();
 
     for (const conv of activeConvs) {
-      // Contabilizar carga por operador
       if (conv.operatorId) {
         operatorLoads.set(conv.operatorId, (operatorLoads.get(conv.operatorId) || 0) + 1);
       }
 
-      // Buscar a última mensagem da conversa
       const lastMsgs = await db
         .select()
         .from(messages)
@@ -104,17 +110,13 @@ export class SupervisorEngine {
 
       const lastMsg = lastMsgs[0];
 
-      // Verificar se a última mensagem foi enviada pelo cliente (ou seja, o agente ainda não respondeu)
       if (lastMsg.senderType === "client") {
         const diffMs = Date.now() - lastMsg.sentAt.getTime();
         const waitMinutes = Math.floor(diffMs / 60000);
 
-        // scanNoResponse(): Mais de 24 horas sem resposta
         if (waitMinutes > 24 * 60) {
           await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, "high", true);
-        } 
-        // scanSlaRisks(): CRÍTICO (> 15 min) ou WARNING (> 8 min)
-        else if (waitMinutes > 15) {
+        } else if (waitMinutes > 15) {
           await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, "high", false);
         } else if (waitMinutes > 8) {
           await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, "medium", false);
@@ -122,7 +124,6 @@ export class SupervisorEngine {
       }
     }
 
-    // scanOperatorLoad(): Alerta para operadores com mais de 5 conversas ativas
     for (const [operatorId, count] of operatorLoads.entries()) {
       if (count > 5) {
         await this.notifyOperatorLoad(operatorId, count);
@@ -142,20 +143,19 @@ export class SupervisorEngine {
   ) {
     const now = Date.now();
     const lastTime = this.lastNotified.get(conv.id) || 0;
-    
-    // Rate limit: 1 alerta a cada 20 minutos por conversa
+
+    // Cache rápido em memória para evitar queries desnecessárias no banco
     if (now - lastTime < 20 * 60_000) return;
     this.lastNotified.set(conv.id, now);
 
     let alertMessage = `⚠️ Atenção! O cliente ${conv.contactName || "Desconhecido"} está aguardando resposta há ${waitMinutes} minutos.`;
-    
+
     if (is24h) {
       alertMessage = `🚨 ALERTA DE ABANDONO! O cliente ${conv.contactName || "Desconhecido"} não recebe resposta há mais de 24 horas!`;
     } else if (priority === "high") {
       alertMessage = `🚨 TEMPO CRÍTICO! O cliente ${conv.contactName || "Desconhecido"} está aguardando resposta há mais de 15 minutos!`;
     }
 
-    // Se não há operador responsável, não há destinatário — notificação descartada silenciosamente.
     if (!conv.operatorId) return;
 
     await this.dispatchInternalNotification(
@@ -173,7 +173,7 @@ export class SupervisorEngine {
         conversationId: conv.id,
         contactName: conv.contactName,
         waitMinutes,
-        lastClientMessage: lastClientMessage.toISOString()
+        lastClientMessage: lastClientMessage.toISOString(),
       }
     );
   }
@@ -185,8 +185,7 @@ export class SupervisorEngine {
     const now = Date.now();
     const key = `op-load-${operatorId}`;
     const lastTime = this.lastNotified.get(key) || 0;
-    
-    // Rate limit: 1 alerta a cada 20 minutos por operador
+
     if (now - lastTime < 20 * 60_000) return;
     this.lastNotified.set(key, now);
 
@@ -195,27 +194,33 @@ export class SupervisorEngine {
       .from(operators)
       .where(eq(operators.id, operatorId))
       .limit(1);
-    
+
     if (opRows.length === 0) return;
     const op = opRows[0];
 
-    const alertMessage = `⚠️ Atenção ${op.name.split(' ')[0]}! Você possui ${count} conversas ativas neste momento. Tente focar em fechar os atendimentos atuais para manter a qualidade.`;
+    const alertMessage = `⚠️ Atenção ${op.name.split(" ")[0]}! Você possui ${count} conversas ativas neste momento. Tente focar em fechar os atendimentos atuais para manter a qualidade.`;
 
     await this.dispatchInternalNotification(
       op.tenantId,
       operatorId,
       alertMessage,
-      { 
-        type: "operator_overload", 
-        title: `Operador ${op.name.split(' ')[0]} com ${count} atendimentos ativos`,
-        priority: "medium", 
-        activeCount: count 
+      {
+        type: "operator_overload",
+        title: `Operador ${op.name.split(" ")[0]} com ${count} atendimentos ativos`,
+        priority: "medium",
+        activeCount: count,
       }
     );
   }
 
   /**
-   * Persiste a mensagem no banco e tenta disparar SSE via SessionManager
+   * Persiste a notificação no banco com lógica de UPSERT inteligente.
+   *
+   * Regra de deduplicação (janela de 4h):
+   *  - Busca um registro existente com mesmo tenantId + operatorId + alertType + conversationId
+   *    criado nas últimas 4 horas.
+   *  - Se EXISTE  → incrementa repeatCount e atualiza lastFiredAt (sem nova linha)
+   *  - Se NÃO EXISTE → insere nova linha (novo evento)
    */
   private async dispatchInternalNotification(
     tenantId: string,
@@ -223,43 +228,76 @@ export class SupervisorEngine {
     content: string,
     metadata: any
   ) {
-    const messageId = crypto.randomUUID();
-
     try {
-      // Verificar se o operador existe antes de inserir (evita FK violation se operador foi deletado)
       const operatorExists = await db.query.operators.findFirst({
         where: eq(operators.id, operatorId),
         columns: { id: true },
       });
 
       if (!operatorExists) {
-        console.warn(`[SupervisorEngine] Operador ${operatorId} não encontrado no banco — notificação descartada.`);
+        console.warn(`[SupervisorEngine] Operador ${operatorId} não encontrado — notificação descartada.`);
         return;
       }
 
-      await db.insert(internalMessages).values({
-        id: messageId,
-        tenantId,
-        operatorId,
-        direction: "from_agent",
-        agentType: "supervisor",
-        content,
-        metadata,
-        createdAt: new Date()
-      });
+      // ── Janela de deduplicação ─────────────────────────────────────────────
+      const windowStart = new Date(Date.now() - DEDUP_WINDOW_MS);
+      const alertType   = metadata?.type ?? "unknown";
+      const convId      = metadata?.conversationId ?? null;
 
-      // Disparo de SSE via dynamic import (failsafe para evitar dependências cíclicas)
+      const existing = await db
+        .select({ id: internalMessages.id, repeatCount: internalMessages.repeatCount })
+        .from(internalMessages)
+        .where(
+          and(
+            eq(internalMessages.tenantId, tenantId),
+            eq(internalMessages.operatorId, operatorId),
+            sql`${internalMessages.metadata}->>'type' = ${alertType}`,
+            convId
+              ? sql`${internalMessages.metadata}->>'conversationId' = ${convId}`
+              : sql`${internalMessages.metadata}->>'conversationId' IS NULL`,
+            gte(internalMessages.createdAt, windowStart)
+          )
+        )
+        .orderBy(desc(internalMessages.createdAt))
+        .limit(1);
+
+      if (existing.length > 0) {
+        // ── Agrupa no registro existente ──────────────────────────────────────
+        const newCount = (existing[0].repeatCount ?? 1) + 1;
+        await db
+          .update(internalMessages)
+          .set({ repeatCount: newCount, lastFiredAt: new Date(), content })
+          .where(eq(internalMessages.id, existing[0].id));
+
+        console.log(`[SupervisorEngine] Alerta agrupado (${alertType} ×${newCount}) conv=${convId ?? "N/A"}`);
+      } else {
+        // ── Novo evento — insere nova linha ───────────────────────────────────
+        await db.insert(internalMessages).values({
+          id: crypto.randomUUID(),
+          tenantId,
+          operatorId,
+          direction: "from_agent",
+          agentType: "supervisor",
+          content,
+          metadata,
+          createdAt: new Date(),
+          repeatCount: 1,
+          lastFiredAt: new Date(),
+        });
+
+        console.log(`[SupervisorEngine] Novo alerta (${alertType}) conv=${convId ?? "N/A"}`);
+      }
+
+      // SSE para atualizar a timeline em tempo real
       try {
         const { SessionManager } = await import("../baileys/session-manager");
-        
         SessionManager.getInstance().notifyPublic(tenantId, {
           type: "chat_updated",
-          chat: { id: metadata.conversationId || operatorId }
+          chat: { id: metadata.conversationId || operatorId },
         });
       } catch (sseErr) {
-        console.warn("[SupervisorEngine] Failsafe: Erro ao disparar SSE", sseErr);
+        console.warn("[SupervisorEngine] Failsafe SSE:", sseErr);
       }
-      
     } catch (dbErr) {
       console.error("[SupervisorEngine] Erro ao gravar internalMessage:", dbErr);
     }
