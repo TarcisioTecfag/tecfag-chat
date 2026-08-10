@@ -41,6 +41,9 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
   const activeTenant = tenant && tenant !== "undefined" && tenant !== "null" ? tenant : "valem";
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [isSynthing, setIsSynthing] = useState(false);
 
   // ── Fetch de dados da API ──
   const fetchReports = useCallback(async () => {
@@ -108,7 +111,6 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
     if (i < stageIndexMap.length - 1) {
       const nextStage = stageIndexMap[i + 1];
       setStage(nextStage);
-      // Persiste via API
       try {
         await fetch("/api/gestao/report-workflow", {
           method: "POST",
@@ -128,6 +130,8 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
 
   const reject = async () => {
     setStage("rascunho");
+    setIsSynthing(true);
+    setSendResult(null);
     try {
       await fetch("/api/gestao/report-workflow", {
         method: "POST",
@@ -142,7 +146,55 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
     } catch (e) {
       console.error("[ReportsIATab] Erro ao rejeitar:", e);
     }
+    // Aguarda ~12s e recarrega para mostrar a nova versão re-sintetizada
+    setTimeout(async () => {
+      await fetchReports();
+      setIsSynthing(false);
+    }, 12000);
   };
+
+  // Disparo manual à diretoria (Lacuna 1)
+  const dispatch = async () => {
+    if (!report || stage !== "aprovado" || isSending) return;
+    setIsSending(true);
+    setSendResult(null);
+    try {
+      const res = await fetch("/api/gestao/report-workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: activeTenant,
+          reportId: report.id,
+          action: "dispatch",
+          operatorId: "system",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStage("enviado");
+        const sent = [
+          ...(data.dispatch?.whatsappSent ?? []).map((n: string) => `WhatsApp: ${n}`),
+          ...(data.dispatch?.emailSent ?? []).map((e: string) => `E-mail: ${e}`),
+        ];
+        setSendResult({
+          ok: true,
+          msg: sent.length > 0
+            ? `Enviado para: ${sent.join(", ")}`
+            : "Enviado! Verifique os canais configurados.",
+        });
+      } else {
+        setSendResult({ ok: false, msg: data.error || "Erro ao enviar" });
+      }
+    } catch (e: any) {
+      setSendResult({ ok: false, msg: e.message || "Erro de rede" });
+      console.error("[ReportsIATab] Erro no dispatch:", e);
+    } finally {
+      setIsSending(false);
+      // Limpa o toast após 6s
+      setTimeout(() => setSendResult(null), 6000);
+    }
+  };
+
 
   // ── Feedback por seção ──
   const feedbackKey = (section: string) => `${report?.id}:${activeVersion}:${section}`;
@@ -330,12 +382,34 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
                       ))}
                     </div>
                     <div className="mt-4 flex flex-wrap items-center gap-2">
+                      {/* Toast de feedback do dispatch */}
+                      {sendResult && (
+                        <div className={`w-full rounded-lg px-3 py-2 text-xs font-medium mb-1 ${
+                          sendResult.ok
+                            ? "bg-positive/10 border border-positive/30 text-positive"
+                            : "bg-critical/10 border border-critical/30 text-critical"
+                        }`}>
+                          {sendResult.ok ? "✓ " : "✗ "}{sendResult.msg}
+                        </div>
+                      )}
+                      {/* Toast de re-síntese */}
+                      {isSynthing && (
+                        <div className="w-full rounded-lg px-3 py-2 text-xs font-medium mb-1 bg-primary/10 border border-primary/30 text-primary flex items-center gap-2">
+                          <span className="size-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                          Re-sintetizando com IA... nova versão em instantes.
+                        </div>
+                      )}
                       <button
-                        disabled={!canSend}
-                        title={canSend ? undefined : "Aprove o relatório antes de enviar"}
+                        disabled={stage !== "aprovado" || isSending}
+                        onClick={dispatch}
+                        title={stage !== "aprovado" ? "Aprove o relatório antes de enviar" : "Enviar agora à diretoria"}
                         className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        <Send className="size-4" /> Enviar à diretoria
+                        {isSending ? (
+                          <><span className="size-4 rounded-full border-2 border-white border-t-transparent animate-spin" /> Enviando...</>
+                        ) : (
+                          <><Send className="size-4" /> Enviar à diretoria</>
+                        )}
                       </button>
                       <button className="flex items-center gap-2 rounded-lg border border-border bg-card/60 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/40">
                         <Download className="size-4" /> Exportar PDF

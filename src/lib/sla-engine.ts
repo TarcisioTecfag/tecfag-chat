@@ -6,6 +6,9 @@
  *    quando o cliente aguarda mais do que o threshold configurado.
  *  - Job 2 (a cada 15min): Varre configurações de tenants e dispara relatórios
  *    analíticos executivos diários/semanais gerados por IA para WhatsApp e E-mail.
+ *
+ *  NOTA: O disparo real agora é delegado ao ReportDispatcher (report-dispatcher.ts).
+ *  Se config.reportRequiresApproval=true, o cron apenas salva o rascunho sem enviar.
  */
 
 import { db } from "../db";
@@ -204,10 +207,12 @@ export class SlaEngine {
   /**
    * Reúne dados consolidados do período, invoca a IA para gerar o relatório Markdown
    * e envia por e-mail (SMTP) e/ou WhatsApp (Baileys/Meta) para múltiplos destinatários.
+   * Se config.reportRequiresApproval=true, apenas salva o rascunho sem enviar.
    */
   private async generateAndSendReport(tenantId: string, type: "daily" | "weekly", period: string, config: any) {
     try {
       const { buildStoredReport, buildMarkdownFromStoredReport } = await import("./report-builder");
+      const { ReportDispatcher } = await import("./report-dispatcher");
 
       const now = new Date();
       console.log(`[SlaEngine] Construindo relatório v2 (${type}) para ${tenantId}...`);
@@ -223,7 +228,7 @@ export class SlaEngine {
         type,
         period,
         reportMarkdown: markdownReport,
-        reportData: storedReport as any, // StoredReport completo no JSONB
+        reportData: storedReport as any,
         stage: "rascunho",
         currentVersion: "v1",
         headline: storedReport.headline,
@@ -248,112 +253,35 @@ export class SlaEngine {
 
       console.log(`[SlaEngine] ✓ Relatório v2 salvo em ai_reports (${reportId})`);
 
-      // ── Disparo automático (modo legado — sem fluxo de aprovação) ──
-      // TODO: Quando approval_required for implementado, verificar config.approvalRequired
-      // Por enquanto, mantém o envio automático para manter compatibilidade
-
-      // Disparo por WhatsApp para Múltiplos Contatos
-      const wantWhatsapp = (type === "daily" && config.reportDailyWhatsapp) || (type === "weekly" && config.reportWeeklyWhatsapp);
-      if (wantWhatsapp && config.reportWhatsappNumbers) {
-        const numbers = config.reportWhatsappNumbers.split(",").map((n: string) => n.trim()).filter(Boolean);
-        const whatsappText = `📊 *VALEM CHAT — RELATÓRIO ${type === "weekly" ? "SEMANAL" : "DIÁRIO"} DE PERFORMANCE*\n\nPeríodo: ${period}\n\n*Resumo dos KPIs:*\n• Total de Conversas: ${storedReport.kpis.volume}\n• SLA Cumprido: ${storedReport.kpis.sla}%\n• Tempo Médio de Resposta: ${storedReport.kpis.frt}s\n• Score Geral da Equipe: ${storedReport.kpis.qa}/10\n• Clientes Satisfeitos: ${storedReport.kpis.satisfied}%\n\n_Acesse o painel administrativo para visualizar o relatório completo gerado por Inteligência Artificial._`;
-
-        await this.sendReportViaWhatsapp(tenantId, numbers, whatsappText);
+      // ── Disparo: só envia se NÃO exigir aprovação humana ──
+      if (config.reportRequiresApproval) {
+        console.log(`[SlaEngine] Modo aprovacão ativo: relatório ${reportId} aguardando aprovação humana. Envio suspenso.`);
+        return;
       }
 
-      // Disparo por E-mail SMTP para Múltiplos Contatos
-      const wantEmail = (type === "daily" && config.reportDailyEmail) || (type === "weekly" && config.reportWeeklyEmail);
-      if (wantEmail && config.reportEmailAddresses && config.smtpHost && config.smtpPort) {
-        const emails = config.reportEmailAddresses.split(",").map((e: string) => e.trim()).filter(Boolean);
-        const subject = `Valem Chat — Relatório ${type === "weekly" ? "Semanal" : "Diário"} de Performance (${period})`;
+      // Disparo automático via ReportDispatcher
+      const dispatchResult = await ReportDispatcher.dispatch(tenantId, storedReport, markdownReport);
 
-        const html = `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff;">
-            <h2 style="color: #6366f1; font-weight: 800; margin-bottom: 5px;">Valem Chat & BI</h2>
-            <p style="color: #64748b; font-size: 13px; margin-top: 0;">Relatório de Performance Executiva (${type === "weekly" ? "Semanal" : "Diário"})</p>
-            <p style="font-size: 14px;">Período: <strong>${period}</strong></p>
-            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-            <div style="font-size: 14px; line-height: 1.6; color: #1e293b;">
-              ${markdownReport
-                .replace(/\n/g, "<br/>")
-                .replace(/### (.*)/g, "<h4 style='color: #4f46e5; margin: 15px 0 5px 0;'>$1</h4>")
-                .replace(/## (.*)/g, "<h3 style='color: #6366f1; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin: 20px 0 10px 0;'>$1</h3>")
-                .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-                .replace(/>\s*\[!NOTE\](.*)/gi, "<div style='background-color: #f8fafc; border-left: 4px solid #6366f1; padding: 12px; margin: 15px 0; border-radius: 6px; color: #334155;'><strong>Recomendação da IA:</strong>$1</div>")
-              }
-            </div>
-            <div style="margin-top: 30px; font-size: 11px; text-align: center; color: #94a3b8; border-t: 1px solid #eee; padding-top: 15px;">
-              Este é um e-mail automático disparado pelo motor analítico do Valem Chat.
-            </div>
-          </div>
-        `;
-
-        await this.sendReportViaEmail(emails, subject, html, config);
+      if (dispatchResult.whatsappSent.length > 0) {
+        console.log(`[SlaEngine] ✓ WhatsApp enviado para: ${dispatchResult.whatsappSent.join(", ")}`);
       }
+      if (dispatchResult.emailSent.length > 0) {
+        console.log(`[SlaEngine] ✓ E-mail enviado para: ${dispatchResult.emailSent.join(", ")}`);
+      }
+      if (dispatchResult.errors.length > 0) {
+        console.error(`[SlaEngine] Erros no dispatch:`, dispatchResult.errors);
+      }
+      if (dispatchResult.skipped.length > 0) {
+        console.log(`[SlaEngine] Dispatch pulado: ${dispatchResult.skipped.join("; ")}`);
+      }
+
+      // Marca como enviado se ao menos um canal disparou
+      if (dispatchResult.whatsappSent.length > 0 || dispatchResult.emailSent.length > 0) {
+        await ReportDispatcher.markAsEnviado(reportId, tenantId);
+      }
+
     } catch (e: any) {
       console.error("[SlaEngine] Erro fatal no gerador de relatório v2:", e.message);
-    }
-  }
-
-  /**
-   * Envia o texto de WhatsApp para uma lista de telefones.
-   */
-  private async sendReportViaWhatsapp(tenantId: string, numbers: string[], text: string) {
-    if (tenantId === "valem") {
-      try {
-        const { SessionManager, resolveRealJid } = await import("./baileys/session-manager");
-        const sessionManager = SessionManager.getInstance();
-        const sock = sessionManager.getSession(tenantId);
-
-        if (sock && sessionManager.getStatus(tenantId) === "connected") {
-          for (const num of numbers) {
-            try {
-              const jid = await resolveRealJid(sock, num);
-              if (jid) {
-                await sock.sendMessage(jid, { text });
-                console.log(`[SlaEngine] WhatsApp de relatório enviado para o número ${num}`);
-              }
-            } catch (err: any) {
-              console.error(`[SlaEngine] Erro ao enviar WhatsApp para ${num}:`, err.message);
-            }
-          }
-        } else {
-          console.warn("[SlaEngine] Sessão Baileys não ativa. Relatório WhatsApp pulado.");
-        }
-      } catch (err: any) {
-        console.error("[SlaEngine] Erro ao carregar dependência do Baileys:", err.message);
-      }
-    } else {
-      console.log(`[SlaEngine] [MOCK Meta API Send] WhatsApp de relatório para ${numbers.join(", ")}`);
-    }
-  }
-
-  /**
-   * Envia o corpo HTML de e-mail por SMTP.
-   */
-  private async sendReportViaEmail(emails: string[], subject: string, html: string, config: any) {
-    try {
-      const nodemailer = await import("nodemailer");
-      const transporter = nodemailer.createTransport({
-        host: config.smtpHost,
-        port: parseInt(config.smtpPort),
-        secure: parseInt(config.smtpPort) === 465,
-        auth: {
-          user: config.smtpUser,
-          pass: config.smtpPass,
-        },
-      });
-
-      const info = await transporter.sendMail({
-        from: config.smtpFrom || config.smtpUser,
-        to: emails.join(", "),
-        subject,
-        html,
-      });
-
-      console.log(`[SlaEngine] E-mail de relatório enviado: ${info.messageId}`);
-    } catch (err: any) {
-      console.error("[SlaEngine] Erro ao enviar SMTP real:", err.message);
     }
   }
 

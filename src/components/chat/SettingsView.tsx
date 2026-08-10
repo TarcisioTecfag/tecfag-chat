@@ -41,6 +41,7 @@ export function SettingsView() {
     smtpUser: "",
     smtpPass: "",
     smtpFrom: "",
+    reportRequiresApproval: false,
   });
   const [loadingReports, setLoadingReports] = useState(false);
   const [isReportSaved, setIsReportSaved] = useState(false);
@@ -66,6 +67,7 @@ export function SettingsView() {
             smtpUser: data.smtpUser || "",
             smtpPass: data.smtpPass || "",
             smtpFrom: data.smtpFrom || "",
+            reportRequiresApproval: !!data.reportRequiresApproval,
           });
         }
       } catch (e) {
@@ -774,7 +776,45 @@ export function SettingsView() {
                     </button>
                   </div>
                 </div>
+
+                {/* Card 5: Gate de Aprovação Obrigatória */}
+                <div className={`rounded-2xl border p-5 transition-all shadow-soft flex items-center justify-between col-span-full mt-2 ${
+                  reportForm.reportRequiresApproval
+                    ? "bg-violet-500/5 border-violet-500/30 dark:bg-violet-500/10"
+                    : "bg-card border-border"
+                }`}>
+                  <div className="flex items-start gap-3.5">
+                    <div className="p-2.5 rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400 mt-0.5">
+                      <Shield className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h5 className="text-xs font-extrabold text-foreground">Exigir aprovação antes de enviar</h5>
+                        <span className="px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-400 text-[10px] font-bold">
+                          Aprovação Humana
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed max-w-xl">
+                        Quando ativo, o cron das 18h apenas gera o rascunho — <strong>não envia automaticamente</strong>.
+                        O relatório fica aguardando aprovação no painel antes do disparo para WhatsApp e E-mail.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setReportForm({ ...reportForm, reportRequiresApproval: !reportForm.reportRequiresApproval })}
+                    className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out cursor-pointer shrink-0 ml-4 ${
+                      reportForm.reportRequiresApproval ? "bg-violet-500" : "bg-muted border border-border"
+                    }`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-in-out ${
+                      reportForm.reportRequiresApproval ? "translate-x-6" : "translate-x-0"
+                    }`} />
+                  </button>
+                </div>
               </div>
+
 
               {/* Destinatários Configurados */}
               <div className="rounded-2xl bg-card border border-border p-6 shadow-soft space-y-4">

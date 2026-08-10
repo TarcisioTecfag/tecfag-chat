@@ -12,9 +12,9 @@
  *  5. Monta o StoredReport completo
  */
 
-import { and, eq, gte, lt } from "drizzle-orm";
+import { and, eq, gte, lt, desc } from "drizzle-orm";
 import { db } from "../db";
-import { conversations, responseTimeLogs, aiConversationAudits } from "../db/schema";
+import { conversations, responseTimeLogs, aiConversationAudits, aiReportFeedback } from "../db/schema";
 
 // ── Tipos compatíveis com o frontend (importados de @/data/reports no front) ──
 
@@ -244,6 +244,64 @@ async function buildVolumeSeries(tenantId: string, start: Date, end: Date, type:
   }
 }
 
+// ── Feedback Context (aprendizado das avaliações anteriores) ────────────────
+
+async function fetchFeedbackContext(tenantId: string): Promise<string> {
+  try {
+    const feedbacks = await db
+      .select()
+      .from(aiReportFeedback)
+      .where(eq(aiReportFeedback.tenantId, tenantId))
+      .orderBy(desc(aiReportFeedback.createdAt))
+      .limit(50);
+
+    if (feedbacks.length === 0) return "";
+
+    // Agrupa por sectionId
+    const bySection = new Map<string, { up: number; down: number; comments: string[] }>();
+    for (const fb of feedbacks) {
+      const key = fb.sectionId;
+      if (!bySection.has(key)) bySection.set(key, { up: 0, down: 0, comments: [] });
+      const s = bySection.get(key)!;
+      if (fb.vote === "up") s.up++;
+      if (fb.vote === "down") s.down++;
+      if (fb.comment && fb.comment.trim()) s.comments.push(fb.comment.trim());
+    }
+
+    const sectionLabels: Record<string, string> = {
+      resumo: "Resumo executivo",
+      volume: "Distribuição de volume",
+      destaques: "Destaques positivos",
+      sentimento: "Sentimento do cliente",
+      gaps: "Oportunidades de melhoria",
+      acoes: "Plano de ação",
+    };
+
+    const lines: string[] = ["Contexto de aprendizado baseado no feedback dos operadores nos últimos relatórios:"];
+    for (const [sectionId, stats] of bySection.entries()) {
+      const label = sectionLabels[sectionId] ?? sectionId;
+      const totalVotes = stats.up + stats.down;
+      if (totalVotes === 0) continue;
+      const approval = Math.round((stats.up / totalVotes) * 100);
+      let line = `- "${label}": ${stats.up} 👍 / ${stats.down} 👎 (${approval}% aprovação)`;
+      if (stats.comments.length > 0) {
+        line += `. Comentários: "${stats.comments.slice(0, 2).join('"; "')}"}`;
+      }
+      lines.push(line);
+    }
+
+    lines.push(
+      "\nAjuste as seções com baixa aprovação para atender às expectativas da equipe de operações." +
+      " Seja mais específico e use números reais nas seções críticas."
+    );
+
+    return lines.join("\n");
+  } catch (e: any) {
+    console.warn("[ReportBuilder] Não foi possível carregar feedback context:", e?.message);
+    return "";
+  }
+}
+
 // ── Chamada Vertex AI ───────────────────────────────────────────────────────
 
 type AiAnalysis = {
@@ -265,6 +323,9 @@ async function generateAiAnalysis(
   try {
     const { vertexAi } = await import("./vertex-ai");
 
+    // Carrega contexto de feedback das versões anteriores para aprendizado contínuo
+    const feedbackContext = await fetchFeedbackContext(tenantId);
+
     const prompt = `Você é a IA analítica de BI da operação de atendimento. Analise os dados do período e retorne um JSON com análise executiva em português brasileiro.
 
 Dados do período ${type === "weekly" ? "semanal" : "diário"} (${period}):
@@ -273,7 +334,7 @@ Dados do período ${type === "weekly" ? "semanal" : "diário"} (${period}):
 - Tempo médio 1ª resposta: ${current.frt}s (anterior: ${previous.frt}s)
 - Nota QA: ${current.qa}/10 (anterior: ${previous.qa}/10)
 - Clientes satisfeitos: ${current.satisfied}% (anterior: ${previous.satisfied}%)
-- Auditorias realizadas: ${current.totalAudits}
+- Auditorias realizadas: ${current.totalAudits}${feedbackContext ? `\n\n${feedbackContext}` : ""}
 
 Retorne EXATAMENTE este formato JSON (sem markdown, sem backticks):
 {

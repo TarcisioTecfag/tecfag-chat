@@ -33,6 +33,9 @@ export const channelConfigs = pgTable("channel_configs", {
   reportWeeklyEmail: boolean("report_weekly_email").default(false).notNull(),
   reportWhatsappNumbers: text("report_whatsapp_numbers"),
   reportEmailAddresses: text("report_email_addresses"),
+  // Aprovação obrigatória antes do envio: se true, o cron apenas gera o rascunho
+  // e aguarda aprovação manual do operador para disparar.
+  reportRequiresApproval: boolean("report_requires_approval").default(false).notNull(),
 
   // Configurações de E-mail SMTP
   smtpHost: text("smtp_host"),
