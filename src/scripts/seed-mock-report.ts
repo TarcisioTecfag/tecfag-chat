@@ -1,239 +1,258 @@
 /**
- * seed-mock-report.ts — Insere um relatório mock v2 para validação visual
+ * seed-mock-report.ts — Insere relatórios mock v2 (diários e semanais) para valem e tecfag
  *
- * Executar com: npx tsx src/scripts/seed-mock-report.ts
+ * Executar com: npx tsx --env-file=.env src/scripts/seed-mock-report.ts
  */
 
 import { db } from "../db";
 import { aiReports, aiReportVersions } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 
-const now = new Date();
 const pad = (n: number) => String(n).padStart(2, "0");
-const fmtBR = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
-const fmtBRTime = `${fmtBR}, ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-const dateIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+const MONTH_NAMES = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+];
 
-const mockReport = {
-  id: `d-${dateIso}`,
-  kind: "Diário" as const,
-  code: dateIso,
-  date: dateIso,
-  period: `${pad(now.getDate())} de agosto de ${now.getFullYear()}`,
-  generatedAt: fmtBR,
-  syncedAt: fmtBRTime,
-  confidence: 93,
-  headline: "Operação estável com SLA de 94,2% — volume 18% acima da média semanal",
-  summary: "A operação registrou 47 conversas no período, superando a média semanal de 39,8 atendimentos. O SLA ficou em 94,2%, acima da meta de 92%. O tempo médio de primeira resposta caiu para 1m 42s, reflexo da escalação matutina reforçada. O sentimento predominante foi positivo (72% satisfeitos), com queda de 3pp nos clientes frustrados.",
-  metrics: [
-    {
-      label: "Conversas atendidas",
-      value: "47",
-      delta: 18.3,
-      deltaLabel: "vs. dia anterior",
-      goodWhen: "up" as const,
+function buildReport(kind: "Diário" | "Semanal", dateOffsetDays: number, tenant: string) {
+  const d = new Date();
+  d.setDate(d.getDate() - dateOffsetDays);
+
+  const dateIso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const fmtBR = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  const fmtBRTime = `${fmtBR}, 18:00`;
+  const periodLabel = kind === "Diário"
+    ? `${pad(d.getDate())} de ${MONTH_NAMES[d.getMonth()]} de ${d.getFullYear()}`
+    : `Semana ${pad(d.getDate())} a ${pad(d.getDate() + 6)} de ${MONTH_NAMES[d.getMonth()]} de ${d.getFullYear()}`;
+
+  const reportId = kind === "Diário" ? `d-${dateIso}` : `2026-W32-${tenant}`;
+  const code = kind === "Diário" ? dateIso : `2026-W32`;
+
+  const isValem = tenant === "valem";
+  const companyName = isValem ? "Valem Válvulas e Embalagens" : "Tecfag Informática";
+  const personaName = isValem ? "Valentina (SDR)" : "Fagner (Suporte Técnico)";
+
+  const volume = isValem ? 47 - dateOffsetDays * 3 : 32 - dateOffsetDays * 2;
+  const sla = Number((94.2 - dateOffsetDays * 0.8).toFixed(1));
+  const frtSeconds = 102 + dateOffsetDays * 15;
+  const frtText = `${Math.floor(frtSeconds / 60)}m ${frtSeconds % 60}s`;
+  const qa = Number((8.7 - dateOffsetDays * 0.2).toFixed(1));
+  const satisfied = 72 - dateOffsetDays * 2;
+  const neutral = 19 + dateOffsetDays;
+  const frustrated = 100 - satisfied - neutral;
+
+  return {
+    id: reportId,
+    kind,
+    code,
+    date: dateIso,
+    period: periodLabel,
+    generatedAt: fmtBR,
+    syncedAt: fmtBRTime,
+    confidence: 93 - dateOffsetDays,
+    headline: kind === "Diário"
+      ? `Operação ${companyName} estável com SLA de ${sla}% — volume ${18 - dateOffsetDays * 2}% acima da média`
+      : `Balanço Semanal ${companyName}: SLA consolidado em ${sla}% com 240+ atendimentos`,
+    summary: `A operação da ${companyName} registrou ${volume} conversas no período (${kind.toLowerCase()}). O SLA de resposta ficou em ${sla}%, superando a meta estabelecida de 92%. O tempo médio de primeira resposta pelo agente ${personaName} foi de ${frtText}. O índice de satisfação do cliente fechou em ${satisfied}% com nota média de QA de ${qa}/10.`,
+    metrics: [
+      {
+        label: "Conversas atendidas",
+        value: String(volume),
+        delta: Number((18.3 - dateOffsetDays * 1.5).toFixed(1)),
+        deltaLabel: kind === "Diário" ? "vs. dia anterior" : "vs. semana anterior",
+        goodWhen: "up" as const,
+      },
+      {
+        label: "1ª resposta (média)",
+        value: frtText,
+        delta: Number((-12.1 + dateOffsetDays * 2).toFixed(1)),
+        deltaLabel: kind === "Diário" ? "vs. dia anterior" : "vs. semana anterior",
+        goodWhen: "down" as const,
+        target: "Meta 15m",
+      },
+      {
+        label: "SLA cumprido",
+        value: String(sla).replace(".", ","),
+        unit: "%",
+        delta: Number((2.4 - dateOffsetDays * 0.5).toFixed(1)),
+        goodWhen: "up" as const,
+        progress: sla,
+        target: "Meta 92%",
+      },
+      {
+        label: "Nota média de QA",
+        value: String(qa).replace(".", ","),
+        unit: "/10",
+        delta: 1.2,
+        goodWhen: "up" as const,
+        progress: qa * 10,
+      },
+    ],
+    sentiment: [
+      { label: "Satisfeito", value: satisfied, signal: "positive" as const },
+      { label: "Neutro", value: neutral, signal: "info" as const },
+      { label: "Frustrado", value: frustrated, signal: "critical" as const },
+    ],
+    volumeSeries: kind === "Diário" ? [
+      { label: "08h", value: Math.round(volume * 0.08) },
+      { label: "10h", value: Math.round(volume * 0.20) },
+      { label: "12h", value: Math.round(volume * 0.28) },
+      { label: "14h", value: Math.round(volume * 0.22) },
+      { label: "16h", value: Math.round(volume * 0.14) },
+      { label: "18h", value: Math.round(volume * 0.08) },
+    ] : [
+      { label: "Seg", value: 45 },
+      { label: "Ter", value: 52 },
+      { label: "Qua", value: 48 },
+      { label: "Qui", value: 50 },
+      { label: "Sex", value: 41 },
+      { label: "Sáb", value: 12 },
+    ],
+    highlights: [
+      {
+        title: "SLA acima da meta de 92%",
+        detail: `A equipe manteve ${sla}% de conformidade, demonstrando alta eficiência no atendimento.`,
+        signal: "positive" as const,
+        tag: "Processo",
+        impact: `+${(sla - 92).toFixed(1)}pp acima da meta`,
+      },
+      {
+        title: "Redução no tempo de 1ª resposta",
+        detail: `Tempo médio de primeira resposta fixado em ${frtText}, garantindo resposta rápida aos leads.`,
+        signal: "positive" as const,
+        tag: "Suporte",
+        impact: "FRT 35% abaixo do limite SLA",
+      },
+    ],
+    gaps: [
+      {
+        title: "Objeções comerciais necessitando atenção",
+        detail: "Identificados leads qualificados que levantaram dúvidas sobre prazos de entrega não sanadas imediatamente.",
+        signal: "warning" as const,
+        tag: "Comercial",
+        impact: "Risco de fricção na conversão",
+      },
+    ],
+    actions: [
+      {
+        title: "Reforço no alinhamento de prazos",
+        detail: "Orientações para a equipe responder prontamente sobre prazos de entrega no primeiro contato.",
+        owner: "Supervisão Operacional",
+        horizon: "Esta semana",
+        priority: "Alta" as const,
+        expected: "Manter SLA > 92% e conversão alta",
+      },
+    ],
+    sources: [
+      `${volume} conversas`,
+      `${Math.round(volume * 0.3)} auditorias QA`,
+      "SLA em tempo real",
+      "Sentimento IA",
+    ],
+    stage: (dateOffsetDays === 0 ? "rascunho" : dateOffsetDays === 1 ? "revisao" : "aprovado") as const,
+    currentVersion: "v1",
+    versions: [
+      {
+        version: "v1",
+        createdAt: fmtBRTime,
+        author: "IA · sla_advisor",
+        note: "Síntese automática de BI gerada pela IA.",
+        stage: (dateOffsetDays === 0 ? "rascunho" : dateOffsetDays === 1 ? "revisao" : "aprovado") as const,
+      },
+    ],
+    review: [
+      { role: "Geração", name: "IA · Gemini 2.5 Pro", stage: "rascunho" as const, at: fmtBRTime },
+      { role: "Revisão operacional", name: "Supervisor", stage: "revisao" as const },
+      { role: "Aprovação executiva", name: "Administrador", stage: "aprovado" as const },
+      { role: "Distribuição", name: "Diretoria · WhatsApp + e-mail", stage: "enviado" as const },
+    ],
+    themes: ["Comercial", "Processo"],
+    kpis: {
+      volume,
+      sla,
+      frt: frtSeconds,
+      qa,
+      satisfied,
     },
-    {
-      label: "1ª resposta (média)",
-      value: "1m 42s",
-      delta: -12.1,
-      deltaLabel: "vs. dia anterior",
-      goodWhen: "down" as const,
-      target: "Meta 15m",
-    },
-    {
-      label: "SLA cumprido",
-      value: "94,2",
-      unit: "%",
-      delta: 2.4,
-      goodWhen: "up" as const,
-      progress: 94.2,
-      target: "Meta 92%",
-    },
-    {
-      label: "Nota média de QA",
-      value: "8,7",
-      unit: "/10",
-      delta: 1.2,
-      goodWhen: "up" as const,
-      progress: 87,
-    },
-  ],
-  sentiment: [
-    { label: "Satisfeito", value: 72, signal: "positive" as const },
-    { label: "Neutro", value: 19, signal: "info" as const },
-    { label: "Frustrado", value: 9, signal: "critical" as const },
-  ],
-  volumeSeries: [
-    { label: "08h", value: 3 },
-    { label: "10h", value: 8 },
-    { label: "12h", value: 12 },
-    { label: "14h", value: 9 },
-    { label: "16h", value: 7 },
-    { label: "18h", value: 5 },
-    { label: "20h", value: 3 },
-  ],
-  highlights: [
-    {
-      title: "SLA acima da meta pelo 3º dia consecutivo",
-      detail: "A equipe manteve 94,2% de conformidade, refletindo a melhoria no escalonamento de turnos implementada na segunda-feira.",
-      signal: "positive" as const,
-      tag: "Processo",
-      impact: "+2,4pp acima da meta de 92%",
-    },
-    {
-      title: "Redução significativa no tempo de 1ª resposta",
-      detail: "O FRT caiu 12% comparado ao dia anterior (1m 42s vs. 1m 56s), indicando efetividade do reforço matutino.",
-      signal: "positive" as const,
-      tag: "Suporte",
-      impact: "FRT 32% abaixo do limite SLA",
-    },
-    {
-      title: "Volume de conversas 18% acima da média",
-      detail: "47 conversas atendidas contra média semanal de 39,8. A campanha promocional de agosto está gerando tráfego incremental.",
-      signal: "positive" as const,
-      tag: "Comercial",
-      impact: "+7,2 conversas/dia vs. média",
-    },
-  ],
-  gaps: [
-    {
-      title: "3 objeções comerciais não tratadas",
-      detail: "A IA detectou que 3 leads com interesse em válvulas aerossol mencionaram preocupação com prazo de entrega, mas os operadores não abordaram a objeção diretamente.",
-      signal: "warning" as const,
-      tag: "Comercial",
-      impact: "Potencial perda de R$ 12.400 em pedidos",
-    },
-    {
-      title: "2 atendimentos encerrados sem follow-up",
-      detail: "Conversas #4821 e #4837 foram finalizadas sem agendamento de próximo contato. Ambas eram leads qualificados pelo SDR.",
-      signal: "critical" as const,
-      tag: "Processo",
-      impact: "2 oportunidades em risco de churn",
-    },
-  ],
-  actions: [
-    {
-      title: "Treinamento relâmpago: tratamento de objeções de prazo",
-      detail: "Realizar sessão de 15 minutos com a equipe de vendas sobre como responder objeções de prazo usando o script de urgência + garantia.",
-      owner: "Supervisão Comercial",
-      horizon: "Amanhã",
-      priority: "Alta" as const,
-      expected: "Reduzir objeções não tratadas para zero nos próximos 5 dias",
-    },
-    {
-      title: "Implementar checklist de encerramento obrigatório",
-      detail: "Adicionar validação no sistema que impede finalizar conversa sem registrar próximo passo quando o lead é qualificado.",
-      owner: "Supervisão Operacional",
-      horizon: "Esta semana",
-      priority: "Crítica" as const,
-      expected: "Eliminar 100% dos encerramentos sem follow-up",
-    },
-    {
-      title: "Monitorar impacto da campanha de agosto no volume",
-      detail: "O volume está 18% acima da média. Se a tendência se mantiver, considerar escalar mais um operador para o turno da tarde.",
-      owner: "Gerência de Operações",
-      horizon: "Próximo ciclo",
-      priority: "Média" as const,
-      expected: "Manter SLA acima de 92% mesmo com volume crescente",
-    },
-  ],
-  sources: [
-    "47 conversas",
-    "12 auditorias de QA",
-    "SLA do dia",
-    "Sentimento por IA",
-  ],
-  stage: "rascunho" as const,
-  currentVersion: "v1",
-  versions: [
-    {
-      version: "v1",
-      createdAt: fmtBRTime,
-      author: "IA · sla_advisor",
-      note: "Primeira síntese automática do ciclo.",
-      stage: "rascunho" as const,
-    },
-  ],
-  review: [
-    { role: "Geração", name: "IA · Gemini 2.5 Pro", stage: "rascunho" as const, at: fmtBRTime },
-    { role: "Revisão operacional", name: "Supervisor", stage: "revisao" as const },
-    { role: "Aprovação executiva", name: "Administrador", stage: "aprovado" as const },
-    { role: "Distribuição", name: "Diretoria · WhatsApp + e-mail", stage: "enviado" as const },
-  ],
-  themes: ["Comercial", "Processo"],
-  kpis: {
-    volume: 47,
-    sla: 94.2,
-    frt: 102,
-    qa: 8.7,
-    satisfied: 72,
-  },
-  feedbackSummary: { up: 0, down: 0, comments: 0 },
-};
+    feedbackSummary: { up: 2, down: 0, comments: 1 },
+  };
+}
 
 async function seed() {
-  const tenantId = "valem";
-  const reportId = mockReport.id;
+  const tenants = ["valem", "tecfag"];
 
-  console.log(`[Seed] Inserindo relatório mock "${reportId}" para tenant "${tenantId}"...`);
+  for (const tenantId of tenants) {
+    console.log(`\n[Seed] Processando tenant: ${tenantId.toUpperCase()}`);
 
-  // Verifica se já existe para evitar duplicata
-  const existing = await db.select().from(aiReports).where(
-    and(
-      eq(aiReports.id, reportId),
-      eq(aiReports.tenantId, tenantId),
-    )
-  );
+    // Gera 4 diários e 1 semanal
+    const reportsToInsert = [
+      { kind: "Diário" as const, offset: 0 },
+      { kind: "Diário" as const, offset: 1 },
+      { kind: "Diário" as const, offset: 2 },
+      { kind: "Diário" as const, offset: 3 },
+      { kind: "Semanal" as const, offset: 0 },
+    ];
 
-  if (existing.length > 0) {
-    console.log(`[Seed] ⚠ Relatório "${reportId}" já existe. Atualizando...`);
-    await db.update(aiReports)
-      .set({
-        reportData: mockReport as any,
-        headline: mockReport.headline,
-        summary: mockReport.summary,
-        confidence: mockReport.confidence,
-        stage: "rascunho",
-        currentVersion: "v1",
-      })
-      .where(eq(aiReports.id, reportId));
-  } else {
-    await db.insert(aiReports).values({
-      id: reportId,
-      tenantId,
-      type: "daily",
-      period: dateIso,
-      reportMarkdown: "## Mock Report\nEste é um relatório de teste.",
-      reportData: mockReport as any,
-      stage: "rascunho",
-      currentVersion: "v1",
-      headline: mockReport.headline,
-      summary: mockReport.summary,
-      confidence: mockReport.confidence,
-      generatedAt: now,
-    });
+    for (const item of reportsToInsert) {
+      const rep = buildReport(item.kind, item.offset, tenantId);
+      const reportId = `${rep.id}-${tenantId}`;
+      rep.id = reportId;
 
-    // Cria versão v1
-    await db.insert(aiReportVersions).values({
-      id: `rev-mock-${Date.now()}`,
-      reportId,
-      tenantId,
-      version: "v1",
-      createdAt: fmtBRTime,
-      author: "IA · sla_advisor",
-      note: "Primeira síntese automática do ciclo.",
-      stage: "rascunho",
-      reportData: mockReport as any,
-    });
+      console.log(`[Seed] Inserindo/atualizando relatório "${reportId}" (${rep.kind}) ...`);
+
+      const existing = await db
+        .select()
+        .from(aiReports)
+        .where(and(eq(aiReports.id, reportId), eq(aiReports.tenantId, tenantId)));
+
+      if (existing.length > 0) {
+        await db
+          .update(aiReports)
+          .set({
+            reportData: rep as any,
+            headline: rep.headline,
+            summary: rep.summary,
+            confidence: rep.confidence,
+            stage: rep.stage,
+            currentVersion: rep.currentVersion,
+          })
+          .where(eq(aiReports.id, reportId));
+      } else {
+        await db.insert(aiReports).values({
+          id: reportId,
+          tenantId,
+          type: item.kind === "Diário" ? "daily" : "weekly",
+          period: rep.code,
+          reportMarkdown: `## Relatório ${rep.kind}\n${rep.summary}`,
+          reportData: rep as any,
+          stage: rep.stage,
+          currentVersion: rep.currentVersion,
+          headline: rep.headline,
+          summary: rep.summary,
+          confidence: rep.confidence,
+          generatedAt: new Date(Date.now() - item.offset * 86400000),
+        });
+
+        await db.insert(aiReportVersions).values({
+          id: `rev-${reportId}-v1`,
+          reportId,
+          tenantId,
+          version: "v1",
+          createdAt: rep.syncedAt,
+          author: "IA · sla_advisor",
+          note: "Síntese automática gerada pela IA.",
+          stage: rep.stage,
+          reportData: rep as any,
+        });
+      }
+    }
   }
 
-  console.log(`[Seed] ✅ Relatório mock inserido com sucesso!`);
-  console.log(`[Seed] → Abra o painel > Estatísticas > aba "Relatórios IA" para visualizar.`);
+  console.log("\n[Seed] ✅ Relatórios mock inseridos com sucesso para AMBOS os tenants (valem & tecfag)!");
   process.exit(0);
 }
 
 seed().catch((e) => {
-  console.error("[Seed] ❌ Erro:", e);
+  console.error("[Seed] ❌ Erro ao popular relatórios mock:", e);
   process.exit(1);
 });
