@@ -180,7 +180,9 @@ function startStreamingPipeline(
           if (sentence) {
             firstSentenceResolved = true;
             buffer.firstSentence = sentence;
-            firstSentenceResolve?.(sentence);
+            if (typeof firstSentenceResolve === "function") {
+              (firstSentenceResolve as (s: string | null) => void)(sentence);
+            }
           }
         }
       }
@@ -188,13 +190,17 @@ function startStreamingPipeline(
       console.error("[VoiceStream] Erro no streaming:", e?.message ?? e);
       if (!firstSentenceResolved) {
         firstSentenceResolved = true;
-        firstSentenceResolve?.(buffer.accumulated.trim() || null);
+        if (typeof firstSentenceResolve === "function") {
+          (firstSentenceResolve as (s: string | null) => void)(buffer.accumulated.trim() || null);
+        }
       }
     } finally {
       // Se nunca resolvemos a 1ª frase, resolve com o que tiver
       if (!firstSentenceResolved) {
         firstSentenceResolved = true;
-        firstSentenceResolve?.(buffer.accumulated.trim() || null);
+        if (typeof firstSentenceResolve === "function") {
+          (firstSentenceResolve as (s: string | null) => void)(buffer.accumulated.trim() || null);
+        }
       }
       buffer.notifyDone();
       console.log(

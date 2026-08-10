@@ -465,6 +465,65 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 25. VOICE CALLS (Módulo de Voz & Ligações Twilio/Valentina) ──────────────
+export const voiceCalls = pgTable("voice_calls", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  callSid: text("call_sid").notNull().unique(),
+  contactId: text("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  fromNumber: text("from_number").notNull(),
+  toNumber: text("to_number").notNull(),
+  direction: text("direction").default("inbound").notNull(), // 'inbound' | 'outbound'
+  status: text("status").default("active").notNull(), // 'active' | 'completed' | 'failed' | 'no-answer'
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  durationSeconds: integer("duration_seconds").default(0).notNull(),
+  sentiment: text("sentiment").default("neutral"), // 'positive' | 'neutral' | 'negative'
+  summary: text("summary"),
+  extractedInfo: jsonb("extracted_info").default({}).notNull(), // { nome, empresa, interesse, objecoes, proximo_passo }
+  campaignId: text("campaign_id"), // Referência opcional para voiceCampaigns
+  transcriptDone: boolean("transcript_done").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const voiceCallMessages = pgTable("voice_call_messages", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  callId: text("call_id").references(() => voiceCalls.id, { onDelete: "cascade" }).notNull(),
+  role: text("role").notNull(), // 'user' | 'assistant'
+  content: text("content").notNull(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
+export const voiceCampaigns = pgTable("voice_campaigns", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  status: text("status").default("draft").notNull(), // 'draft' | 'running' | 'paused' | 'completed' | 'cancelled'
+  totalLeads: integer("total_leads").default(0).notNull(),
+  calledLeads: integer("called_leads").default(0).notNull(),
+  qualifiedLeads: integer("qualified_leads").default(0).notNull(),
+  intervalSeconds: integer("interval_seconds").default(30).notNull(),
+  maxAttempts: integer("max_attempts").default(2).notNull(),
+  startedAt: timestamp("started_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const voiceCampaignLeads = pgTable("voice_campaign_leads", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  campaignId: text("campaign_id").references(() => voiceCampaigns.id, { onDelete: "cascade" }).notNull(),
+  name: text("name"),
+  phone: text("phone").notNull(),
+  company: text("company"),
+  productInterest: text("product_interest"),
+  notes: text("notes"),
+  status: text("status").default("pending").notNull(), // 'pending' | 'calling' | 'done' | 'no-answer' | 'failed'
+  attempts: integer("attempts").default(0).notNull(),
+  callId: text("call_id").references(() => voiceCalls.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -495,6 +554,12 @@ export type InternalMessage = typeof internalMessages.$inferSelect;
 export type KnowledgeFolder = typeof knowledgeFolders.$inferSelect;
 export type KnowledgeFileRecord = typeof knowledgeFiles.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+
+// ── Tipos de Voz (Ligações & Campanhas) ──
+export type VoiceCall = typeof voiceCalls.$inferSelect;
+export type VoiceCallMessage = typeof voiceCallMessages.$inferSelect;
+export type VoiceCampaign = typeof voiceCampaigns.$inferSelect;
+export type VoiceCampaignLead = typeof voiceCampaignLeads.$inferSelect;
 
 
 

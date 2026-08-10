@@ -5,13 +5,18 @@ import { buildVoicePrompt, cleanVoiceResponse } from "../valentina/voice-engine"
 import { sttService } from "./stt-service";
 import { calculateRms, decodeMulaw } from "./audio-utils";
 import type { VoiceMessage } from "../valentina/voice-types";
+import { db } from "../../db";
+import { voiceCalls, voiceCallMessages } from "../../db/schema";
+import { eq } from "drizzle-orm";
 
 export class MediaStreamHandler {
   private ws: WebSocket;
   private streamSid: string = "";
   private callSid: string = "";
+  private dbCallId: string = "";
   private history: VoiceMessage[] = [];
   private isProcessing: boolean = false;
+  private startTime: Date = new Date();
 
   // Buffer de áudio do cliente para VAD e STT
   private audioBufferChunks: string[] = [];
@@ -34,7 +39,24 @@ export class MediaStreamHandler {
           case "start":
             this.streamSid = msg.start.streamSid;
             this.callSid = msg.start.callSid;
+            this.startTime = new Date();
+            this.dbCallId = `call_${Date.now()}`;
+
             console.log(`[MediaStream] ✅ Sessão iniciada. StreamSid=${this.streamSid} | CallSid=${this.callSid}`);
+
+            // Regras Invioláveis: Fire & Forget — salva registro inicial da chamada no banco sem bloquear latência
+            void db.insert(voiceCalls).values({
+              id: this.dbCallId,
+              tenantId: "valem",
+              callSid: this.callSid,
+              fromNumber: msg.start.customParameters?.from || msg.start.from || "Desconhecido",
+              toNumber: msg.start.customParameters?.to || msg.start.to || "Valem Line",
+              direction: "inbound",
+              status: "active",
+              startedAt: this.startTime,
+              createdAt: this.startTime,
+            }).catch(err => console.error("[MediaStream DB] Erro ao salvar chamada inicial:", err?.message || err));
+
             await this.sendInitialGreeting();
             break;
 
@@ -46,6 +68,7 @@ export class MediaStreamHandler {
           case "stop":
             console.log(`[MediaStream] Chamada encerrada. StreamSid=${this.streamSid}`);
             this.clearSilenceTimer();
+            this.finalizeCallRecord();
             break;
         }
       } catch (err: any) {
@@ -56,6 +79,7 @@ export class MediaStreamHandler {
     this.ws.on("close", (code, reason) => {
       this.clearSilenceTimer();
       console.log(`[MediaStream] Conexão fechada para ${this.callSid} — code=${code} reason=${reason?.toString() || '(none)'}`);
+      this.finalizeCallRecord();
     });
 
     this.ws.on("error", (err) => {

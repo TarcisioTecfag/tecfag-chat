@@ -14,6 +14,7 @@ import {
   Shield,
   Wallet,
   Bot,
+  PhoneCall,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -34,6 +35,7 @@ export function Sidebar() {
 
   const decorativeItems = [
     { id: "valentina", icon: Bot, label: "Valentina", isAvailable: true },
+    { id: "ligacoes", icon: PhoneCall, label: "Ligações", isAvailable: true },
     { id: "groups", icon: Shield, label: "Grupo de Acesso", isAvailable: true },
     { id: "monitor", icon: Eye, label: "Monitorar", isAvailable: true },
     { id: "analytics", icon: BarChart2, label: "Estatísticas", isAvailable: true },

@@ -13,6 +13,7 @@ import { MonitorView } from "@/components/chat/MonitorView";
 import { AnalyticsView } from "@/components/chat/AnalyticsView";
 import { TasksView } from "@/components/chat/TasksView";
 import { ValentinaView } from "@/components/valentina/ValentinaView";
+import { LigacoesView } from "@/components/voice/LigacoesView";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { motion, AnimatePresence } from "framer-motion";
@@ -174,6 +175,17 @@ function Index() {
                 className="flex-1 h-full overflow-hidden"
               >
                 <ValentinaView />
+              </motion.div>
+            ) : activeView === "ligacoes" ? (
+              <motion.div
+                key="ligacoes"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <LigacoesView />
               </motion.div>
             ) : (
               <motion.div
