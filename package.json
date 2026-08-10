@@ -71,8 +71,10 @@
     "input-otp": "^1.4.2",
     "lru-cache": "^11.5.1",
     "lucide-react": "^0.575.0",
+    "mammoth": "^1.12.1",
     "node-cache": "^5.1.2",
     "nodemailer": "^9.0.3",
+    "pdf-parse": "^2.4.5",
     "pino": "^10.3.1",
     "postgres": "^3.4.9",
     "qrcode": "^1.5.4",
@@ -92,6 +94,7 @@
     "vite-tsconfig-paths": "^6.0.2",
     "web-push": "^3.6.7",
     "ws": "^8.21.3",
+    "xlsx": "^0.18.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {

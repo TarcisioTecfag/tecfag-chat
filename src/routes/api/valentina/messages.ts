@@ -13,12 +13,63 @@ import {
 import { eq, and, desc, sql, gte, isNull, ne } from "drizzle-orm";
 import crypto from "crypto";
 
-// ── Headers CORS padrão ────────────────────────────────────────────────────────
+// ── Headers CORS padrão ──────────────────────────────────────────────────────────────────────────────────
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
+
+// ── Extrai texto de arquivo anexado (PDF, DOCX, XLSX, TXT) ────────────────────────────
+async function extractFileText(name: string, mimeType: string, base64: string): Promise<string> {
+  const buf = Buffer.from(base64, "base64");
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+
+  // TXT — decode direto
+  if (mimeType === "text/plain" || ext === "txt") {
+    return buf.toString("utf-8").slice(0, 12000);
+  }
+
+  // PDF
+  if (mimeType === "application/pdf" || ext === "pdf") {
+    try {
+      const pdfParse = await import("pdf-parse");
+      const result = await (pdfParse.default || pdfParse)(buf);
+      return result.text.slice(0, 12000);
+    } catch {
+      return `[PDF recebido: ${name} — conteúdo não extraído automaticamente]`;
+    }
+  }
+
+  // DOCX / DOC
+  if (mimeType.includes("wordprocessingml") || mimeType.includes("msword") || ext === "docx" || ext === "doc") {
+    try {
+      const mammoth = await import("mammoth");
+      const result = await mammoth.extractRawText({ buffer: buf });
+      return result.value.slice(0, 12000);
+    } catch {
+      return `[Documento Word recebido: ${name} — conteúdo não extraído automaticamente]`;
+    }
+  }
+
+  // XLSX / XLS
+  if (mimeType.includes("spreadsheetml") || mimeType.includes("ms-excel") || ext === "xlsx" || ext === "xls") {
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.read(buf, { type: "buffer" });
+      const texts: string[] = [];
+      for (const sheetName of wb.SheetNames) {
+        const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName]);
+        texts.push(`[Planilha: ${sheetName}]\n${csv}`);
+      }
+      return texts.join("\n\n").slice(0, 12000);
+    } catch {
+      return `[Planilha Excel recebida: ${name} — conteúdo não extraído automaticamente]`;
+    }
+  }
+
+  return `[Arquivo recebido: ${name}]`;
+}
 
 // ── Respostas mock contextuais (fallback quando Vertex AI não está disponível) ─
 function generateMockResponse(userMessage: string): string {
@@ -229,14 +280,24 @@ export const Route = createFileRoute("/api/valentina/messages")({
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { tenantId, operatorId, content, scope = "operator" } = body;
+          const { tenantId, operatorId, content, scope = "operator", knowledgeBase, attachment, imageBase64 } = body;
 
-          if (!tenantId || !operatorId || !content) {
+          if (!tenantId || !operatorId) {
             return new Response(
-              JSON.stringify({ error: "tenantId, operatorId e content são obrigatórios" }),
+              JSON.stringify({ error: "tenantId e operatorId são obrigatórios" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+          if (!content && !attachment && !imageBase64) {
+            return new Response(
+              JSON.stringify({ error: "content, attachment ou imageBase64 são obrigatórios" }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          // Determine qual tenant usar para filtrar contexto operacional
+          // knowledgeBase: "valem" | "tecfag" | "all"
+          const contextTenantId = knowledgeBase === "all" ? tenantId : (knowledgeBase || tenantId);
 
           const now = new Date();
 
@@ -248,21 +309,40 @@ export const Route = createFileRoute("/api/valentina/messages")({
             operatorId,
             direction: "to_agent",
             agentType: "supervisor",
-            content,
-            metadata: { isChat: true, scope },
+            content: content || `[Arquivo: ${attachment?.name ?? "imagem"}]`,
+            metadata: { isChat: true, scope, knowledgeBase },
             read: 1,
             createdAt: now,
           });
 
-          // 2. Coletar contexto operacional real do operador
+          // 2. Coletar contexto operacional (filtrado pelo knowledgeBase selecionado)
           const operatorName = await getOperatorName(operatorId);
-          const operatorContext = await getOperatorContext(tenantId, operatorId);
+          // Se knowledgeBase = "all", busca contexto do tenant nativo do operador;
+          // se especificado, busca do tenant selecionado.
+          const operatorContext = await getOperatorContext(contextTenantId, operatorId);
 
-          // 3. Carregar contexto da base de conhecimento (RAG)
+          // 3. Extrair texto do arquivo anexado (se houver)
+          let fileContext = "";
+          if (attachment?.base64 && attachment?.name) {
+            const extracted = await extractFileText(attachment.name, attachment.mimeType || "", attachment.base64);
+            fileContext = `\n\n📎 ARQUIVO ANEXADO PELO USUÁRIO: "${attachment.name}"\n[Conteúdo extraido]\n${extracted}`;
+          }
+
+          // 4. Aviso de imagem anexada
+          const imageNotice = imageBase64
+            ? `\n\n🖼️ IMAGEM ANEXADA: O usuário também enviou uma imagem. Mencione que recebeu a imagem e peça para descrever o que precisa sobre ela, caso não seja evidente pelo texto.`
+            : "";
+
+          // 5. Aviso de base selecionada
+          const baseNotice = knowledgeBase === "all"
+            ? `\n\n⚠️ BASE DE DADOS: O usuário selecionou TODA A BASE. Você pode mencionar dados de ambos os tenants (Valem e Tecfag) nesta resposta.`
+            : `\n\n🎯 BASE DE DADOS: Responda EXCLUSIVAMENTE com dados do tenant "${contextTenantId}". NÃO misture informações de outros tenants.`;
+
+          // 6. Carregar contexto da base de conhecimento (RAG)
           let knowledgeContext = "";
           try {
             const { getKnowledgeBaseContext } = await import("../../../lib/valentina/knowledge-service");
-            knowledgeContext = await getKnowledgeBaseContext(tenantId);
+            knowledgeContext = await getKnowledgeBaseContext(contextTenantId);
           } catch {}
 
           // 4. Buscar últimas mensagens do histórico para contexto conversacional (do mesmo escopo)
@@ -290,7 +370,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             }
           } catch {}
 
-          // 5. Gerar resposta inteligente via Vertex AI Gemini 2.5 Pro
+          // 7. Gerar resposta inteligente via Vertex AI Gemini 2.5 Pro
           let fragments: { text: string; delay: number }[] = [];
           let alerts: any[] = [];
 
@@ -298,56 +378,33 @@ export const Route = createFileRoute("/api/valentina/messages")({
             const { vertexAi } = await import("../../../lib/vertex-ai");
 
             if (vertexAi.isReady()) {
-              const systemPrompt = scope === "admin" 
-                ? `Você é a Valentina, I.A. Master e Assistente de Gestão & Business Intelligence (BI) da Valempack.
-Você está no Módulo de Administração. O gestor/administrador "${operatorName}" está conversando com você no canal Master.
+              const systemPrompt = `Você é a Valentina, I.A. Master e Assistente de Gestão & Business Intelligence (BI).
+Você está no Módulo de Administração. O gestor "${operatorName}" está conversando com você.
 
-## SEU PAPEL E PODERES:
-- Você tem visão completa de toda a empresa: banco de dados, desempenho da equipe toda, TMA geral, métricas globais e base de conhecimento da empresa.
-- Responda a qualquer dúvida sobre a operação, relatórios, métricas de equipe, faturamento ou processos gerais da Valempack.
-- Seja inteligente, objetiva, amigável e fragmente suas respostas em mensagens curtas (1-3 mensagens).
+## SEU PAPEL:
+- Você tem visão completa das operações: banco de dados, desempenho da equipe, TMA, métricas e base de conhecimento.
+- Seja inteligente, objetiva e fragmente suas respostas em mensagens curtas (1-3 fragmentos).
+- Cada fragmento deve ter no máximo 2-3 linhas.
+${baseNotice}
 
 ## DADOS REAIS DA OPERAÇÃO:
 ${operatorContext}
 ${knowledgeContext}
 ${chatHistory}
-
-## PERGUNTA DO GESTOR:
-"${content}"`
-                : `Você é a Valentina, assistente pessoal e colega de trabalho do vendedor "${operatorName}" na empresa Valempack.
-
-## REGRA PRINCIPAL:
-- Responda ESTREITAMENTE ao que o operador perguntou.
-- Se o operador disser apenas "olá", "esta aí?", "tudo bem?", "boa tarde" ou saudações simples, responda amigavelmente com uma reação amigável e pergunte como pode ajudar.
-- NUNCA dê broncas, alertas proativos de SLA ou cobranças de conversas paradas sem ser solicitada.
-- Só mencione SLA, conversas paradas ou métricas SE o operador perguntar explicitamente sobre isso (ex: "tenho pendências?", "como estão meus SLAs?").
-
-## SUA PERSONALIDADE:
-- Fale como uma pessoa real brasileira, inteligente, amigável e prestativa.
-- Use linguagem natural: "opa", "tô por aqui sim!", "fala aí!", "boa!", "como posso te ajudar?"
-- Use emojis com moderação (máximo 1-2 por resposta).
-
-## COMO RESPONDER:
-- SEMPRE fragmente sua resposta em mensagens curtas (1-3 fragmentos).
-- Cada fragmento deve ter no máximo 2-3 linhas.
+${fileContext}
+${imageNotice}
 
 ## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
-Retorne EXCLUSIVAMENTE um JSON válido neste formato:
+Retorne EXCLUSIVAMENTE um JSON válido:
 {
   "fragments": [
-    { "text": "texto da primeira mensagem curta", "delay": 0 },
-    { "text": "texto da segunda mensagem curta", "delay": 800 }
+    { "text": "primeira mensagem", "delay": 0 },
+    { "text": "segunda mensagem", "delay": 800 }
   ]
 }
 
-## DADOS REAIS DO OPERADOR "${operatorName}":
-${operatorContext}
-
-${knowledgeContext}
-${chatHistory}
-
-## MENSAGEM DO OPERADOR:
-"${content}"`;
+## MENSAGEM DO USUÁRIO:
+"${content || "[sem texto — veja o arquivo/imagem]"}"`;
 
               const aiRes = await vertexAi.generateStructuredJson<{
                 fragments: { text: string; delay: number }[];

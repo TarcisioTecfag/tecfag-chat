@@ -78,7 +78,7 @@ export function ValentinaView() {
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-hidden px-5 py-4 flex flex-col">
+      <div className={`flex-1 overflow-hidden flex flex-col ${activeTab !== "chat" ? "px-5 py-4" : ""}`}>
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
