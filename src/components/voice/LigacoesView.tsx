@@ -21,62 +21,58 @@ export function LigacoesView() {
   ];
 
   return (
-    <div className="flex flex-col h-full w-full bg-slate-950 overflow-hidden">
-      {/* Header com Tabs */}
-      <header className="h-16 shrink-0 border-b border-slate-800/80 px-6 flex items-center justify-between bg-slate-900/60 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-            <PhoneCall className="w-5 h-5" />
-          </div>
-          <div>
-            <h1 className="text-sm font-bold text-slate-100">Módulo de Voz & Ligações</h1>
-            <p className="text-[11px] text-slate-400">Gestão de chamadas telefônicas automatizadas com Valentina IA</p>
-          </div>
+    <div className="flex flex-col h-full bg-card rounded-3xl border border-border shadow-soft overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wider text-primary">Atendimento Telefônico</span>
+          <h1 className="text-xl font-extrabold text-foreground flex items-center gap-2 mt-0.5">
+            <PhoneCall className="h-5 w-5 text-primary" />
+            Módulo de Ligações (Valentina)
+          </h1>
         </div>
 
-        {/* Navigation Tabs */}
-        <nav className="flex items-center gap-1 bg-slate-950/80 border border-slate-800 p-1 rounded-xl">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary/10 text-primary text-xs font-bold">
+            <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+            Twilio Active
+          </span>
+        </div>
+      </div>
 
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as VoiceTab)}
-                className={`relative px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2 ${
-                  isActive
-                    ? "text-white font-semibold"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/50"
-                }`}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="activeVoiceTabIndicator"
-                    className="absolute inset-0 bg-blue-600 rounded-lg shadow-sm"
-                    transition={{ type: "spring", bounce: 0.2, duration: 0.3 }}
-                  />
-                )}
-                <span className="relative z-10 flex items-center gap-2">
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-      </header>
+      {/* Internal Tab Bar */}
+      <div className="flex items-center gap-1.5 px-5 py-2.5 border-b border-border bg-muted/30 shrink-0">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
 
-      {/* Conteúdo Principal da Tab Ativa */}
-      <main className="flex-1 overflow-hidden relative">
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as VoiceTab)}
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-soft font-bold"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tab Content */}
+      <div className="flex-1 overflow-hidden p-6 flex flex-col bg-background/50">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            className="h-full w-full"
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            className="flex flex-col flex-1 overflow-hidden"
           >
             {activeTab === "dashboard" && <DashboardTab />}
             {activeTab === "historico" && <HistoricoTab />}
@@ -85,7 +81,7 @@ export function LigacoesView() {
             {activeTab === "configuracao" && <ConfiguracaoTab />}
           </motion.div>
         </AnimatePresence>
-      </main>
+      </div>
     </div>
   );
 }

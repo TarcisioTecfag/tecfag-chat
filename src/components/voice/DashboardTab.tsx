@@ -1,9 +1,8 @@
 import React, { useState } from "react";
-import { PhoneCall, PhoneIncoming, UserCheck, UserX, Clock, Smile, Frown, Meh, Mic, PhoneOff, Volume2 } from "lucide-react";
+import { PhoneCall, PhoneIncoming, UserCheck, Clock, Smile, Frown, Meh, Mic, PhoneOff, Volume2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 export function DashboardTab() {
-  // Mock data para estatísticas e chamada ativa
   const [activeCall, setActiveCall] = useState<{
     id: string;
     from: string;
@@ -27,55 +26,51 @@ export function DashboardTab() {
     { id: "c-104", from: "+55 41 96543-2109", name: "Empresa Embalagens LTDA", date: "Ontem, 16:50", duration: "2m 30s", sentiment: "negative", status: "IA Finalizou", summary: "Reclamou de atraso na entrega da última nota." },
   ]);
 
-  const handleEndCall = () => {
-    setActiveCall(null);
-  };
-
   return (
-    <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full text-slate-100">
+    <div className="flex flex-col gap-6 overflow-y-auto h-full pr-1">
       {/* Cards de Métricas Principais */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-sm">
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-400">Ligações Hoje</p>
-            <h3 className="text-2xl font-bold text-slate-100 mt-1">14</h3>
-            <span className="text-[11px] text-emerald-400 font-medium">↑ +25% que ontem</span>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ligações Hoje</p>
+            <h3 className="text-2xl font-extrabold text-foreground mt-1">14</h3>
+            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">↑ +25% que ontem</span>
           </div>
-          <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-            <PhoneIncoming className="w-6 h-6" />
+          <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+            <PhoneIncoming className="w-5.5 h-5.5" />
           </div>
         </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-sm">
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-400">Atendidas por Valentina</p>
-            <h3 className="text-2xl font-bold text-emerald-400 mt-1">12 <span className="text-xs text-slate-400 font-normal">(85.7%)</span></h3>
-            <span className="text-[11px] text-slate-400">Qualificação automatizada</span>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Atendidas por Valentina</p>
+            <h3 className="text-2xl font-extrabold text-foreground mt-1">12 <span className="text-xs text-muted-foreground font-normal">(85.7%)</span></h3>
+            <span className="text-[11px] text-muted-foreground">Qualificação automatizada</span>
           </div>
-          <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-            <UserCheck className="w-6 h-6" />
+          <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+            <UserCheck className="w-5.5 h-5.5" />
           </div>
         </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-sm">
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-400">Duração Média</p>
-            <h3 className="text-2xl font-bold text-purple-400 mt-1">3m 18s</h3>
-            <span className="text-[11px] text-slate-400">Tempo de engajamento</span>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Duração Média</p>
+            <h3 className="text-2xl font-extrabold text-foreground mt-1">3m 18s</h3>
+            <span className="text-[11px] text-muted-foreground">Tempo de engajamento</span>
           </div>
-          <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-            <Clock className="w-6 h-6" />
+          <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400">
+            <Clock className="w-5.5 h-5.5" />
           </div>
         </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-sm">
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-400">Sentimento Predominante</p>
-            <h3 className="text-2xl font-bold text-amber-400 mt-1">82% Positivo</h3>
-            <span className="text-[11px] text-emerald-400">Excelente recepção</span>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sentimento</p>
+            <h3 className="text-2xl font-extrabold text-foreground mt-1">82% Positivo</h3>
+            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">Excelente recepção</span>
           </div>
-          <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-            <Smile className="w-6 h-6" />
+          <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
+            <Smile className="w-5.5 h-5.5" />
           </div>
         </div>
       </div>
@@ -85,98 +80,91 @@ export function DashboardTab() {
         <motion.div 
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-900/90 border border-emerald-500/40 rounded-xl p-5 shadow-lg relative overflow-hidden"
+          className="bg-card border border-primary/40 rounded-2xl p-5 shadow-soft relative overflow-hidden"
         >
-          <div className="absolute top-0 right-0 px-4 py-1 bg-emerald-500/20 border-l border-b border-emerald-500/40 text-emerald-400 text-xs font-semibold flex items-center gap-2 rounded-bl-xl">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            EM ANDAMENTO ({activeCall.duration})
+          <div className="absolute top-0 right-0 px-4 py-1 bg-primary/10 border-l border-b border-primary/30 text-primary text-xs font-extrabold flex items-center gap-2 rounded-bl-2xl">
+            <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
+            AO VIVO ({activeCall.duration})
           </div>
 
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
             <div>
-              <h4 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                <PhoneCall className="w-5 h-5 text-emerald-400 animate-pulse" />
+              <h4 className="text-base font-extrabold text-foreground flex items-center gap-2">
+                <PhoneCall className="w-5 h-5 text-primary animate-pulse" />
                 {activeCall.contactName}
               </h4>
-              <p className="text-xs text-slate-400 mt-0.5">{activeCall.from}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{activeCall.from}</p>
             </div>
 
             <div className="flex items-center gap-2">
-              <button 
-                title="Ouvir em tempo real (Modo silencioso)"
-                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-medium text-slate-200 flex items-center gap-1.5 transition-colors"
-              >
-                <Volume2 className="w-4 h-4 text-blue-400" />
+              <button className="px-3.5 py-2 bg-muted hover:bg-muted/80 border border-border rounded-xl text-xs font-semibold text-foreground flex items-center gap-1.5 transition cursor-pointer shadow-soft">
+                <Volume2 className="w-4 h-4 text-primary" />
                 Ouvir
               </button>
-              <button 
-                title="Entrar na ligação via WebRTC (Modo Conferência)"
-                className="px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-xs font-medium text-amber-300 flex items-center gap-1.5 transition-colors"
-              >
-                <Mic className="w-4 h-4 text-amber-400" />
+              <button className="px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1.5 transition cursor-pointer shadow-soft">
+                <Mic className="w-4 h-4 text-amber-500" />
                 Intervir (WebRTC)
               </button>
               <button 
-                onClick={handleEndCall}
-                title="Encerrar chamada imediatamente"
-                className="px-3 py-2 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 rounded-lg text-xs font-medium text-rose-300 flex items-center gap-1.5 transition-colors"
+                onClick={() => setActiveCall(null)}
+                className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5 transition cursor-pointer shadow-soft"
               >
-                <PhoneOff className="w-4 h-4 text-rose-400" />
+                <PhoneOff className="w-4 h-4 text-rose-500" />
                 Encerrar
               </button>
             </div>
           </div>
 
           {/* Transcript Ao Vivo */}
-          <div className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-3 text-xs text-slate-300 font-mono leading-relaxed">
-            <span className="text-emerald-400 font-semibold">[Transcrição ao vivo]:</span> {activeCall.liveTranscript}
+          <div className="bg-muted/40 border border-border rounded-xl p-3.5 text-xs text-foreground font-mono leading-relaxed">
+            <span className="text-primary font-bold">[Transcrição ao vivo]:</span> {activeCall.liveTranscript}
           </div>
         </motion.div>
       ) : (
-        <div className="bg-slate-900/40 border border-slate-800/60 border-dashed rounded-xl p-6 text-center text-slate-500 text-xs">
+        <div className="bg-card border border-border border-dashed rounded-2xl p-6 text-center text-muted-foreground text-xs shadow-soft">
           Nenhuma ligação em andamento neste momento. Novas chamadas recebidas ou disparadas aparecerão aqui automaticamente.
         </div>
       )}
 
       {/* Tabela de Chamadas Recentes */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5">
-        <h4 className="text-sm font-bold text-slate-200 mb-4">Últimas Ligações Atendidas</h4>
+      <div className="bg-card border border-border rounded-2xl p-5 shadow-soft">
+        <h4 className="text-sm font-bold text-foreground mb-4">Últimas Ligações Atendidas</h4>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-slate-950/60 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+          <table className="w-full text-left text-xs text-foreground">
+            <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
               <tr>
-                <th className="p-3">Cliente / Telefone</th>
-                <th className="p-3">Data / Hora</th>
-                <th className="p-3">Duração</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Sentimento</th>
-                <th className="p-3">Resumo da IA</th>
+                <th className="p-3 font-semibold">Cliente / Telefone</th>
+                <th className="p-3 font-semibold">Data / Hora</th>
+                <th className="p-3 font-semibold">Duração</th>
+                <th className="p-3 font-semibold">Status</th>
+                <th className="p-3 font-semibold">Sentimento</th>
+                <th className="p-3 font-semibold">Resumo da IA</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-border">
               {recentCalls.map((call) => (
-                <tr key={call.id} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="p-3 font-medium text-slate-100">
+                <tr key={call.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="p-3 font-bold text-foreground">
                     {call.name}
-                    <span className="block text-[11px] text-slate-400 font-normal">{call.from}</span>
+                    <span className="block text-[11px] text-muted-foreground font-normal">{call.from}</span>
                   </td>
-                  <td className="p-3 text-slate-400">{call.date}</td>
-                  <td className="p-3 text-slate-300">{call.duration}</td>
+                  <td className="p-3 text-muted-foreground">{call.date}</td>
+                  <td className="p-3 text-foreground">{call.duration}</td>
                   <td className="p-3">
-                    <span className={`inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full border ${
+                    <span className={`inline-flex px-2.5 py-0.5 text-[10px] font-bold rounded-lg border ${
                       call.status.includes("IA") 
-                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                        : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
                     }`}>
                       {call.status}
                     </span>
                   </td>
                   <td className="p-3">
-                    {call.sentiment === "positive" && <span className="text-emerald-400 flex items-center gap-1"><Smile className="w-3.5 h-3.5" /> Positivo</span>}
-                    {call.sentiment === "neutral" && <span className="text-slate-400 flex items-center gap-1"><Meh className="w-3.5 h-3.5" /> Neutro</span>}
-                    {call.sentiment === "negative" && <span className="text-rose-400 flex items-center gap-1"><Frown className="w-3.5 h-3.5" /> Negativo</span>}
+                    {call.sentiment === "positive" && <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-medium"><Smile className="w-3.5 h-3.5" /> Positivo</span>}
+                    {call.sentiment === "neutral" && <span className="text-muted-foreground flex items-center gap-1 font-medium"><Meh className="w-3.5 h-3.5" /> Neutro</span>}
+                    {call.sentiment === "negative" && <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1 font-medium"><Frown className="w-3.5 h-3.5" /> Negativo</span>}
                   </td>
-                  <td className="p-3 text-slate-400 max-w-xs truncate">{call.summary}</td>
+                  <td className="p-3 text-muted-foreground max-w-xs truncate">{call.summary}</td>
                 </tr>
               ))}
             </tbody>
