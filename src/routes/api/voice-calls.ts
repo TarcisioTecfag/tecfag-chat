@@ -6,7 +6,7 @@ import { db } from "../../db";
 import { voiceCalls, voiceCallMessages } from "../../db/schema";
 import { eq, desc } from "drizzle-orm";
 
-export const Route = createFileRoute("/api/voice-calls")({
+export const Route = createFileRoute("/api/voice-calls" as any)({
   server: {
     handlers: {
       GET: async ({ request }) => {

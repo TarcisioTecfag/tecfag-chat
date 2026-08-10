@@ -192,12 +192,36 @@ export class MediaStreamHandler {
     const greeting =
       "Olá, boa tarde! Aqui é a Valentina da Valem Válvulas e Embalagens. Tudo bem com você?";
     this.history.push({ role: "assistant", content: greeting });
+
+    if (this.dbCallId) {
+      void db.insert(voiceCallMessages).values({
+        id: `vmsg_${Date.now()}_0`,
+        tenantId: "valem",
+        callId: this.dbCallId,
+        role: "assistant",
+        content: greeting,
+        timestamp: new Date(),
+      }).catch(err => console.error("[MediaStream DB] Erro ao salvar mensagem de saudação:", err?.message || err));
+    }
+
     await this.speakText(greeting);
   }
 
   public async handleUserSpeech(speechText: string) {
     try {
       this.history.push({ role: "user", content: speechText });
+
+      if (this.dbCallId) {
+        void db.insert(voiceCallMessages).values({
+          id: `vmsg_${Date.now()}_u`,
+          tenantId: "valem",
+          callId: this.dbCallId,
+          role: "user",
+          content: speechText,
+          timestamp: new Date(),
+        }).catch(err => console.error("[MediaStream DB] Erro ao salvar fala do usuário:", err?.message || err));
+      }
+
       const prompt = buildVoicePrompt(this.history, "valem");
 
       let fullResponse = "";
@@ -217,11 +241,87 @@ export class MediaStreamHandler {
       const cleanedText = cleanVoiceResponse(fullResponse);
       this.history.push({ role: "assistant", content: cleanedText });
 
+      if (this.dbCallId) {
+        void db.insert(voiceCallMessages).values({
+          id: `vmsg_${Date.now()}_a`,
+          tenantId: "valem",
+          callId: this.dbCallId,
+          role: "assistant",
+          content: cleanedText,
+          timestamp: new Date(),
+        }).catch(err => console.error("[MediaStream DB] Erro ao salvar fala da IA:", err?.message || err));
+      }
+
       await this.speakText(cleanedText);
     } catch (err: any) {
       console.error("[MediaStream] Erro na geração de resposta:", err?.message || err);
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  /**
+   * Finaliza o registro da chamada após o encerramento da conexão (fire-and-forget)
+   * Roda análise pós-ligação com Gemini para extrair sentimentos e dados do cliente
+   */
+  private finalizeCallRecord() {
+    if (!this.dbCallId) return;
+
+    const endedAt = new Date();
+    const durationSeconds = Math.max(1, Math.round((endedAt.getTime() - this.startTime.getTime()) / 1000));
+
+    void (async () => {
+      try {
+        await db.update(voiceCalls).set({
+          status: "completed",
+          endedAt,
+          durationSeconds,
+          transcriptDone: true,
+        }).where(eq(voiceCalls.id, this.dbCallId));
+
+        if (this.history.length > 1) {
+          const transcriptText = this.history
+            .map(m => `${m.role === "assistant" ? "Valentina" : "Cliente"}: ${m.content}`)
+            .join("\n");
+
+          const prompt = `Analise a transcrição de chamada abaixo entre a IA Valentina e um cliente da Valem Válvulas.
+Retorne APENAS um JSON no seguinte formato (sem marcações markdown):
+{
+  "sentiment": "positive" | "neutral" | "negative",
+  "summary": "Resumo de 2 frases da ligação",
+  "extractedInfo": {
+    "nome": "nome do cliente se mencionado",
+    "empresa": "empresa se mencionada",
+    "interesse": "produto de interesse detectado",
+    "objecoes": "objeções mencionadas",
+    "proximo_passo": "próxima ação acordada"
+  }
+}
+
+Transcrição:
+${transcriptText}`;
+
+          const analysis = await vertexAi.generateStructuredJson<{
+            sentiment: "positive" | "neutral" | "negative";
+            summary: string;
+            extractedInfo: any;
+          }>(prompt, "gemini-2.5-flash", undefined, {
+            tenantId: "valem",
+            feature: "conversation_audit",
+            metadata: { callId: this.dbCallId },
+          }).catch(() => null);
+
+          if (analysis) {
+            await db.update(voiceCalls).set({
+              sentiment: analysis.sentiment || "neutral",
+              summary: analysis.summary || "Ligação finalizada com sucesso.",
+              extractedInfo: analysis.extractedInfo || {},
+            }).where(eq(voiceCalls.id, this.dbCallId));
+          }
+        }
+      } catch (err: any) {
+        console.error("[MediaStream DB] Erro no encerramento da chamada:", err?.message || err);
+      }
+    })();
   }
 }

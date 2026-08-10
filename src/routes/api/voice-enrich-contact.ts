@@ -5,9 +5,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { contacts, voiceCalls, tasks } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import { rdCrmService } from "../../lib/rdCrmService";
+import { rdRequest } from "../../lib/rdCrmService";
 
-export const Route = createFileRoute("/api/voice-enrich-contact")({
+export const Route = createFileRoute("/api/voice-enrich-contact" as any)({
   server: {
     handlers: {
       POST: async ({ request }) => {
@@ -39,14 +39,16 @@ export const Route = createFileRoute("/api/voice-enrich-contact")({
                 })
                 .where(eq(contacts.id, contactId));
 
-              // 2. Se o contato tiver deal no RD Station CRM, sincroniza as anotações
+              // 2. Se o contato tiver deal no RD Station CRM, sincroniza as anotações via rdRequest
               if (existingContact.rdCrmDealId) {
                 const noteText = `[Valentina Voz - Resumo da Ligação]\n` +
                   `• Interesse: ${interesse || "Não especificado"}\n` +
                   `• Objeções: ${objecoes || "Nenhuma"}\n` +
                   `• Próximo Passo: ${proximo_passo || "Nenhum"}`;
 
-                await rdCrmService.addNoteToDeal(tenantId, existingContact.rdCrmDealId, noteText).catch((err) => {
+                await rdRequest<any>(tenantId, "POST", `/deals/${existingContact.rdCrmDealId}/activity_notes`, {
+                  text: noteText,
+                }).catch((err: any) => {
                   console.error("[VoiceEnrich] Erro ao adicionar nota no RD CRM:", err?.message || err);
                 });
               }
