@@ -243,6 +243,39 @@ setupClient.unsafe(`
   ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS period TEXT;
   ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS report_markdown TEXT;
   ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS report_data JSONB;
+
+  -- ── v2: Colunas de workflow de aprovação e metadados executivos ──
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'rascunho';
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS current_version TEXT NOT NULL DEFAULT 'v1';
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS headline TEXT;
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS summary TEXT;
+  ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS confidence INTEGER DEFAULT 90;
+
+  -- ── v2: Tabela de versões dos relatórios ──
+  CREATE TABLE IF NOT EXISTS ai_report_versions (
+    id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    author TEXT NOT NULL,
+    note TEXT NOT NULL,
+    stage TEXT NOT NULL DEFAULT 'rascunho',
+    report_data JSONB
+  );
+
+  -- ── v2: Tabela de feedback por seção ──
+  CREATE TABLE IF NOT EXISTS ai_report_feedback (
+    id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    section_id TEXT NOT NULL,
+    vote TEXT,
+    comment TEXT DEFAULT '',
+    operator_id TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
 `)
   .then(() => {
     console.log("[db] ✓ Tabelas de gestão e agentes verificadas/criadas com sucesso.");

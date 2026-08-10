@@ -129,7 +129,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
     ? currentGroup.allowedTenants.includes("tecfag") && currentGroup.allowedTenants.includes("valem")
     : true;
 
-  const currentOp = operators.find((o) => o.id === currentOperatorId) || operators[0];
+  const currentOp = operators.find((o) => o.id === currentOperatorId);
   const opName = operatorProfile?.name || currentOp?.name || "Operador";
   const opEmail = operatorProfile?.email || currentOp?.email || "";
   const opStatus = operatorProfile?.status || currentOp?.status || "disponivel";

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 // Componentes migrados do Monitoramento
 import { OverviewTab, CostsTab } from "@/components/chat/MonitorView";
+import { ReportsIATab } from "@/components/reports/ReportsIATab";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, BarChart, Bar, Cell, PieChart, Pie, RadialBarChart, RadialBar
@@ -750,7 +751,7 @@ export function AnalyticsView() {
           />
         )}
         {activeTab === "reports" && (
-          <ReportsTab reports={reports} loading={loading} />
+          <ReportsIATab tenant={tenant} />
         )}
         {activeTab === "costs" && (
           <CostsTab tenant={tenant} />

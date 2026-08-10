@@ -207,167 +207,66 @@ export class SlaEngine {
    */
   private async generateAndSendReport(tenantId: string, type: "daily" | "weekly", period: string, config: any) {
     try {
+      const { buildStoredReport, buildMarkdownFromStoredReport } = await import("./report-builder");
+
       const now = new Date();
-      // Define a janela histórica de busca de dados
-      const startTime = type === "daily"
-        ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
-        : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 dias
+      console.log(`[SlaEngine] Construindo relatório v2 (${type}) para ${tenantId}...`);
 
-      // ── Consulta e agregação de volumetria ──
-      const convs = await db
-        .select()
-        .from(conversations)
-        .where(
-          and(
-            eq(conversations.tenantId, tenantId),
-            gte(conversations.createdAt, startTime)
-          )
-        );
-      
-      const totalChats = convs.length;
-      const closedChats = convs.filter((c) => c.queueState === "finalizados").length;
+      // ── Constrói o StoredReport completo via Report Builder ──
+      const { storedReport, markdown: markdownReport } = await buildStoredReport(tenantId, type, period, now);
 
-      // ── Consulta e agregação de tempos e SLA ──
-      const slaLogs = await db
-        .select()
-        .from(responseTimeLogs)
-        .where(
-          and(
-            eq(responseTimeLogs.tenantId, tenantId),
-            gte(responseTimeLogs.clientMessageAt, startTime)
-          )
-        );
-
-      const totalSla = slaLogs.length;
-      const overdueSla = slaLogs.filter((l) => l.isOverdue).length;
-      const metSlaPct = totalSla > 0 ? Math.round(((totalSla - overdueSla) / totalSla) * 100) : 100;
-      const validResponseTimes = slaLogs.map((l) => l.responseTimeSeconds).filter(Boolean) as number[];
-      const avgResponseSeconds = validResponseTimes.length > 0
-        ? Math.round(validResponseTimes.reduce((sum, val) => sum + val, 0) / validResponseTimes.length)
-        : 0;
-
-      // ── Consulta de auditorias e sentimentos ──
-      const audits = await db
-        .select()
-        .from(aiConversationAudits)
-        .where(
-          and(
-            eq(aiConversationAudits.tenantId, tenantId),
-            gte(aiConversationAudits.auditedAt, startTime)
-          )
-        );
-
-      const scores = audits.map((a) => a.performanceScore).filter(Boolean) as number[];
-      const avgScore = scores.length > 0 ? Math.round(scores.reduce((sum, val) => sum + val, 0) / scores.length) : 80;
-      const satisfiedCount = audits.filter((a) => a.clientSentiment === "satisfeito").length;
-      const neutralCount = audits.filter((a) => a.clientSentiment === "neutro").length;
-      const frustratedCount = audits.filter((a) => a.clientSentiment === "frustrado").length;
-
-      // ── Chamada da LLM (Gemini 2.5 Pro via Vertex AI) para formatar o relatório ──
-      let markdownReport = "";
-      try {
-        const { vertexAi } = await import("./vertex-ai");
-        const prompt = `
-          Você é a Inteligência Artificial encarregada de consolidar os relatórios analíticos de BI para a diretoria.
-          Gere um relatório analítico e executivo ${type === "weekly" ? "semanal" : "diário"} completo formatado em Markdown com base nas seguintes estatísticas reais da nossa plataforma de atendimento (Tenant: ${tenantId}, Período: ${period}):
-
-          Estatísticas do Período:
-          - Total de conversas iniciadas: ${totalChats}
-          - Conversas finalizadas com sucesso: ${closedChats}
-          - Total de interações monitoradas pelo motor de SLA: ${totalSla}
-          - Porcentagem de conformidade de SLA (Respostas em menos de 15 minutos): ${metSlaPct}%
-          - Tempo médio de primeira resposta da equipe: ${avgResponseSeconds} segundos
-          - Score médio de qualidade estimado pela I.A: ${avgScore}/100
-          - Humor final dos clientes: ${satisfiedCount} Satisfeito(s), ${neutralCount} Neutro(s), ${frustratedCount} Frustrado(s).
-          - Alertas de não-conformidade levantados pela I.A.:
-            * Respostas com demora crítica: ${audits.filter(a => a.hadLongResponseGap).length}
-            * Objeções comerciais ignoradas: ${audits.filter(a => a.hadMissedObjection).length}
-            * Tom de linguagem inadequada: ${audits.filter(a => a.hadRudeLanguage).length}
-            * Atendimentos fechados sem agendar próximo passo: ${audits.filter(a => a.hadNoFollowUp).length}
-
-          Formate o relatório em seções claras e estruturadas usando Markdown padrão:
-          ## Relatório Analítico Executivo (${type === "weekly" ? "Semanal" : "Diário"})
-          
-          ### 1. Visão Geral da Operação
-          (Apresente um resumo dos números agregados com análise profissional)
-
-          ### 2. Destaques Positivos (Pontos Fortes)
-          (Aponte onde a equipe se sobressaiu com base nos dados qualitativos e conformidade)
-
-          ### 3. Oportunidades de Melhoria (Falhas e Gargalos)
-          (Detone os maiores erros e áreas de fricção observadas pelo motor de IA no período)
-
-          ### 4. Plano de Ação & Recomendações Críticas da IA
-          (Apresente recomendações práticas para a gerência aplicar na equipe de vendas/suporte.
-          Obrigatório iniciar a recomendação principal usando caixas de destaque do github, por exemplo:
-          > [!NOTE]
-          > Recomendação prioritária do dia...)
-        `;
-
-        const aiOutput = await vertexAi.generateText(prompt, "gemini-2.5-pro", undefined, {
-          tenantId,
-          feature: "sla_advisor",
-        });
-        if (aiOutput) {
-          markdownReport = aiOutput;
-        }
-      } catch (e: any) {
-        console.error("[SlaEngine] Erro ao chamar Vertex AI Gemini 2.5 Pro para relatório:", e?.message);
-      }
-
-      if (!markdownReport) {
-        // Fallback básico na ausência da LLM ou erro
-        markdownReport = `## Relatório Executivo de BI (${type === "weekly" ? "Semanal" : "Diário"})
-Período: ${period}
-
-### 1. Resumo Quantitativo
-* **Volume de Chats:** ${totalChats} conversas registradas.
-* **Conformidade de SLA:** ${metSlaPct}% das mensagens respondidas dentro do limite de 15min.
-* **Tempo Médio de Resposta:** ${avgResponseSeconds}s de espera.
-* **Score IA Médio:** ${avgScore}/100.
-
-> [!NOTE]
-> Relatório gerado com dados brutos em fallback. Ative a chave GEMINI_API_KEY para habilitar os insights automáticos da inteligência artificial.
-`;
-      }
-
-      // ── Salvar o relatório na tabela aiReports ──
-      const reportId = `rep-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      // ── Salvar o relatório na tabela aiReports (v2 — com JSON rico) ──
+      const reportId = storedReport.id;
       await db.insert(aiReports).values({
         id: reportId,
         tenantId,
         type,
         period,
         reportMarkdown: markdownReport,
-        reportData: {
-          totalChats,
-          closedChats,
-          metSlaPct,
-          avgResponseSeconds,
-          avgScore,
-          satisfiedCount,
-          frustratedCount
-        },
-        generatedAt: new Date(),
+        reportData: storedReport as any, // StoredReport completo no JSONB
+        stage: "rascunho",
+        currentVersion: "v1",
+        headline: storedReport.headline,
+        summary: storedReport.summary,
+        confidence: storedReport.confidence,
+        generatedAt: now,
       });
 
-      console.log(`[SlaEngine] ✓ Relatório salvo em ai_reports (${reportId})`);
+      // ── Cria o registro de versão v1 ──
+      const { aiReportVersions } = await import("../db/schema");
+      await db.insert(aiReportVersions).values({
+        id: `rev-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        reportId,
+        tenantId,
+        version: "v1",
+        createdAt: storedReport.versions[0]?.createdAt ?? storedReport.syncedAt,
+        author: "IA · sla_advisor",
+        note: "Primeira síntese automática do ciclo.",
+        stage: "rascunho",
+        reportData: storedReport as any,
+      });
 
-      // ── Disparo por WhatsApp para Múltiplos Contatos ──
+      console.log(`[SlaEngine] ✓ Relatório v2 salvo em ai_reports (${reportId})`);
+
+      // ── Disparo automático (modo legado — sem fluxo de aprovação) ──
+      // TODO: Quando approval_required for implementado, verificar config.approvalRequired
+      // Por enquanto, mantém o envio automático para manter compatibilidade
+
+      // Disparo por WhatsApp para Múltiplos Contatos
       const wantWhatsapp = (type === "daily" && config.reportDailyWhatsapp) || (type === "weekly" && config.reportWeeklyWhatsapp);
       if (wantWhatsapp && config.reportWhatsappNumbers) {
         const numbers = config.reportWhatsappNumbers.split(",").map((n: string) => n.trim()).filter(Boolean);
-        const whatsappText = `📊 *VALEM CHAT — RELATÓRIO ${type === "weekly" ? "SEMANAL" : "DIÁRIO"} DE PERFORMANCE*\n\nPeríodo: ${period}\n\n*Resumo dos KPIs:*\n• Total de Conversas: ${totalChats}\n• SLA Cumprido: ${metSlaPct}%\n• Tempo Médio de Resposta: ${avgResponseSeconds}s\n• Score Geral da Equipe: ${avgScore}/100\n• Clientes Satisfeitos: ${satisfiedCount} | Frustrados: ${frustratedCount}\n\n_Acesse o painel administrativo para visualizar o relatório completo gerado por Inteligência Artificial._`;
-        
+        const whatsappText = `📊 *VALEM CHAT — RELATÓRIO ${type === "weekly" ? "SEMANAL" : "DIÁRIO"} DE PERFORMANCE*\n\nPeríodo: ${period}\n\n*Resumo dos KPIs:*\n• Total de Conversas: ${storedReport.kpis.volume}\n• SLA Cumprido: ${storedReport.kpis.sla}%\n• Tempo Médio de Resposta: ${storedReport.kpis.frt}s\n• Score Geral da Equipe: ${storedReport.kpis.qa}/10\n• Clientes Satisfeitos: ${storedReport.kpis.satisfied}%\n\n_Acesse o painel administrativo para visualizar o relatório completo gerado por Inteligência Artificial._`;
+
         await this.sendReportViaWhatsapp(tenantId, numbers, whatsappText);
       }
 
-      // ── Disparo por E-mail SMTP para Múltiplos Contatos ──
+      // Disparo por E-mail SMTP para Múltiplos Contatos
       const wantEmail = (type === "daily" && config.reportDailyEmail) || (type === "weekly" && config.reportWeeklyEmail);
       if (wantEmail && config.reportEmailAddresses && config.smtpHost && config.smtpPort) {
         const emails = config.reportEmailAddresses.split(",").map((e: string) => e.trim()).filter(Boolean);
         const subject = `Valem Chat — Relatório ${type === "weekly" ? "Semanal" : "Diário"} de Performance (${period})`;
-        
+
         const html = `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff;">
             <h2 style="color: #6366f1; font-weight: 800; margin-bottom: 5px;">Valem Chat & BI</h2>
@@ -392,7 +291,7 @@ Período: ${period}
         await this.sendReportViaEmail(emails, subject, html, config);
       }
     } catch (e: any) {
-      console.error("[SlaEngine] Erro fatal no gerador de relatório:", e.message);
+      console.error("[SlaEngine] Erro fatal no gerador de relatório v2:", e.message);
     }
   }
 

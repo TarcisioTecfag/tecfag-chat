@@ -10,61 +10,63 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
-import { Route as ApiVoiceStreamRouteImport } from './routes/api/voice-stream'
-import { Route as ApiVoiceBufferRouteImport } from './routes/api/voice-buffer'
-import { Route as ApiValentinaVoiceRouteImport } from './routes/api/valentina-voice'
-import { Route as ApiTwilioVoiceWebhookRouteImport } from './routes/api/twilio-voice-webhook'
-import { Route as ApiTemplatesRouteImport } from './routes/api/templates'
-import { Route as ApiTasksRouteImport } from './routes/api/tasks'
-import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
-import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
-import { Route as ApiPushRouteImport } from './routes/api/push'
-import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
-import { Route as ApiGroupsRouteImport } from './routes/api/groups'
-import { Route as ApiContactsRouteImport } from './routes/api/contacts'
-import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
-import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
-import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
-import { Route as ApiValentinaRodizioRouteImport } from './routes/api/valentina/rodizio'
-import { Route as ApiValentinaMessagesRouteImport } from './routes/api/valentina/messages'
-import { Route as ApiValentinaKnowledgeRouteImport } from './routes/api/valentina/knowledge'
-import { Route as ApiValentinaConfigRouteImport } from './routes/api/valentina/config'
-import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/agents'
-import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
-import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
-import { Route as ApiGestaoTasksRouteImport } from './routes/api/gestao/tasks'
-import { Route as ApiGestaoSlaRouteImport } from './routes/api/gestao/sla'
-import { Route as ApiGestaoReportsRouteImport } from './routes/api/gestao/reports'
-import { Route as ApiGestaoPerformanceRouteImport } from './routes/api/gestao/performance'
-import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
-import { Route as ApiGestaoOperatorHistoryRouteImport } from './routes/api/gestao/operator-history'
-import { Route as ApiGestaoMyMetricsRouteImport } from './routes/api/gestao/my-metrics'
-import { Route as ApiGestaoMessagesRouteImport } from './routes/api/gestao/messages'
-import { Route as ApiGestaoLiveRouteImport } from './routes/api/gestao/live'
-import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
-import { Route as ApiGestaoCostsRouteImport } from './routes/api/gestao/costs'
-import { Route as ApiGestaoContactsAnalyticsRouteImport } from './routes/api/gestao/contacts-analytics'
-import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
-import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
-import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
-import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
-import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
-import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
-import { Route as ApiBaileysStatusRouteImport } from './routes/api/baileys/status'
-import { Route as ApiBaileysSendMediaRouteImport } from './routes/api/baileys/send-media'
-import { Route as ApiBaileysSendRouteImport } from './routes/api/baileys/send'
-import { Route as ApiBaileysPresenceRouteImport } from './routes/api/baileys/presence'
-import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
-import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
-import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
-import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiChatsRouteImport } from './routes/api/chats'
+import { Route as ApiContactsRouteImport } from './routes/api/contacts'
+import { Route as ApiGroupsRouteImport } from './routes/api/groups'
+import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
+import { Route as ApiPushRouteImport } from './routes/api/push'
+import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
+import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
+import { Route as ApiTasksRouteImport } from './routes/api/tasks'
+import { Route as ApiTemplatesRouteImport } from './routes/api/templates'
+import { Route as ApiTwilioVoiceWebhookRouteImport } from './routes/api/twilio-voice-webhook'
+import { Route as ApiValentinaVoiceRouteImport } from './routes/api/valentina-voice'
+import { Route as ApiVoiceBufferRouteImport } from './routes/api/voice-buffer'
+import { Route as ApiVoiceStreamRouteImport } from './routes/api/voice-stream'
+import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
 import { Route as ApiAdminResetRouteImport } from './routes/api/admin/reset'
-import { Route as ApiValentinaVoiceChatCompletionsRouteImport } from './routes/api/valentina-voice/chat/completions'
-import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
-import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
+import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
+import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
+import { Route as ApiBaileysPresenceRouteImport } from './routes/api/baileys/presence'
+import { Route as ApiBaileysSendRouteImport } from './routes/api/baileys/send'
+import { Route as ApiBaileysSendMediaRouteImport } from './routes/api/baileys/send-media'
+import { Route as ApiBaileysStatusRouteImport } from './routes/api/baileys/status'
+import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
+import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
+import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
+import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
+import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
+import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
+import { Route as ApiGestaoContactsAnalyticsRouteImport } from './routes/api/gestao/contacts-analytics'
+import { Route as ApiGestaoCostsRouteImport } from './routes/api/gestao/costs'
+import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
+import { Route as ApiGestaoLiveRouteImport } from './routes/api/gestao/live'
+import { Route as ApiGestaoMessagesRouteImport } from './routes/api/gestao/messages'
+import { Route as ApiGestaoMyMetricsRouteImport } from './routes/api/gestao/my-metrics'
+import { Route as ApiGestaoOperatorHistoryRouteImport } from './routes/api/gestao/operator-history'
+import { Route as ApiGestaoOverviewRouteImport } from './routes/api/gestao/overview'
+import { Route as ApiGestaoPerformanceRouteImport } from './routes/api/gestao/performance'
+import { Route as ApiGestaoReportWorkflowRouteImport } from './routes/api/gestao/report-workflow'
+import { Route as ApiGestaoReportsRouteImport } from './routes/api/gestao/reports'
+import { Route as ApiGestaoReportsV2RouteImport } from './routes/api/gestao/reports-v2'
+import { Route as ApiGestaoSlaRouteImport } from './routes/api/gestao/sla'
+import { Route as ApiGestaoTasksRouteImport } from './routes/api/gestao/tasks'
+import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
+import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
+import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/agents'
+import { Route as ApiValentinaConfigRouteImport } from './routes/api/valentina/config'
+import { Route as ApiValentinaKnowledgeRouteImport } from './routes/api/valentina/knowledge'
+import { Route as ApiValentinaMessagesRouteImport } from './routes/api/valentina/messages'
+import { Route as ApiValentinaRodizioRouteImport } from './routes/api/valentina/rodizio'
+import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
+import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
+import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
+import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
+import { Route as ApiValentinaVoiceChatCompletionsRouteImport } from './routes/api/valentina-voice/chat/completions'
 import { Route as ApiValentinaVoiceV1ChatCompletionsRouteImport } from './routes/api/valentina-voice/v1/chat/completions'
 
 const IndexRoute = IndexRouteImport.update({
@@ -72,69 +74,9 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CallRoomIdRoute = CallRoomIdRouteImport.update({
-  id: '/call/$roomId',
-  path: '/call/$roomId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiVoiceStreamRoute = ApiVoiceStreamRouteImport.update({
-  id: '/api/voice-stream',
-  path: '/api/voice-stream',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiVoiceBufferRoute = ApiVoiceBufferRouteImport.update({
-  id: '/api/voice-buffer',
-  path: '/api/voice-buffer',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiValentinaVoiceRoute = ApiValentinaVoiceRouteImport.update({
-  id: '/api/valentina-voice',
-  path: '/api/valentina-voice',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiTwilioVoiceWebhookRoute = ApiTwilioVoiceWebhookRouteImport.update({
-  id: '/api/twilio-voice-webhook',
-  path: '/api/twilio-voice-webhook',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiTemplatesRoute = ApiTemplatesRouteImport.update({
-  id: '/api/templates',
-  path: '/api/templates',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiTasksRoute = ApiTasksRouteImport.update({
-  id: '/api/tasks',
-  path: '/api/tasks',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSectorsRoute = ApiSectorsRouteImport.update({
-  id: '/api/sectors',
-  path: '/api/sectors',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiQuickResponsesRoute = ApiQuickResponsesRouteImport.update({
-  id: '/api/quick-responses',
-  path: '/api/quick-responses',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPushRoute = ApiPushRouteImport.update({
-  id: '/api/push',
-  path: '/api/push',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
-  id: '/api/operators',
-  path: '/api/operators',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiGroupsRoute = ApiGroupsRouteImport.update({
-  id: '/api/groups',
-  path: '/api/groups',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiContactsRoute = ApiContactsRouteImport.update({
-  id: '/api/contacts',
-  path: '/api/contacts',
+const ApiCallsRoute = ApiCallsRouteImport.update({
+  id: '/api/calls',
+  path: '/api/calls',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChatsRoute = ApiChatsRouteImport.update({
@@ -142,110 +84,144 @@ const ApiChatsRoute = ApiChatsRouteImport.update({
   path: '/api/chats',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCallsRoute = ApiCallsRouteImport.update({
-  id: '/api/calls',
-  path: '/api/calls',
+const ApiContactsRoute = ApiContactsRouteImport.update({
+  id: '/api/contacts',
+  path: '/api/contacts',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiValentinaSupervisorRoute = ApiValentinaSupervisorRouteImport.update({
-  id: '/api/valentina/supervisor',
-  path: '/api/valentina/supervisor',
+const ApiGroupsRoute = ApiGroupsRouteImport.update({
+  id: '/api/groups',
+  path: '/api/groups',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiValentinaSdrRoute = ApiValentinaSdrRouteImport.update({
-  id: '/api/valentina/sdr',
-  path: '/api/valentina/sdr',
+const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
+  id: '/api/operators',
+  path: '/api/operators',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiValentinaRodizioRoute = ApiValentinaRodizioRouteImport.update({
-  id: '/api/valentina/rodizio',
-  path: '/api/valentina/rodizio',
+const ApiPushRoute = ApiPushRouteImport.update({
+  id: '/api/push',
+  path: '/api/push',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiValentinaMessagesRoute = ApiValentinaMessagesRouteImport.update({
-  id: '/api/valentina/messages',
-  path: '/api/valentina/messages',
+const ApiQuickResponsesRoute = ApiQuickResponsesRouteImport.update({
+  id: '/api/quick-responses',
+  path: '/api/quick-responses',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiValentinaKnowledgeRoute = ApiValentinaKnowledgeRouteImport.update({
-  id: '/api/valentina/knowledge',
-  path: '/api/valentina/knowledge',
+const ApiSectorsRoute = ApiSectorsRouteImport.update({
+  id: '/api/sectors',
+  path: '/api/sectors',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiValentinaConfigRoute = ApiValentinaConfigRouteImport.update({
-  id: '/api/valentina/config',
-  path: '/api/valentina/config',
+const ApiTasksRoute = ApiTasksRouteImport.update({
+  id: '/api/tasks',
+  path: '/api/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiValentinaAgentsRoute = ApiValentinaAgentsRouteImport.update({
-  id: '/api/valentina/agents',
-  path: '/api/valentina/agents',
+const ApiTemplatesRoute = ApiTemplatesRouteImport.update({
+  id: '/api/templates',
+  path: '/api/templates',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSettingsReportsRoute = ApiSettingsReportsRouteImport.update({
-  id: '/api/settings/reports',
-  path: '/api/settings/reports',
+const ApiTwilioVoiceWebhookRoute = ApiTwilioVoiceWebhookRouteImport.update({
+  id: '/api/twilio-voice-webhook',
+  path: '/api/twilio-voice-webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
-  id: '/api/settings/rd-crm',
-  path: '/api/settings/rd-crm',
+const ApiValentinaVoiceRoute = ApiValentinaVoiceRouteImport.update({
+  id: '/api/valentina-voice',
+  path: '/api/valentina-voice',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoTasksRoute = ApiGestaoTasksRouteImport.update({
-  id: '/api/gestao/tasks',
-  path: '/api/gestao/tasks',
+const ApiVoiceBufferRoute = ApiVoiceBufferRouteImport.update({
+  id: '/api/voice-buffer',
+  path: '/api/voice-buffer',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoSlaRoute = ApiGestaoSlaRouteImport.update({
-  id: '/api/gestao/sla',
-  path: '/api/gestao/sla',
+const ApiVoiceStreamRoute = ApiVoiceStreamRouteImport.update({
+  id: '/api/voice-stream',
+  path: '/api/voice-stream',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoReportsRoute = ApiGestaoReportsRouteImport.update({
-  id: '/api/gestao/reports',
-  path: '/api/gestao/reports',
+const CallRoomIdRoute = CallRoomIdRouteImport.update({
+  id: '/call/$roomId',
+  path: '/call/$roomId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoPerformanceRoute = ApiGestaoPerformanceRouteImport.update({
-  id: '/api/gestao/performance',
-  path: '/api/gestao/performance',
+const ApiAdminResetRoute = ApiAdminResetRouteImport.update({
+  id: '/api/admin/reset',
+  path: '/api/admin/reset',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoOverviewRoute = ApiGestaoOverviewRouteImport.update({
-  id: '/api/gestao/overview',
-  path: '/api/gestao/overview',
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoOperatorHistoryRoute =
-  ApiGestaoOperatorHistoryRouteImport.update({
-    id: '/api/gestao/operator-history',
-    path: '/api/gestao/operator-history',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiGestaoMyMetricsRoute = ApiGestaoMyMetricsRouteImport.update({
-  id: '/api/gestao/my-metrics',
-  path: '/api/gestao/my-metrics',
+const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
+  id: '/api/baileys/connect',
+  path: '/api/baileys/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoMessagesRoute = ApiGestaoMessagesRouteImport.update({
-  id: '/api/gestao/messages',
-  path: '/api/gestao/messages',
+const ApiBaileysDisconnectRoute = ApiBaileysDisconnectRouteImport.update({
+  id: '/api/baileys/disconnect',
+  path: '/api/baileys/disconnect',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoLiveRoute = ApiGestaoLiveRouteImport.update({
-  id: '/api/gestao/live',
-  path: '/api/gestao/live',
+const ApiBaileysMediaRoute = ApiBaileysMediaRouteImport.update({
+  id: '/api/baileys/media',
+  path: '/api/baileys/media',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoHealthRoute = ApiGestaoHealthRouteImport.update({
-  id: '/api/gestao/health',
-  path: '/api/gestao/health',
+const ApiBaileysPresenceRoute = ApiBaileysPresenceRouteImport.update({
+  id: '/api/baileys/presence',
+  path: '/api/baileys/presence',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoCostsRoute = ApiGestaoCostsRouteImport.update({
-  id: '/api/gestao/costs',
-  path: '/api/gestao/costs',
+const ApiBaileysSendRoute = ApiBaileysSendRouteImport.update({
+  id: '/api/baileys/send',
+  path: '/api/baileys/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBaileysSendMediaRoute = ApiBaileysSendMediaRouteImport.update({
+  id: '/api/baileys/send-media',
+  path: '/api/baileys/send-media',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBaileysStatusRoute = ApiBaileysStatusRouteImport.update({
+  id: '/api/baileys/status',
+  path: '/api/baileys/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBaileysSyncAvatarsRoute = ApiBaileysSyncAvatarsRouteImport.update({
+  id: '/api/baileys/sync-avatars',
+  path: '/api/baileys/sync-avatars',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatsUpdateQueueRoute = ApiChatsUpdateQueueRouteImport.update({
+  id: '/update-queue',
+  path: '/update-queue',
+  getParentRoute: () => ApiChatsRoute,
+} as any)
+const ApiContactsContactIdRoute = ApiContactsContactIdRouteImport.update({
+  id: '/$contactId',
+  path: '/$contactId',
+  getParentRoute: () => ApiContactsRoute,
+} as any)
+const ApiContactsUpdateWalletRoute = ApiContactsUpdateWalletRouteImport.update({
+  id: '/update-wallet',
+  path: '/update-wallet',
+  getParentRoute: () => ApiContactsRoute,
+} as any)
+const ApiGestaoAlertsRoute = ApiGestaoAlertsRouteImport.update({
+  id: '/api/gestao/alerts',
+  path: '/api/gestao/alerts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoAuditsRoute = ApiGestaoAuditsRouteImport.update({
+  id: '/api/gestao/audits',
+  path: '/api/gestao/audits',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGestaoContactsAnalyticsRoute =
@@ -254,103 +230,139 @@ const ApiGestaoContactsAnalyticsRoute =
     path: '/api/gestao/contacts-analytics',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiGestaoAuditsRoute = ApiGestaoAuditsRouteImport.update({
-  id: '/api/gestao/audits',
-  path: '/api/gestao/audits',
+const ApiGestaoCostsRoute = ApiGestaoCostsRouteImport.update({
+  id: '/api/gestao/costs',
+  path: '/api/gestao/costs',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGestaoAlertsRoute = ApiGestaoAlertsRouteImport.update({
-  id: '/api/gestao/alerts',
-  path: '/api/gestao/alerts',
+const ApiGestaoHealthRoute = ApiGestaoHealthRouteImport.update({
+  id: '/api/gestao/health',
+  path: '/api/gestao/health',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiContactsUpdateWalletRoute = ApiContactsUpdateWalletRouteImport.update({
-  id: '/update-wallet',
-  path: '/update-wallet',
-  getParentRoute: () => ApiContactsRoute,
-} as any)
-const ApiContactsContactIdRoute = ApiContactsContactIdRouteImport.update({
-  id: '/$contactId',
-  path: '/$contactId',
-  getParentRoute: () => ApiContactsRoute,
-} as any)
-const ApiChatsUpdateQueueRoute = ApiChatsUpdateQueueRouteImport.update({
-  id: '/update-queue',
-  path: '/update-queue',
-  getParentRoute: () => ApiChatsRoute,
-} as any)
-const ApiBaileysSyncAvatarsRoute = ApiBaileysSyncAvatarsRouteImport.update({
-  id: '/api/baileys/sync-avatars',
-  path: '/api/baileys/sync-avatars',
+const ApiGestaoLiveRoute = ApiGestaoLiveRouteImport.update({
+  id: '/api/gestao/live',
+  path: '/api/gestao/live',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiBaileysStatusRoute = ApiBaileysStatusRouteImport.update({
-  id: '/api/baileys/status',
-  path: '/api/baileys/status',
+const ApiGestaoMessagesRoute = ApiGestaoMessagesRouteImport.update({
+  id: '/api/gestao/messages',
+  path: '/api/gestao/messages',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiBaileysSendMediaRoute = ApiBaileysSendMediaRouteImport.update({
-  id: '/api/baileys/send-media',
-  path: '/api/baileys/send-media',
+const ApiGestaoMyMetricsRoute = ApiGestaoMyMetricsRouteImport.update({
+  id: '/api/gestao/my-metrics',
+  path: '/api/gestao/my-metrics',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiBaileysSendRoute = ApiBaileysSendRouteImport.update({
-  id: '/api/baileys/send',
-  path: '/api/baileys/send',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiBaileysPresenceRoute = ApiBaileysPresenceRouteImport.update({
-  id: '/api/baileys/presence',
-  path: '/api/baileys/presence',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiBaileysMediaRoute = ApiBaileysMediaRouteImport.update({
-  id: '/api/baileys/media',
-  path: '/api/baileys/media',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiBaileysDisconnectRoute = ApiBaileysDisconnectRouteImport.update({
-  id: '/api/baileys/disconnect',
-  path: '/api/baileys/disconnect',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
-  id: '/api/baileys/connect',
-  path: '/api/baileys/connect',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
-  id: '/api/auth/login',
-  path: '/api/auth/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAdminResetRoute = ApiAdminResetRouteImport.update({
-  id: '/api/admin/reset',
-  path: '/api/admin/reset',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiValentinaVoiceChatCompletionsRoute =
-  ApiValentinaVoiceChatCompletionsRouteImport.update({
-    id: '/chat/completions',
-    path: '/chat/completions',
-    getParentRoute: () => ApiValentinaVoiceRoute,
+const ApiGestaoOperatorHistoryRoute =
+  ApiGestaoOperatorHistoryRouteImport.update({
+    id: '/api/gestao/operator-history',
+    path: '/api/gestao/operator-history',
+    getParentRoute: () => rootRouteImport,
   } as any)
-const ApiSettingsRdCrmFieldsRoute = ApiSettingsRdCrmFieldsRouteImport.update({
-  id: '/fields',
-  path: '/fields',
-  getParentRoute: () => ApiSettingsRdCrmRoute,
+const ApiGestaoOverviewRoute = ApiGestaoOverviewRouteImport.update({
+  id: '/api/gestao/overview',
+  path: '/api/gestao/overview',
+  getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGestaoPerformanceRoute = ApiGestaoPerformanceRouteImport.update({
+  id: '/api/gestao/performance',
+  path: '/api/gestao/performance',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoReportWorkflowRoute = ApiGestaoReportWorkflowRouteImport.update({
+  id: '/api/gestao/report-workflow',
+  path: '/api/gestao/report-workflow',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoReportsRoute = ApiGestaoReportsRouteImport.update({
+  id: '/api/gestao/reports',
+  path: '/api/gestao/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoReportsV2Route = ApiGestaoReportsV2RouteImport.update({
+  id: '/api/gestao/reports-v2',
+  path: '/api/gestao/reports-v2',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoSlaRoute = ApiGestaoSlaRouteImport.update({
+  id: '/api/gestao/sla',
+  path: '/api/gestao/sla',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoTasksRoute = ApiGestaoTasksRouteImport.update({
+  id: '/api/gestao/tasks',
+  path: '/api/gestao/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
+  id: '/api/settings/rd-crm',
+  path: '/api/settings/rd-crm',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsReportsRoute = ApiSettingsReportsRouteImport.update({
+  id: '/api/settings/reports',
+  path: '/api/settings/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaAgentsRoute = ApiValentinaAgentsRouteImport.update({
+  id: '/api/valentina/agents',
+  path: '/api/valentina/agents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaConfigRoute = ApiValentinaConfigRouteImport.update({
+  id: '/api/valentina/config',
+  path: '/api/valentina/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaKnowledgeRoute = ApiValentinaKnowledgeRouteImport.update({
+  id: '/api/valentina/knowledge',
+  path: '/api/valentina/knowledge',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaMessagesRoute = ApiValentinaMessagesRouteImport.update({
+  id: '/api/valentina/messages',
+  path: '/api/valentina/messages',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaRodizioRoute = ApiValentinaRodizioRouteImport.update({
+  id: '/api/valentina/rodizio',
+  path: '/api/valentina/rodizio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaSdrRoute = ApiValentinaSdrRouteImport.update({
+  id: '/api/valentina/sdr',
+  path: '/api/valentina/sdr',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaSupervisorRoute = ApiValentinaSupervisorRouteImport.update({
+  id: '/api/valentina/supervisor',
+  path: '/api/valentina/supervisor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiContactsContactIdRdDealRoute =
+  ApiContactsContactIdRdDealRouteImport.update({
+    id: '/rd-deal',
+    path: '/rd-deal',
+    getParentRoute: () => ApiContactsContactIdRoute,
+  } as any)
 const ApiSettingsRdCrmCallbackRoute =
   ApiSettingsRdCrmCallbackRouteImport.update({
     id: '/callback',
     path: '/callback',
     getParentRoute: () => ApiSettingsRdCrmRoute,
   } as any)
-const ApiContactsContactIdRdDealRoute =
-  ApiContactsContactIdRdDealRouteImport.update({
-    id: '/rd-deal',
-    path: '/rd-deal',
-    getParentRoute: () => ApiContactsContactIdRoute,
+const ApiSettingsRdCrmFieldsRoute = ApiSettingsRdCrmFieldsRouteImport.update({
+  id: '/fields',
+  path: '/fields',
+  getParentRoute: () => ApiSettingsRdCrmRoute,
+} as any)
+const ApiValentinaVoiceChatCompletionsRoute =
+  ApiValentinaVoiceChatCompletionsRouteImport.update({
+    id: '/chat/completions',
+    path: '/chat/completions',
+    getParentRoute: () => ApiValentinaVoiceRoute,
   } as any)
 const ApiValentinaVoiceV1ChatCompletionsRoute =
   ApiValentinaVoiceV1ChatCompletionsRouteImport.update({
@@ -400,7 +412,9 @@ export interface FileRoutesByFullPath {
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/performance': typeof ApiGestaoPerformanceRoute
+  '/api/gestao/report-workflow': typeof ApiGestaoReportWorkflowRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
@@ -459,7 +473,9 @@ export interface FileRoutesByTo {
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/performance': typeof ApiGestaoPerformanceRoute
+  '/api/gestao/report-workflow': typeof ApiGestaoReportWorkflowRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
@@ -519,7 +535,9 @@ export interface FileRoutesById {
   '/api/gestao/operator-history': typeof ApiGestaoOperatorHistoryRoute
   '/api/gestao/overview': typeof ApiGestaoOverviewRoute
   '/api/gestao/performance': typeof ApiGestaoPerformanceRoute
+  '/api/gestao/report-workflow': typeof ApiGestaoReportWorkflowRoute
   '/api/gestao/reports': typeof ApiGestaoReportsRoute
+  '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
@@ -580,7 +598,9 @@ export interface FileRouteTypes {
     | '/api/gestao/operator-history'
     | '/api/gestao/overview'
     | '/api/gestao/performance'
+    | '/api/gestao/report-workflow'
     | '/api/gestao/reports'
+    | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
@@ -639,7 +659,9 @@ export interface FileRouteTypes {
     | '/api/gestao/operator-history'
     | '/api/gestao/overview'
     | '/api/gestao/performance'
+    | '/api/gestao/report-workflow'
     | '/api/gestao/reports'
+    | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
@@ -698,7 +720,9 @@ export interface FileRouteTypes {
     | '/api/gestao/operator-history'
     | '/api/gestao/overview'
     | '/api/gestao/performance'
+    | '/api/gestao/report-workflow'
     | '/api/gestao/reports'
+    | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
     | '/api/settings/rd-crm'
@@ -755,7 +779,9 @@ export interface RootRouteChildren {
   ApiGestaoOperatorHistoryRoute: typeof ApiGestaoOperatorHistoryRoute
   ApiGestaoOverviewRoute: typeof ApiGestaoOverviewRoute
   ApiGestaoPerformanceRoute: typeof ApiGestaoPerformanceRoute
+  ApiGestaoReportWorkflowRoute: typeof ApiGestaoReportWorkflowRoute
   ApiGestaoReportsRoute: typeof ApiGestaoReportsRoute
+  ApiGestaoReportsV2Route: typeof ApiGestaoReportsV2Route
   ApiGestaoSlaRoute: typeof ApiGestaoSlaRoute
   ApiGestaoTasksRoute: typeof ApiGestaoTasksRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
@@ -778,95 +804,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/call/$roomId': {
-      id: '/call/$roomId'
-      path: '/call/$roomId'
-      fullPath: '/call/$roomId'
-      preLoaderRoute: typeof CallRoomIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/voice-stream': {
-      id: '/api/voice-stream'
-      path: '/api/voice-stream'
-      fullPath: '/api/voice-stream'
-      preLoaderRoute: typeof ApiVoiceStreamRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/voice-buffer': {
-      id: '/api/voice-buffer'
-      path: '/api/voice-buffer'
-      fullPath: '/api/voice-buffer'
-      preLoaderRoute: typeof ApiVoiceBufferRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/valentina-voice': {
-      id: '/api/valentina-voice'
-      path: '/api/valentina-voice'
-      fullPath: '/api/valentina-voice'
-      preLoaderRoute: typeof ApiValentinaVoiceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/twilio-voice-webhook': {
-      id: '/api/twilio-voice-webhook'
-      path: '/api/twilio-voice-webhook'
-      fullPath: '/api/twilio-voice-webhook'
-      preLoaderRoute: typeof ApiTwilioVoiceWebhookRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/templates': {
-      id: '/api/templates'
-      path: '/api/templates'
-      fullPath: '/api/templates'
-      preLoaderRoute: typeof ApiTemplatesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/tasks': {
-      id: '/api/tasks'
-      path: '/api/tasks'
-      fullPath: '/api/tasks'
-      preLoaderRoute: typeof ApiTasksRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/sectors': {
-      id: '/api/sectors'
-      path: '/api/sectors'
-      fullPath: '/api/sectors'
-      preLoaderRoute: typeof ApiSectorsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/quick-responses': {
-      id: '/api/quick-responses'
-      path: '/api/quick-responses'
-      fullPath: '/api/quick-responses'
-      preLoaderRoute: typeof ApiQuickResponsesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/push': {
-      id: '/api/push'
-      path: '/api/push'
-      fullPath: '/api/push'
-      preLoaderRoute: typeof ApiPushRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/operators': {
-      id: '/api/operators'
-      path: '/api/operators'
-      fullPath: '/api/operators'
-      preLoaderRoute: typeof ApiOperatorsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/groups': {
-      id: '/api/groups'
-      path: '/api/groups'
-      fullPath: '/api/groups'
-      preLoaderRoute: typeof ApiGroupsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/contacts': {
-      id: '/api/contacts'
-      path: '/api/contacts'
-      fullPath: '/api/contacts'
-      preLoaderRoute: typeof ApiContactsRouteImport
+    '/api/calls': {
+      id: '/api/calls'
+      path: '/api/calls'
+      fullPath: '/api/calls'
+      preLoaderRoute: typeof ApiCallsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chats': {
@@ -876,256 +818,95 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/calls': {
-      id: '/api/calls'
-      path: '/api/calls'
-      fullPath: '/api/calls'
-      preLoaderRoute: typeof ApiCallsRouteImport
+    '/api/contacts': {
+      id: '/api/contacts'
+      path: '/api/contacts'
+      fullPath: '/api/contacts'
+      preLoaderRoute: typeof ApiContactsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/valentina/supervisor': {
-      id: '/api/valentina/supervisor'
-      path: '/api/valentina/supervisor'
-      fullPath: '/api/valentina/supervisor'
-      preLoaderRoute: typeof ApiValentinaSupervisorRouteImport
+    '/api/groups': {
+      id: '/api/groups'
+      path: '/api/groups'
+      fullPath: '/api/groups'
+      preLoaderRoute: typeof ApiGroupsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/valentina/sdr': {
-      id: '/api/valentina/sdr'
-      path: '/api/valentina/sdr'
-      fullPath: '/api/valentina/sdr'
-      preLoaderRoute: typeof ApiValentinaSdrRouteImport
+    '/api/operators': {
+      id: '/api/operators'
+      path: '/api/operators'
+      fullPath: '/api/operators'
+      preLoaderRoute: typeof ApiOperatorsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/valentina/rodizio': {
-      id: '/api/valentina/rodizio'
-      path: '/api/valentina/rodizio'
-      fullPath: '/api/valentina/rodizio'
-      preLoaderRoute: typeof ApiValentinaRodizioRouteImport
+    '/api/push': {
+      id: '/api/push'
+      path: '/api/push'
+      fullPath: '/api/push'
+      preLoaderRoute: typeof ApiPushRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/valentina/messages': {
-      id: '/api/valentina/messages'
-      path: '/api/valentina/messages'
-      fullPath: '/api/valentina/messages'
-      preLoaderRoute: typeof ApiValentinaMessagesRouteImport
+    '/api/quick-responses': {
+      id: '/api/quick-responses'
+      path: '/api/quick-responses'
+      fullPath: '/api/quick-responses'
+      preLoaderRoute: typeof ApiQuickResponsesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/valentina/knowledge': {
-      id: '/api/valentina/knowledge'
-      path: '/api/valentina/knowledge'
-      fullPath: '/api/valentina/knowledge'
-      preLoaderRoute: typeof ApiValentinaKnowledgeRouteImport
+    '/api/sectors': {
+      id: '/api/sectors'
+      path: '/api/sectors'
+      fullPath: '/api/sectors'
+      preLoaderRoute: typeof ApiSectorsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/valentina/config': {
-      id: '/api/valentina/config'
-      path: '/api/valentina/config'
-      fullPath: '/api/valentina/config'
-      preLoaderRoute: typeof ApiValentinaConfigRouteImport
+    '/api/tasks': {
+      id: '/api/tasks'
+      path: '/api/tasks'
+      fullPath: '/api/tasks'
+      preLoaderRoute: typeof ApiTasksRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/valentina/agents': {
-      id: '/api/valentina/agents'
-      path: '/api/valentina/agents'
-      fullPath: '/api/valentina/agents'
-      preLoaderRoute: typeof ApiValentinaAgentsRouteImport
+    '/api/templates': {
+      id: '/api/templates'
+      path: '/api/templates'
+      fullPath: '/api/templates'
+      preLoaderRoute: typeof ApiTemplatesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/settings/reports': {
-      id: '/api/settings/reports'
-      path: '/api/settings/reports'
-      fullPath: '/api/settings/reports'
-      preLoaderRoute: typeof ApiSettingsReportsRouteImport
+    '/api/twilio-voice-webhook': {
+      id: '/api/twilio-voice-webhook'
+      path: '/api/twilio-voice-webhook'
+      fullPath: '/api/twilio-voice-webhook'
+      preLoaderRoute: typeof ApiTwilioVoiceWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/settings/rd-crm': {
-      id: '/api/settings/rd-crm'
-      path: '/api/settings/rd-crm'
-      fullPath: '/api/settings/rd-crm'
-      preLoaderRoute: typeof ApiSettingsRdCrmRouteImport
+    '/api/valentina-voice': {
+      id: '/api/valentina-voice'
+      path: '/api/valentina-voice'
+      fullPath: '/api/valentina-voice'
+      preLoaderRoute: typeof ApiValentinaVoiceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/gestao/tasks': {
-      id: '/api/gestao/tasks'
-      path: '/api/gestao/tasks'
-      fullPath: '/api/gestao/tasks'
-      preLoaderRoute: typeof ApiGestaoTasksRouteImport
+    '/api/voice-buffer': {
+      id: '/api/voice-buffer'
+      path: '/api/voice-buffer'
+      fullPath: '/api/voice-buffer'
+      preLoaderRoute: typeof ApiVoiceBufferRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/gestao/sla': {
-      id: '/api/gestao/sla'
-      path: '/api/gestao/sla'
-      fullPath: '/api/gestao/sla'
-      preLoaderRoute: typeof ApiGestaoSlaRouteImport
+    '/api/voice-stream': {
+      id: '/api/voice-stream'
+      path: '/api/voice-stream'
+      fullPath: '/api/voice-stream'
+      preLoaderRoute: typeof ApiVoiceStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/gestao/reports': {
-      id: '/api/gestao/reports'
-      path: '/api/gestao/reports'
-      fullPath: '/api/gestao/reports'
-      preLoaderRoute: typeof ApiGestaoReportsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/performance': {
-      id: '/api/gestao/performance'
-      path: '/api/gestao/performance'
-      fullPath: '/api/gestao/performance'
-      preLoaderRoute: typeof ApiGestaoPerformanceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/overview': {
-      id: '/api/gestao/overview'
-      path: '/api/gestao/overview'
-      fullPath: '/api/gestao/overview'
-      preLoaderRoute: typeof ApiGestaoOverviewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/operator-history': {
-      id: '/api/gestao/operator-history'
-      path: '/api/gestao/operator-history'
-      fullPath: '/api/gestao/operator-history'
-      preLoaderRoute: typeof ApiGestaoOperatorHistoryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/my-metrics': {
-      id: '/api/gestao/my-metrics'
-      path: '/api/gestao/my-metrics'
-      fullPath: '/api/gestao/my-metrics'
-      preLoaderRoute: typeof ApiGestaoMyMetricsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/messages': {
-      id: '/api/gestao/messages'
-      path: '/api/gestao/messages'
-      fullPath: '/api/gestao/messages'
-      preLoaderRoute: typeof ApiGestaoMessagesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/live': {
-      id: '/api/gestao/live'
-      path: '/api/gestao/live'
-      fullPath: '/api/gestao/live'
-      preLoaderRoute: typeof ApiGestaoLiveRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/health': {
-      id: '/api/gestao/health'
-      path: '/api/gestao/health'
-      fullPath: '/api/gestao/health'
-      preLoaderRoute: typeof ApiGestaoHealthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/costs': {
-      id: '/api/gestao/costs'
-      path: '/api/gestao/costs'
-      fullPath: '/api/gestao/costs'
-      preLoaderRoute: typeof ApiGestaoCostsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/contacts-analytics': {
-      id: '/api/gestao/contacts-analytics'
-      path: '/api/gestao/contacts-analytics'
-      fullPath: '/api/gestao/contacts-analytics'
-      preLoaderRoute: typeof ApiGestaoContactsAnalyticsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/audits': {
-      id: '/api/gestao/audits'
-      path: '/api/gestao/audits'
-      fullPath: '/api/gestao/audits'
-      preLoaderRoute: typeof ApiGestaoAuditsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/gestao/alerts': {
-      id: '/api/gestao/alerts'
-      path: '/api/gestao/alerts'
-      fullPath: '/api/gestao/alerts'
-      preLoaderRoute: typeof ApiGestaoAlertsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/contacts/update-wallet': {
-      id: '/api/contacts/update-wallet'
-      path: '/update-wallet'
-      fullPath: '/api/contacts/update-wallet'
-      preLoaderRoute: typeof ApiContactsUpdateWalletRouteImport
-      parentRoute: typeof ApiContactsRoute
-    }
-    '/api/contacts/$contactId': {
-      id: '/api/contacts/$contactId'
-      path: '/$contactId'
-      fullPath: '/api/contacts/$contactId'
-      preLoaderRoute: typeof ApiContactsContactIdRouteImport
-      parentRoute: typeof ApiContactsRoute
-    }
-    '/api/chats/update-queue': {
-      id: '/api/chats/update-queue'
-      path: '/update-queue'
-      fullPath: '/api/chats/update-queue'
-      preLoaderRoute: typeof ApiChatsUpdateQueueRouteImport
-      parentRoute: typeof ApiChatsRoute
-    }
-    '/api/baileys/sync-avatars': {
-      id: '/api/baileys/sync-avatars'
-      path: '/api/baileys/sync-avatars'
-      fullPath: '/api/baileys/sync-avatars'
-      preLoaderRoute: typeof ApiBaileysSyncAvatarsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/baileys/status': {
-      id: '/api/baileys/status'
-      path: '/api/baileys/status'
-      fullPath: '/api/baileys/status'
-      preLoaderRoute: typeof ApiBaileysStatusRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/baileys/send-media': {
-      id: '/api/baileys/send-media'
-      path: '/api/baileys/send-media'
-      fullPath: '/api/baileys/send-media'
-      preLoaderRoute: typeof ApiBaileysSendMediaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/baileys/send': {
-      id: '/api/baileys/send'
-      path: '/api/baileys/send'
-      fullPath: '/api/baileys/send'
-      preLoaderRoute: typeof ApiBaileysSendRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/baileys/presence': {
-      id: '/api/baileys/presence'
-      path: '/api/baileys/presence'
-      fullPath: '/api/baileys/presence'
-      preLoaderRoute: typeof ApiBaileysPresenceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/baileys/media': {
-      id: '/api/baileys/media'
-      path: '/api/baileys/media'
-      fullPath: '/api/baileys/media'
-      preLoaderRoute: typeof ApiBaileysMediaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/baileys/disconnect': {
-      id: '/api/baileys/disconnect'
-      path: '/api/baileys/disconnect'
-      fullPath: '/api/baileys/disconnect'
-      preLoaderRoute: typeof ApiBaileysDisconnectRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/baileys/connect': {
-      id: '/api/baileys/connect'
-      path: '/api/baileys/connect'
-      fullPath: '/api/baileys/connect'
-      preLoaderRoute: typeof ApiBaileysConnectRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/login': {
-      id: '/api/auth/login'
-      path: '/api/auth/login'
-      fullPath: '/api/auth/login'
-      preLoaderRoute: typeof ApiAuthLoginRouteImport
+    '/call/$roomId': {
+      id: '/call/$roomId'
+      path: '/call/$roomId'
+      fullPath: '/call/$roomId'
+      preLoaderRoute: typeof CallRoomIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/admin/reset': {
@@ -1135,19 +916,271 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminResetRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/valentina-voice/chat/completions': {
-      id: '/api/valentina-voice/chat/completions'
-      path: '/chat/completions'
-      fullPath: '/api/valentina-voice/chat/completions'
-      preLoaderRoute: typeof ApiValentinaVoiceChatCompletionsRouteImport
-      parentRoute: typeof ApiValentinaVoiceRoute
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/api/settings/rd-crm/fields': {
-      id: '/api/settings/rd-crm/fields'
-      path: '/fields'
-      fullPath: '/api/settings/rd-crm/fields'
-      preLoaderRoute: typeof ApiSettingsRdCrmFieldsRouteImport
-      parentRoute: typeof ApiSettingsRdCrmRoute
+    '/api/baileys/connect': {
+      id: '/api/baileys/connect'
+      path: '/api/baileys/connect'
+      fullPath: '/api/baileys/connect'
+      preLoaderRoute: typeof ApiBaileysConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/disconnect': {
+      id: '/api/baileys/disconnect'
+      path: '/api/baileys/disconnect'
+      fullPath: '/api/baileys/disconnect'
+      preLoaderRoute: typeof ApiBaileysDisconnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/media': {
+      id: '/api/baileys/media'
+      path: '/api/baileys/media'
+      fullPath: '/api/baileys/media'
+      preLoaderRoute: typeof ApiBaileysMediaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/presence': {
+      id: '/api/baileys/presence'
+      path: '/api/baileys/presence'
+      fullPath: '/api/baileys/presence'
+      preLoaderRoute: typeof ApiBaileysPresenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/send': {
+      id: '/api/baileys/send'
+      path: '/api/baileys/send'
+      fullPath: '/api/baileys/send'
+      preLoaderRoute: typeof ApiBaileysSendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/send-media': {
+      id: '/api/baileys/send-media'
+      path: '/api/baileys/send-media'
+      fullPath: '/api/baileys/send-media'
+      preLoaderRoute: typeof ApiBaileysSendMediaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/status': {
+      id: '/api/baileys/status'
+      path: '/api/baileys/status'
+      fullPath: '/api/baileys/status'
+      preLoaderRoute: typeof ApiBaileysStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/baileys/sync-avatars': {
+      id: '/api/baileys/sync-avatars'
+      path: '/api/baileys/sync-avatars'
+      fullPath: '/api/baileys/sync-avatars'
+      preLoaderRoute: typeof ApiBaileysSyncAvatarsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chats/update-queue': {
+      id: '/api/chats/update-queue'
+      path: '/update-queue'
+      fullPath: '/api/chats/update-queue'
+      preLoaderRoute: typeof ApiChatsUpdateQueueRouteImport
+      parentRoute: typeof ApiChatsRoute
+    }
+    '/api/contacts/$contactId': {
+      id: '/api/contacts/$contactId'
+      path: '/$contactId'
+      fullPath: '/api/contacts/$contactId'
+      preLoaderRoute: typeof ApiContactsContactIdRouteImport
+      parentRoute: typeof ApiContactsRoute
+    }
+    '/api/contacts/update-wallet': {
+      id: '/api/contacts/update-wallet'
+      path: '/update-wallet'
+      fullPath: '/api/contacts/update-wallet'
+      preLoaderRoute: typeof ApiContactsUpdateWalletRouteImport
+      parentRoute: typeof ApiContactsRoute
+    }
+    '/api/gestao/alerts': {
+      id: '/api/gestao/alerts'
+      path: '/api/gestao/alerts'
+      fullPath: '/api/gestao/alerts'
+      preLoaderRoute: typeof ApiGestaoAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/audits': {
+      id: '/api/gestao/audits'
+      path: '/api/gestao/audits'
+      fullPath: '/api/gestao/audits'
+      preLoaderRoute: typeof ApiGestaoAuditsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/contacts-analytics': {
+      id: '/api/gestao/contacts-analytics'
+      path: '/api/gestao/contacts-analytics'
+      fullPath: '/api/gestao/contacts-analytics'
+      preLoaderRoute: typeof ApiGestaoContactsAnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/costs': {
+      id: '/api/gestao/costs'
+      path: '/api/gestao/costs'
+      fullPath: '/api/gestao/costs'
+      preLoaderRoute: typeof ApiGestaoCostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/health': {
+      id: '/api/gestao/health'
+      path: '/api/gestao/health'
+      fullPath: '/api/gestao/health'
+      preLoaderRoute: typeof ApiGestaoHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/live': {
+      id: '/api/gestao/live'
+      path: '/api/gestao/live'
+      fullPath: '/api/gestao/live'
+      preLoaderRoute: typeof ApiGestaoLiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/messages': {
+      id: '/api/gestao/messages'
+      path: '/api/gestao/messages'
+      fullPath: '/api/gestao/messages'
+      preLoaderRoute: typeof ApiGestaoMessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/my-metrics': {
+      id: '/api/gestao/my-metrics'
+      path: '/api/gestao/my-metrics'
+      fullPath: '/api/gestao/my-metrics'
+      preLoaderRoute: typeof ApiGestaoMyMetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/operator-history': {
+      id: '/api/gestao/operator-history'
+      path: '/api/gestao/operator-history'
+      fullPath: '/api/gestao/operator-history'
+      preLoaderRoute: typeof ApiGestaoOperatorHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/overview': {
+      id: '/api/gestao/overview'
+      path: '/api/gestao/overview'
+      fullPath: '/api/gestao/overview'
+      preLoaderRoute: typeof ApiGestaoOverviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/performance': {
+      id: '/api/gestao/performance'
+      path: '/api/gestao/performance'
+      fullPath: '/api/gestao/performance'
+      preLoaderRoute: typeof ApiGestaoPerformanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/report-workflow': {
+      id: '/api/gestao/report-workflow'
+      path: '/api/gestao/report-workflow'
+      fullPath: '/api/gestao/report-workflow'
+      preLoaderRoute: typeof ApiGestaoReportWorkflowRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/reports': {
+      id: '/api/gestao/reports'
+      path: '/api/gestao/reports'
+      fullPath: '/api/gestao/reports'
+      preLoaderRoute: typeof ApiGestaoReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/reports-v2': {
+      id: '/api/gestao/reports-v2'
+      path: '/api/gestao/reports-v2'
+      fullPath: '/api/gestao/reports-v2'
+      preLoaderRoute: typeof ApiGestaoReportsV2RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/sla': {
+      id: '/api/gestao/sla'
+      path: '/api/gestao/sla'
+      fullPath: '/api/gestao/sla'
+      preLoaderRoute: typeof ApiGestaoSlaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/tasks': {
+      id: '/api/gestao/tasks'
+      path: '/api/gestao/tasks'
+      fullPath: '/api/gestao/tasks'
+      preLoaderRoute: typeof ApiGestaoTasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings/rd-crm': {
+      id: '/api/settings/rd-crm'
+      path: '/api/settings/rd-crm'
+      fullPath: '/api/settings/rd-crm'
+      preLoaderRoute: typeof ApiSettingsRdCrmRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings/reports': {
+      id: '/api/settings/reports'
+      path: '/api/settings/reports'
+      fullPath: '/api/settings/reports'
+      preLoaderRoute: typeof ApiSettingsReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/agents': {
+      id: '/api/valentina/agents'
+      path: '/api/valentina/agents'
+      fullPath: '/api/valentina/agents'
+      preLoaderRoute: typeof ApiValentinaAgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/config': {
+      id: '/api/valentina/config'
+      path: '/api/valentina/config'
+      fullPath: '/api/valentina/config'
+      preLoaderRoute: typeof ApiValentinaConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/knowledge': {
+      id: '/api/valentina/knowledge'
+      path: '/api/valentina/knowledge'
+      fullPath: '/api/valentina/knowledge'
+      preLoaderRoute: typeof ApiValentinaKnowledgeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/messages': {
+      id: '/api/valentina/messages'
+      path: '/api/valentina/messages'
+      fullPath: '/api/valentina/messages'
+      preLoaderRoute: typeof ApiValentinaMessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/rodizio': {
+      id: '/api/valentina/rodizio'
+      path: '/api/valentina/rodizio'
+      fullPath: '/api/valentina/rodizio'
+      preLoaderRoute: typeof ApiValentinaRodizioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/sdr': {
+      id: '/api/valentina/sdr'
+      path: '/api/valentina/sdr'
+      fullPath: '/api/valentina/sdr'
+      preLoaderRoute: typeof ApiValentinaSdrRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/supervisor': {
+      id: '/api/valentina/supervisor'
+      path: '/api/valentina/supervisor'
+      fullPath: '/api/valentina/supervisor'
+      preLoaderRoute: typeof ApiValentinaSupervisorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/contacts/$contactId/rd-deal': {
+      id: '/api/contacts/$contactId/rd-deal'
+      path: '/rd-deal'
+      fullPath: '/api/contacts/$contactId/rd-deal'
+      preLoaderRoute: typeof ApiContactsContactIdRdDealRouteImport
+      parentRoute: typeof ApiContactsContactIdRoute
     }
     '/api/settings/rd-crm/callback': {
       id: '/api/settings/rd-crm/callback'
@@ -1156,12 +1189,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSettingsRdCrmCallbackRouteImport
       parentRoute: typeof ApiSettingsRdCrmRoute
     }
-    '/api/contacts/$contactId/rd-deal': {
-      id: '/api/contacts/$contactId/rd-deal'
-      path: '/rd-deal'
-      fullPath: '/api/contacts/$contactId/rd-deal'
-      preLoaderRoute: typeof ApiContactsContactIdRdDealRouteImport
-      parentRoute: typeof ApiContactsContactIdRoute
+    '/api/settings/rd-crm/fields': {
+      id: '/api/settings/rd-crm/fields'
+      path: '/fields'
+      fullPath: '/api/settings/rd-crm/fields'
+      preLoaderRoute: typeof ApiSettingsRdCrmFieldsRouteImport
+      parentRoute: typeof ApiSettingsRdCrmRoute
+    }
+    '/api/valentina-voice/chat/completions': {
+      id: '/api/valentina-voice/chat/completions'
+      path: '/chat/completions'
+      fullPath: '/api/valentina-voice/chat/completions'
+      preLoaderRoute: typeof ApiValentinaVoiceChatCompletionsRouteImport
+      parentRoute: typeof ApiValentinaVoiceRoute
     }
     '/api/valentina-voice/v1/chat/completions': {
       id: '/api/valentina-voice/v1/chat/completions'
@@ -1275,7 +1315,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoOperatorHistoryRoute: ApiGestaoOperatorHistoryRoute,
   ApiGestaoOverviewRoute: ApiGestaoOverviewRoute,
   ApiGestaoPerformanceRoute: ApiGestaoPerformanceRoute,
+  ApiGestaoReportWorkflowRoute: ApiGestaoReportWorkflowRoute,
   ApiGestaoReportsRoute: ApiGestaoReportsRoute,
+  ApiGestaoReportsV2Route: ApiGestaoReportsV2Route,
   ApiGestaoSlaRoute: ApiGestaoSlaRoute,
   ApiGestaoTasksRoute: ApiGestaoTasksRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
@@ -1291,13 +1333,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

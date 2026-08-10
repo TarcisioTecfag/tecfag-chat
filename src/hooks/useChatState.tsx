@@ -399,7 +399,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     groupId: "group-admin",
   };
 
-  const currentOperator = operators.find((op) => op.id === currentOperatorId) || operators[0] || defaultOperator;
+  const currentOperator = operators.find((op) => op.id === currentOperatorId) || defaultOperator;
   const currentGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || defaultAdminGroup;
 
   const operatorProfile: OperatorProfile = {

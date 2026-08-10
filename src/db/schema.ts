@@ -274,17 +274,52 @@ export const operatorDailyMetrics = pgTable("operator_daily_metrics", {
 });
 
 // ─── 12. RELATÓRIOS AUTOMÁTICOS GERADOS PELA I.A. ────────────────────────────
-// Relatórios diários e semanais em Markdown, prontos para exibição e copiar/colar.
+// Relatórios diários e semanais — v2: armazena StoredReport JSON completo + workflow de aprovação.
 export const aiReports = pgTable("ai_reports", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   type: text("type").notNull(),           // 'daily' | 'weekly'
   period: text("period").notNull(),       // 'YYYY-MM-DD' para daily, 'YYYY-WNN' para weekly
 
-  reportMarkdown: text("report_markdown").notNull(), // O relatório formatado em Markdown
-  reportData: jsonb("report_data"),                  // Dados brutos que alimentaram o relatório
+  reportMarkdown: text("report_markdown").notNull(), // Markdown para envio WhatsApp/Email
+  reportData: jsonb("report_data"),                  // StoredReport JSON completo (v2)
+
+  // ── Campos v2 (Relatórios IA insight-navigator) ──
+  stage: text("stage").default("rascunho").notNull(),        // 'rascunho' | 'revisao' | 'aprovado' | 'enviado'
+  currentVersion: text("current_version").default("v1").notNull(),
+  headline: text("headline"),
+  summary: text("summary"),
+  confidence: integer("confidence").default(90),
 
   generatedAt: timestamp("generated_at").defaultNow().notNull(),
+});
+
+// ─── 12b. VERSÕES DOS RELATÓRIOS DE I.A. ─────────────────────────────────────
+// Cada relatório pode ter múltiplas versões (regenerações, ajustes editoriais).
+export const aiReportVersions = pgTable("ai_report_versions", {
+  id: text("id").primaryKey(),
+  reportId: text("report_id").references(() => aiReports.id, { onDelete: "cascade" }).notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  version: text("version").notNull(),           // "v1", "v2"
+  createdAt: text("created_at").notNull(),       // "03/08/2026, 18:00" (display format)
+  author: text("author").notNull(),             // "IA · sla_advisor" ou nome do revisor
+  note: text("note").notNull(),
+  stage: text("stage").default("rascunho").notNull(),
+  reportData: jsonb("report_data"),              // Snapshot do StoredReport nesta versão
+});
+
+// ─── 12c. FEEDBACK POR SEÇÃO DOS RELATÓRIOS DE I.A. ──────────────────────────
+// Feedback granular (thumbs up/down + comentário) por seção de cada versão.
+export const aiReportFeedback = pgTable("ai_report_feedback", {
+  id: text("id").primaryKey(),
+  reportId: text("report_id").references(() => aiReports.id, { onDelete: "cascade" }).notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  version: text("version").notNull(),           // "v1"
+  sectionId: text("section_id").notNull(),       // "resumo", "volume", "destaques", etc.
+  vote: text("vote"),                           // "up", "down", null
+  comment: text("comment").default(""),
+  operatorId: text("operator_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // ─── 13. TEMPLATES INDIVIDUAIS DOS OPERADORES ───────────────────────────────
@@ -446,6 +481,8 @@ export type ResponseTimeLog = typeof responseTimeLogs.$inferSelect;
 export type AiConversationAudit = typeof aiConversationAudits.$inferSelect;
 export type OperatorDailyMetrics = typeof operatorDailyMetrics.$inferSelect;
 export type AiReport = typeof aiReports.$inferSelect;
+export type AiReportVersion = typeof aiReportVersions.$inferSelect;
+export type AiReportFeedback = typeof aiReportFeedback.$inferSelect;
 export type CallSession = typeof callSessions.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 export type AiUsageLog = typeof aiUsageLogs.$inferSelect;

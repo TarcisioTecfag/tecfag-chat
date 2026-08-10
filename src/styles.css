@@ -158,5 +158,81 @@
   }
 }
 
+/* ═══ Insight Navigator · Signal Palette & Utilities ═══════════════════════ */
 
+@theme inline {
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-positive: var(--positive);
+  --color-positive-foreground: var(--positive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-critical: var(--critical);
+  --color-critical-foreground: var(--critical-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+}
 
+:root {
+  /* Signal palette */
+  --positive: #22c55e;
+  --positive-foreground: #ffffff;
+  --warning: #eab308;
+  --warning-foreground: #ffffff;
+  --critical: #ef4444;
+  --critical-foreground: #ffffff;
+  --info: #3b82f6;
+  --info-foreground: #ffffff;
+  --secondary: #f3f5f8;
+  --secondary-foreground: #4a5568;
+  --popover: #ffffff;
+  --popover-foreground: #2d3748;
+
+  /* Reports gradients */
+  --gradient-aurora: radial-gradient(
+      120% 90% at 8% -10%,
+      rgba(99, 102, 241, 0.08) 0%,
+      transparent 55%
+    ),
+    radial-gradient(90% 70% at 95% 0%, rgba(59, 130, 246, 0.06) 0%, transparent 60%);
+  --gradient-surface: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.96),
+    rgba(243, 245, 248, 0.9)
+  );
+  --gradient-primary: linear-gradient(135deg, var(--primary), #c53030);
+  --shadow-panel: 0 1px 2px 0 rgba(45, 55, 72, 0.05), 0 12px 32px -20px rgba(45, 55, 72, 0.18);
+  --shadow-glow: 0 0 0 1px rgba(223, 61, 61, 0.3), 0 12px 30px -16px rgba(223, 61, 61, 0.35);
+}
+
+@utility aurora {
+  background-image: var(--gradient-aurora);
+}
+
+@utility panel {
+  background-image: var(--gradient-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(12px);
+}
+
+@utility text-gradient {
+  background-image: var(--gradient-primary);
+  background-clip: text;
+  color: transparent;
+}
+
+@utility glow {
+  box-shadow: var(--shadow-glow);
+}
+
+@utility grid-lines {
+  background-image:
+    linear-gradient(to right, rgba(45, 55, 72, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(45, 55, 72, 0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
