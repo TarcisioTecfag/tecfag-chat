@@ -32,11 +32,11 @@ export const Route = createFileRoute("/api/gestao/reports-v2")({
 
       GET: async ({ request }) => {
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
+        let tenantId = url.searchParams.get("tenantId");
         const action = url.searchParams.get("action");
 
-        if (!tenantId) {
-          return json({ error: "tenantId é obrigatório" }, 400);
+        if (!tenantId || tenantId === "undefined" || tenantId === "null" || tenantId === "all") {
+          tenantId = "valem";
         }
 
         try {

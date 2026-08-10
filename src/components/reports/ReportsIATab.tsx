@@ -38,13 +38,14 @@ import { signalStyles } from "@/components/reports/signal";
 import { cn } from "@/lib/utils";
 
 export function ReportsIATab({ tenant }: { tenant: string }) {
+  const activeTenant = tenant && tenant !== "undefined" && tenant !== "null" ? tenant : "valem";
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // ── Fetch de dados da API ──
   const fetchReports = useCallback(async () => {
     try {
-      const res = await fetch(`/api/gestao/reports-v2?tenantId=${tenant}`);
+      const res = await fetch(`/api/gestao/reports-v2?tenantId=${activeTenant}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: StoredReport[] = await res.json();
       loadReports(data);
@@ -56,7 +57,7 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
       loadReports([]);
       setLoaded(true);
     }
-  }, [tenant]);
+  }, [activeTenant]);
 
   useEffect(() => {
     fetchReports();
@@ -113,7 +114,7 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tenantId: tenant,
+            tenantId: activeTenant,
             reportId: report.id,
             action: "advance-stage",
             operatorId: "system",
@@ -132,7 +133,7 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tenantId: tenant,
+          tenantId: activeTenant,
           reportId: report.id,
           action: "reject",
           operatorId: "system",
@@ -155,7 +156,7 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        tenantId: tenant,
+        tenantId: activeTenant,
         reportId: parts[0],
         action: "feedback",
         version: parts[1],
