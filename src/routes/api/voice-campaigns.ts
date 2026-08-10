@@ -6,7 +6,7 @@ import { db } from "../../db";
 import { voiceCampaigns, voiceCampaignLeads } from "../../db/schema";
 import { eq, desc } from "drizzle-orm";
 
-export const Route = createFileRoute("/api/voice-campaigns" as any)({
+export const Route = createFileRoute("/api/voice-campaigns")({
   server: {
     handlers: {
       GET: async ({ request }) => {

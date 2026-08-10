@@ -7,7 +7,7 @@ import { contacts, voiceCalls, tasks } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import { rdRequest } from "../../lib/rdCrmService";
 
-export const Route = createFileRoute("/api/voice-enrich-contact" as any)({
+export const Route = createFileRoute("/api/voice-enrich-contact")({
   server: {
     handlers: {
       POST: async ({ request }) => {
