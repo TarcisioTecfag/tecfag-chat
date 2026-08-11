@@ -6,7 +6,7 @@ import { createFileRoute } from "@tanstack/react-router";
  * está pronto antes de redirecionar tráfego, evitando conflito 440 do WhatsApp
  * quando duas instâncias ficam ativas ao mesmo tempo durante o deploy.
  */
-export const Route = createFileRoute("/api/health")({
+export const Route = createFileRoute("/api/health" as any)({
   server: {
     handlers: {
       GET: async () => {

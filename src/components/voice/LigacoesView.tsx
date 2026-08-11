@@ -7,6 +7,8 @@ import { HistoricoTab } from "./HistoricoTab";
 import { ClientesTab } from "./ClientesTab";
 import { CampanhasTab } from "./CampanhasTab";
 
+import { TestCallButton } from "./TestCallButton";
+
 type VoiceTab = "dashboard" | "agenda" | "historico" | "clientes" | "campanhas";
 
 export function LigacoesView() {
@@ -32,7 +34,9 @@ export function LigacoesView() {
           </h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <TestCallButton />
+
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary/10 text-primary text-xs font-bold">
             <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
             Twilio Active

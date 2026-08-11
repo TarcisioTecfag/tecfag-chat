@@ -4,7 +4,7 @@ import { contacts, conversations, messages } from "../../../db/schema";
 import { eq, and, ne, isNotNull, lt, isNull } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 
-export const Route = createFileRoute("/api/contacts/check-inactivity")({
+export const Route = createFileRoute("/api/contacts/check-inactivity" as any)({
   server: {
     handlers: {
       OPTIONS: async () => {
@@ -44,31 +44,45 @@ export const Route = createFileRoute("/api/contacts/check-inactivity")({
         const cutoff50 = new Date(Date.now() - 50 * 24 * 60 * 60 * 1000);
 
         try {
-          // Contatos COM carteira definida (walletOperatorId não nulo) e sem
-          // contato há mais de 60 dias → candidatos à transferência automática
-          const over60 = await db
-            .select({ id: contacts.id, name: contacts.name, lastContactAt: contacts.lastContactAt })
+          // Busca contatos COM carteira definida (walletOperatorId não nulo)
+          // juntamente com o horário de última mensagem das conversas para calcular inatividade real.
+          const allWalletContacts = await db
+            .select({
+              id: contacts.id,
+              name: contacts.name,
+              createdAt: contacts.createdAt,
+              lastMessageTime: conversations.lastMessageTime,
+            })
             .from(contacts)
+            .leftJoin(conversations, eq(conversations.contactId, contacts.id))
             .where(
               and(
                 eq(contacts.tenantId, tenantId),
-                isNotNull(contacts.walletOperatorId),
-                lt(contacts.lastContactAt, cutoff60)
+                isNotNull(contacts.walletOperatorId)
               )
             );
 
-          // Contatos COM carteira definida e sem contato há mais de 50 dias
-          // (inclui os >60, que é um subconjunto)
-          const over50 = await db
-            .select({ id: contacts.id, name: contacts.name, lastContactAt: contacts.lastContactAt })
-            .from(contacts)
-            .where(
-              and(
-                eq(contacts.tenantId, tenantId),
-                isNotNull(contacts.walletOperatorId),
-                lt(contacts.lastContactAt, cutoff50)
-              )
-            );
+          // Consolidar a última interação por contato
+          const contactMap = new Map<string, { id: string; name: string; lastContactAt: Date }>();
+
+          for (const row of allWalletContacts) {
+            const lastTime = row.lastMessageTime
+              ? new Date(row.lastMessageTime)
+              : new Date(row.createdAt);
+
+            const existing = contactMap.get(row.id);
+            if (!existing || lastTime > existing.lastContactAt) {
+              contactMap.set(row.id, {
+                id: row.id,
+                name: row.name,
+                lastContactAt: lastTime,
+              });
+            }
+          }
+
+          const aggregated = Array.from(contactMap.values());
+          const over60 = aggregated.filter((c) => c.lastContactAt < cutoff60);
+          const over50 = aggregated.filter((c) => c.lastContactAt < cutoff50);
 
           return new Response(
             JSON.stringify({
@@ -120,16 +134,42 @@ export const Route = createFileRoute("/api/contacts/check-inactivity")({
 
         try {
           // Buscar contatos COM carteira e sem contato há mais de 60 dias
-          const inactiveContacts = await db
-            .select()
+          const allWalletContacts = await db
+            .select({
+              id: contacts.id,
+              name: contacts.name,
+              createdAt: contacts.createdAt,
+              lastMessageTime: conversations.lastMessageTime,
+            })
             .from(contacts)
+            .leftJoin(conversations, eq(conversations.contactId, contacts.id))
             .where(
               and(
                 eq(contacts.tenantId, tenantId),
-                isNotNull(contacts.walletOperatorId),
-                lt(contacts.lastContactAt, cutoff60)
+                isNotNull(contacts.walletOperatorId)
               )
             );
+
+          const contactMap = new Map<string, { id: string; name: string; lastContactAt: Date }>();
+
+          for (const row of allWalletContacts) {
+            const lastTime = row.lastMessageTime
+              ? new Date(row.lastMessageTime)
+              : new Date(row.createdAt);
+
+            const existing = contactMap.get(row.id);
+            if (!existing || lastTime > existing.lastContactAt) {
+              contactMap.set(row.id, {
+                id: row.id,
+                name: row.name,
+                lastContactAt: lastTime,
+              });
+            }
+          }
+
+          const inactiveContacts = Array.from(contactMap.values()).filter(
+            (c) => c.lastContactAt < cutoff60
+          );
 
           const transferred: string[] = [];
 
@@ -172,7 +212,7 @@ export const Route = createFileRoute("/api/contacts/check-inactivity")({
                 senderName: "Sistema",
                 content: `⚠️ Cliente removido da carteira automaticamente por inatividade superior a 60 dias (último contato: ${lastContactDate}). Na próxima mensagem, a Valentina IA fará o atendimento inicial.`,
                 isInternalNote: true,
-                createdAt: new Date(),
+                sentAt: new Date(),
               });
 
               // Notifica em tempo real para o painel atualizar
@@ -181,7 +221,7 @@ export const Route = createFileRoute("/api/contacts/check-inactivity")({
                 contactId: contact.id,
                 walletOperatorId: null,
                 conversationId: conv.id,
-              });
+              } as any);
             }
 
             transferred.push(contact.id);

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Phone, Clock, MessageSquare, ShieldAlert, Save, Check } from "lucide-react";
 
 export function ConfiguracaoTab() {
-  const [twilioNumber, setTwilioNumber] = useState("+55 14 99836-4338");
+  const [twilioNumber, setTwilioNumber] = useState("+55 14 398-0186");
   const [greeting, setGreeting] = useState("Olá, boa tarde! Aqui é a Valentina da Valem Válvulas e Embalagens. Tudo bem com você?");
   const [maxDuration, setMaxDuration] = useState("10");
   const [autoWhatsappFollowup, setAutoWhatsappFollowup] = useState(true);
