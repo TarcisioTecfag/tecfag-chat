@@ -486,15 +486,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return false;
 
-      // Fallback gracioso se a IA não retornar ou se interrompida
+      // Se a IA não retornar resultado válido (timeout, erro de parse, etc.), silencia sem enviar
+      // nada ao cliente — Valentina não deve ter fallback de mensagem pública.
       if (!aiResult || !aiResult.messagesToSend || aiResult.messagesToSend.length === 0) {
-        aiResult = {
-          extractedData: {},
-          messagesToSend: [
-            `Entendido! Já estou ajustando as informações aqui para o nosso consultor comercial.`
-          ],
-          isCompleted: false,
-        };
+        console.warn(`[SdrEngine] ⚠️ Vertex AI retornou resultado vazio para conversa ${conversationId}. Valentina silenciada neste turno.`);
+        return false;
       }
 
       // 🛑 GARANTIA PROGRAMÁTICA: Se for a PRIMEIRA mensagem do atendimento:
@@ -510,7 +506,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           // Cliente só cumprimentou — estrutura fixa de 3 balões
           aiResult.messagesToSend = [
             greeting,
-            `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
+            `Eu sou a ${aiPersona.name}, da ${aiPersona.company}  😊`,
             "Como posso te ajudar?",
           ];
         } else {
@@ -519,7 +515,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           // Apenas substitui os 2 primeiros por greeting + apresentação obrigatórios.
           aiResult.messagesToSend = [
             greeting,
-            `Eu sou a Valentina, da Valem Valvulas e Embalagens  😊`,
+            `Eu sou a ${aiPersona.name}, da ${aiPersona.company}  😊`,
             ...aiResult.messagesToSend, // todos os balões da IA vêm depois
           ];
         }
@@ -601,14 +597,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // Contagem de campos vitais já preenchidos (usada no metadata do flowState)
       const filledCount = [hasName, hasCompany || hasCnpj, hasProduct].filter(Boolean).length;
 
-      // Verifica se a resposta da Valentina inclui frases explícitas de transferência
+      // Verifica se a resposta da Valentina inclui frases EXPLÍCITAS e inequívocas de transferência.
+      // IMPORTANTE: Deve ser restrito o suficiente para não acionar com mensagens genéricas.
       const messagesMentionTransfer = aiResult.messagesToSend.some((m) => {
         const lower = m.toLowerCase();
         return (
-          lower.includes("transferindo") ||
-          lower.includes("especialista comercial") ||
-          lower.includes("vendedor especialista") ||
-          lower.includes("dar continuidade ao seu atendimento")
+          (lower.includes("transferindo agora") || lower.includes("te transferindo")) ||
+          (lower.includes("passando para") && (lower.includes("especialista") || lower.includes("vendedor"))) ||
+          (lower.includes("dar continuidade ao seu atendimento") && lower.includes("especialista"))
         );
       });
 
@@ -618,17 +614,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         return m.includes("?") || lower.includes("qual") || lower.includes("como") || lower.includes("onde") || lower.includes("pode me");
       });
 
-      // A triagem SÓ PODE SER CONCLUÍDA se:
-      // 1) O Gemini marcou isCompleted=true E NÃO está fazendo nenhuma nova pergunta; OU
-      // 2) Temos TODOS os dados vitais coletados (Nome, Empresa/CNPJ, Produto) E (a Valentina gerou mensagem de transferência ou Gemini marcou isCompleted=true);
+      // ╔══════════════════════════════════════════════════════════════════════╗
+      // ║  REGRA BLINDADA DE CONCLUSÃO DA TRIAGEM                            ║
+      // ║  hasVitalInformation é CONDIÇÃO OBRIGATÓRIA E INVIOLÁVEL.          ║
+      // ║  A IA jamais pode encerrar a triagem sem dados vitais coletados.   ║
+      // ╚══════════════════════════════════════════════════════════════════════╝
       let isCompleted = false;
-      if (aiResult.isCompleted && !botIsAskingQuestion) {
-        isCompleted = true;
-      } else if (hasVitalInformation && (aiResult.isCompleted || messagesMentionTransfer)) {
-        isCompleted = true;
-      } else {
-        isCompleted = false;
+      if (hasVitalInformation) {
+        // Com dados vitais coletados: aceita conclusão da IA (sem pergunta pendente) OU transferência explícita
+        if ((aiResult.isCompleted && !botIsAskingQuestion) || messagesMentionTransfer) {
+          isCompleted = true;
+        }
       }
+      // SEM hasVitalInformation → isCompleted = false SEMPRE, independente do que a IA disser
 
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();

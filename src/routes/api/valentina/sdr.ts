@@ -89,12 +89,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
           });
 
-          if (!dbConfig) {
-            dbConfig = await db.query.agentConfigs.findFirst({
-              where: (table, { eq: dEq }) => dEq(table.agentType, "sdr"),
-            });
-          }
-
           if (dbConfig) {
             const configData = (dbConfig.config as Record<string, any>) || {};
             config = {
@@ -103,6 +97,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               whitelistPhone: configData.whitelistPhone || "14998364338",
             };
           }
+          // Se não encontrar config para o tenant, retorna config padrão segura
+          // NUNCA busca config de outro tenant como fallback.
         } catch (err) {
           console.warn("[api/valentina/sdr] Erro ao buscar agentConfigs (usando fallback seguro):", err);
         }
@@ -111,6 +107,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
         try {
           let flowStates = await db.select()
             .from(agentFlowStates)
+            .where(eq(agentFlowStates.tenantId, tenantId))
             .orderBy(desc(agentFlowStates.lastInteractionAt))
             .limit(50);
 
