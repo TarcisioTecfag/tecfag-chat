@@ -261,28 +261,59 @@ export function WalletView() {
               </div>
             </div>
 
-            {/* KPI de Inatividade ≥50 dias */}
-            {inactivityKpi !== null && inactivityKpi.over50Count > 0 && (
-              <div className="flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3.5 shadow-soft col-span-1 sm:col-span-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500 border border-amber-500/20 shrink-0">
-                  <Clock className="h-5 w-5" />
+            {/* KPI de Inatividade ≥50 dias — sempre visível */}
+            <div className={`flex items-center gap-3 rounded-2xl border p-3.5 shadow-soft col-span-1 sm:col-span-3 transition-colors ${
+              inactivityKpi === null
+                ? "border-border bg-muted/30 animate-pulse"
+                : inactivityKpi.over50Count > 0
+                  ? "border-amber-500/30 bg-amber-500/5"
+                  : "border-emerald-500/20 bg-emerald-500/5"
+            }`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl border shrink-0 ${
+                inactivityKpi === null
+                  ? "bg-muted text-muted-foreground border-border"
+                  : inactivityKpi.over50Count > 0
+                    ? "bg-amber-500/15 text-amber-500 border-amber-500/20"
+                    : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+              }`}>
+                <Clock className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                  inactivityKpi === null
+                    ? "text-muted-foreground"
+                    : inactivityKpi.over50Count > 0
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                }`}>
+                  {inactivityKpi === null ? (
+                    <span>Carregando dados de inatividade...</span>
+                  ) : inactivityKpi.over50Count > 0 ? (
+                    <><AlertTriangle className="h-3 w-3" /> Clientes sem contato há mais de 50 dias</>
+                  ) : (
+                    <><Clock className="h-3 w-3" /> Inatividade da Carteira</>
+                  )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                    <AlertTriangle className="h-3 w-3" />
-                    Clientes sem contato há mais de 50 dias
-                  </div>
-                  <div className="text-sm text-amber-700 dark:text-amber-300 font-medium mt-0.5">
-                    <span className="text-lg font-bold">{inactivityKpi.over50Count}</span> cliente{inactivityKpi.over50Count !== 1 ? "s" : ""} em risco de inatividade
-                    {inactivityKpi.over60Count > 0 && (
-                      <span className="ml-2 text-[10px] font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 rounded-full px-2 py-0.5">
-                        {inactivityKpi.over60Count} acima de 60 dias → serão transferidos automaticamente
-                      </span>
-                    )}
-                  </div>
+                <div className="text-sm font-medium mt-0.5">
+                  {inactivityKpi === null ? (
+                    <span className="text-muted-foreground text-xs">Verificando...</span>
+                  ) : inactivityKpi.over50Count > 0 ? (
+                    <span className="text-amber-700 dark:text-amber-300">
+                      <span className="text-lg font-bold">{inactivityKpi.over50Count}</span> cliente{inactivityKpi.over50Count !== 1 ? "s" : ""} em risco de inatividade
+                      {inactivityKpi.over60Count > 0 && (
+                        <span className="ml-2 text-[10px] font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 rounded-full px-2 py-0.5">
+                          {inactivityKpi.over60Count} acima de 60 dias → serão removidos da carteira automaticamente
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-emerald-700 dark:text-emerald-300 text-xs">
+                      Todos os clientes da carteira estão ativos. Nenhum com +50 dias sem contato. ✓
+                    </span>
+                  )}
                 </div>
               </div>
-            )}
+            </div>
           </div>
         )}
 
