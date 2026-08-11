@@ -1,19 +1,14 @@
-import { GoogleAuth } from "google-auth-library";
-import fs from "fs";
-import path from "path";
+import { vertexAi, MultimodalPart } from "../vertex-ai";
+import { mulawToWavBuffer } from "./audio-utils";
 
 /**
- * Serviço de STT (Speech-to-Text) usando REST API da Google Cloud Speech
- * Transcreve áudio Mu-law 8kHz recebido das chamadas do Twilio
+ * Serviço de STT (Speech-to-Text) usando Google Vertex AI (Gemini 2.5 Flash)
+ * Transcreve áudio Mu-law 8kHz recebido das chamadas do Twilio convertendo para WAV RIFF 16-bit
  */
 export class SttService {
   private static instance: SttService;
-  private auth: GoogleAuth | null = null;
-  private isConfigured: boolean = false;
 
-  private constructor() {
-    this.init();
-  }
+  private constructor() {}
 
   public static getInstance(): SttService {
     if (!SttService.instance) {
@@ -22,77 +17,45 @@ export class SttService {
     return SttService.instance;
   }
 
-  private init() {
-    try {
-      let keyFilePath = process.env.VERTEX_KEY_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
-      let credentialsObj: Record<string, any> | null = null;
-
-      const rawEnvJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.VERTEX_SERVICE_ACCOUNT_JSON;
-      if (rawEnvJson) {
-        try { credentialsObj = JSON.parse(rawEnvJson); } catch {}
-      }
-
-      if (!credentialsObj && !keyFilePath) {
-        const localKey = path.join(process.cwd(), "vertex-key.json");
-        if (fs.existsSync(localKey)) keyFilePath = localKey;
-      }
-
-      const authOptions: any = {
-        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-      };
-      if (credentialsObj) authOptions.credentials = credentialsObj;
-      else if (keyFilePath) authOptions.keyFilename = keyFilePath;
-
-      this.auth = new GoogleAuth(authOptions);
-      this.isConfigured = true;
-    } catch (e: any) {
-      console.warn("[SttService] Falha na inicialização do STT:", e?.message);
-    }
-  }
-
   /**
-   * Transcreve áudio Mu-law 8kHz codificado em base64
+   * Transcreve áudio Mu-law 8kHz codificado em base64 via Vertex AI Gemini Multimodal
    */
-  public async transcribeAudioBuffer(base64Audio: string): Promise<string> {
-    if (!this.auth) return "";
-
+  public async transcribeAudioBuffer(base64MulawAudio: string): Promise<string> {
     try {
-      const client = await this.auth.getClient();
-      const tokenRes = await client.getAccessToken();
-      const token = tokenRes.token;
-      if (!token) return "";
+      // 1. Converte o buffer de áudio Mu-law para arquivo WAV 16-bit 8kHz com cabeçalho RIFF
+      const rawMulawBuffer = Buffer.from(base64MulawAudio, "base64");
+      const wavBuffer = mulawToWavBuffer(rawMulawBuffer);
+      const base64Wav = wavBuffer.toString("base64");
 
-      const url = "https://speech.googleapis.com/v1/speech:recognize";
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+      // 2. Prepara o payload multimodal para o Vertex AI (Gemini 2.5 Flash)
+      const parts: MultimodalPart[] = [
+        {
+          inlineData: {
+            mimeType: "audio/wav",
+            data: base64Wav,
+          },
         },
-        body: JSON.stringify({
-          config: {
-            encoding: "MULAW",
-            sampleRateHertz: 8000,
-            languageCode: "pt-BR",
-            enableAutomaticPunctuation: true,
-          },
-          audio: {
-            content: base64Audio,
-          },
-        }),
+        {
+          text: `Transcreva exatamente o áudio recebido do cliente em português do Brasil.
+Retorne APENAS a transcrição textual exata do que foi dito pelo cliente.
+Se o áudio contiver apenas ruído, chiado ou nada compreensível, responda exatamente: NADA.`,
+        },
+      ];
+
+      // 3. Chama o modelo Vertex AI Gemini 2.5 Flash (Regra Estrita: Provedor único de I.A. no projeto)
+      const responseText = await vertexAi.generateText(parts, "gemini-2.5-flash", undefined, {
+        tenantId: "valem",
+        feature: "call_transcription",
       });
 
-      if (!response.ok) {
-        const errText = await response.text().catch(() => "");
-        console.error(`[SttService] Erro HTTP Google Speech (${response.status}): ${errText}`);
+      const cleanedText = responseText ? responseText.trim() : "";
+      if (!cleanedText || cleanedText.toUpperCase().includes("NADA") || cleanedText.length < 2) {
         return "";
       }
 
-      const data: any = await response.json();
-      const transcription = data?.results?.[0]?.alternatives?.[0]?.transcript || "";
-      return transcription.trim();
+      return cleanedText;
     } catch (err: any) {
-      console.error("[SttService] Erro na transcrição de áudio:", err?.message || err);
+      console.error("[SttService VertexAI] Erro na transcrição de áudio via Gemini:", err?.message || err);
       return "";
     }
   }

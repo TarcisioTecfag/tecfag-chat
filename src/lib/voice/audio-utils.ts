@@ -56,6 +56,41 @@ export function encodeMulaw(pcmBuffer: Int16Array): Buffer {
 }
 
 /**
+ * Converte um buffer Mu-law 8kHz em um arquivo WAV 16-bit 8kHz válido com cabeçalho RIFF (audio/wav)
+ */
+export function mulawToWavBuffer(mulawBuffer: Buffer): Buffer {
+  const pcmSamples = decodeMulaw(mulawBuffer);
+  const dataLen = pcmSamples.length * 2;
+  const header = Buffer.alloc(44);
+
+  // RIFF chunk descriptor
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataLen, 4);
+  header.write("WAVE", 8);
+
+  // fmt sub-chunk
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16); // Subchunk1Size = 16 para PCM
+  header.writeUInt16LE(1, 20);  // AudioFormat = 1 (PCM 16-bit)
+  header.writeUInt16LE(1, 22);  // NumChannels = 1 (mono)
+  header.writeUInt32LE(8000, 24); // SampleRate = 8000 Hz
+  header.writeUInt32LE(16000, 28); // ByteRate = 8000 * 1 * 2 = 16000 B/s
+  header.writeUInt16LE(2, 32);  // BlockAlign = 2
+  header.writeUInt16LE(16, 34); // BitsPerSample = 16 bits
+
+  // data sub-chunk
+  header.write("data", 36);
+  header.writeUInt32LE(dataLen, 40);
+
+  const pcmBuffer = Buffer.alloc(dataLen);
+  for (let i = 0; i < pcmSamples.length; i++) {
+    pcmBuffer.writeInt16LE(pcmSamples[i], i * 2);
+  }
+
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+/**
  * Calcula a energia RMS do sinal PCM para Voice Activity Detection (VAD) simples
  */
 export function calculateRms(pcm: Int16Array): number {
