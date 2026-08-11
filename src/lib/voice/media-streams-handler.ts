@@ -14,6 +14,10 @@ export class MediaStreamHandler {
   private streamSid: string = "";
   private callSid: string = "";
   private dbCallId: string = "";
+  private history: VoiceMessage[] = [];
+  private isProcessing: boolean = false;
+  private startTime: Date = new Date();
+
   // Buffer de áudio do cliente para VAD e STT
   private audioBufferChunks: string[] = [];
   private silenceTimer: NodeJS.Timeout | null = null;
@@ -132,8 +136,8 @@ export class MediaStreamHandler {
     const pcmSamples = decodeMulaw(mulawBuffer);
     const rms = calculateRms(pcmSamples);
 
-    // Limiar de detecção de voz humana (RMS > 350)
-    if (rms > 350) {
+    // Limiar de detecção de voz humana em telefonia 8kHz (RMS > 80)
+    if (rms > 80) {
       this.hasSpoken = true;
       this.audioBufferChunks.push(base64Payload);
       this.resetSilenceTimer();
@@ -145,10 +149,10 @@ export class MediaStreamHandler {
 
   private resetSilenceTimer() {
     this.clearSilenceTimer();
-    // Após 650ms de silêncio contínuo depois da fala, dispara o STT e processa
+    // Após 600ms de silêncio contínuo depois da fala, dispara o STT e processa
     this.silenceTimer = setTimeout(() => {
       this.processAccumulatedAudio();
-    }, 650);
+    }, 600);
   }
 
   private clearSilenceTimer() {
@@ -162,25 +166,31 @@ export class MediaStreamHandler {
    * Envia o buffer de áudio acumulado para o Google STT e dispara o ciclo da IA
    */
   private async processAccumulatedAudio() {
-    if (this.audioBufferChunks.length === 0 || this.isProcessing) return;
+    // Exige pelo menos 10 pacotes (~200ms de áudio acumulado) para evitar disparar STT com ruídos isolados
+    if (this.audioBufferChunks.length < 10 || this.isProcessing) {
+      this.audioBufferChunks = [];
+      this.hasSpoken = false;
+      return;
+    }
 
     this.isProcessing = true;
     this.hasSpoken = false;
     const combinedBase64 = this.audioBufferChunks.join("");
+    const chunkCount = this.audioBufferChunks.length;
     this.audioBufferChunks = [];
 
     try {
-      console.log(`[MediaStream] Transcrevendo áudio do cliente...`);
+      console.log(`[MediaStream] Transcrevendo ${chunkCount} pacotes de áudio do cliente (${chunkCount * 20}ms)...`);
       const transcription = await sttService.transcribeAudioBuffer(combinedBase64);
 
-      if (!transcription || transcription.length < 2) {
-        console.log(`[MediaStream] Nenhuma fala clara detectada.`);
+      if (!transcription || transcription.trim().length < 2) {
+        console.log(`[MediaStream] Nenhuma fala clara detectada no segmento de ${chunkCount * 20}ms.`);
         this.isProcessing = false;
         return;
       }
 
-      console.log(`[MediaStream] Cliente disse: "${transcription}"`);
-      await this.handleUserSpeech(transcription);
+      console.log(`[MediaStream] 🎙️ Cliente disse: "${transcription.trim()}"`);
+      await this.handleUserSpeech(transcription.trim());
     } catch (err: any) {
       console.error("[MediaStream] Erro ao processar áudio acumulado:", err?.message || err);
       this.isProcessing = false;

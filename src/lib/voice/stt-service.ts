@@ -83,6 +83,8 @@ export class SttService {
       });
 
       if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        console.error(`[SttService] Erro HTTP Google Speech (${response.status}): ${errText}`);
         return "";
       }
 
