@@ -154,27 +154,19 @@ export class MediaStreamHandler {
 
     const isBotActive = this.isProcessing || this.isSpeaking || this.outputQueue.length > 0;
 
-    // Se a Valentina estiver falando, exige FALA ALTA E CONTINUA (RMS > 150 por 15 frames/300ms) para autorizar interrupção ("barge-in")
+    // REGRA DE TESTE: Desativa interrupção (barge-in) completamente. 
+    // Enquanto a Valentina estiver gerando ou falando (pacotes na fila), o microfone é ignorado para ela concluir 100% da frase sem cortes.
     if (isBotActive) {
-      if (rms > 150) {
-        this.loudFramesCount++;
-        if (this.loudFramesCount > 15) {
-          this.interruptValentina();
-          this.loudFramesCount = 0;
-        }
-      } else {
-        this.loudFramesCount = 0;
-      }
       return;
     }
 
-    // Cooldown de eco: ignora microfone nos primeiros 1000ms logo após a Valentina terminar de falar
-    if (Date.now() - this.lastSpokeTime < 1000) {
+    // Cooldown de eco: ignora microfone nos primeiros 1200ms logo após a Valentina terminar de falar
+    if (Date.now() - this.lastSpokeTime < 1200) {
       return;
     }
 
-    // Limiar VAD de voz humana normal quando a IA está em silêncio (RMS > 110)
-    if (rms > 110) {
+    // Limiar VAD de voz humana normal quando a IA está em silêncio (RMS > 120)
+    if (rms > 120) {
       this.hasSpoken = true;
       this.audioBufferChunks.push(base64Payload);
       this.resetSilenceTimer();
