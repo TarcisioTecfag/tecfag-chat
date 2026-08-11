@@ -82,6 +82,7 @@ export const Route = (createFileRoute as any)("/api/contacts/check-inactivity")(
                 conversationId: conv.id,
                 queueState: conv.queueState,
                 operatorId: "op-valentina",
+                sectorId: conv.sectorId,
               });
             }
 
@@ -107,7 +108,7 @@ export const Route = (createFileRoute as any)("/api/contacts/check-inactivity")(
           });
         }
       },
-      GET: async ({ request }) => {
+      GET: async ({ request }: any) => {
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
