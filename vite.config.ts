@@ -5,6 +5,7 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 export default defineConfig({
   tanstackStart: {
@@ -22,38 +23,21 @@ export default defineConfig({
     plugins: ["server/plugins/websocket.ts"],
   } as any,
   vite: {
-    // Polyfill de Buffer para o bundle do client.
-    // O TanStack Start inclui rotas de API no grafo de módulos do client (via routeTree.gen.ts),
-    // e algumas dessas rotas usam Buffer.from() do Node. O browser não tem Buffer nativo,
-    // então usamos o pacote `buffer` (polyfill oficial) e o injetamos globalmente.
-    resolve: {
-      alias: {
-        buffer: "buffer",
-      },
-    },
-    define: {
-      // Garante que qualquer referência a Buffer no bundle do client use o polyfill
-      "global.Buffer": "globalThis.Buffer",
-    },
-    optimizeDeps: {
-      include: ["buffer"],
-    },
     plugins: [
-      {
-        // Plugin inline que injeta o polyfill de Buffer no entry point do client
-        name: "buffer-polyfill",
-        transformIndexHtml() {
-          return [
-            {
-              tag: "script",
-              attrs: { type: "module" },
-              children: `import { Buffer } from 'buffer'; if (typeof globalThis.Buffer === 'undefined') { globalThis.Buffer = Buffer; }`,
-              injectTo: "head-prepend",
-            },
-          ];
+      // Polyfill definitivo para módulos Node.js no bundle do client.
+      // O TanStack Start inclui rotas de API no grafo de módulos do client (via routeTree.gen.ts),
+      // e algumas dessas rotas usam Buffer, process, etc do Node.js.
+      // Este plugin injeta os polyfills DENTRO de cada módulo que os usa,
+      // antes mesmo da avaliação do ES module — ao contrário de scripts HTML
+      // que chegam tarde demais.
+      nodePolyfills({
+        // Polyfills específicos necessários:
+        include: ["buffer", "process"],
+        globals: {
+          Buffer: true,
+          process: true,
         },
-      },
+      }),
     ],
   },
 });
-
