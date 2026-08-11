@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 💬 VALENTINA CHAT TAB — Redesign Premium com Avatar Oficial Padrão (Vetor/PNG)
+// 💬 VALENTINA CHAT TAB — Redesign Premium com Fontes Ampliadas e Animações
 // ══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
@@ -54,7 +54,7 @@ const SECONDARY_SUGGESTIONS = [
 ];
 
 /**
- * Avatar Oficial Padrão da Valentina (Renderiza a imagem oficial do sistema com fallback vetorizado idêntico à captura)
+ * Avatar Oficial Padrão da Valentina (Renderiza a imagem oficial do sistema com fallback vetorizado)
  */
 function ValentinaAvatar({ className = "h-8 w-8" }: { className?: string }) {
   const [hasError, setHasError] = useState(false);
@@ -64,7 +64,7 @@ function ValentinaAvatar({ className = "h-8 w-8" }: { className?: string }) {
       <div className={`relative flex items-center justify-center rounded-full bg-[#dcfce7] border border-[#bbf7d0] shrink-0 overflow-hidden shadow-xs ${className}`}>
         <svg className="h-full w-full p-1" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="18" cy="18" r="18" fill="#dcfce7" />
-          <path d="M18 9C14.6863 9 12 11.6863 12 15C12 17.2 13.18 19.12 14.95 20.15C12.02 21.42 10 24.32 10 27.75C10 28.16 10.34 28.5 10.75 28.5C11.16 28.5 11.5 27.75 11.5 27.75C11.5 24.16 14.41 21.25 18 21.25C21.59 21.25 24.5 24.16 24.5 27.75C24.5 28.16 24.84 28.5 25.25 28.5C25.66 28.5 26 28.16 26 27.75C26 24.32 23.98 21.42 21.05 20.15C22.82 19.12 24 17.2 24 15C24 11.6863 21.3137 9 18 9Z" fill="#059669" />
+          <path d="M18 9C14.6863 9 12 11.6863 12 15C12 17.2 13.18 19.12 14.95 20.15C12.02 21.42 10 24.32 10 27.75C10 28.16 10.34 28.5 11.75 28.5C11.16 28.5 11.5 27.75 11.5 27.75C11.5 24.16 14.41 21.25 18 21.25C21.59 21.25 24.5 24.16 24.5 27.75C24.5 28.16 24.84 28.5 25.25 28.5C25.66 28.5 26 28.16 26 27.75C26 24.32 23.98 21.42 21.05 20.15C22.82 19.12 24 17.2 24 15C24 11.6863 21.3137 9 18 9Z" fill="#059669" />
           <circle cx="15" cy="16" r="1" fill="#047857" />
           <circle cx="21" cy="16" r="1" fill="#047857" />
           <circle cx="14" cy="17.5" r="1.2" fill="#f87171" opacity="0.7" />
@@ -126,8 +126,10 @@ export function ValentinaChatTab() {
   // Barra Lateral Retrátil (Minimizada por padrão)
   const [isRailOpen, setIsRailOpen] = useState(false);
 
-  // Sugestões ativas na tela inicial
+  // Sugestões ativas na tela inicial + Estado de Animação de Troca
   const [currentSuggestions, setCurrentSuggestions] = useState(INITIAL_SUGGESTIONS);
+  const [suggestionsKey, setSuggestionsKey] = useState("set1");
+  const [isRefreshingSuggestions, setIsRefreshingSuggestions] = useState(false);
 
   // Anexos e Input
   const [input, setInput] = useState("");
@@ -281,11 +283,17 @@ export function ValentinaChatTab() {
     e.target.value = "";
   };
 
-  // Alternar sugestões
+  // Alternar sugestões com animação fluída de rotação e fade/scale
   const toggleSuggestions = () => {
-    setCurrentSuggestions((prev) =>
-      prev === INITIAL_SUGGESTIONS ? SECONDARY_SUGGESTIONS : INITIAL_SUGGESTIONS
-    );
+    if (isRefreshingSuggestions) return;
+    setIsRefreshingSuggestions(true);
+    setTimeout(() => {
+      setCurrentSuggestions((prev) =>
+        prev === INITIAL_SUGGESTIONS ? SECONDARY_SUGGESTIONS : INITIAL_SUGGESTIONS
+      );
+      setSuggestionsKey((prev) => (prev === "set1" ? "set2" : "set1"));
+      setIsRefreshingSuggestions(false);
+    }, 200);
   };
 
   // Envio de mensagem
@@ -467,8 +475,8 @@ export function ValentinaChatTab() {
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           rows={1}
-          className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none resize-none leading-relaxed py-0.5"
-          style={{ minHeight: "24px", maxHeight: "144px", overflowY: "auto" }}
+          className="flex-1 bg-transparent text-xs sm:text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none leading-relaxed py-0.5"
+          style={{ minHeight: "28px", maxHeight: "144px", overflowY: "auto" }}
         />
 
         {/* Seletor de Base de Conhecimento */}
@@ -571,7 +579,7 @@ export function ValentinaChatTab() {
 
       {/* Coluna Central do Chat */}
       <div className="flex min-w-0 flex-1 flex-col h-full rounded-2xl border border-border/80 bg-card shadow-card overflow-hidden">
-        {/* Header do Chat (Com Avatar Oficial Padrão) */}
+        {/* Header do Chat */}
         <header className="flex items-center justify-between border-b border-border/80 bg-card px-5 py-3 shrink-0">
           <div className="flex items-center gap-3">
             <ValentinaAvatar className="h-9 w-9" />
@@ -609,60 +617,78 @@ export function ValentinaChatTab() {
         </header>
 
         {/* Conteúdo Principal do Chat */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col">
           <AnimatePresence mode="wait">
             {activeMessages.length === 0 ? (
-              /* ESTADO 1: TELA DE BOAS-VINDAS (Saudação e Tipografia exatas) */
+              /* ESTADO 1: TELA DE BOAS-VINDAS (Centralizada, Fontes e Balões Ampliados) */
               <motion.div
                 key="welcome-screen"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.2 }}
-                className="flex flex-col items-center justify-center min-h-[400px] py-8 text-center max-w-2xl mx-auto my-auto"
+                className="flex flex-col items-center justify-center flex-1 h-full min-h-[460px] py-6 text-center max-w-3xl sm:max-w-4xl mx-auto my-auto w-full"
               >
-                <h1 className="text-2xl font-bold text-foreground tracking-tight">
-                  Olá, <span className="text-primary font-extrabold">{operatorFirstName}</span>
+                {/* Frase Inicial com Tipografia e Fontes de Destaque Maior */}
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+                  Olá, <span className="text-primary font-black">{operatorFirstName}</span>
                 </h1>
-                <h2 className="text-base font-bold text-foreground/90 mt-1">
+                <h2 className="text-lg sm:text-xl font-bold text-foreground/90 mt-2">
                   O que você gostaria de saber hoje?
                 </h2>
-                <p className="text-xs text-muted-foreground mt-1 max-w-md">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1.5 max-w-lg">
                   Use uma das sugestões abaixo ou faça sua própria pergunta para iniciar
                 </p>
 
-                {/* Grid de Cards de Sugestões */}
-                <div className="mt-8 grid w-full gap-3.5 sm:grid-cols-2">
-                  {currentSuggestions.map((sug, idx) => (
-                    <motion.button
-                      key={idx}
-                      type="button"
-                      whileHover={{ scale: 1.02, y: -2 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => handleSendMessage(sug.text)}
-                      className="flex flex-col justify-between rounded-2xl border border-border/80 bg-card p-4 text-left shadow-soft hover:border-primary/50 hover:shadow-card hover:bg-primary-soft/20 transition-all cursor-pointer group min-h-[100px]"
+                {/* Grid de Cards de Sugestões Ampliados com Transição Animada */}
+                <div className="mt-8 w-full">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={suggestionsKey}
+                      initial={{ opacity: 0, scale: 0.97 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.97 }}
+                      transition={{ duration: 0.2 }}
+                      className="grid w-full gap-4 sm:gap-5 sm:grid-cols-2"
                     >
-                      <span className="text-xs font-semibold text-foreground/90 leading-snug group-hover:text-primary transition-colors">
-                        {sug.text}
-                      </span>
-                      <div className="mt-3 flex items-center justify-between">
-                        <div className="grid h-7 w-7 place-items-center rounded-xl bg-muted/60 group-hover:bg-primary-soft transition-colors">
-                          <sug.icon className={`h-4 w-4 ${sug.iconColor}`} />
-                        </div>
-                      </div>
-                    </motion.button>
-                  ))}
+                      {currentSuggestions.map((sug, idx) => (
+                        <motion.button
+                          key={idx}
+                          type="button"
+                          whileHover={{ scale: 1.02, y: -2 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => handleSendMessage(sug.text)}
+                          className="flex flex-col justify-between rounded-3xl border border-border/80 bg-card p-5 sm:p-6 text-left shadow-soft hover:border-primary/50 hover:shadow-card hover:bg-primary-soft/20 transition-all cursor-pointer group min-h-[120px] sm:min-h-[135px]"
+                        >
+                          <span className="text-xs sm:text-sm font-semibold text-foreground/95 leading-relaxed group-hover:text-primary transition-colors">
+                            {sug.text}
+                          </span>
+                          <div className="mt-4 flex items-center justify-between">
+                            <div className="grid h-8 w-8 place-items-center rounded-2xl bg-muted/60 group-hover:bg-primary-soft transition-colors">
+                              <sug.icon className={`h-4.5 w-4.5 ${sug.iconColor}`} />
+                            </div>
+                          </div>
+                        </motion.button>
+                      ))}
+                    </motion.div>
+                  </AnimatePresence>
                 </div>
 
-                {/* Botão de Atualizar Sugestões */}
+                {/* Botão de Atualizar Sugestões com Animação de Rotação 360° no Ícone */}
                 <motion.button
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.96 }}
                   type="button"
                   onClick={toggleSuggestions}
-                  className="mt-6 flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition cursor-pointer"
+                  className="mt-8 flex items-center gap-2 text-xs sm:text-sm font-bold text-muted-foreground hover:text-foreground transition cursor-pointer"
                 >
-                  <RefreshCw className="h-3.5 w-3.5 text-primary" /> Atualizar Sugestões
+                  <motion.div
+                    animate={{ rotate: isRefreshingSuggestions ? 360 : 0 }}
+                    transition={{ duration: 0.4, ease: "easeInOut" }}
+                  >
+                    <RefreshCw className="h-4 w-4 text-primary" />
+                  </motion.div>
+                  <span>Atualizar Sugestões</span>
                 </motion.button>
               </motion.div>
             ) : (
@@ -673,14 +699,14 @@ export function ValentinaChatTab() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.2 }}
-                className="max-w-3xl mx-auto space-y-4"
+                className="max-w-3xl mx-auto space-y-4 w-full"
               >
                 {activeMessages.map((msg) =>
                   msg.sender === "operator" ? (
                     /* Mensagem do Usuário */
                     <div key={msg.id} className="flex justify-end">
                       <div className="max-w-[80%] flex flex-col items-end">
-                        <div className="rounded-2xl rounded-tr-xs bg-primary px-4 py-2.5 text-xs text-primary-foreground shadow-xs">
+                        <div className="rounded-2xl rounded-tr-xs bg-primary px-4 py-2.5 text-xs sm:text-sm text-primary-foreground shadow-xs">
                           {msg.attachedImageInfo && (
                             <img
                               src={msg.attachedImageInfo.dataUrl}
@@ -701,7 +727,7 @@ export function ValentinaChatTab() {
                       </div>
                     </div>
                   ) : (
-                    /* Mensagem da Valentina (Com Avatar Oficial) */
+                    /* Mensagem da Valentina */
                     <div key={msg.id} className="flex gap-3 items-start">
                       <ValentinaAvatar className="h-7 w-7 mt-0.5" />
                       <div className="flex-1 min-w-0">
@@ -710,7 +736,7 @@ export function ValentinaChatTab() {
                           <span className="text-[10px] text-muted-foreground">{formatTime(msg.timestamp)}</span>
                         </div>
 
-                        <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs text-foreground space-y-2">
+                        <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs sm:text-sm text-foreground space-y-2">
                           {msg.content && <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>}
                           {msg.blocks?.map((block, bIdx) => (
                             <ValentinaBlockRenderer key={bIdx} block={block} />
