@@ -34,7 +34,8 @@ async function extractFileText(name: string, mimeType: string, base64: string): 
   if (mimeType === "application/pdf" || ext === "pdf") {
     try {
       const pdfParse = await import("pdf-parse");
-      const result = await (pdfParse.default || pdfParse)(buf);
+      const pdfFn = (pdfParse as any).default || pdfParse;
+      const result = await pdfFn(buf);
       return result.text.slice(0, 12000);
     } catch {
       return `[PDF recebido: ${name} — conteúdo não extraído automaticamente]`;
@@ -71,31 +72,125 @@ async function extractFileText(name: string, mimeType: string, base64: string): 
   return `[Arquivo recebido: ${name}]`;
 }
 
-// ── Respostas mock contextuais (fallback quando Vertex AI não está disponível) ─
-function generateMockResponse(userMessage: string): string {
+// ── Respostas mock contextuais com suporte a blocos visuais ────────────────────
+function generateMockResponse(userMessage: string): { text: string; blocks?: any[] }[] {
   const msg = userMessage.toLowerCase();
 
-  if (msg.includes("lead") || msg.includes("prospect") || msg.includes("contato novo")) {
-    return "📊 Analisei os leads recentes. Temos 12 novos contatos na fila hoje, 3 são recontatos. Recomendo priorizar os que vieram por indicação — historicamente convertem 2.3x mais.";
+  if (/(gráfic|grafic|funil|evolu|comparat|tend|barras)/.test(msg)) {
+    return [
+      {
+        text: "Analisei o funil de vendas dos últimos 7 dias. Abaixo está o gráfico representativo das etapas do atendimento:",
+        blocks: [
+          {
+            type: "chart",
+            chart: "bar",
+            title: "Leads por etapa do funil",
+            subtitle: "Últimos 7 dias",
+            unit: "leads",
+            data: [
+              { label: "Novo", value: 248 },
+              { label: "Contato", value: 186 },
+              { label: "Qualificado", value: 121 },
+              { label: "Proposta", value: 64 },
+              { label: "Fechado", value: 31 },
+            ],
+          },
+        ],
+      },
+    ];
   }
-  if (msg.includes("meta") || msg.includes("resultado") || msg.includes("desempenho")) {
-    return "📈 Seu desempenho está acima da média hoje! Tempo de resposta: 2min 34s (meta: 5min). Taxa de conversão: 18% (meta: 15%). Continue assim! 💪";
+
+  if (/(relat|export|planilha|tabela|vendedor|ranking)/.test(msg)) {
+    return [
+      {
+        text: "Gerei o relatório consolidado com o desempenho da equipe comercial:",
+        blocks: [
+          {
+            type: "report",
+            title: "Desempenho por Vendedor",
+            columns: ["Vendedor", "Leads", "Atendidos", "Conversão", "Receita"],
+            rows: [
+              ["Carla Menezes", "84", "80", "16,7%", "R$ 58.900"],
+              ["Diego Alves", "76", "69", "13,0%", "R$ 41.200"],
+              ["Paula Ribeiro", "71", "71", "11,3%", "R$ 33.450"],
+              ["Rafael Souza", "63", "52", "7,9%", "R$ 20.100"],
+            ],
+            footnote: "Período: 01/08 a 11/08 · Origem: Banco de dados",
+          },
+        ],
+      },
+    ];
   }
-  if (msg.includes("fila") || msg.includes("pendente") || msg.includes("espera")) {
-    return "⏳ Situação da fila agora:\n• 5 conversas aguardando\n• Tempo médio de espera: 3min 12s\n• Operadores disponíveis: 3/5\n\nRecomendo capturar as 2 mais antigas primeiro.";
+
+  if (/(conversa|objeç|objec|lead|cliente|atendimento)/.test(msg)) {
+    return [
+      {
+        text: "Mapeei os trechos de conversas dos leads com mais recorrência de objeções:",
+        blocks: [
+          {
+            type: "excerpt",
+            title: "Trechos de conversas monitoradas",
+            conversations: [
+              {
+                lead: "Marcos Tavares",
+                channel: "WhatsApp",
+                when: "Hoje, 14:02",
+                sentiment: "negativo",
+                lines: [
+                  { from: "lead", text: "O valor ficou bem acima do que eu esperava." },
+                  { from: "agente", text: "Consigo montar um plano parcelado em 12x, posso enviar?" },
+                  { from: "lead", text: "Manda que eu avalio com o sócio." },
+                ],
+              },
+              {
+                lead: "Fernanda Lima",
+                channel: "Instagram",
+                when: "Ontem, 18:41",
+                sentiment: "positivo",
+                lines: [
+                  { from: "lead", text: "Gostei da demonstração, qual o próximo passo?" },
+                  { from: "agente", text: "Envio a proposta hoje ainda e agendamos a implantação." },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
   }
-  return "✅ Entendi sua mensagem! Posso te ajudar com leads, métricas, objeções ou status da fila. É só perguntar!";
+
+  if (/(insight|métric|metric|desempenho|resultado|resumo|kpi|tma|sla)/.test(msg)) {
+    return [
+      {
+        text: "Consolidei os principais indicadores e insights da operação hoje:",
+        blocks: [
+          {
+            type: "insight",
+            title: "Insights da Operação",
+            items: [
+              { label: "Taxa de Conversão", value: "12,5%", delta: "+2,4 p.p.", trend: "up", hint: "vs. semana anterior" },
+              { label: "TMA Média", value: "3m 12s", delta: "-48s", trend: "up", hint: "meta: 5 min" },
+              { label: "Leads sem Follow-up", value: "37", delta: "+9", trend: "down", hint: "parados >48h" },
+              { label: "Ticket Médio", value: "R$ 4.180", delta: "estável", trend: "flat" },
+            ],
+            recommendation: "Priorize os 37 leads parados há mais de 48h para evitar perda de oportunidade.",
+          },
+        ],
+      },
+    ];
+  }
+
+  return [
+    {
+      text: "Entendi sua solicitação! Posso analisar métricas, gerar gráficos de vendas, puxar relatórios da equipe ou verificar trechos de conversas dos leads. É só me pedir!",
+    },
+  ];
 }
 
-/**
- * Coleta o contexto operacional REAL do operador para enriquecer o prompt da Valentina.
- * Consulta: conversas ativas, SLA pendente/estourado, métricas do dia e auditorias.
- */
 async function getOperatorContext(tenantId: string, operatorId: string): Promise<string> {
   try {
     const sections: string[] = [];
 
-    // 1. Conversas ativas do operador
     const activeConvs = await db
       .select({
         id: conversations.id,
@@ -127,7 +222,6 @@ async function getOperatorContext(tenantId: string, operatorId: string): Promise
       sections.push("📋 O operador não tem conversas ativas no momento.");
     }
 
-    // 2. SLA — ciclos pendentes ou estourados
     const slaIssues = await db
       .select({
         conversationId: responseTimeLogs.conversationId,
@@ -142,7 +236,7 @@ async function getOperatorContext(tenantId: string, operatorId: string): Promise
         and(
           eq(responseTimeLogs.tenantId, tenantId),
           eq(responseTimeLogs.operatorId, operatorId),
-          isNull(responseTimeLogs.agentResponseId) // Ciclo aberto — sem resposta
+          isNull(responseTimeLogs.agentResponseId)
         )
       )
       .orderBy(desc(responseTimeLogs.clientMessageAt))
@@ -153,10 +247,9 @@ async function getOperatorContext(tenantId: string, operatorId: string): Promise
         const waitMin = Math.floor((Date.now() - new Date(s.clientMsgAt).getTime()) / 60_000);
         return `  • ${s.contactName} — aguardando há ${waitMin}min${s.isOverdue ? " 🚨 ESTOURADO" : ""}`;
       }).join("\n");
-      sections.push(`⏱️ SLA PENDENTES (clientes aguardando resposta):\n${slaList}`);
+      sections.push(`⏱️ SLA PENDENTES:\n${slaList}`);
     }
 
-    // 3. Métricas do dia
     const today = new Date().toISOString().split("T")[0];
     const dailyMetrics = await db
       .select()
@@ -173,46 +266,15 @@ async function getOperatorContext(tenantId: string, operatorId: string): Promise
     if (dailyMetrics.length > 0) {
       const m = dailyMetrics[0];
       const tma = m.avgResponseTimeSeconds ? `${Math.floor(m.avgResponseTimeSeconds / 60)}min ${m.avgResponseTimeSeconds % 60}s` : "N/A";
-      sections.push(`📊 MÉTRICAS DE HOJE DO OPERADOR:\n  • Total conversas: ${m.totalConversations}\n  • TMA (Tempo Médio de Resposta): ${tma}\n  • SLA estourados: ${m.overdueCount}\n  • Score médio IA: ${m.avgPerformanceScore || "N/A"}/100\n  • Sentimento: ${m.satisfiedCount} satisfeitos, ${m.neutralCount} neutros, ${m.frustratedCount} frustrados`);
-    }
-
-    // 4. Últimas auditorias com problemas
-    const recentAudits = await db
-      .select({
-        contactName: aiConversationAudits.contactName,
-        sentiment: aiConversationAudits.clientSentiment,
-        score: aiConversationAudits.performanceScore,
-        insight: aiConversationAudits.actionableInsight,
-      })
-      .from(aiConversationAudits)
-      .where(
-        and(
-          eq(aiConversationAudits.tenantId, tenantId),
-          eq(aiConversationAudits.operatorId, operatorId),
-          eq(aiConversationAudits.status, "done"),
-          gte(aiConversationAudits.auditedAt, sql`NOW() - INTERVAL '3 days'`)
-        )
-      )
-      .orderBy(desc(aiConversationAudits.auditedAt))
-      .limit(5);
-
-    if (recentAudits.length > 0) {
-      const auditList = recentAudits.map((a) =>
-        `  • ${a.contactName}: Score ${a.score}/100 | Sentimento: ${a.sentiment} | Insight: ${a.insight}`
-      ).join("\n");
-      sections.push(`🔍 AUDITORIAS RECENTES (últimos 3 dias):\n${auditList}`);
+      sections.push(`📊 MÉTRICAS DE HOJE DO OPERADOR:\n  • Total conversas: ${m.totalConversations}\n  • TMA: ${tma}\n  • SLA estourados: ${m.overdueCount}\n  • Score médio IA: ${m.avgPerformanceScore || "N/A"}/100`);
     }
 
     return sections.join("\n\n");
   } catch (err: any) {
-    console.warn("[valentina/messages] Erro ao coletar contexto operacional:", err?.message);
     return "⚠️ Não foi possível carregar dados operacionais do banco neste momento.";
   }
 }
 
-/**
- * Busca o nome do operador pelo ID no banco
- */
 async function getOperatorName(operatorId: string): Promise<string> {
   try {
     const [op] = await db
@@ -231,7 +293,6 @@ export const Route = createFileRoute("/api/valentina/messages")({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
-      // ── GET: Listar mensagens internas do operador ──────────────────────────
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId");
@@ -254,21 +315,18 @@ export const Route = createFileRoute("/api/valentina/messages")({
               and(
                 eq(internalMessages.tenantId, tenantId),
                 eq(internalMessages.operatorId, operatorId),
-                // Isolamento de escopo: 'admin' (Módulo Valentina) vs 'operator' (Chat de Atendimento)
                 sql`(${internalMessages.metadata}->>'scope' = ${scope} OR (${scope} = 'operator' AND (${internalMessages.metadata}->>'scope' IS NULL AND (${internalMessages.metadata}->>'type' IS NULL OR ${internalMessages.metadata}->>'isChat' = 'true'))))`
               )
             )
             .orderBy(desc(internalMessages.createdAt))
             .limit(100);
 
-          // Retorna em ordem cronológica (mais antigo primeiro)
           const sorted = msgs.reverse();
 
           return new Response(JSON.stringify(sorted), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
-          console.error("[valentina/messages] Erro ao listar mensagens:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -276,7 +334,6 @@ export const Route = createFileRoute("/api/valentina/messages")({
         }
       },
 
-      // ── POST: Enviar mensagem para Valentina e receber resposta real via IA ─
       POST: async ({ request }) => {
         try {
           const body = await request.json();
@@ -295,13 +352,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
             );
           }
 
-          // Determine qual tenant usar para filtrar contexto operacional
-          // knowledgeBase: "valem" | "tecfag" | "all"
           const contextTenantId = knowledgeBase === "all" ? tenantId : (knowledgeBase || tenantId);
-
           const now = new Date();
 
-          // 1. Salvar a mensagem do operador
           const userMsgId = `val-msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           await db.insert(internalMessages).values({
             id: userMsgId,
@@ -310,68 +363,27 @@ export const Route = createFileRoute("/api/valentina/messages")({
             direction: "to_agent",
             agentType: "supervisor",
             content: content || `[Arquivo: ${attachment?.name ?? "imagem"}]`,
-            metadata: { isChat: true, scope, knowledgeBase },
+            metadata: {
+              isChat: true,
+              scope,
+              knowledgeBase,
+              attachedFileInfo: attachment ? { name: attachment.name, mimeType: attachment.mimeType } : undefined,
+              attachedImageInfo: imageBase64 ? { name: "Imagem", dataUrl: imageBase64 } : undefined,
+            },
             read: 1,
             createdAt: now,
           });
 
-          // 2. Coletar contexto operacional (filtrado pelo knowledgeBase selecionado)
           const operatorName = await getOperatorName(operatorId);
-          // Se knowledgeBase = "all", busca contexto do tenant nativo do operador;
-          // se especificado, busca do tenant selecionado.
           const operatorContext = await getOperatorContext(contextTenantId, operatorId);
 
-          // 3. Extrair texto do arquivo anexado (se houver)
           let fileContext = "";
           if (attachment?.base64 && attachment?.name) {
             const extracted = await extractFileText(attachment.name, attachment.mimeType || "", attachment.base64);
-            fileContext = `\n\n📎 ARQUIVO ANEXADO PELO USUÁRIO: "${attachment.name}"\n[Conteúdo extraido]\n${extracted}`;
+            fileContext = `\n\n📎 ARQUIVO ANEXADO: "${attachment.name}"\n${extracted}`;
           }
 
-          // 4. Aviso de imagem anexada
-          const imageNotice = imageBase64
-            ? `\n\n🖼️ IMAGEM ANEXADA: O usuário também enviou uma imagem. Mencione que recebeu a imagem e peça para descrever o que precisa sobre ela, caso não seja evidente pelo texto.`
-            : "";
-
-          // 5. Aviso de base selecionada
-          const baseNotice = knowledgeBase === "all"
-            ? `\n\n⚠️ BASE DE DADOS: O usuário selecionou TODA A BASE. Você pode mencionar dados de ambos os tenants (Valem e Tecfag) nesta resposta.`
-            : `\n\n🎯 BASE DE DADOS: Responda EXCLUSIVAMENTE com dados do tenant "${contextTenantId}". NÃO misture informações de outros tenants.`;
-
-          // 6. Carregar contexto da base de conhecimento (RAG)
-          let knowledgeContext = "";
-          try {
-            const { getKnowledgeBaseContext } = await import("../../../lib/valentina/knowledge-service");
-            knowledgeContext = await getKnowledgeBaseContext(contextTenantId);
-          } catch {}
-
-          // 4. Buscar últimas mensagens do histórico para contexto conversacional (do mesmo escopo)
-          let chatHistory = "";
-          try {
-            const recentMsgs = await db
-              .select()
-              .from(internalMessages)
-              .where(
-                and(
-                  eq(internalMessages.tenantId, tenantId),
-                  eq(internalMessages.operatorId, operatorId),
-                  sql`(${internalMessages.metadata}->>'scope' = ${scope} OR (${scope} = 'operator' AND ${internalMessages.metadata}->>'scope' IS NULL))`
-                )
-              )
-              .orderBy(desc(internalMessages.createdAt))
-              .limit(10);
-
-            if (recentMsgs.length > 1) {
-              const history = recentMsgs.reverse().slice(0, -1); // Exclui a msg atual
-              chatHistory = "\n\n💬 HISTÓRICO RECENTE DA CONVERSA:\n" +
-                history.map((m) =>
-                  `[${m.direction === "to_agent" ? operatorName : "Valentina"}]: ${m.content.slice(0, 200)}`
-                ).join("\n");
-            }
-          } catch {}
-
-          // 7. Gerar resposta inteligente via Vertex AI Gemini 2.5 Pro
-          let fragments: { text: string; delay: number }[] = [];
+          let fragments: { text: string; delay?: number; blocks?: any[] }[] = [];
           let alerts: any[] = [];
 
           try {
@@ -379,35 +391,35 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
             if (vertexAi.isReady()) {
               const systemPrompt = `Você é a Valentina, I.A. Master e Assistente de Gestão & Business Intelligence (BI).
-Você está no Módulo de Administração. O gestor "${operatorName}" está conversando com você.
+Você está conversando com o gestor "${operatorName}".
 
 ## SEU PAPEL:
 - Você tem visão completa das operações: banco de dados, desempenho da equipe, TMA, métricas e base de conhecimento.
-- Seja inteligente, objetiva e fragmente suas respostas em mensagens curtas (1-3 fragmentos).
-- Cada fragmento deve ter no máximo 2-3 linhas.
-${baseNotice}
+- Se o usuário pedir gráficos, relatórios, métricas ou trechos de conversas, forneça o bloco estruturado correspondente em "blocks".
+
+## ESTRUTURA DE BLOCOS SUPORTADOS ("blocks"):
+1. ChartBlock: { "type": "chart", "chart": "bar"|"line"|"pie", "title": "...", "subtitle": "...", "data": [{ "label": "X", "value": 10 }] }
+2. InsightBlock: { "type": "insight", "title": "...", "items": [{ "label": "...", "value": "...", "delta": "+5%", "trend": "up"|"down"|"flat" }], "recommendation": "..." }
+3. ReportBlock: { "type": "report", "title": "...", "columns": ["A","B"], "rows": [["1","2"]], "footnote": "..." }
+4. ExcerptBlock: { "type": "excerpt", "title": "...", "conversations": [{ "lead": "...", "channel": "WhatsApp", "when": "Hoje", "sentiment": "positivo"|"neutro"|"negativo", "lines": [{ "from": "lead"|"agente", "text": "..." }] }] }
 
 ## DADOS REAIS DA OPERAÇÃO:
 ${operatorContext}
-${knowledgeContext}
-${chatHistory}
 ${fileContext}
-${imageNotice}
 
 ## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
-Retorne EXCLUSIVAMENTE um JSON válido:
 {
   "fragments": [
-    { "text": "primeira mensagem", "delay": 0 },
-    { "text": "segunda mensagem", "delay": 800 }
+    {
+      "text": "mensagem explicativa em texto",
+      "delay": 0,
+      "blocks": [ ... ]
+    }
   ]
-}
-
-## MENSAGEM DO USUÁRIO:
-"${content || "[sem texto — veja o arquivo/imagem]"}"`;
+}`;
 
               const aiRes = await vertexAi.generateStructuredJson<{
-                fragments: { text: string; delay: number }[];
+                fragments: { text: string; delay?: number; blocks?: any[] }[];
                 alerts?: any[];
               }>(systemPrompt, "gemini-2.5-pro", undefined, {
                 tenantId,
@@ -424,19 +436,15 @@ Retorne EXCLUSIVAMENTE um JSON válido:
             console.warn("[valentina/messages] Vertex AI fallback:", aiErr?.message);
           }
 
-          // 6. Fallback para mock se IA não retornou fragmentos
           if (fragments.length === 0) {
-            const mockText = generateMockResponse(content);
-            fragments = [{ text: mockText, delay: 0 }];
+            fragments = generateMockResponse(content);
           }
 
-          // 7. Salvar cada fragmento como mensagem separada no banco
-          const savedFragments: { id: string; content: string; direction: string; createdAt: Date }[] = [];
-
+          const savedFragments: any[] = [];
           for (let i = 0; i < fragments.length; i++) {
             const frag = fragments[i];
             const fragId = `val-ai-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-            const fragTimestamp = new Date(now.getTime() + 800 + (i * 600));
+            const fragTimestamp = new Date(now.getTime() + 600 + (i * 500));
 
             await db.insert(internalMessages).values({
               id: fragId,
@@ -445,7 +453,13 @@ Retorne EXCLUSIVAMENTE um JSON válido:
               direction: "from_agent",
               agentType: "supervisor",
               content: frag.text,
-              metadata: { isChat: true, scope, fragmentIndex: i, totalFragments: fragments.length },
+              metadata: {
+                isChat: true,
+                scope,
+                fragmentIndex: i,
+                totalFragments: fragments.length,
+                blocks: frag.blocks || undefined,
+              },
               read: 0,
               createdAt: fragTimestamp,
             });
@@ -453,6 +467,7 @@ Retorne EXCLUSIVAMENTE um JSON válido:
             savedFragments.push({
               id: fragId,
               content: frag.text,
+              blocks: frag.blocks || undefined,
               direction: "from_agent",
               createdAt: fragTimestamp,
             });
@@ -464,14 +479,13 @@ Retorne EXCLUSIVAMENTE um JSON válido:
               userMessage: { id: userMsgId, content, direction: "to_agent", createdAt: now },
               fragments: savedFragments.map((f, i) => ({
                 ...f,
-                delay: fragments[i]?.delay || i * 800,
+                delay: fragments[i]?.delay || i * 600,
               })),
               alerts,
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         } catch (e: any) {
-          console.error("[valentina/messages] Erro ao enviar mensagem:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },

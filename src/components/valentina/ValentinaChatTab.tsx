@@ -1,40 +1,35 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 💬 VALENTINA CHAT TAB — Chat interativo com a assistente IA (Valentina/Fagner)
+// 💬 VALENTINA CHAT TAB — Redesign completo com suporte a blocos ricos & ThreadRail à direita
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Send, Sparkles, ArrowRight, AlertTriangle, Clock, Users, Award,
-  ChevronDown, RefreshCw, X, FileText, FileSpreadsheet, File as FileIcon,
-  Image as ImageIcon, Paperclip, Check, ZoomIn,
+  Send, Sparkles, AlertTriangle, Clock, Users, Award, ChevronDown, RefreshCw, X,
+  FileText, FileSpreadsheet, File as FileIcon, Paperclip, Check, ZoomIn, Image as ImageIcon,
+  History, PanelRightOpen, Bot,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
-import { ValentinaChatMessage, VALENTINA_WELCOME_MESSAGES } from "./valentina-mock-data";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { ValentinaBlockRenderer } from "./chat-blocks/ValentinaBlockRenderer";
+import { ValentinaThreadRail } from "./chat-blocks/ValentinaThreadRail";
+import type {
+  ValentinaChatMessage, ValentinaThread, ValentinaFolder, ValentinaMessageBlock,
+} from "./chat-blocks/valentina-chat-types";
 
 type KnowledgeBase = "valem" | "tecfag" | "all";
 
 interface AttachedFile {
   name: string;
   mimeType: string;
-  base64: string; // raw base64, sem prefixo data:...
+  base64: string;
 }
 
 interface AttachedImage {
   name: string;
-  dataUrl: string; // data:image/...;base64,... (para preview)
+  dataUrl: string;
 }
-
-type ChatMsg = ValentinaChatMessage & {
-  attachedFileInfo?: { name: string; mimeType: string };
-  attachedImageInfo?: { dataUrl: string; name: string };
-};
-
-// ── Constants ─────────────────────────────────────────────────────────────────
 
 const ACCEPTED_FILE_TYPES = ".pdf,.txt,.doc,.docx,.xls,.xlsx";
 const ACCEPTED_IMAGE_TYPES = "image/jpeg,image/png,image/gif,image/webp,image/avif";
@@ -45,98 +40,105 @@ const BASE_OPTIONS: { value: KnowledgeBase; label: string; emoji: string }[] = [
   { value: "all",    label: "Toda a Base", emoji: "🌍" },
 ];
 
-const DEBOUNCE_SEC = 15;
+const INITIAL_SUGGESTIONS = [
+  { text: "Como está o tempo médio de atendimento (TMA) geral?", icon: Clock, iconColor: "text-primary" },
+  { text: "Quem são os operadores com mais gargalo de fila?", icon: Users, iconColor: "text-blue-500" },
+  { text: "Qual é a taxa de conversão do SDR de hoje?", icon: Award, iconColor: "text-amber-500" },
+  { text: "Quantos alertas de estouro de SLA tivemos hoje?", icon: AlertTriangle, iconColor: "text-rose-500" },
+];
 
-// ── Helper Components ─────────────────────────────────────────────────────────
+const SECONDARY_SUGGESTIONS = [
+  { text: "Gere um gráfico do funil de vendas desta semana", icon: Sparkles, iconColor: "text-emerald-500" },
+  { text: "Puxe um relatório detalhado por vendedor", icon: FileSpreadsheet, iconColor: "text-blue-500" },
+  { text: "Quais objeções mais aparecem nas conversas dos leads?", icon: Bot, iconColor: "text-purple-500" },
+  { text: "Quais são os 5 principais alertas da operação hoje?", icon: AlertTriangle, iconColor: "text-amber-500" },
+];
 
 function FileTypeIcon({ mimeType, name }: { mimeType: string; name: string }) {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   if (mimeType.includes("pdf") || ext === "pdf")
-    return <FileIcon className="h-4 w-4 text-red-500 shrink-0" />;
+    return <FileIcon className="h-4 w-4 text-rose-500 shrink-0" />;
   if (mimeType.includes("word") || ext === "doc" || ext === "docx")
     return <FileText className="h-4 w-4 text-blue-500 shrink-0" />;
   if (mimeType.includes("sheet") || mimeType.includes("excel") || ext === "xls" || ext === "xlsx")
-    return <FileSpreadsheet className="h-4 w-4 text-green-600 shrink-0" />;
+    return <FileSpreadsheet className="h-4 w-4 text-emerald-600 shrink-0" />;
   return <FileText className="h-4 w-4 text-muted-foreground shrink-0" />;
 }
-
-function LeadCard({ data }: { data: Record<string, any> }) {
-  return (
-    <div className="mt-2 rounded-xl border border-primary/20 bg-primary-soft p-3 text-xs">
-      <div className="flex items-center gap-2 mb-2">
-        <Sparkles className="h-3.5 w-3.5 text-primary" />
-        <span className="font-extrabold text-primary">Lead Qualificado</span>
-      </div>
-      <div className="space-y-1 text-foreground/80">
-        <p><span className="font-semibold">Nome:</span> {data.name || "—"}</p>
-        <p><span className="font-semibold">Empresa:</span> {data.company || "—"}</p>
-        <p><span className="font-semibold">Score:</span> {data.score || "—"}/100</p>
-      </div>
-      <button className="mt-2 flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:opacity-90 transition cursor-pointer">
-        <ArrowRight className="h-3 w-3" />
-        Ver Detalhes
-      </button>
-    </div>
-  );
-}
-
-function SlaAlertCard({ data }: { data: Record<string, any> }) {
-  return (
-    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs">
-      <div className="flex items-center gap-2 mb-1">
-        <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-        <span className="font-extrabold text-amber-700">Alerta SLA</span>
-      </div>
-      <p className="text-amber-900/80">{data.description || "SLA em risco."}</p>
-    </div>
-  );
-}
-
-// ── Main Component ────────────────────────────────────────────────────────────
 
 export function ValentinaChatTab() {
   const { operatorProfile, currentOperatorId, tenant } = useChat();
   const persona = getAiPersona(tenant);
 
-  const [messages, setMessages]         = useState<ChatMsg[]>([]);
-  const [input, setInput]               = useState("");
-  const [isTyping, setIsTyping]         = useState(false);
-  const [waitSecondsLeft, setWaitSecondsLeft] = useState<number | null>(null);
+  // Storage key por operador e tenant
+  const storageKey = `valentina_threads_${tenant}_${currentOperatorId || "default"}`;
 
-  // Attachments
-  const [attachedFile, setAttachedFile]   = useState<AttachedFile | null>(null);
+  // Estado de Threads e Pastas
+  const [threads, setThreads] = useState<ValentinaThread[]>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [folders, setFolders] = useState<ValentinaFolder[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${storageKey}_folders`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+
+  // Barra Lateral Retrátil (Minimizada por padrão)
+  const [isRailOpen, setIsRailOpen] = useState(false);
+
+  // Sugestões ativas na tela inicial
+  const [currentSuggestions, setCurrentSuggestions] = useState(INITIAL_SUGGESTIONS);
+
+  // Anexos e Input
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
   const [fullscreenSrc, setFullscreenSrc] = useState<string | null>(null);
 
-  // Base selector
-  const [selectedBase, setSelectedBase]         = useState<KnowledgeBase>(tenant as KnowledgeBase);
+  // Seletor de Base
+  const [selectedBase, setSelectedBase] = useState<KnowledgeBase>(tenant as KnowledgeBase);
   const [showBaseDropdown, setShowBaseDropdown] = useState(false);
   const baseDropdownRef = useRef<HTMLDivElement>(null);
 
   // Refs
-  const scrollRef    = useRef<HTMLDivElement>(null);
-  const textareaRef  = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef  = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const abortCtrl    = useRef<AbortController | null>(null);
-  const pendingMsgs  = useRef<string[]>([]);
-  const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortCtrl = useRef<AbortController | null>(null);
 
   const operatorFirstName = operatorProfile?.name?.split(" ")[0] || "Operador";
-  const operatorInitial   = operatorFirstName[0]?.toUpperCase() || "O";
 
-  const suggestions = [
-    { text: "Como está o tempo médio de atendimento (TMA) geral?", icon: Clock, iconColor: "text-primary" },
-    { text: "Quem são os operadores com mais gargalo de fila?", icon: Users, iconColor: "text-blue-500" },
-    { text: "Qual é a taxa de conversão do SDR de hoje?", icon: Award, iconColor: "text-amber-500" },
-    { text: "Quantos alertas de estouro de SLA tivemos hoje?", icon: AlertTriangle, iconColor: "text-red-500" },
-  ];
+  // Persistir threads no localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(threads));
+    } catch {}
+  }, [threads, storageKey]);
 
-  // ── Sync base com tenant ────────────────────────────────────────────────────
-  useEffect(() => { setSelectedBase(tenant as KnowledgeBase); }, [tenant]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${storageKey}_folders`, JSON.stringify(folders));
+    } catch {}
+  }, [folders, storageKey]);
 
-  // ── Fechar dropdown ao clicar fora ─────────────────────────────────────────
+  // Sync seletor de base com o tenant ativo
+  useEffect(() => {
+    setSelectedBase(tenant as KnowledgeBase);
+  }, [tenant]);
+
+  // Fechar dropdown de base ao clicar fora
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (baseDropdownRef.current && !baseDropdownRef.current.contains(e.target as Node)) {
@@ -147,54 +149,85 @@ export function ValentinaChatTab() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Auto-resize textarea ────────────────────────────────────────────────────
+  // Auto-resize da textarea
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 144) + "px";
+    ta.style.height = `${Math.min(ta.scrollHeight, 144)}px`;
   }, [input]);
 
-  // ── Carregar histórico ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!currentOperatorId) return;
-    (async () => {
-      try {
-        const res = await fetch(`/api/valentina/messages?tenantId=${tenant}&operatorId=${currentOperatorId}&scope=admin`);
-        if (!res.ok) throw new Error("fetch failed");
-        const rows: any[] = await res.json();
-        if (rows.length > 0) {
-          setMessages(rows.map((r): ChatMsg => ({
-            id: r.id,
-            sender: r.direction === "to_agent" ? "operator" : "valentina",
-            content: r.content,
-            timestamp: r.createdAt || new Date().toISOString(),
-            type: (r.metadata?.type as any) || "text",
-            cardData: r.metadata?.cardData,
-            attachedFileInfo: r.metadata?.attachedFileInfo,
-            attachedImageInfo: r.metadata?.attachedImageInfo,
-          })));
-        } else {
-          setMessages([...VALENTINA_WELCOME_MESSAGES] as ChatMsg[]);
-        }
-      } catch {
-        setMessages([...VALENTINA_WELCOME_MESSAGES] as ChatMsg[]);
-      }
-    })();
-  }, [currentOperatorId, tenant]);
+  // Obter ou criar Thread ativo
+  const activeThread = useMemo(() => {
+    if (!activeThreadId) return null;
+    return threads.find((t) => t.id === activeThreadId) || null;
+  }, [threads, activeThreadId]);
 
-  // ── Auto-scroll ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, isTyping]);
+  const activeMessages = activeThread?.messages || [];
 
-  // ── Leitura de arquivo ──────────────────────────────────────────────────────
+  // Auto-scroll nas mensagens
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [activeMessages, isTyping]);
+
+  // Manipulação de Threads
+  const createNewThread = (folderId: string | null = null): string => {
+    const newId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const newThread: ValentinaThread = {
+      id: newId,
+      title: "Nova conversa",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [],
+      folderId,
+    };
+    setThreads((prev) => [newThread, ...prev]);
+    setActiveThreadId(newId);
+    return newId;
+  };
+
+  const deleteThread = (id: string) => {
+    setThreads((prev) => prev.filter((t) => t.id !== id));
+    if (activeThreadId === id) setActiveThreadId(null);
+  };
+
+  const renameThread = (id: string, newTitle: string) => {
+    setThreads((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title: newTitle, updatedAt: Date.now() } : t))
+    );
+  };
+
+  const moveThread = (id: string, folderId: string | null) => {
+    setThreads((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, folderId, updatedAt: Date.now() } : t))
+    );
+  };
+
+  const createFolder = (name: string) => {
+    const newFolder: ValentinaFolder = {
+      id: `folder_${Date.now()}`,
+      name,
+    };
+    setFolders((prev) => [...prev, newFolder]);
+  };
+
+  const renameFolder = (folderId: string, newName: string) => {
+    setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, name: newName } : f)));
+  };
+
+  const deleteFolder = (folderId: string) => {
+    setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setThreads((prev) => prev.map((t) => (t.folderId === folderId ? { ...t, folderId: null } : t)));
+  };
+
+  // Tratar arquivos anexados
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => {
-      // Remove prefixo data:...;base64,
       const fullB64 = reader.result as string;
       const base64 = fullB64.split(",")[1] ?? fullB64;
       setAttachedFile({ name: file.name, mimeType: file.type || "application/octet-stream", base64 });
@@ -218,17 +251,62 @@ export function ValentinaChatTab() {
     e.target.value = "";
   };
 
-  // ── Flush para a IA ─────────────────────────────────────────────────────────
-  const flushToAI = async (
-    batch: string[],
-    file: AttachedFile | null,
-    image: AttachedImage | null,
-  ) => {
+  // Alternar sugestões
+  const toggleSuggestions = () => {
+    setCurrentSuggestions((prev) =>
+      prev === INITIAL_SUGGESTIONS ? SECONDARY_SUGGESTIONS : INITIAL_SUGGESTIONS
+    );
+  };
+
+  // Envio de mensagem
+  const handleSendMessage = async (textOverride?: string) => {
+    const text = (textOverride ?? input).trim();
+    if (!text && !attachedFile && !attachedImage) return;
+
+    let targetThreadId = activeThreadId;
+    if (!targetThreadId) {
+      targetThreadId = createNewThread();
+    }
+
+    const fileSnap = attachedFile;
+    const imageSnap = attachedImage;
+
+    const userMessageText = text || (fileSnap ? `📎 ${fileSnap.name}` : `🖼️ ${imageSnap?.name}`);
+
+    const userMsg: ValentinaChatMessage = {
+      id: `op-${Date.now()}`,
+      sender: "operator",
+      content: userMessageText,
+      timestamp: new Date().toISOString(),
+      attachedFileInfo: fileSnap ? { name: fileSnap.name, mimeType: fileSnap.mimeType } : undefined,
+      attachedImageInfo: imageSnap ? { dataUrl: imageSnap.dataUrl, name: imageSnap.name } : undefined,
+    };
+
+    // Atualizar título da conversa se for a primeira mensagem
+    setThreads((prev) =>
+      prev.map((t) => {
+        if (t.id === targetThreadId) {
+          const isFirst = t.messages.length === 0;
+          const newTitle = isFirst ? (text.length > 32 ? `${text.slice(0, 32)}…` : text) : t.title;
+          return {
+            ...t,
+            title: newTitle,
+            updatedAt: Date.now(),
+            messages: [...t.messages, userMsg],
+          };
+        }
+        return t;
+      })
+    );
+
+    setInput("");
+    setAttachedFile(null);
+    setAttachedImage(null);
+    setIsTyping(true);
+
     abortCtrl.current?.abort();
     const ctrl = new AbortController();
     abortCtrl.current = ctrl;
-    setIsTyping(true);
-    setWaitSecondsLeft(null);
 
     try {
       const res = await fetch("/api/valentina/messages", {
@@ -238,11 +316,11 @@ export function ValentinaChatTab() {
         body: JSON.stringify({
           tenantId: tenant,
           operatorId: currentOperatorId || "system",
-          content: batch.join("\n"),
+          content: text || "[veja o arquivo/imagem anexada]",
           scope: "admin",
           knowledgeBase: selectedBase,
-          ...(file ? { attachment: { name: file.name, mimeType: file.mimeType, base64: file.base64 } } : {}),
-          ...(image ? { imageBase64: image.dataUrl } : {}),
+          ...(fileSnap ? { attachment: { name: fileSnap.name, mimeType: fileSnap.mimeType, base64: fileSnap.base64 } } : {}),
+          ...(imageSnap ? { imageBase64: imageSnap.dataUrl } : {}),
         }),
       });
 
@@ -252,129 +330,75 @@ export function ValentinaChatTab() {
 
       for (let i = 0; i < fragments.length; i++) {
         if (i > 0) setIsTyping(true);
-        await new Promise((r) => setTimeout(r, Math.max(fragments[i].delay ?? i * 800, 400)));
-        setMessages((prev) => [...prev, {
+        await new Promise((r) => setTimeout(r, Math.max(fragments[i].delay ?? 600, 300)));
+
+        const botMsg: ValentinaChatMessage = {
           id: fragments[i].id || `val-${Date.now()}-${i}`,
           sender: "valentina",
           content: fragments[i].content || fragments[i].text || "",
           timestamp: new Date().toISOString(),
-          type: "text",
-        } as ChatMsg]);
-      }
+          blocks: fragments[i].blocks || (fragments[i].content ? [{ type: "text", text: fragments[i].content }] : undefined),
+        };
 
-      for (const alert of data.alerts || []) {
-        setMessages((prev) => [...prev, {
-          id: `val-alert-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-          sender: "valentina",
-          content: `${alert.clientName || "Cliente"} está aguardando há ${alert.waitMinutes || "?"} minutos`,
-          timestamp: new Date().toISOString(),
-          type: "sla_card",
-          cardData: { description: `${alert.clientName || "Cliente"} aguardando há ${alert.waitMinutes || "?"} minutos. ${alert.lastMessage || ""}` },
-        } as ChatMsg]);
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === targetThreadId
+              ? { ...t, updatedAt: Date.now(), messages: [...t.messages, botMsg] }
+              : t
+          )
+        );
       }
-
-      if (fragments.length === 0 && (data.alerts || []).length === 0) throw new Error("Sem resposta");
     } catch (err: any) {
       if (err?.name === "AbortError") return;
-      setMessages((prev) => [...prev, {
+      const errorMsg: ValentinaChatMessage = {
         id: `val-err-${Date.now()}`,
         sender: "valentina",
-        content: "Ops, tive um problema pra processar. Pode tentar de novo? 😅",
+        content: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente? 😅",
         timestamp: new Date().toISOString(),
-        type: "text",
-      } as ChatMsg]);
+        blocks: [{ type: "text", text: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente? 😅" }],
+      };
+
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === targetThreadId
+            ? { ...t, updatedAt: Date.now(), messages: [...t.messages, errorMsg] }
+            : t
+        )
+      );
     } finally {
       setIsTyping(false);
     }
   };
 
-  // ── Enviar mensagem ─────────────────────────────────────────────────────────
-  const triggerSend = (textOverride?: string) => {
-    const text = (textOverride ?? input).trim();
-    if (!text && !attachedFile && !attachedImage) return;
-
-    if (isTyping) { abortCtrl.current?.abort(); setIsTyping(false); }
-
-    const fileSnap  = attachedFile;
-    const imageSnap = attachedImage;
-
-    // Texto visível na bolha
-    const displayText = text || (fileSnap ? `📎 ${fileSnap.name}` : `🖼️ ${imageSnap?.name}`);
-
-    setMessages((prev) => [...prev, {
-      id: `op-${Date.now()}`,
-      sender: "operator",
-      content: displayText,
-      timestamp: new Date().toISOString(),
-      type: "text",
-      attachedFileInfo: fileSnap ? { name: fileSnap.name, mimeType: fileSnap.mimeType } : undefined,
-      attachedImageInfo: imageSnap ? { dataUrl: imageSnap.dataUrl, name: imageSnap.name } : undefined,
-    } as ChatMsg]);
-
-    setInput("");
-    setAttachedFile(null);
-    setAttachedImage(null);
-
-    // Attachment → envia imediatamente (sem debounce)
-    if (fileSnap || imageSnap) {
-      if (debounceRef.current)  clearTimeout(debounceRef.current);
-      if (countdownRef.current) clearInterval(countdownRef.current);
-      pendingMsgs.current = [];
-      setWaitSecondsLeft(null);
-      flushToAI(text ? [text] : ["[veja o arquivo/imagem anexada]"], fileSnap, imageSnap);
-      return;
-    }
-
-    // Só texto → debounce 15s
-    pendingMsgs.current.push(text);
-    if (debounceRef.current)  clearTimeout(debounceRef.current);
-    if (countdownRef.current) clearInterval(countdownRef.current);
-
-    let remaining = DEBOUNCE_SEC;
-    setWaitSecondsLeft(remaining);
-    countdownRef.current = setInterval(() => {
-      remaining -= 1;
-      setWaitSecondsLeft(remaining > 0 ? remaining : null);
-      if (remaining <= 0 && countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
-    }, 1000);
-
-    debounceRef.current = setTimeout(() => {
-      const batch = [...pendingMsgs.current];
-      pendingMsgs.current = [];
-      setWaitSecondsLeft(null);
-      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
-      flushToAI(batch, null, null);
-    }, DEBOUNCE_SEC * 1000);
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); triggerSend(); }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   const formatTime = (iso: string) =>
     new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
-  const hasChatted  = messages.some((m) => m.sender === "operator");
   const selectedOpt = BASE_OPTIONS.find((o) => o.value === selectedBase) ?? BASE_OPTIONS[2];
 
-  // ── Barra de Input (render function, não componente) ──────────────────────
+  // ── Render da Barra de Input ──────────────────────────────────────────────
   const renderInputBar = (placeholder: string) => (
-    <div className="flex flex-col rounded-2xl bg-card border border-border shadow-soft focus-within:border-primary/60 transition-colors duration-150">
-
-      {/* Previews de anexo */}
+    <div className="flex flex-col rounded-2xl bg-card border border-border/90 shadow-card focus-within:border-primary/60 transition-all duration-150">
+      {/* Previews de Anexo */}
       {(attachedFile || attachedImage) && (
         <div className="flex flex-wrap items-center gap-2.5 px-4 pt-3 pb-1">
           {attachedFile && (
-            <div className="flex items-center gap-2 bg-muted/60 border border-border/60 rounded-xl px-2.5 py-1.5">
+            <div className="flex items-center gap-2 bg-muted/70 border border-border/60 rounded-xl px-3 py-1.5">
               <FileTypeIcon mimeType={attachedFile.mimeType} name={attachedFile.name} />
-              <span className="text-[11px] font-semibold text-foreground max-w-[180px] truncate">
+              <span className="text-[11px] font-bold text-foreground max-w-[200px] truncate">
                 {attachedFile.name}
               </span>
               <button
                 onClick={() => setAttachedFile(null)}
-                className="grid h-4 w-4 place-items-center rounded-full hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition cursor-pointer"
+                className="grid h-4 w-4 place-items-center rounded-full hover:bg-rose-500/10 hover:text-rose-500 text-muted-foreground transition cursor-pointer"
               >
-                <X className="h-2.5 w-2.5" />
+                <X className="h-3 w-3" />
               </button>
             </div>
           )}
@@ -391,7 +415,7 @@ export function ValentinaChatTab() {
               </div>
               <button
                 onClick={() => setAttachedImage(null)}
-                className="absolute -top-1.5 -right-1.5 h-5 w-5 bg-background border border-border rounded-full grid place-items-center shadow-soft hover:text-destructive text-muted-foreground transition cursor-pointer z-10"
+                className="absolute -top-1.5 -right-1.5 h-5 w-5 bg-background border border-border rounded-full grid place-items-center shadow-soft hover:text-rose-500 text-muted-foreground transition cursor-pointer z-10"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -400,7 +424,7 @@ export function ValentinaChatTab() {
         </div>
       )}
 
-      {/* Linha da textarea + seletor de base */}
+      {/* Linha Textarea + Seletor de Base */}
       <div className="flex items-start gap-2 px-4 pt-3">
         <textarea
           ref={textareaRef}
@@ -413,15 +437,15 @@ export function ValentinaChatTab() {
           style={{ minHeight: "24px", maxHeight: "144px", overflowY: "auto" }}
         />
 
-        {/* Seletor de base */}
+        {/* Seletor de Base de Conhecimento */}
         <div className="relative shrink-0" ref={baseDropdownRef}>
           <button
             onClick={() => setShowBaseDropdown((v) => !v)}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-muted text-muted-foreground text-[10px] font-bold cursor-pointer hover:bg-muted/80 transition-colors whitespace-nowrap mt-0.5"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/80 text-muted-foreground text-[10px] font-bold cursor-pointer hover:bg-muted transition-colors whitespace-nowrap mt-0.5"
           >
             <span>{selectedOpt.emoji}</span>
             <span>{selectedOpt.label}</span>
-            <ChevronDown className={`h-2.5 w-2.5 transition-transform duration-150 ${showBaseDropdown ? "rotate-180" : ""}`} />
+            <ChevronDown className={`h-3 w-3 transition-transform duration-150 ${showBaseDropdown ? "rotate-180" : ""}`} />
           </button>
 
           <AnimatePresence>
@@ -431,7 +455,7 @@ export function ValentinaChatTab() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -6, scale: 0.95 }}
                 transition={{ duration: 0.12 }}
-                className="absolute right-0 top-full mt-1.5 z-50 min-w-[148px] rounded-xl bg-card border border-border shadow-card py-1.5 overflow-hidden"
+                className="absolute right-0 top-full mt-1.5 z-50 min-w-[150px] rounded-xl bg-card border border-border shadow-card py-1.5 overflow-hidden"
               >
                 {BASE_OPTIONS.map((opt) => (
                   <button
@@ -450,296 +474,245 @@ export function ValentinaChatTab() {
         </div>
       </div>
 
-      {/* Rodapé de ações */}
-      <div className="flex items-center justify-between px-4 pt-2 pb-3 mt-1 border-t border-line">
-        <div className="flex items-center gap-0.5">
-          <input ref={fileInputRef} type="file" accept={ACCEPTED_FILE_TYPES} className="hidden" onChange={handleFileChange} />
-          <input ref={imageInputRef} type="file" accept={ACCEPTED_IMAGE_TYPES} className="hidden" onChange={handleImageChange} />
-
+      {/* Footer da Barra (Uploads + Contador + Enviar) */}
+      <div className="flex items-center justify-between px-4 pb-2.5 pt-2 border-t border-border/40">
+        <div className="flex items-center gap-3">
+          <input ref={fileInputRef} type="file" accept={ACCEPTED_FILE_TYPES} onChange={handleFileChange} className="hidden" />
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+            className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
           >
-            <Paperclip className="h-3.5 w-3.5 text-primary" />
-            Anexar arquivo
+            <Paperclip className="h-3.5 w-3.5" /> Anexar arquivo
           </button>
 
+          <input ref={imageInputRef} type="file" accept={ACCEPTED_IMAGE_TYPES} onChange={handleImageChange} className="hidden" />
           <button
+            type="button"
             onClick={() => imageInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+            className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
           >
-            <ImageIcon className="h-3.5 w-3.5 text-primary" />
-            Usar imagem
+            <ImageIcon className="h-3.5 w-3.5" /> Usar imagem
           </button>
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="text-[10px] font-medium text-muted-foreground/60">{input.length}/1000</span>
+          <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
+            {input.length}/1000
+          </span>
           <button
-            onClick={() => triggerSend()}
-            disabled={(!input.trim() && !attachedFile && !attachedImage) || isTyping}
-            className={`grid h-8 w-8 place-items-center rounded-xl transition-all cursor-pointer ${
-              (input.trim() || attachedFile || attachedImage) && !isTyping
-                ? "bg-primary text-primary-foreground hover:opacity-90 shadow-soft active:scale-95"
-                : "bg-muted text-muted-foreground cursor-not-allowed opacity-50"
-            }`}
+            onClick={() => handleSendMessage()}
+            disabled={!input.trim() && !attachedFile && !attachedImage}
+            className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition shadow-sm cursor-pointer"
           >
-            <Send className="h-3.5 w-3.5" />
+            <Send className="h-4 w-4" />
           </button>
         </div>
       </div>
     </div>
   );
 
-  // ── Tela inicial (sem mensagem do operador ainda) ──────────────────────────
-  if (!hasChatted) {
-    return (
-      <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 overflow-y-auto scrollbar-thin select-none">
-        <motion.div
-          variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.1 } } }}
-          initial="hidden"
-          animate="visible"
-          className="text-center max-w-2xl w-full flex flex-col items-center"
-        >
-          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35 } } }}>
-            <h2 className="text-3xl font-extrabold text-foreground leading-tight">
-              Olá, <span className="text-primary">{operatorFirstName}</span>
-            </h2>
-            <h3 className="text-2xl font-bold text-foreground/80 mt-1">
-              O que você gostaria de saber hoje?
-            </h3>
-            <p className="text-xs text-muted-foreground mt-3">
-              Use uma das sugestões abaixo ou faça sua própria pergunta para iniciar
-            </p>
-          </motion.div>
-
-          <motion.div
-            variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35 } } }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-8 w-full"
-          >
-            {suggestions.map((sug, idx) => {
-              const SugIcon = sug.icon;
-              return (
-                <motion.button
-                  key={idx}
-                  whileHover={{ scale: 1.02, y: -2 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => triggerSend(sug.text)}
-                  className="flex flex-col justify-between items-start text-left p-4 rounded-2xl border border-border bg-card hover:bg-muted/40 hover:border-primary/30 transition-colors duration-150 cursor-pointer shadow-soft group min-h-[120px]"
-                >
-                  <span className="text-xs font-semibold text-foreground leading-snug group-hover:text-primary transition-colors">
-                    {sug.text}
-                  </span>
-                  <div className="mt-4 p-2 rounded-xl bg-muted group-hover:bg-primary-soft transition-colors">
-                    <SugIcon className={`h-4 w-4 ${sug.iconColor}`} />
-                  </div>
-                </motion.button>
-              );
-            })}
-          </motion.div>
-
-          <motion.button
-            variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35 } } }}
-            whileHover={{ scale: 1.05 }}
-            className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition cursor-pointer"
-          >
-            <RefreshCw className="h-3 w-3" />
-            Atualizar Sugestões
-          </motion.button>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.5 }}
-          className="mt-12 w-full max-w-2xl"
-        >
-          {renderInputBar("Pergunte o que quiser...")}
-        </motion.div>
-      </div>
-    );
-  }
-
-  // ── Tela de chat ativo ─────────────────────────────────────────────────────
   return (
-    <>
-      {/* Modal fullscreen de imagem */}
-      {fullscreenSrc && createPortal(
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-[600] flex items-center justify-center bg-background/80 backdrop-blur-md"
+    <div className="flex h-full w-full gap-3 overflow-hidden bg-background p-2">
+      {/* Visualizador Fullscreen de Imagem */}
+      {fullscreenSrc && (
+        <div
           onClick={() => setFullscreenSrc(null)}
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
         >
-          <button
-            onClick={() => setFullscreenSrc(null)}
-            className="absolute top-5 right-5 grid h-10 w-10 place-items-center rounded-2xl bg-card border border-border shadow-card text-foreground hover:bg-muted transition cursor-pointer z-10"
-          >
-            <X className="h-5 w-5" />
-          </button>
-          <motion.img
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-            src={fullscreenSrc}
-            alt="Imagem ampliada"
-            className="max-h-[88vh] max-w-[88vw] rounded-2xl shadow-card object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </motion.div>,
-        document.body,
+          <img src={fullscreenSrc} alt="Preview" className="max-h-[90vh] max-w-[90vw] rounded-2xl object-contain shadow-2xl" />
+        </div>
       )}
 
-      <div className="flex flex-col h-full overflow-hidden">
-        {/* Área de mensagens */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-8 scrollbar-thin bg-chat-panel">
-          <div className="max-w-2xl mx-auto w-full space-y-5">
-            <AnimatePresence initial={false}>
-              {messages.map((m) => (
-                <motion.div
-                  key={m.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-                  className={`flex gap-3 items-end ${m.sender === "operator" ? "justify-end" : "justify-start"}`}
-                >
-                  {/* Avatar da IA */}
-                  {m.sender === "valentina" && (
-                    <img
-                      src="/valentina.png"
-                      alt={persona.name}
-                      className="h-8 w-8 rounded-full object-cover border border-border shrink-0 shadow-soft mb-0.5"
-                    />
-                  )}
-
-                  {/* Conteúdo da mensagem */}
-                  <div className={`flex flex-col max-w-[75%] ${m.sender === "operator" ? "items-end" : "items-start"}`}>
-                    {m.sender === "valentina" ? (
-                      <div className="bg-card border border-border/70 rounded-2xl rounded-tl-[4px] px-4 py-3 shadow-soft text-xs text-foreground leading-relaxed">
-                        {m.content}
-                        {m.type === "lead_card" && m.cardData && <LeadCard data={m.cardData} />}
-                        {m.type === "sla_card" && m.cardData && <SlaAlertCard data={m.cardData} />}
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-end gap-1.5">
-                        {/* Preview de imagem na bolha */}
-                        {m.attachedImageInfo && (
-                          <div className="relative group cursor-zoom-in" onClick={() => setFullscreenSrc(m.attachedImageInfo!.dataUrl)}>
-                            <img
-                              src={m.attachedImageInfo.dataUrl}
-                              alt={m.attachedImageInfo.name}
-                              className="max-h-48 max-w-[260px] rounded-2xl border border-border shadow-soft object-cover"
-                            />
-                            <div className="absolute inset-0 rounded-2xl bg-black/0 group-hover:bg-black/25 flex items-center justify-center transition-colors">
-                              <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                          </div>
-                        )}
-                        {/* Preview de arquivo na bolha */}
-                        {m.attachedFileInfo && (
-                          <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-xl px-3 py-2">
-                            <FileTypeIcon mimeType={m.attachedFileInfo.mimeType} name={m.attachedFileInfo.name} />
-                            <span className="text-[11px] font-semibold text-primary max-w-[200px] truncate">
-                              {m.attachedFileInfo.name}
-                            </span>
-                          </div>
-                        )}
-                        {/* Texto da bolha */}
-                        {m.content && !m.content.startsWith("📎") && !m.content.startsWith("🖼️") && (
-                          <div className="bg-primary text-primary-foreground rounded-2xl rounded-br-[4px] px-4 py-3 shadow-soft text-xs leading-relaxed">
-                            {m.content}
-                          </div>
-                        )}
-                        {/* Caso só tenha attachment (sem texto digitado) */}
-                        {(m.content.startsWith("📎") || m.content.startsWith("🖼️")) && !m.attachedFileInfo && !m.attachedImageInfo && (
-                          <div className="bg-primary text-primary-foreground rounded-2xl rounded-br-[4px] px-4 py-3 shadow-soft text-xs leading-relaxed">
-                            {m.content}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <span className={`text-[9px] text-muted-foreground/50 font-semibold mt-1.5 ${m.sender === "operator" ? "pr-0.5" : "pl-0.5"}`}>
-                      {formatTime(m.timestamp)}
-                    </span>
-                  </div>
-
-                  {/* Avatar do operador */}
-                  {m.sender === "operator" && (
-                    operatorProfile?.avatar ? (
-                      <img
-                        src={operatorProfile.avatar}
-                        alt={operatorFirstName}
-                        className="h-8 w-8 rounded-full object-cover border border-border shrink-0 shadow-soft mb-0.5"
-                      />
-                    ) : (
-                      <div className="h-8 w-8 rounded-full bg-primary/15 text-primary text-xs font-extrabold flex items-center justify-center shrink-0 shadow-soft mb-0.5 border border-primary/20">
-                        {operatorInitial}
-                      </div>
-                    )
-                  )}
-                </motion.div>
-              ))}
-            </AnimatePresence>
-
-            {/* Indicador: IA digitando */}
-            <AnimatePresence>
-              {isTyping && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  className="flex gap-3 items-end"
-                >
-                  <img src="/valentina.png" alt={persona.name} className="h-8 w-8 rounded-full object-cover border border-border shrink-0 shadow-soft mb-0.5" />
-                  <div className="bg-card border border-border/70 rounded-2xl rounded-tl-[4px] px-4 py-3 shadow-soft text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      {persona.name} está digitando
-                      <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }}>
-                        ...
-                      </motion.span>
-                    </span>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Indicador: aguardando debounce */}
-            <AnimatePresence>
-              {waitSecondsLeft !== null && !isTyping && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="flex gap-3 items-center"
-                >
-                  <img src="/valentina.png" alt={persona.name} className="h-8 w-8 rounded-full object-cover border border-border shrink-0 shadow-soft opacity-60" />
-                  <div className="flex items-center gap-2 rounded-2xl rounded-tl-[4px] bg-card border border-border/70 px-4 py-2.5 text-xs text-muted-foreground shadow-soft">
-                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}>
-                      <Clock className="h-3 w-3 text-primary" />
-                    </motion.div>
-                    <span>
-                      {persona.name} aguardando mais mensagens
-                      <span className="font-black text-primary ml-1">{waitSecondsLeft}s</span>
-                      <span className="text-[10px] ml-1 text-muted-foreground/60">— envie mais ou aguarde</span>
-                    </span>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+      {/* Coluna Central do Chat */}
+      <div className="flex min-w-0 flex-1 flex-col h-full rounded-2xl border border-border/80 bg-card shadow-card overflow-hidden">
+        {/* Header do Chat */}
+        <header className="flex items-center justify-between border-b border-border/80 bg-card px-5 py-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <img
+              src={persona.avatar}
+              alt={persona.name}
+              className="h-9 w-9 rounded-full object-cover ring-2 ring-primary/20 bg-primary-soft"
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-extrabold text-foreground">{persona.name}</h2>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Assistente de BI e análise de gestão em tempo real
+              </p>
+            </div>
           </div>
+
+          {/* Botão para abrir ThreadRail se estiver colapsado */}
+          {!isRailOpen && (
+            <ValentinaThreadRail
+              threads={threads}
+              folders={folders}
+              activeThreadId={activeThreadId}
+              isOpen={false}
+              onToggleOpen={() => setIsRailOpen(true)}
+              onSelectThread={(id) => setActiveThreadId(id)}
+              onNewThread={createNewThread}
+              onDeleteThread={deleteThread}
+              onRenameThread={renameThread}
+              onMoveThread={moveThread}
+              onCreateFolder={createFolder}
+              onRenameFolder={renameFolder}
+              onDeleteFolder={deleteFolder}
+            />
+          )}
+        </header>
+
+        {/* Conteúdo Principal do Chat */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* ESTADO 1: TELA DE BOAS-VINDAS (Quando a conversa ainda não iniciou) */}
+          {activeMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center min-h-[420px] py-8 text-center max-w-2xl mx-auto my-auto">
+              <h1 className="text-xl font-extrabold text-foreground tracking-tight">
+                Olá, <span className="text-primary">{operatorFirstName}</span>
+              </h1>
+              <h2 className="text-sm font-bold text-foreground/90 mt-1">
+                O que você gostaria de saber hoje?
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md">
+                Use uma das sugestões abaixo ou faça sua própria pergunta para iniciar
+              </p>
+
+              {/* Grid de Sugestões Rápidas */}
+              <div className="mt-8 grid w-full gap-3 sm:grid-cols-2">
+                {currentSuggestions.map((sug, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSendMessage(sug.text)}
+                    className="flex flex-col justify-between rounded-2xl border border-border/80 bg-card p-4 text-left shadow-soft hover:border-primary/50 hover:shadow-card hover:bg-primary-soft/30 transition-all cursor-pointer group min-h-[96px]"
+                  >
+                    <span className="text-xs font-semibold text-foreground/90 leading-snug group-hover:text-primary transition-colors">
+                      {sug.text}
+                    </span>
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="grid h-7 w-7 place-items-center rounded-xl bg-muted/60 group-hover:bg-primary-soft transition-colors">
+                        <sug.icon className={`h-4 w-4 ${sug.iconColor}`} />
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Botão de Atualizar Sugestões */}
+              <button
+                type="button"
+                onClick={toggleSuggestions}
+                className="mt-6 flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground hover:text-foreground transition cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Atualizar Sugestões
+              </button>
+            </div>
+          ) : (
+            /* ESTADO 2: MENSAGENS DA CONVERSA (Layout Rico) */
+            <div className="max-w-3xl mx-auto space-y-4">
+              {activeMessages.map((msg) =>
+                msg.sender === "operator" ? (
+                  /* Mensagem do Usuário (Alinhada à direita, compacta e limpa) */
+                  <div key={msg.id} className="flex justify-end">
+                    <div className="max-w-[80%] flex flex-col items-end">
+                      <div className="rounded-2xl rounded-tr-xs bg-primary px-4 py-2.5 text-xs text-primary-foreground shadow-xs">
+                        {/* Anexos de imagem/arquivo se houver */}
+                        {msg.attachedImageInfo && (
+                          <img
+                            src={msg.attachedImageInfo.dataUrl}
+                            alt=""
+                            className="mb-2 max-h-48 rounded-xl object-cover border border-white/20"
+                          />
+                        )}
+                        {msg.attachedFileInfo && (
+                          <div className="mb-1.5 flex items-center gap-1.5 rounded-lg bg-black/10 px-2 py-1 text-[11px] font-bold">
+                            <Paperclip className="h-3 w-3" /> {msg.attachedFileInfo.name}
+                          </div>
+                        )}
+                        <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                      </div>
+                      <span className="mt-1 text-[10px] font-medium text-muted-foreground/70 pr-1">
+                        {formatTime(msg.timestamp)}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  /* Mensagem da Valentina (Alinhada à esquerda, com renderizador de blocos) */
+                  <div key={msg.id} className="flex gap-3 items-start">
+                    <img
+                      src={persona.avatar}
+                      alt={persona.name}
+                      className="h-7 w-7 rounded-full object-cover ring-1 ring-border mt-0.5 shrink-0 bg-primary-soft"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <span className="text-xs font-bold text-foreground">{persona.name}</span>
+                        <span className="text-[10px] text-muted-foreground">{formatTime(msg.timestamp)}</span>
+                      </div>
+
+                      <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs text-foreground space-y-2">
+                        {/* Texto principal */}
+                        {msg.content && <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>}
+
+                        {/* Blocos dinâmicos ricos (Gráficos, Insights, Relatórios, Trechos) */}
+                        {msg.blocks?.map((block, bIdx) => (
+                          <ValentinaBlockRenderer key={bIdx} block={block} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )
+              )}
+
+              {/* Indicador de Digitação da Valentina */}
+              {isTyping && (
+                <div className="flex gap-3 items-center">
+                  <img
+                    src={persona.avatar}
+                    alt={persona.name}
+                    className="h-7 w-7 rounded-full object-cover ring-1 ring-border shrink-0 bg-primary-soft"
+                  />
+                  <div className="rounded-2xl bg-muted/40 border border-border/60 px-4 py-2.5 text-xs text-muted-foreground flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5 text-primary animate-spin" />
+                    <span>Analisando dados do sistema...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Input no rodapé */}
-        <div className="shrink-0 px-6 pb-5 pt-3 bg-card border-t border-line">
-          <div className="max-w-2xl mx-auto w-full">
-            {renderInputBar(`Pergunte algo à ${persona.name}...`)}
+        {/* Footer do Chat com Barra de Input Completa */}
+        <div className="p-3 bg-card border-t border-border/60 shrink-0">
+          <div className="max-w-3xl mx-auto">
+            {renderInputBar("Pergunte algo à Valentina sobre leads, métricas, relatórios ou conversas...")}
           </div>
         </div>
       </div>
-    </>
+
+      {/* Coluna Direita: ThreadRail Retrátil de Histórico */}
+      {isRailOpen && (
+        <ValentinaThreadRail
+          threads={threads}
+          folders={folders}
+          activeThreadId={activeThreadId}
+          isOpen={true}
+          onToggleOpen={() => setIsRailOpen(false)}
+          onSelectThread={(id) => setActiveThreadId(id)}
+          onNewThread={createNewThread}
+          onDeleteThread={deleteThread}
+          onRenameThread={renameThread}
+          onMoveThread={moveThread}
+          onCreateFolder={createFolder}
+          onRenameFolder={renameFolder}
+          onDeleteFolder={deleteFolder}
+        />
+      )}
+    </div>
   );
 }
