@@ -140,6 +140,33 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="pt-BR" className="notranslate" translate="no">
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if (typeof window !== 'undefined' && typeof window.Buffer === 'undefined') {
+                window.Buffer = {
+                  isBuffer: function() { return false; },
+                  from: function(data) {
+                    if (typeof data === 'string') return new TextEncoder().encode(data);
+                    return new Uint8Array(data || 0);
+                  },
+                  alloc: function(size) { return new Uint8Array(size); },
+                  concat: function(list) {
+                    var total = 0;
+                    for (var i = 0; i < list.length; i++) total += list[i].length;
+                    var res = new Uint8Array(total);
+                    var off = 0;
+                    for (var j = 0; j < list.length; j++) {
+                      res.set(list[j], off);
+                      off += list[j].length;
+                    }
+                    return res;
+                  }
+                };
+              }
+            `,
+          }}
+        />
       </head>
       <body>
         {children}
