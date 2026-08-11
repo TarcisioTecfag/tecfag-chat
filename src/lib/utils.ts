@@ -88,9 +88,8 @@ export async function urlToBase64(url: string): Promise<string | undefined> {
     for (let i = 0; i < bytes.byteLength; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
-    const base64 = typeof window !== "undefined" ? btoa(binary) : (globalThis.Buffer ? Buffer.from(arrayBuffer).toString("base64") : "");
     const contentType = res.headers.get("content-type") || "image/jpeg";
-    return `data:${contentType};base64,${base64}`;
+    return `data:${contentType};base64,${btoa(binary)}`;
   } catch (err) {
     console.error("[urlToBase64] Erro ao converter imagem para base64:", err);
     return undefined;
