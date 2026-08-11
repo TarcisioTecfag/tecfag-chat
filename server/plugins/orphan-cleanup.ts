@@ -14,7 +14,7 @@
  */
 
 export default function orphanCleanupPlugin(nitroApp: any) {
-  nitroApp.hooks.hookOnce("listen", async () => {
+  nitroApp.hooks.hook("listen", async () => {
     try {
       // Import lazy para evitar que erros de inicialização do DB
       // quebrem o startup do servidor antes do listen estar pronto.
