@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ } from "@/lib/utils";
@@ -25,6 +25,8 @@ import {
   UserMinus,
   Shield,
   Bot,
+  AlertTriangle,
+  Clock,
 } from "lucide-react";
 import { Conversation, OperatorTemplate } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -46,6 +48,19 @@ export function WalletView() {
   } = useChat();
 
   const [activeTab, setActiveTab] = useState<"wallet" | "templates">("wallet");
+
+  // KPI de inatividade — busca do servidor (apenas para a aba carteira)
+  const [inactivityKpi, setInactivityKpi] = useState<{ over50Count: number; over60Count: number } | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== "wallet" || !tenant) return;
+    fetch(`/api/contacts/check-inactivity?tenantId=${tenant}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) setInactivityKpi({ over50Count: data.over50Count, over60Count: data.over60Count });
+      })
+      .catch(() => {}); // silencia erros de rede — KPI é informativo
+  }, [activeTab, tenant]);
   const [search, setSearch] = useState("");
   
   // Custom Modals
@@ -245,6 +260,29 @@ export function WalletView() {
                 <div className="text-lg font-bold text-foreground">{templates.length}</div>
               </div>
             </div>
+
+            {/* KPI de Inatividade ≥50 dias */}
+            {inactivityKpi !== null && inactivityKpi.over50Count > 0 && (
+              <div className="flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3.5 shadow-soft col-span-1 sm:col-span-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500 border border-amber-500/20 shrink-0">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle className="h-3 w-3" />
+                    Clientes sem contato há mais de 50 dias
+                  </div>
+                  <div className="text-sm text-amber-700 dark:text-amber-300 font-medium mt-0.5">
+                    <span className="text-lg font-bold">{inactivityKpi.over50Count}</span> cliente{inactivityKpi.over50Count !== 1 ? "s" : ""} em risco de inatividade
+                    {inactivityKpi.over60Count > 0 && (
+                      <span className="ml-2 text-[10px] font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 rounded-full px-2 py-0.5">
+                        {inactivityKpi.over60Count} acima de 60 dias → serão transferidos automaticamente
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
