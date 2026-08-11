@@ -14,9 +14,10 @@ export class MediaStreamHandler {
   private streamSid: string = "";
   private callSid: string = "";
   private dbCallId: string = "";
-  private history: VoiceMessage[] = [];
-  private isProcessing: boolean = false;
-  private startTime: Date = new Date();
+  // Buffer de áudio do cliente para VAD e STT
+  private audioBufferChunks: string[] = [];
+  private silenceTimer: NodeJS.Timeout | null = null;
+  private hasSpoken: boolean = false;
 
   // Fila de áudio de saída com pacing de 20ms
   private outputQueue: Buffer[] = [];
@@ -114,7 +115,10 @@ export class MediaStreamHandler {
       this.outputTimer = null;
     }
     this.outputQueue = [];
+    this.audioBufferChunks = [];
     this.isSpeaking = false;
+    this.hasSpoken = false;
+    this.isProcessing = false;
   }
 
   /**
