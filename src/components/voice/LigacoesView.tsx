@@ -1,23 +1,23 @@
 import React, { useState } from "react";
-import { PhoneCall, History, Users, Megaphone, Settings } from "lucide-react";
+import { PhoneCall, CalendarDays, History, Users, Megaphone } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DashboardTab } from "./DashboardTab";
+import { AgendaTab } from "./AgendaTab";
 import { HistoricoTab } from "./HistoricoTab";
 import { ClientesTab } from "./ClientesTab";
 import { CampanhasTab } from "./CampanhasTab";
-import { ConfiguracaoTab } from "./ConfiguracaoTab";
 
-type VoiceTab = "dashboard" | "historico" | "clientes" | "campanhas" | "configuracao";
+type VoiceTab = "dashboard" | "agenda" | "historico" | "clientes" | "campanhas";
 
 export function LigacoesView() {
   const [activeTab, setActiveTab] = useState<VoiceTab>("dashboard");
 
   const tabs = [
     { id: "dashboard", label: "Dashboard ao Vivo", icon: PhoneCall },
+    { id: "agenda", label: "Agenda", icon: CalendarDays },
     { id: "historico", label: "Histórico & Transcrições", icon: History },
     { id: "clientes", label: "Base de Clientes", icon: Users },
     { id: "campanhas", label: "Campanhas em Massa", icon: Megaphone },
-    { id: "configuracao", label: "Configurações", icon: Settings },
   ];
 
   return (
@@ -75,13 +75,14 @@ export function LigacoesView() {
             className="flex flex-col flex-1 overflow-hidden"
           >
             {activeTab === "dashboard" && <DashboardTab />}
+            {activeTab === "agenda" && <AgendaTab />}
             {activeTab === "historico" && <HistoricoTab />}
             {activeTab === "clientes" && <ClientesTab />}
             {activeTab === "campanhas" && <CampanhasTab />}
-            {activeTab === "configuracao" && <ConfiguracaoTab />}
           </motion.div>
         </AnimatePresence>
       </div>
     </div>
   );
 }
+

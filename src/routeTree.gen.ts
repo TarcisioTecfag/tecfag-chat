@@ -15,6 +15,7 @@ import { Route as ApiVoiceStreamRouteImport } from './routes/api/voice-stream'
 import { Route as ApiVoiceEnrichContactRouteImport } from './routes/api/voice-enrich-contact'
 import { Route as ApiVoiceCampaignsRouteImport } from './routes/api/voice-campaigns'
 import { Route as ApiVoiceCallsRouteImport } from './routes/api/voice-calls'
+import { Route as ApiVoiceAgendaRouteImport } from './routes/api/voice-agenda'
 import { Route as ApiVoiceBufferRouteImport } from './routes/api/voice-buffer'
 import { Route as ApiValentinaVoiceRouteImport } from './routes/api/valentina-voice'
 import { Route as ApiTwilioVoiceWebhookRouteImport } from './routes/api/twilio-voice-webhook'
@@ -100,6 +101,11 @@ const ApiVoiceCampaignsRoute = ApiVoiceCampaignsRouteImport.update({
 const ApiVoiceCallsRoute = ApiVoiceCallsRouteImport.update({
   id: '/api/voice-calls',
   path: '/api/voice-calls',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVoiceAgendaRoute = ApiVoiceAgendaRouteImport.update({
+  id: '/api/voice-agenda',
+  path: '/api/voice-agenda',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiVoiceBufferRoute = ApiVoiceBufferRouteImport.update({
@@ -876,6 +882,13 @@ declare module '@tanstack/react-router' {
       path: '/api/voice-calls'
       fullPath: '/api/voice-calls'
       preLoaderRoute: typeof ApiVoiceCallsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/voice-agenda': {
+      id: '/api/voice-agenda'
+      path: '/api/voice-agenda'
+      fullPath: '/api/voice-agenda'
+      preLoaderRoute: typeof ApiVoiceAgendaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/voice-buffer': {

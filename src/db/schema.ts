@@ -532,6 +532,23 @@ export const voiceCampaignLeads = pgTable("voice_campaign_leads", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const voiceAgenda = pgTable("voice_agenda", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  clientName: text("client_name").notNull(),
+  clientPhone: text("client_phone").notNull(),
+  company: text("company"),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  type: text("type").default("follow_up").notNull(), // 'follow_up' | 'customer_request' | 'excel_list' | 'sdr_outreach'
+  status: text("status").default("pending").notNull(), // 'pending' | 'completed' | 'rescheduled' | 'cancelled' | 'no_answer'
+  priority: text("priority").default("normal").notNull(), // 'low' | 'normal' | 'high' | 'urgent'
+  notes: text("notes"),
+  campaignName: text("campaign_name"),
+  assignedAgent: text("assigned_agent").default("Valentina").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // ─── Tipos Derivados (Inferidos) ──────────────────────────────────────────────
 export type Tenant = typeof tenants.$inferSelect;
 export type ChannelConfig = typeof channelConfigs.$inferSelect;
@@ -563,11 +580,13 @@ export type KnowledgeFolder = typeof knowledgeFolders.$inferSelect;
 export type KnowledgeFileRecord = typeof knowledgeFiles.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 
-// ── Tipos de Voz (Ligações & Campanhas) ──
+// ── Tipos de Voz (Ligações & Campanhas & Agenda) ──
 export type VoiceCall = typeof voiceCalls.$inferSelect;
 export type VoiceCallMessage = typeof voiceCallMessages.$inferSelect;
 export type VoiceCampaign = typeof voiceCampaigns.$inferSelect;
 export type VoiceCampaignLead = typeof voiceCampaignLeads.$inferSelect;
+export type VoiceAgenda = typeof voiceAgenda.$inferSelect;
+
 
 
 
