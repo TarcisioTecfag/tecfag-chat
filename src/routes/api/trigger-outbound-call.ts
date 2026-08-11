@@ -35,7 +35,7 @@ export const Route = createFileRoute("/api/trigger-outbound-call")({
         try {
           const body = await request.json().catch(() => ({}));
           const targetPhone = body.phone ? formatE164(body.phone) : "+5514998364338";
-          const fromPhone = body.fromPhone ? formatE164(body.fromPhone) : "+55143980186";
+          const fromPhone = body.fromPhone ? formatE164(body.fromPhone) : "+551423980186";
 
           const accountSid = body.accountSid || process.env.TWILIO_ACCOUNT_SID;
           const authToken = body.authToken || process.env.TWILIO_AUTH_TOKEN;

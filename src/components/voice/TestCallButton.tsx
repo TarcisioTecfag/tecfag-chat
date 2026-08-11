@@ -4,6 +4,7 @@ import { PhoneCall, Sparkles, X, Loader2, CheckCircle2, AlertCircle, Key } from 
 export function TestCallButton() {
   const [isOpen, setIsOpen] = useState(false);
   const [phone, setPhone] = useState("14998364338");
+  const [fromPhone, setFromPhone] = useState("551423980186");
   const [accountSid, setAccountSid] = useState("");
   const [authToken, setAuthToken] = useState("");
   const [loading, setLoading] = useState(false);
@@ -13,8 +14,10 @@ export function TestCallButton() {
   useEffect(() => {
     const savedSid = localStorage.getItem("twilio_test_sid") || "";
     const savedToken = localStorage.getItem("twilio_test_token") || "";
+    const savedFrom = localStorage.getItem("twilio_test_from") || "";
     if (savedSid) setAccountSid(savedSid);
     if (savedToken) setAuthToken(savedToken);
+    if (savedFrom) setFromPhone(savedFrom);
   }, []);
 
   const handleCall = async (overridePhone?: string) => {
@@ -25,6 +28,7 @@ export function TestCallButton() {
     try {
       if (accountSid) localStorage.setItem("twilio_test_sid", accountSid);
       if (authToken) localStorage.setItem("twilio_test_token", authToken);
+      if (fromPhone) localStorage.setItem("twilio_test_from", fromPhone);
 
       const res = await fetch("/api/trigger-outbound-call", {
         method: "POST",
@@ -33,7 +37,7 @@ export function TestCallButton() {
           phone: targetPhone,
           accountSid: accountSid.trim() || undefined,
           authToken: authToken.trim() || undefined,
-          fromPhone: "+55143980186",
+          fromPhone: fromPhone.trim() || "+551423980186",
         }),
       });
 
@@ -121,17 +125,32 @@ export function TestCallButton() {
             )}
 
             <div className="space-y-3">
-              <div>
-                <label className="text-xs font-bold text-muted-foreground block mb-1">
-                  Número de Destino
-                </label>
-                <input
-                  type="text"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Ex: 14998364338"
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground block mb-1">
+                    Número de Destino (To)
+                  </label>
+                  <input
+                    type="text"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="Ex: 14998364338"
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground block mb-1">
+                    Linha Twilio (From)
+                  </label>
+                  <input
+                    type="text"
+                    value={fromPhone}
+                    onChange={(e) => setFromPhone(e.target.value)}
+                    placeholder="Ex: +551423980186"
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
               </div>
 
               <div className="pt-2 border-t border-border/50">
