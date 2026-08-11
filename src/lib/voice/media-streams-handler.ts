@@ -133,12 +133,12 @@ export class MediaStreamHandler {
    * Processa chunks de áudio em tempo real e detecta pausas de voz (VAD 750ms)
    */
   private handleIncomingAudioChunk(base64Payload: string) {
-    // Cooldown de eco: ignora microfone enquanto a IA fala, processa ou até 800ms após ela terminar de falar
+    // Cooldown de eco: ignora microfone enquanto a IA fala, processa ou até 1500ms após ela terminar de falar
     if (
       this.isProcessing ||
       this.isSpeaking ||
       this.outputQueue.length > 0 ||
-      Date.now() - this.lastSpokeTime < 800
+      Date.now() - this.lastSpokeTime < 1500
     ) {
       return;
     }
@@ -198,15 +198,19 @@ export class MediaStreamHandler {
     try {
       console.log(`[MediaStream] Transcrevendo ${chunkCount} pacotes de áudio (${chunkCount * 20}ms) via Groq Whisper...`);
       const transcription = await sttService.transcribeAudioBuffer(combinedBase64);
+      const clean = transcription ? transcription.trim() : "";
 
-      if (!transcription || transcription.trim().length < 2) {
-        console.log(`[MediaStream] Nenhuma fala clara detectada no segmento de ${chunkCount * 20}ms.`);
+      // Descarta falas vazias, ruídos isolados ou apenas interjeições curtas ("É...", "Hum", "A")
+      const isNoiseOrFiller = !clean || clean.length < 2 || /^([ÉéEhHumAaSsTtaÁáOo\.\s]+)$/i.test(clean);
+
+      if (isNoiseOrFiller) {
+        console.log(`[MediaStream] Nenhuma fala clara ou apenas interjeição descartada ("${clean}") no segmento de ${chunkCount * 20}ms.`);
         this.isProcessing = false;
         return;
       }
 
-      console.log(`[MediaStream] 🎙️ Cliente disse: "${transcription.trim()}"`);
-      await this.handleUserSpeech(transcription.trim());
+      console.log(`[MediaStream] 🎙️ Cliente disse: "${clean}"`);
+      await this.handleUserSpeech(clean);
     } catch (err: any) {
       console.error("[MediaStream] Erro ao processar áudio acumulado:", err?.message || err);
       this.isProcessing = false;
