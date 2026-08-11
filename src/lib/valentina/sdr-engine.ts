@@ -915,7 +915,24 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
         }
       }
-      // ── FIM DA INTERCEPTAÇÃO DE ÁUDIO PTT ────────────────────────────────────────
+      // ── DETECÇÃO: Valentina pedindo CNPJ → substituir o texto final pelo áudio PTT do CNPJ ─
+      let shouldSendCnpjAudio = false;
+      const cnpjMsgIndex = aiResult.messagesToSend.findIndex((m) => /cnpj/i.test(m));
+
+      if (cnpjMsgIndex !== -1) {
+        shouldSendCnpjAudio = true;
+        const originalMsg = aiResult.messagesToSend[cnpjMsgIndex];
+        const cnpjQuestionRegex = /(?:você pode me|pode me|me passa|informar|passar|envia|mandar|manda) (?:o|seu|por favor)?\s*cnpj.*/i;
+        const introPart = originalMsg.replace(cnpjQuestionRegex, "").trim().replace(/,$/, "");
+
+        if (introPart && introPart.length > 5) {
+          aiResult.messagesToSend[cnpjMsgIndex] = introPart;
+        } else {
+          aiResult.messagesToSend.splice(cnpjMsgIndex, 1);
+        }
+        console.log(`[SdrEngine] 🎙️ Detetado pedido de CNPJ na mensagem. Áudio PTT será enviado após os balões de texto.`);
+      }
+      // ─────────────────────────────────────────────────────────────────────────────
 
       // 11. Envio Humanizado das Mensagens com presencia 'composing' longa, citação no WhatsApp e AbortSignal
       await this.sendHumanizedBotMessages(
@@ -927,6 +944,17 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         targetQuoteItem,
         aiResult.quoteMessageId
       );
+
+      // 12. Se houver áudio PTT de CNPJ pendente, envia após as mensagens de texto
+      if (shouldSendCnpjAudio && !signal?.aborted) {
+        await this.sendPttAudio(
+          tenantId,
+          conversationId,
+          contactPhone,
+          "CNPJ POR FAVOR.mp3",
+          signal
+        );
+      }
 
       return true;
 
