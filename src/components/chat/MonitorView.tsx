@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { getAiPersona } from "@/lib/ai-persona";
 import { MOCK_LIVE, MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
+import { OperatorsRankingTab } from "./OperatorsRankingTab";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -3610,7 +3611,7 @@ export function MonitorView() {
               <AlertsTab alerts={alerts} loading={loadingAlerts} />
             )}
             {activeTab === "operators" && (
-              <OperatorsTab 
+              <OperatorsRankingTab 
                 overview={overview} 
                 audits={audits}
                 onSelectAudit={(auditId) => {
