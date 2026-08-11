@@ -9,6 +9,7 @@ import {
   QuickResponse,
   OperatorTemplate,
 } from "@/lib/mockData";
+import { ensureValentinaOperator, getDaysWithoutContact } from "@/lib/utils";
 
 export type MetaConfig = {
   businessAccountId: string;
@@ -182,6 +183,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [operators, setOperators] = useState<Operator[]>([
     {
+      id: "op-valentina",
+      name: "Valentina (I.A)",
+      email: "valentina@valem.ai",
+      avatar: "/valentina.png",
+      status: "disponivel",
+      passwordHash: "valentina_ai_hash",
+      groupId: "group-valem-comercial",
+      tenantId: "valem",
+    },
+    {
       id: "op-1",
       name: "Fagner F. (Admin)",
       email: "fagner@tecfag.com.br",
@@ -269,7 +280,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const savedOperators = localStorage.getItem("rbac_operators");
       if (savedOperators) {
         try {
-          setOperators(JSON.parse(savedOperators));
+          setOperators(ensureValentinaOperator(JSON.parse(savedOperators)));
         } catch (e) {}
       }
 
@@ -282,9 +293,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data) && data.length > 0) {
-            setOperators(data);
+            const listWithValentina = ensureValentinaOperator(data);
+            setOperators(listWithValentina);
             try {
-              localStorage.setItem("rbac_operators", JSON.stringify(data));
+              localStorage.setItem("rbac_operators", JSON.stringify(listWithValentina));
             } catch (e) {}
           }
         })
@@ -304,9 +316,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data) && data.length > 0) {
-            setOperators(data);
+            const listWithValentina = ensureValentinaOperator(data);
+            setOperators(listWithValentina);
             try {
-              localStorage.setItem("rbac_operators", JSON.stringify(data));
+              localStorage.setItem("rbac_operators", JSON.stringify(listWithValentina));
             } catch (e) {}
           }
         })
@@ -403,6 +416,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
   }, [activeView, isClient]);
+
+  // Verificação periódica de inatividade de carteira (60 dias -> transferência para Valentina)
+  useEffect(() => {
+    if (typeof window === "undefined" || tenant !== "valem") return;
+    const runInactivityCheck = () => {
+      fetch(`${BACKEND_URL}/api/contacts/check-inactivity?tenantId=${tenant}`, { method: "POST" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.transferredCount > 0) {
+            console.log(`[Carteira] ${data.transferredCount} cliente(s) inativo(s) transferidos para Valentina.`);
+          }
+        })
+        .catch(() => {});
+    };
+    runInactivityCheck();
+    const interval = setInterval(runInactivityCheck, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [tenant]);
 
   const defaultAdminGroup: AccessGroup = {
     id: "group-admin",

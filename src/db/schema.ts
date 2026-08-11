@@ -117,6 +117,7 @@ export const contacts = pgTable("contacts", {
   rdCrmDealId: text("rd_crm_deal_id"),
   rdCrmDealLink: text("rd_crm_deal_link"),
   cnpjDetails: jsonb("cnpj_details").default({}).notNull(),
+  lastContactAt: timestamp("last_contact_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -126,6 +126,11 @@ setupClient.unsafe(`
   );
 
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS wallet_operator_id TEXT;
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_contact_at TIMESTAMP DEFAULT NOW();
+
+  INSERT INTO operators (id, tenant_id, name, email, password_hash, role, avatar, status, is_online)
+  VALUES ('op-valentina', 'valem', 'Valentina (I.A)', 'valentina@valem.ai', 'valentina_ai_hash', 'agent', '/valentina.png', 'disponivel', true)
+  ON CONFLICT (id) DO UPDATE SET avatar = '/valentina.png', name = 'Valentina (I.A)';
 
   CREATE TABLE IF NOT EXISTS operator_templates (
     id TEXT PRIMARY KEY,

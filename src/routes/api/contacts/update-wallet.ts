@@ -43,6 +43,7 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
             .set({
               walletOperatorId: walletOperatorId || null,
               responsibleName: isRemovingFromWallet ? "Na Fila" : undefined,
+              lastContactAt: new Date(),
             })
             .where(eq(contacts.id, contactId));
 

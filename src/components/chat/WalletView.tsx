@@ -2,7 +2,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import React, { useState, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
-import { formatPhoneNumber, formatCPF, formatCNPJ } from "@/lib/utils";
+import { formatPhoneNumber, formatCPF, formatCNPJ, getDaysWithoutContact } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -25,6 +25,9 @@ import {
   UserMinus,
   Shield,
   Bot,
+  Clock,
+  AlertTriangle,
+  Filter,
 } from "lucide-react";
 import { Conversation, OperatorTemplate } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -47,6 +50,7 @@ export function WalletView() {
 
   const [activeTab, setActiveTab] = useState<"wallet" | "templates">("wallet");
   const [search, setSearch] = useState("");
+  const [filterInactive50Only, setFilterInactive50Only] = useState(false);
   
   // Custom Modals
   const [showModal, setShowModal] = useState(false);
@@ -79,10 +83,22 @@ export function WalletView() {
     }, 50);
   };
 
+  // All clients in current user's wallet
+  const allMyWalletClients = conversations.filter((c) => c.walletOperatorId === currentOperatorId);
+
+  // Clients without contact for 50 days or more
+  const inactive50Count = allMyWalletClients.filter(
+    (c) => getDaysWithoutContact(c) >= 50
+  ).length;
+
   // Filter clients in the wallet (walletOperatorId === currentOperatorId)
   const walletClients = conversations.filter((c) => {
     const isInWallet = c.walletOperatorId === currentOperatorId;
     if (!isInWallet) return false;
+
+    if (filterInactive50Only && getDaysWithoutContact(c) < 50) {
+      return false;
+    }
 
     if (search.trim() !== "") {
       const q = search.toLowerCase();
@@ -108,7 +124,7 @@ export function WalletView() {
   });
 
   // Stats
-  const activeAttendancesCount = walletClients.filter(
+  const activeAttendancesCount = allMyWalletClients.filter(
     (c) => c.queue === "meus" && c.operatorId === currentOperatorId
   ).length;
 
@@ -209,21 +225,57 @@ export function WalletView() {
 
         {/* Stats KPI Section (Visible in Wallet Tab) */}
         {activeTab === "wallet" && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0">
-            <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary border border-border">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
+            {/* KPI 1: Clientes em Carteira */}
+            <div
+              onClick={() => setFilterInactive50Only(false)}
+              className={`flex items-center gap-3 rounded-2xl border bg-card p-3.5 shadow-soft transition cursor-pointer hover:border-primary/40 ${
+                !filterInactive50Only ? "border-primary/50 ring-1 ring-primary/20" : "border-border"
+              }`}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary border border-border shrink-0">
                 <Briefcase className="h-5 w-5" />
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                   Clientes em Carteira
                 </div>
-                <div className="text-lg font-bold text-foreground">{walletClients.length}</div>
+                <div className="text-lg font-bold text-foreground">{allMyWalletClients.length}</div>
               </div>
             </div>
 
+            {/* KPI 2: Sem Contato (+50 Dias) */}
+            <div
+              onClick={() => setFilterInactive50Only(!filterInactive50Only)}
+              className={`flex items-center justify-between gap-2 rounded-2xl border bg-card p-3.5 shadow-soft transition cursor-pointer hover:border-amber-500/40 ${
+                filterInactive50Only ? "border-amber-500/60 ring-1 ring-amber-500/20 bg-amber-500/5" : "border-border"
+              }`}
+              title="Clientes sem contato há 50 dias ou mais (aviso prévio antes da transferência de 60 dias para Valentina)"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    Sem Contato (+50d)
+                    {inactive50Count > 0 && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping" />
+                    )}
+                  </div>
+                  <div className="text-lg font-bold text-foreground">{inactive50Count}</div>
+                </div>
+              </div>
+              {filterInactive50Only && (
+                <span className="text-[9px] font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-md border border-amber-500/20">
+                  Filtrado
+                </span>
+              )}
+            </div>
+
+            {/* KPI 3: Atendimentos Ativos */}
             <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 border border-border">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 border border-border shrink-0">
                 <MessageSquare className="h-5 w-5" />
               </div>
               <div>
@@ -234,8 +286,9 @@ export function WalletView() {
               </div>
             </div>
 
+            {/* KPI 4: Meus Templates */}
             <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-border">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-border shrink-0">
                 <LayoutTemplate className="h-5 w-5" />
               </div>
               <div>
@@ -385,11 +438,31 @@ export function WalletView() {
                                     <span className="text-muted-foreground italic">-</span>
                                   )}
                                 </td>
-                                <td className="p-4">
-                                  <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${statusInfo.color}`}>
-                                    {statusInfo.text}
-                                  </span>
-                                </td>
+                                 <td className="p-4">
+                                   <div className="flex flex-col gap-1 items-start">
+                                     <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${statusInfo.color}`}>
+                                       {statusInfo.text}
+                                     </span>
+                                     {getDaysWithoutContact(c) >= 50 && getDaysWithoutContact(c) < 60 && (
+                                       <span
+                                         className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                         title={`Transferência automática para Valentina em ${60 - getDaysWithoutContact(c)} dia(s)`}
+                                       >
+                                         <Clock className="h-3 w-3 shrink-0" />
+                                         ⚠️ {getDaysWithoutContact(c)}d s/ contato
+                                       </span>
+                                     )}
+                                     {getDaysWithoutContact(c) >= 60 && (
+                                       <span
+                                         className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20 animate-pulse"
+                                         title="Inativo há 60+ dias - Em processo de transferência para Valentina"
+                                       >
+                                         <AlertTriangle className="h-3 w-3 shrink-0" />
+                                         🚨 {getDaysWithoutContact(c)}d s/ contato (Transf. Valentina)
+                                       </span>
+                                     )}
+                                   </div>
+                                 </td>
                                 <td className="p-4 text-right">
                                   <div className="flex items-center justify-end gap-2">
                                     {!isValentina && (
@@ -442,9 +515,21 @@ export function WalletView() {
                                 )}
                                 <div>
                                   <span className="font-bold text-sm text-foreground block">{c.name}</span>
-                                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusInfo.color}`}>
-                                    {statusInfo.text}
-                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusInfo.color}`}>
+                                      {statusInfo.text}
+                                    </span>
+                                    {getDaysWithoutContact(c) >= 50 && getDaysWithoutContact(c) < 60 && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                        <Clock className="h-2.5 w-2.5" /> ⚠️ {getDaysWithoutContact(c)}d s/ contato
+                                      </span>
+                                    )}
+                                    {getDaysWithoutContact(c) >= 60 && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20 animate-pulse">
+                                        <AlertTriangle className="h-2.5 w-2.5" /> 🚨 {getDaysWithoutContact(c)}d s/ contato
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
 

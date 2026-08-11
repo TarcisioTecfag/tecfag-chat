@@ -283,7 +283,8 @@ export const VALEM_MOCK_CONVERSATIONS: Conversation[] = [
     queue: "meus",
     unreadCount: 0,
     lastMessageTime: "10:52",
-    operatorId: "op-2",
+    operatorId: "op-1",
+    walletOperatorId: "op-1",
     sectorId: "sec-comercial",
     sectorName: "Comercial",
     messages: [
@@ -319,6 +320,53 @@ export const VALEM_MOCK_CONVERSATIONS: Conversation[] = [
     ],
   },
   {
+    id: "val-inact-52",
+    name: "Embalagens Aliança Ltda",
+    avatar: "https://i.pravatar.cc/80?img=32",
+    phone: "(81) 99122-3344",
+    email: "compras@embalagensalianca.com.br",
+    cnpj: "14.882.991/0001-55",
+    tags: ["Aviso Inatividade", "Padrão Industrial"],
+    channel: "whatsapp",
+    queue: "finalizados",
+    unreadCount: 0,
+    lastMessageTime: new Date(Date.now() - 52 * 24 * 60 * 60 * 1000).toISOString(),
+    walletOperatorId: "op-1",
+    messages: [
+      {
+        id: "vinact52-m1",
+        author: "Embalagens Aliança",
+        text: "Gostaria de solicitar uma nova cotação de válvulas spray para o próximo mês.",
+        time: "Há 52 dias",
+        side: "in",
+      },
+    ],
+  },
+  {
+    id: "val-inact-64",
+    name: "Válvulas & Aerosóis do Nordeste",
+    avatar: "https://i.pravatar.cc/80?img=68",
+    phone: "(85) 98877-4411",
+    email: "contato@valvulasne.com.br",
+    cnpj: "21.904.312/0001-88",
+    tags: ["Carteira Valentina", "Inativo >60d"],
+    channel: "whatsapp",
+    queue: "finalizados",
+    unreadCount: 0,
+    lastMessageTime: new Date(Date.now() - 64 * 24 * 60 * 60 * 1000).toISOString(),
+    walletOperatorId: "op-valentina",
+    messages: [
+      {
+        id: "vinact64-m1",
+        author: "Sistema",
+        text: "⚠️ Cliente transferido para a carteira de Valentina por inatividade superior a 60 dias.",
+        time: "Automático",
+        side: "out",
+        isInternalNote: true,
+      },
+    ],
+  },
+  {
     id: "val-2",
     name: "Metalúrgica Recife",
     avatar: "",
@@ -332,6 +380,7 @@ export const VALEM_MOCK_CONVERSATIONS: Conversation[] = [
     queue: "fila",
     unreadCount: 1,
     lastMessageTime: "10:40",
+    walletOperatorId: "op-1",
     messages: [
       {
         id: "v2-m1",
@@ -352,6 +401,7 @@ export const VALEM_MOCK_CONVERSATIONS: Conversation[] = [
     queue: "automacao",
     unreadCount: 0,
     lastMessageTime: "10:15",
+    walletOperatorId: "op-1",
     messages: [
       {
         id: "v3-m1",
@@ -380,6 +430,7 @@ export const VALEM_MOCK_CONVERSATIONS: Conversation[] = [
     queue: "finalizados",
     unreadCount: 0,
     lastMessageTime: "26/06",
+    walletOperatorId: "op-1",
     messages: [
       {
         id: "v4-m1",
