@@ -302,7 +302,7 @@ async function getManagerContext(tenantId: string): Promise<string> {
 
     // ── Pipeline SDR ativo ────────────────────────────────────────────────────
     const sdrActive = await db
-      .select({ id: agentFlowStates.id, contactId: agentFlowStates.contactId })
+      .select({ id: agentFlowStates.id })
       .from(agentFlowStates)
       .where(
         and(
