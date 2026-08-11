@@ -19,6 +19,6 @@ export default defineConfig({
       external: ["socket.io", "groq-sdk"],
     },
     // Incluir explicitamente os plugins do servidor (ex: WebSocket handler)
-    plugins: ["server/plugins/websocket.ts"],
+    plugins: ["server/plugins/websocket.ts", "server/plugins/orphan-cleanup.ts"],
   } as any,
 });
