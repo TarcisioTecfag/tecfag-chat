@@ -1,17 +1,3 @@
-/**
- * voice-engine.ts
- *
- * Motor de IA da Valentina para conversas de VOZ TELEFÔNICA.
- *
- * Arquitetura "pensar enquanto fala":
- *  1. Webhook inicia streaming Gemini em background
- *  2. Retorna 1ª frase para Twilio imediatamente (~1-2s)
- *  3. Enquanto Twilio fala a 1ª frase (~2-3s), restante é gerado
- *  4. Twilio busca /api/voice-buffer → buffer já está pronto
- *
- * Eliminadas queries ao banco: catálogo da Valem embutido.
- */
-
 import { vertexAi } from "../vertex-ai";
 import type { VoiceMessage } from "./voice-types";
 
@@ -28,8 +14,7 @@ Diferenciais: entrega rápida, pedido mínimo baixo, suporte técnico, personali
 `.trim();
 
 /**
- * Constrói o prompt completo para a Valentina responder via voz.
- * Exportado para que o webhook possa usar com streaming.
+ * Constrói o prompt completo para a Valentina responder via voz telefônica humana.
  */
 export function buildVoicePrompt(
   messages: VoiceMessage[],
@@ -43,22 +28,21 @@ export function buildVoicePrompt(
     })
     .join("\n");
 
-  return `Você é a Valentina, consultora comercial da Valem Válvulas e Embalagens. Você está conversando por TELEFONE ao vivo com um cliente.
+  return `Você é Valentina, consultora comercial da Valem Válvulas e Embalagens. Você está em uma LIGAÇÃO TELEFÔNICA AO VIVO com um cliente.
 
 ${VALEM_CATALOG_SUMMARY}
 
-REGRAS OBRIGATÓRIAS DE CONVERSA POR TELEFONE:
-- Você JÁ se apresentou no início da chamada. NUNCA diga "Olá! Sou a Valentina" nem se reapresente de forma alguma!
-- Responda DIRETAMENTE ao que o CLIENTE acabou de falar na última mensagem do histórico.
-- Se o cliente disser apenas comprimentos informais como "E aí", "Alô", "Tudo bem" ou "Sim", dê sequência natural à conversa de forma simpática (ex: "Tudo ótimo por aqui! Como posso te ajudar com válvulas, frascos ou seladoras hoje?").
-- Mantenha respostas curtas: no máximo 1 a 2 frases diretas e faladas.
-- Sem emojis, sem marcações markdown, sem links, sem listas. Apenas texto falado fluido.
-- Fluxo de atendimento: identificar produto de interesse (válvulas spray, frascos PET/HDPE, potes, seladoras) -> quantidade estimada -> nome/empresa.
+REGRAS CRÍTICAS DE CONVERSAÇÃO HUMANA:
+1. NUNCA se reapresente nem diga "Olá, sou a Valentina" (você já fez a saudação inicial).
+2. Responda diretamente ao que o cliente acabou de falar de forma humana, simpática e natural.
+3. Responda em APENAS 1 FRASE CURTA. NUNCA faça discursos longos nem explicativos.
+4. Se o cliente apenas cumprimentar ("Alô", "E aí", "Tudo bem"), diga: "Tudo ótimo por aqui! O que você está buscando para a sua empresa hoje?"
+5. NUNCA use pontuações estranhas, emojis, asteriscos, markdown ou listas. Apenas texto falado em português fluido.
 
-HISTÓRICO DA CHAMADA:
+HISTÓRICO DA LIGAÇÃO:
 ${historyText || "(início)"}
 
-Responda a última fala do CLIENTE agora como Valentina. Apenas a frase a ser falada:`;
+Responda ao CLIENTE agora em apenas 1 frase falada natural:`;
 }
 
 /**
@@ -72,10 +56,6 @@ export function cleanVoiceResponse(text: string): string {
     .trim();
 }
 
-/**
- * Versão síncrona (sem streaming) para compatibilidade com código legado.
- * Para novos usos, use a arquitetura de streaming no webhook diretamente.
- */
 export async function generateVoiceResponse(
   messages: VoiceMessage[],
   tenantId: string = "valem",
@@ -91,21 +71,13 @@ export async function generateVoiceResponse(
 
   try {
     const prompt = buildVoicePrompt(messages, tenantId);
-    const response = await vertexAi.generateText(
-      prompt,
-      "gemini-2.5-flash",
-      signal,
-      { tenantId, feature: "sdr_agent", metadata: { channel: "voice_call" } }
-    );
+    const raw = await vertexAi.generateText(prompt, "gemini-2.5-flash", signal, {
+      feature: "sdr_agent",
+      tenantId,
+      metadata: { channel: "voice_sync" },
+    });
+    return cleanVoiceResponse(raw);
+  } finally {
     clearTimeout(timeoutId);
-    return cleanVoiceResponse(response ?? "Pode repetir? Não ouvi bem.");
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    if (err?.name === "AbortError" || err?.message?.includes("abort")) {
-      console.warn("[VoiceEngine] Timeout de 12s — usando fallback");
-      return "Desculpe, tive uma instabilidade. Pode repetir o que disse?";
-    }
-    console.error("[VoiceEngine] Erro:", err?.message ?? err);
-    return "Peço desculpas, tive um probleminha técnico. Pode repetir?";
   }
 }

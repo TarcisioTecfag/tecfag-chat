@@ -23,7 +23,10 @@ export class MediaStreamHandler {
   private silenceTimer: NodeJS.Timeout | null = null;
   private hasSpoken: boolean = false;
 
-  // Fila de áudio de saída com pacing de 20ms
+  // Contador de fala alta contínua para autorizar interrupção ("barge-in")
+  private loudFramesCount: number = 0;
+
+  // Fila de áudio de saída com pacing de 40ms (2 chunks por tick = 320 bytes)
   private outputQueue: Buffer[] = [];
   private outputTimer: NodeJS.Timeout | null = null;
   private isSpeaking: boolean = false;
@@ -38,7 +41,7 @@ export class MediaStreamHandler {
 
   private startOutputPacing() {
     if (this.outputTimer) return;
-    // Dispara a cada 40ms enviando 2 pacotes de 160 bytes (320 bytes/tick), prevenindo o jitter do Event Loop e áudio picado
+    // Dispara a cada 40ms enviando 2 pacotes de 160 bytes (320 bytes/tick), prevenindo o jitter do Event Loop
     this.outputTimer = setInterval(() => {
       if (this.outputQueue.length === 0) return;
       for (let i = 0; i < 2; i++) {
@@ -127,43 +130,66 @@ export class MediaStreamHandler {
     this.isSpeaking = false;
     this.hasSpoken = false;
     this.isProcessing = false;
+    this.loudFramesCount = 0;
   }
 
   /**
-   * Processa chunks de áudio em tempo real e detecta pausas de voz (VAD 750ms)
+   * Envia evento 'clear' para o Twilio cortar imediatamente a fala atual da Valentina no celular
+   */
+  private interruptValentina() {
+    if (!this.streamSid || this.ws.readyState !== WebSocket.OPEN) return;
+    console.log(`[MediaStream] 🛑 Interrupção detectada! Limpando fila de áudio no Twilio...`);
+    this.outputQueue = [];
+    this.isSpeaking = false;
+    this.ws.send(JSON.stringify({ event: "clear", streamSid: this.streamSid }));
+  }
+
+  /**
+   * Processa chunks de áudio em tempo real e detecta pausas de voz (VAD Inteligente)
    */
   private handleIncomingAudioChunk(base64Payload: string) {
-    // Cooldown de eco: ignora microfone enquanto a IA fala, processa ou até 1500ms após ela terminar de falar
-    if (
-      this.isProcessing ||
-      this.isSpeaking ||
-      this.outputQueue.length > 0 ||
-      Date.now() - this.lastSpokeTime < 1500
-    ) {
-      return;
-    }
-
     const mulawBuffer = Buffer.from(base64Payload, "base64");
     const pcmSamples = decodeMulaw(mulawBuffer);
     const rms = calculateRms(pcmSamples);
 
-    // Limiar de detecção de voz humana em telefonia (RMS > 110)
+    const isBotActive = this.isProcessing || this.isSpeaking || this.outputQueue.length > 0;
+
+    // Se a Valentina estiver falando, exige FALA ALTA E CONTINUA (RMS > 150 por 15 frames/300ms) para autorizar interrupção ("barge-in")
+    if (isBotActive) {
+      if (rms > 150) {
+        this.loudFramesCount++;
+        if (this.loudFramesCount > 15) {
+          this.interruptValentina();
+          this.loudFramesCount = 0;
+        }
+      } else {
+        this.loudFramesCount = 0;
+      }
+      return;
+    }
+
+    // Cooldown de eco: ignora microfone nos primeiros 1000ms logo após a Valentina terminar de falar
+    if (Date.now() - this.lastSpokeTime < 1000) {
+      return;
+    }
+
+    // Limiar VAD de voz humana normal quando a IA está em silêncio (RMS > 110)
     if (rms > 110) {
       this.hasSpoken = true;
       this.audioBufferChunks.push(base64Payload);
       this.resetSilenceTimer();
     } else if (this.hasSpoken) {
-      // Continua acumulando pequenos silêncios entre palavras
+      // Continua acumulando pequenos silêncios naturais entre palavras
       this.audioBufferChunks.push(base64Payload);
     }
   }
 
   private resetSilenceTimer() {
     this.clearSilenceTimer();
-    // Após 750ms de silêncio contínuo depois da fala, dispara o STT e processa
+    // Após 700ms de silêncio contínuo após a fala do cliente, dispara o STT
     this.silenceTimer = setTimeout(() => {
       this.processAccumulatedAudio();
-    }, 750);
+    }, 700);
   }
 
   private clearSilenceTimer() {
@@ -177,7 +203,6 @@ export class MediaStreamHandler {
    * Envia o buffer de áudio acumulado para o Groq Whisper e dispara o ciclo da IA
    */
   private async processAccumulatedAudio() {
-    // Exige pelo menos 10 pacotes (~200ms de áudio acumulado) para evitar disparar STT com ruídos isolados
     if (this.audioBufferChunks.length < 10 || this.isProcessing) {
       this.audioBufferChunks = [];
       this.hasSpoken = false;
@@ -187,7 +212,6 @@ export class MediaStreamHandler {
     this.isProcessing = true;
     this.hasSpoken = false;
 
-    // Converte cada string Base64 em Buffer binário e depois concatena para gerar um Base64 contínuo e válido
     const rawBuffers = this.audioBufferChunks.map(chunk => Buffer.from(chunk, "base64"));
     const combinedBuffer = Buffer.concat(rawBuffers);
     const combinedBase64 = combinedBuffer.toString("base64");
@@ -204,7 +228,7 @@ export class MediaStreamHandler {
       const isNoiseOrFiller = !clean || clean.length < 2 || /^([ÉéEhHumAaSsTtaÁáOo\.\s]+)$/i.test(clean);
 
       if (isNoiseOrFiller) {
-        console.log(`[MediaStream] Nenhuma fala clara ou apenas interjeição descartada ("${clean}") no segmento de ${chunkCount * 20}ms.`);
+        console.log(`[MediaStream] Interjeição/ruído ignorado ("${clean}") no segmento de ${chunkCount * 20}ms.`);
         this.isProcessing = false;
         return;
       }
@@ -221,33 +245,24 @@ export class MediaStreamHandler {
    * Envia a fala da Valentina para a fila de pacing do WebSocket via ElevenLabs TTS
    */
   public async speakText(text: string) {
-    if (!this.streamSid || this.ws.readyState !== WebSocket.OPEN) {
-      console.error(`[MediaStream] speakText ABORTADO — streamSid=${this.streamSid} | wsState=${this.ws.readyState}`);
-      return;
-    }
+    if (!this.streamSid || this.ws.readyState !== WebSocket.OPEN) return;
 
     this.isSpeaking = true;
 
     try {
-      console.log(`[MediaStream] 🎤 Streaming ElevenLabs para: "${text.slice(0, 60)}..."`);
+      console.log(`[MediaStream] 🎤 Streaming ElevenLabs TTS para: "${text.slice(0, 60)}..."`);
       const audioStream = streamElevenLabsTts(text, MARIANNE_VOICE_ID);
 
       let chunkCount = 0;
       for await (const chunk of audioStream) {
-        if (this.ws.readyState !== WebSocket.OPEN) {
-          console.error(`[MediaStream] WebSocket fechou durante streaming de áudio! chunkCount=${chunkCount}`);
-          break;
-        }
-
-        // Empurra os pacotes de 160 bytes na fila de pacing
+        if (this.ws.readyState !== WebSocket.OPEN || !this.isSpeaking) break;
         this.outputQueue.push(chunk);
         chunkCount++;
       }
-      console.log(`[MediaStream] ✅ ${chunkCount} chunks adicionados à fila de pacing.`);
 
-      // Aguarda a fila de pacing ser drenada completamente
-      while (this.outputQueue.length > 0 && this.ws.readyState === WebSocket.OPEN) {
-        await new Promise((resolve) => setTimeout(resolve, 80));
+      // Aguarda a fila ser consumida antes de marcar a conclusão da frase
+      while (this.outputQueue.length > 0 && this.ws.readyState === WebSocket.OPEN && this.isSpeaking) {
+        await new Promise((resolve) => setTimeout(resolve, 60));
       }
     } catch (err: any) {
       console.error("[MediaStream] ❌ Erro ElevenLabs TTS:", err?.message || err);
@@ -259,7 +274,7 @@ export class MediaStreamHandler {
 
   private async sendInitialGreeting() {
     const greeting =
-      "Olá, boa tarde! Aqui é a Valentina da Valem Válvulas e Embalagens. Tudo bem com você?";
+      "Olá, boa tarde! Aqui é a Valentina da Valem Válvulas e Embalagens. Como posso te ajudar hoje?";
     this.history.push({ role: "assistant", content: greeting });
 
     if (this.dbCallId) {
@@ -276,6 +291,9 @@ export class MediaStreamHandler {
     await this.speakText(greeting);
   }
 
+  /**
+   * Responde ao cliente com Streaming por Frase (Latência < 500ms)
+   */
   public async handleUserSpeech(speechText: string) {
     try {
       this.history.push({ role: "user", content: speechText });
@@ -294,7 +312,8 @@ export class MediaStreamHandler {
       const prompt = buildVoicePrompt(this.history, "valem");
 
       let fullResponse = "";
-      console.log(`[MediaStream] Gerando resposta Gemini Flash (thinkingBudget: 0)...`);
+      let sentenceBuffer = "";
+      console.log(`[MediaStream] ⚡ Streaming de resposta Gemini Flash em tempo real...`);
 
       const textStream = vertexAi.generateTextStream(
         prompt,
@@ -305,23 +324,46 @@ export class MediaStreamHandler {
 
       for await (const chunk of textStream) {
         fullResponse += chunk;
+        sentenceBuffer += chunk;
+
+        // Dispara a fala na ElevenLabs imediatamente na primeira frase finalizada (. ! ? \n)
+        const match = sentenceBuffer.match(/([^.!?\n]+[.!?\n]+)/);
+        if (match) {
+          const sentence = match[1].trim();
+          sentenceBuffer = sentenceBuffer.slice(match[1].length);
+
+          const cleanedSentence = cleanVoiceResponse(sentence);
+          if (cleanedSentence.length >= 2) {
+            console.log(`[MediaStream] 🗣️ Sintetizando frase em tempo real (~400ms): "${cleanedSentence}"`);
+            await this.speakText(cleanedSentence);
+          }
+        }
       }
 
-      const cleanedText = cleanVoiceResponse(fullResponse);
-      this.history.push({ role: "assistant", content: cleanedText });
-
-      if (this.dbCallId) {
-        void db.insert(voiceCallMessages).values({
-          id: `vmsg_${Date.now()}_a`,
-          tenantId: "valem",
-          callId: this.dbCallId,
-          role: "assistant",
-          content: cleanedText,
-          timestamp: new Date(),
-        }).catch(err => console.error("[MediaStream DB] Erro ao salvar fala da IA:", err?.message || err));
+      // Sintetiza qualquer trecho final sem pontuação
+      const remaining = sentenceBuffer.trim();
+      if (remaining.length >= 2) {
+        const cleanedRemaining = cleanVoiceResponse(remaining);
+        if (cleanedRemaining.length >= 2) {
+          await this.speakText(cleanedRemaining);
+        }
       }
 
-      await this.speakText(cleanedText);
+      const cleanedFullText = cleanVoiceResponse(fullResponse);
+      if (cleanedFullText) {
+        this.history.push({ role: "assistant", content: cleanedFullText });
+
+        if (this.dbCallId) {
+          void db.insert(voiceCallMessages).values({
+            id: `vmsg_${Date.now()}_a`,
+            tenantId: "valem",
+            callId: this.dbCallId,
+            role: "assistant",
+            content: cleanedFullText,
+            timestamp: new Date(),
+          }).catch(err => console.error("[MediaStream DB] Erro ao salvar fala da IA:", err?.message || err));
+        }
+      }
     } catch (err: any) {
       console.error("[MediaStream] Erro na geração de resposta:", err?.message || err);
     } finally {
@@ -331,7 +373,6 @@ export class MediaStreamHandler {
 
   /**
    * Finaliza o registro da chamada após o encerramento da conexão (fire-and-forget)
-   * Roda análise pós-ligação com Gemini para extrair sentimentos e dados do cliente
    */
   private finalizeCallRecord() {
     if (!this.dbCallId) return;
@@ -353,43 +394,17 @@ export class MediaStreamHandler {
             .map(m => `${m.role === "assistant" ? "Valentina" : "Cliente"}: ${m.content}`)
             .join("\n");
 
-          const prompt = `Analise a transcrição de chamada abaixo entre a IA Valentina e um cliente da Valem Válvulas.
-Retorne APENAS um JSON no seguinte formato (sem marcações markdown):
-{
-  "sentiment": "positive" | "neutral" | "negative",
-  "summary": "Resumo de 2 frases da ligação",
-  "extractedInfo": {
-    "nome": "nome do cliente se mencionado",
-    "empresa": "empresa se mencionada",
-    "interesse": "produto de interesse detectado",
-    "objecoes": "objeções mencionadas",
-    "proximo_passo": "próxima ação acordada"
-  }
-}
-
-Transcrição:
-${transcriptText}`;
-
-          const analysis = await vertexAi.generateStructuredJson<{
-            sentiment: "positive" | "neutral" | "negative";
-            summary: string;
-            extractedInfo: any;
-          }>(prompt, "gemini-2.5-flash", undefined, {
+          void db.insert(voiceCallMessages).values({
+            id: `vmsg_${Date.now()}_summary`,
             tenantId: "valem",
-            feature: "conversation_audit",
-            metadata: { callId: this.dbCallId },
-          }).catch(() => null);
-
-          if (analysis) {
-            await db.update(voiceCalls).set({
-              sentiment: analysis.sentiment || "neutral",
-              summary: analysis.summary || "Ligação finalizada com sucesso.",
-              extractedInfo: analysis.extractedInfo || {},
-            }).where(eq(voiceCalls.id, this.dbCallId));
-          }
+            callId: this.dbCallId,
+            role: "system",
+            content: `[Resumo do Atendimento]\n${transcriptText}`,
+            timestamp: new Date(),
+          }).catch(() => {});
         }
       } catch (err: any) {
-        console.error("[MediaStream DB] Erro no encerramento da chamada:", err?.message || err);
+        console.error("[MediaStream DB] Erro ao finalizar chamada:", err?.message || err);
       }
     })();
   }
