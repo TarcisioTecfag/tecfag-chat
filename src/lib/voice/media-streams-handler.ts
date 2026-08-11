@@ -28,6 +28,8 @@ export class MediaStreamHandler {
   private outputTimer: NodeJS.Timeout | null = null;
   private isSpeaking: boolean = false;
 
+  private lastSpokeTime: number = 0;
+
   constructor(ws: WebSocket) {
     this.ws = ws;
     this.startOutputPacing();
@@ -36,21 +38,23 @@ export class MediaStreamHandler {
 
   private startOutputPacing() {
     if (this.outputTimer) return;
-    // Dispara 1 pacote de 160 bytes a cada 20ms (ritmo exato da telefonia 8kHz mu-law)
+    // Dispara a cada 40ms enviando 2 pacotes de 160 bytes (320 bytes/tick), prevenindo o jitter do Event Loop e áudio picado
     this.outputTimer = setInterval(() => {
       if (this.outputQueue.length === 0) return;
-      const chunk = this.outputQueue.shift();
-      if (chunk && this.streamSid && this.ws.readyState === WebSocket.OPEN) {
-        const payload = chunk.toString("base64");
-        this.ws.send(
-          JSON.stringify({
-            event: "media",
-            streamSid: this.streamSid,
-            media: { payload },
-          })
-        );
+      for (let i = 0; i < 2; i++) {
+        const chunk = this.outputQueue.shift();
+        if (chunk && this.streamSid && this.ws.readyState === WebSocket.OPEN) {
+          const payload = chunk.toString("base64");
+          this.ws.send(
+            JSON.stringify({
+              event: "media",
+              streamSid: this.streamSid,
+              media: { payload },
+            })
+          );
+        }
       }
-    }, 20);
+    }, 40);
   }
 
   private setupListeners() {
@@ -126,18 +130,25 @@ export class MediaStreamHandler {
   }
 
   /**
-   * Processa chunks de áudio em tempo real e detecta pausas de voz (VAD 600ms)
+   * Processa chunks de áudio em tempo real e detecta pausas de voz (VAD 750ms)
    */
   private handleIncomingAudioChunk(base64Payload: string) {
-    // Ignora áudio de entrada enquanto a IA estiver falando ou processando (evita auto-eco)
-    if (this.isProcessing || this.isSpeaking || this.outputQueue.length > 0) return;
+    // Cooldown de eco: ignora microfone enquanto a IA fala, processa ou até 800ms após ela terminar de falar
+    if (
+      this.isProcessing ||
+      this.isSpeaking ||
+      this.outputQueue.length > 0 ||
+      Date.now() - this.lastSpokeTime < 800
+    ) {
+      return;
+    }
 
     const mulawBuffer = Buffer.from(base64Payload, "base64");
     const pcmSamples = decodeMulaw(mulawBuffer);
     const rms = calculateRms(pcmSamples);
 
-    // Limiar de detecção de voz humana em telefonia 8kHz (RMS > 80)
-    if (rms > 80) {
+    // Limiar de detecção de voz humana em telefonia (RMS > 110)
+    if (rms > 110) {
       this.hasSpoken = true;
       this.audioBufferChunks.push(base64Payload);
       this.resetSilenceTimer();
@@ -149,10 +160,10 @@ export class MediaStreamHandler {
 
   private resetSilenceTimer() {
     this.clearSilenceTimer();
-    // Após 600ms de silêncio contínuo depois da fala, dispara o STT e processa
+    // Após 750ms de silêncio contínuo depois da fala, dispara o STT e processa
     this.silenceTimer = setTimeout(() => {
       this.processAccumulatedAudio();
-    }, 600);
+    }, 750);
   }
 
   private clearSilenceTimer() {
@@ -163,7 +174,7 @@ export class MediaStreamHandler {
   }
 
   /**
-   * Envia o buffer de áudio acumulado para o Google STT e dispara o ciclo da IA
+   * Envia o buffer de áudio acumulado para o Groq Whisper e dispara o ciclo da IA
    */
   private async processAccumulatedAudio() {
     // Exige pelo menos 10 pacotes (~200ms de áudio acumulado) para evitar disparar STT com ruídos isolados
@@ -185,7 +196,7 @@ export class MediaStreamHandler {
     this.audioBufferChunks = [];
 
     try {
-      console.log(`[MediaStream] Transcrevendo ${chunkCount} pacotes de áudio do cliente (${chunkCount * 20}ms)...`);
+      console.log(`[MediaStream] Transcrevendo ${chunkCount} pacotes de áudio (${chunkCount * 20}ms) via Groq Whisper...`);
       const transcription = await sttService.transcribeAudioBuffer(combinedBase64);
 
       if (!transcription || transcription.trim().length < 2) {
@@ -224,20 +235,21 @@ export class MediaStreamHandler {
           break;
         }
 
-        // Empurra os pacotes de 160 bytes na fila com pacing de 20ms
+        // Empurra os pacotes de 160 bytes na fila de pacing
         this.outputQueue.push(chunk);
         chunkCount++;
       }
       console.log(`[MediaStream] ✅ ${chunkCount} chunks adicionados à fila de pacing.`);
 
-      // Aguarda a fila de pacing ser drenada completamente antes de permitir novo VAD
+      // Aguarda a fila de pacing ser drenada completamente
       while (this.outputQueue.length > 0 && this.ws.readyState === WebSocket.OPEN) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 80));
       }
     } catch (err: any) {
       console.error("[MediaStream] ❌ Erro ElevenLabs TTS:", err?.message || err);
     } finally {
       this.isSpeaking = false;
+      this.lastSpokeTime = Date.now();
     }
   }
 
