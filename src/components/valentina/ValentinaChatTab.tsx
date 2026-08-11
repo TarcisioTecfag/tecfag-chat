@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 💬 VALENTINA CHAT TAB — Redesign Premium com Fontes Ampliadas e Animações
+// 💬 VALENTINA CHAT TAB — Redesign Premium com Avatares de Valentina e Operador
 // ══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
@@ -64,7 +64,7 @@ function ValentinaAvatar({ className = "h-8 w-8" }: { className?: string }) {
       <div className={`relative flex items-center justify-center rounded-full bg-[#dcfce7] border border-[#bbf7d0] shrink-0 overflow-hidden shadow-xs ${className}`}>
         <svg className="h-full w-full p-1" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="18" cy="18" r="18" fill="#dcfce7" />
-          <path d="M18 9C14.6863 9 12 11.6863 12 15C12 17.2 13.18 19.12 14.95 20.15C12.02 21.42 10 24.32 10 27.75C10 28.16 10.34 28.5 11.75 28.5C11.16 28.5 11.5 27.75 11.5 27.75C11.5 24.16 14.41 21.25 18 21.25C21.59 21.25 24.5 24.16 24.5 27.75C24.5 28.16 24.84 28.5 25.25 28.5C25.66 28.5 26 28.16 26 27.75C26 24.32 23.98 21.42 21.05 20.15C22.82 19.12 24 17.2 24 15C24 11.6863 21.3137 9 18 9Z" fill="#059669" />
+          <path d="M18 9C14.6863 9 12 11.6863 12 15C12 17.2 13.18 19.12 14.95 20.15C12.02 21.42 10 24.32 10 27.75C10 28.16 10.34 28.5 11.75 28.5C11.16 28.5 14.41 21.25 18 21.25C21.59 21.25 24.5 24.16 24.5 27.75C24.5 28.16 24.84 28.5 25.25 28.5C25.66 28.5 26 28.16 26 27.75C26 24.32 23.98 21.42 21.05 20.15C22.82 19.12 24 17.2 24 15C24 11.6863 21.3137 9 18 9Z" fill="#059669" />
           <circle cx="15" cy="16" r="1" fill="#047857" />
           <circle cx="21" cy="16" r="1" fill="#047857" />
           <circle cx="14" cy="17.5" r="1.2" fill="#f87171" opacity="0.7" />
@@ -81,6 +81,41 @@ function ValentinaAvatar({ className = "h-8 w-8" }: { className?: string }) {
       onError={() => setHasError(true)}
       className={`rounded-full object-cover border border-[#bbf7d0] bg-[#dcfce7] shrink-0 ${className}`}
     />
+  );
+}
+
+/**
+ * Avatar do Operador / Usuário Logado nas Mensagens
+ */
+function OperatorAvatar({ name, avatar, className = "h-7 w-7" }: { name?: string; avatar?: string; className?: string }) {
+  const [hasError, setHasError] = useState(false);
+  const initials = name
+    ? name
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+    : "OP";
+
+  if (avatar && !hasError) {
+    return (
+      <img
+        src={avatar}
+        alt={name || "Operador"}
+        onError={() => setHasError(true)}
+        className={`rounded-full object-cover border border-border/80 shrink-0 ${className}`}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`flex items-center justify-center rounded-full bg-primary/10 text-primary border border-primary/20 font-bold text-[10px] shrink-0 ${className}`}
+    >
+      {initials}
+    </div>
   );
 }
 
@@ -703,9 +738,13 @@ export function ValentinaChatTab() {
               >
                 {activeMessages.map((msg) =>
                   msg.sender === "operator" ? (
-                    /* Mensagem do Usuário */
-                    <div key={msg.id} className="flex justify-end">
+                    /* Mensagem do Usuário / Operador com Foto de Perfil */
+                    <div key={msg.id} className="flex gap-3 justify-end items-start">
                       <div className="max-w-[80%] flex flex-col items-end">
+                        <div className="flex items-baseline gap-2 mb-1 justify-end">
+                          <span className="text-[10px] text-muted-foreground">{formatTime(msg.timestamp)}</span>
+                          <span className="text-xs font-bold text-foreground">{operatorProfile?.name || "Você"}</span>
+                        </div>
                         <div className="rounded-2xl rounded-tr-xs bg-primary px-4 py-2.5 text-xs sm:text-sm text-primary-foreground shadow-xs">
                           {msg.attachedImageInfo && (
                             <img
@@ -721,10 +760,8 @@ export function ValentinaChatTab() {
                           )}
                           <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                         </div>
-                        <span className="mt-1 text-[10px] font-medium text-muted-foreground/70 pr-1">
-                          {formatTime(msg.timestamp)}
-                        </span>
                       </div>
+                      <OperatorAvatar name={operatorProfile?.name} avatar={operatorProfile?.avatar} className="h-7 w-7 mt-0.5" />
                     </div>
                   ) : (
                     /* Mensagem da Valentina */
