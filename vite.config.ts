@@ -5,41 +5,61 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
-import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
     server: { entry: "server" },
   },
   nitro: {
-    // Externalizar socket.io e groq-sdk do bundle do servidor
-    // Eles usam APIs Node.js nativas e não podem ser bundlados
+    // Externalizar dependências com código nativo do Node.js que não podem ser bundladas.
+    // @whiskeysockets/baileys usa process.hrtime.bigint() que quebra se bundlado pelo Nitro.
     externals: {
-      external: ["socket.io", "groq-sdk"],
+      external: ["socket.io", "groq-sdk", "@whiskeysockets/baileys"],
     },
-    // Incluir explicitamente os plugins do servidor (ex: WebSocket handler)
     plugins: ["server/plugins/websocket.ts"],
   } as any,
   vite: {
+    // O routeTree.gen.ts importa TODAS as rotas de API (inclusive /api/voice-buffer,
+    // /api/baileys/*, etc.) que usam Buffer do Node.js. Isso faz o bundle do browser
+    // tentar usar Buffer sem polyfill.
+    //
+    // Estratégia: redirecionar importações de 'buffer' para o pacote npm 'buffer'
+    // (browser-compatible). O `define` mapeia `global` → `globalThis` para que o
+    // pacote npm funcione no browser. O plugin injeta Buffer como global antes de
+    // qualquer outro módulo para que chamadas diretas a `Buffer.from(...)` funcionem.
+    resolve: {
+      alias: {
+        buffer: "buffer",
+      },
+    },
+    optimizeDeps: {
+      // Pré-bundlar o pacote 'buffer' para que o Vite o trate como ESM
+      include: ["buffer"],
+    },
+    define: {
+      // O pacote npm 'buffer' usa `global` internamente; mapear para globalThis
+      global: "globalThis",
+    },
     plugins: [
-      // Polyfill de Buffer/process APENAS no bundle do client.
-      // O TanStack Start inclui rotas de API no grafo do client (via routeTree.gen.ts),
-      // e algumas usam Buffer do Node.js. O apply garante que o plugin NÃO seja aplicado
-      // no bundle SSR do servidor, onde o Node.js nativo já fornece Buffer/process reais.
       {
-        ...nodePolyfills({
-          include: ["buffer", "process"],
-          globals: {
-            Buffer: true,
-            process: true,
+        name: "inject-buffer-global",
+        // Apenas no build de produção — em dev o Vite serve módulos individualmente
+        apply: "build" as const,
+        transformIndexHtml: {
+          order: "pre" as const,
+          handler() {
+            return [
+              {
+                tag: "script",
+                attrs: { type: "module" },
+                // Injeta Buffer como global ANTES do bundle principal carregar
+                children: `import { Buffer } from 'buffer'; if (typeof globalThis.Buffer === 'undefined') { globalThis.Buffer = Buffer; }`,
+                injectTo: "head-prepend" as const,
+              },
+            ];
           },
-        }),
-        // config.build?.ssr é `true` somente no bundle do servidor SSR.
-        // É a forma mais confiável de distinguir client vs SSR no Vite,
-        // independente do pipeline de build (@lovable.dev/vite-tanstack-config, nitro, etc.)
-        apply: (config) => !config.build?.ssr,
+        },
       },
     ],
   },
