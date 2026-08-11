@@ -37,7 +37,8 @@ function escapeXml(str: string): string {
 }
 
 function say(text: string): string {
-  return `  <Say voice="${VOICE}" language="${LANGUAGE}">${escapeXml(text)}</Say>`;
+  const audioUrl = `${BASE_URL}/api/elevenlabs-audio?text=${encodeURIComponent(text)}`;
+  return `  <Play>${escapeXml(audioUrl)}</Play>`;
 }
 
 function gather(): string {

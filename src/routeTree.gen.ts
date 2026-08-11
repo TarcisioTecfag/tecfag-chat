@@ -28,6 +28,7 @@ import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
+import { Route as ApiElevenlabsAudioRouteImport } from './routes/api/elevenlabs-audio'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
@@ -169,6 +170,11 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
 const ApiGroupsRoute = ApiGroupsRouteImport.update({
   id: '/api/groups',
   path: '/api/groups',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiElevenlabsAudioRoute = ApiElevenlabsAudioRouteImport.update({
+  id: '/api/elevenlabs-audio',
+  path: '/api/elevenlabs-audio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiContactsRoute = ApiContactsRouteImport.update({
@@ -419,6 +425,7 @@ export interface FileRoutesByFullPath {
   '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
+  '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -487,6 +494,7 @@ export interface FileRoutesByTo {
   '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
+  '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -556,6 +564,7 @@ export interface FileRoutesById {
   '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
+  '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -626,6 +635,7 @@ export interface FileRouteTypes {
     | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
+    | '/api/elevenlabs-audio'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -694,6 +704,7 @@ export interface FileRouteTypes {
     | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
+    | '/api/elevenlabs-audio'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -762,6 +773,7 @@ export interface FileRouteTypes {
     | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
+    | '/api/elevenlabs-audio'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -831,6 +843,7 @@ export interface RootRouteChildren {
   ApiCallsRoute: typeof ApiCallsRoute
   ApiChatsRoute: typeof ApiChatsRouteWithChildren
   ApiContactsRoute: typeof ApiContactsRouteWithChildren
+  ApiElevenlabsAudioRoute: typeof ApiElevenlabsAudioRoute
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiOperatorsRoute: typeof ApiOperatorsRoute
@@ -1019,6 +1032,13 @@ declare module '@tanstack/react-router' {
       path: '/api/groups'
       fullPath: '/api/groups'
       preLoaderRoute: typeof ApiGroupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/elevenlabs-audio': {
+      id: '/api/elevenlabs-audio'
+      path: '/api/elevenlabs-audio'
+      fullPath: '/api/elevenlabs-audio'
+      preLoaderRoute: typeof ApiElevenlabsAudioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/contacts': {
@@ -1424,6 +1444,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCallsRoute: ApiCallsRoute,
   ApiChatsRoute: ApiChatsRouteWithChildren,
   ApiContactsRoute: ApiContactsRouteWithChildren,
+  ApiElevenlabsAudioRoute: ApiElevenlabsAudioRoute,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiOperatorsRoute: ApiOperatorsRoute,
