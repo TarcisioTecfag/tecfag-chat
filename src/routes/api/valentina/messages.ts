@@ -9,28 +9,27 @@ import {
   responseTimeLogs,
   operatorDailyMetrics,
   aiConversationAudits,
+  agentFlowStates,
 } from "../../../db/schema";
-import { eq, and, desc, sql, gte, isNull, ne } from "drizzle-orm";
+import { eq, and, desc, sql, gte, isNull, ne, count } from "drizzle-orm";
 import crypto from "crypto";
+import { getAiPersona } from "../../../lib/ai-persona";
 
-// ── Headers CORS padrão ──────────────────────────────────────────────────────────────────────────────────
+// ── Headers CORS padrão ──────────────────────────────────────────────────────
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-// ── Extrai texto de arquivo anexado (PDF, DOCX, XLSX, TXT) ────────────────────────────
+// ── Extrai texto de arquivo anexado (PDF, DOCX, XLSX, TXT) ──────────────────
 async function extractFileText(name: string, mimeType: string, base64: string): Promise<string> {
   const buf = Buffer.from(base64, "base64");
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
 
-  // TXT — decode direto
   if (mimeType === "text/plain" || ext === "txt") {
     return buf.toString("utf-8").slice(0, 12000);
   }
-
-  // PDF
   if (mimeType === "application/pdf" || ext === "pdf") {
     try {
       const pdfParse = await import("pdf-parse");
@@ -41,8 +40,6 @@ async function extractFileText(name: string, mimeType: string, base64: string): 
       return `[PDF recebido: ${name} — conteúdo não extraído automaticamente]`;
     }
   }
-
-  // DOCX / DOC
   if (mimeType.includes("wordprocessingml") || mimeType.includes("msword") || ext === "docx" || ext === "doc") {
     try {
       const mammoth = await import("mammoth");
@@ -52,8 +49,6 @@ async function extractFileText(name: string, mimeType: string, base64: string): 
       return `[Documento Word recebido: ${name} — conteúdo não extraído automaticamente]`;
     }
   }
-
-  // XLSX / XLS
   if (mimeType.includes("spreadsheetml") || mimeType.includes("ms-excel") || ext === "xlsx" || ext === "xls") {
     try {
       const XLSX = await import("xlsx");
@@ -68,129 +63,46 @@ async function extractFileText(name: string, mimeType: string, base64: string): 
       return `[Planilha Excel recebida: ${name} — conteúdo não extraído automaticamente]`;
     }
   }
-
   return `[Arquivo recebido: ${name}]`;
 }
 
-// ── Respostas mock contextuais com suporte a blocos visuais ────────────────────
-function generateMockResponse(userMessage: string): { text: string; blocks?: any[] }[] {
-  const msg = userMessage.toLowerCase();
-
-  if (/(gráfic|grafic|funil|evolu|comparat|tend|barras)/.test(msg)) {
-    return [
-      {
-        text: "Analisei o funil de vendas dos últimos 7 dias. Abaixo está o gráfico representativo das etapas do atendimento:",
-        blocks: [
-          {
-            type: "chart",
-            chart: "bar",
-            title: "Leads por etapa do funil",
-            subtitle: "Últimos 7 dias",
-            unit: "leads",
-            data: [
-              { label: "Novo", value: 248 },
-              { label: "Contato", value: 186 },
-              { label: "Qualificado", value: 121 },
-              { label: "Proposta", value: 64 },
-              { label: "Fechado", value: 31 },
-            ],
-          },
-        ],
-      },
-    ];
+// ── Resolve nome do operador pelo ID ────────────────────────────────────────
+async function getOperatorName(operatorId: string): Promise<string> {
+  try {
+    const [op] = await db
+      .select({ name: operators.name })
+      .from(operators)
+      .where(eq(operators.id, operatorId))
+      .limit(1);
+    return op?.name || "Operador";
+  } catch {
+    return "Operador";
   }
-
-  if (/(relat|export|planilha|tabela|vendedor|ranking)/.test(msg)) {
-    return [
-      {
-        text: "Gerei o relatório consolidado com o desempenho da equipe comercial:",
-        blocks: [
-          {
-            type: "report",
-            title: "Desempenho por Vendedor",
-            columns: ["Vendedor", "Leads", "Atendidos", "Conversão", "Receita"],
-            rows: [
-              ["Carla Menezes", "84", "80", "16,7%", "R$ 58.900"],
-              ["Diego Alves", "76", "69", "13,0%", "R$ 41.200"],
-              ["Paula Ribeiro", "71", "71", "11,3%", "R$ 33.450"],
-              ["Rafael Souza", "63", "52", "7,9%", "R$ 20.100"],
-            ],
-            footnote: "Período: 01/08 a 11/08 · Origem: Banco de dados",
-          },
-        ],
-      },
-    ];
-  }
-
-  if (/(conversa|objeç|objec|lead|cliente|atendimento)/.test(msg)) {
-    return [
-      {
-        text: "Mapeei os trechos de conversas dos leads com mais recorrência de objeções:",
-        blocks: [
-          {
-            type: "excerpt",
-            title: "Trechos de conversas monitoradas",
-            conversations: [
-              {
-                lead: "Marcos Tavares",
-                channel: "WhatsApp",
-                when: "Hoje, 14:02",
-                sentiment: "negativo",
-                lines: [
-                  { from: "lead", text: "O valor ficou bem acima do que eu esperava." },
-                  { from: "agente", text: "Consigo montar um plano parcelado em 12x, posso enviar?" },
-                  { from: "lead", text: "Manda que eu avalio com o sócio." },
-                ],
-              },
-              {
-                lead: "Fernanda Lima",
-                channel: "Instagram",
-                when: "Ontem, 18:41",
-                sentiment: "positivo",
-                lines: [
-                  { from: "lead", text: "Gostei da demonstração, qual o próximo passo?" },
-                  { from: "agente", text: "Envio a proposta hoje ainda e agendamos a implantação." },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ];
-  }
-
-  if (/(insight|métric|metric|desempenho|resultado|resumo|kpi|tma|sla)/.test(msg)) {
-    return [
-      {
-        text: "Consolidei os principais indicadores e insights da operação hoje:",
-        blocks: [
-          {
-            type: "insight",
-            title: "Insights da Operação",
-            items: [
-              { label: "Taxa de Conversão", value: "12,5%", delta: "+2,4 p.p.", trend: "up", hint: "vs. semana anterior" },
-              { label: "TMA Média", value: "3m 12s", delta: "-48s", trend: "up", hint: "meta: 5 min" },
-              { label: "Leads sem Follow-up", value: "37", delta: "+9", trend: "down", hint: "parados >48h" },
-              { label: "Ticket Médio", value: "R$ 4.180", delta: "estável", trend: "flat" },
-            ],
-            recommendation: "Priorize os 37 leads parados há mais de 48h para evitar perda de oportunidade.",
-          },
-        ],
-      },
-    ];
-  }
-
-  return [
-    {
-      text: "Entendi sua solicitação! Posso analisar métricas, gerar gráficos de vendas, puxar relatórios da equipe ou verificar trechos de conversas dos leads. É só me pedir!",
-    },
-  ];
 }
 
+// ── Resolve role do operador (admin | agent) ─────────────────────────────────
+async function getOperatorRole(operatorId: string): Promise<string> {
+  try {
+    const [op] = await db
+      .select({ role: operators.role })
+      .from(operators)
+      .where(eq(operators.id, operatorId))
+      .limit(1);
+    return op?.role || "agent";
+  } catch {
+    return "agent";
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONTEXTO DA VALENTINA COLEGA — Dados do próprio operador
+// Usado em: Módulo de Chat (fixado na lista), scope = "operator"
+// ═══════════════════════════════════════════════════════════════════════════════
 async function getOperatorContext(tenantId: string, operatorId: string): Promise<string> {
   try {
     const sections: string[] = [];
 
+    // ── Conversas ativas do operador ─────────────────────────────────────────
     const activeConvs = await db
       .select({
         id: conversations.id,
@@ -217,11 +129,12 @@ async function getOperatorContext(tenantId: string, operatorId: string): Promise
         const ago = Math.floor((Date.now() - new Date(c.lastTime).getTime()) / 60_000);
         return `  • ${c.contactName} (${c.queueState}) — última msg ${ago}min atrás${c.unread > 0 ? ` [${c.unread} não lidas]` : ""}: "${(c.lastMessage || "").slice(0, 80)}"`;
       }).join("\n");
-      sections.push(`📋 CONVERSAS ATIVAS DO OPERADOR (${activeConvs.length}):\n${convList}`);
+      sections.push(`📋 SUAS CONVERSAS ATIVAS (${activeConvs.length}):\n${convList}`);
     } else {
-      sections.push("📋 O operador não tem conversas ativas no momento.");
+      sections.push("📋 Você não tem conversas ativas no momento.");
     }
 
+    // ── SLA pendentes do operador ─────────────────────────────────────────────
     const slaIssues = await db
       .select({
         conversationId: responseTimeLogs.conversationId,
@@ -247,9 +160,10 @@ async function getOperatorContext(tenantId: string, operatorId: string): Promise
         const waitMin = Math.floor((Date.now() - new Date(s.clientMsgAt).getTime()) / 60_000);
         return `  • ${s.contactName} — aguardando há ${waitMin}min${s.isOverdue ? " 🚨 ESTOURADO" : ""}`;
       }).join("\n");
-      sections.push(`⏱️ SLA PENDENTES:\n${slaList}`);
+      sections.push(`⏱️ SEUS SLAs PENDENTES:\n${slaList}`);
     }
 
+    // ── Métricas do operador no dia ───────────────────────────────────────────
     const today = new Date().toISOString().split("T")[0];
     const dailyMetrics = await db
       .select()
@@ -265,27 +179,275 @@ async function getOperatorContext(tenantId: string, operatorId: string): Promise
 
     if (dailyMetrics.length > 0) {
       const m = dailyMetrics[0];
-      const tma = m.avgResponseTimeSeconds ? `${Math.floor(m.avgResponseTimeSeconds / 60)}min ${m.avgResponseTimeSeconds % 60}s` : "N/A";
-      sections.push(`📊 MÉTRICAS DE HOJE DO OPERADOR:\n  • Total conversas: ${m.totalConversations}\n  • TMA: ${tma}\n  • SLA estourados: ${m.overdueCount}\n  • Score médio IA: ${m.avgPerformanceScore || "N/A"}/100`);
+      const tma = m.avgResponseTimeSeconds
+        ? `${Math.floor(m.avgResponseTimeSeconds / 60)}min ${m.avgResponseTimeSeconds % 60}s`
+        : "N/A";
+      sections.push(`📊 SUAS MÉTRICAS DE HOJE:\n  • Total conversas: ${m.totalConversations}\n  • TMA: ${tma}\n  • SLA estourados: ${m.overdueCount}\n  • Score médio IA: ${m.avgPerformanceScore || "N/A"}/100`);
     }
 
     return sections.join("\n\n");
   } catch (err: any) {
-    return "⚠️ Não foi possível carregar dados operacionais do banco neste momento.";
+    return "⚠️ Não foi possível carregar dados operacionais neste momento.";
   }
 }
 
-async function getOperatorName(operatorId: string): Promise<string> {
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONTEXTO DA VALENTINA SUPERVISORA — Visão global da operação
+// Usado em: Módulo Valentina (Chat), scope = "admin", role = "admin"
+// ═══════════════════════════════════════════════════════════════════════════════
+async function getManagerContext(tenantId: string): Promise<string> {
   try {
-    const [op] = await db
-      .select({ name: operators.name })
-      .from(operators)
-      .where(eq(operators.id, operatorId))
-      .limit(1);
-    return op?.name || "Operador";
-  } catch {
-    return "Operador";
+    const sections: string[] = [];
+    const today = new Date().toISOString().split("T")[0];
+    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // ── Resumo geral de conversas por estado ─────────────────────────────────
+    const convSummary = await db
+      .select({
+        state: conversations.queueState,
+        total: count(),
+      })
+      .from(conversations)
+      .where(eq(conversations.tenantId, tenantId))
+      .groupBy(conversations.queueState);
+
+    if (convSummary.length > 0) {
+      const sumLines = convSummary.map((s) => `  • ${s.state}: ${s.total}`).join("\n");
+      sections.push(`📊 CONVERSAS POR ESTADO:\n${sumLines}`);
+    }
+
+    // ── Operadores e métricas do dia ──────────────────────────────────────────
+    const teamMetrics = await db
+      .select()
+      .from(operatorDailyMetrics)
+      .where(
+        and(
+          eq(operatorDailyMetrics.tenantId, tenantId),
+          eq(operatorDailyMetrics.date, today)
+        )
+      )
+      .orderBy(desc(operatorDailyMetrics.totalConversations));
+
+    if (teamMetrics.length > 0) {
+      const teamLines = teamMetrics.map((m) => {
+        const tma = m.avgResponseTimeSeconds
+          ? `${Math.floor(m.avgResponseTimeSeconds / 60)}m${m.avgResponseTimeSeconds % 60}s`
+          : "N/A";
+        return `  • ${m.operatorName}: ${m.totalConversations} conv, TMA ${tma}, ${m.overdueCount} SLA estourado(s), score ${m.avgPerformanceScore ?? "N/A"}/100`;
+      }).join("\n");
+      sections.push(`👥 DESEMPENHO DA EQUIPE HOJE:\n${teamLines}`);
+    }
+
+    // ── SLA estourado global ──────────────────────────────────────────────────
+    const overdueSla = await db
+      .select({
+        contactName: contacts.name,
+        operatorId: responseTimeLogs.operatorId,
+        clientMsgAt: responseTimeLogs.clientMessageAt,
+      })
+      .from(responseTimeLogs)
+      .innerJoin(conversations, eq(conversations.id, responseTimeLogs.conversationId))
+      .innerJoin(contacts, eq(contacts.id, conversations.contactId))
+      .where(
+        and(
+          eq(responseTimeLogs.tenantId, tenantId),
+          eq(responseTimeLogs.isOverdue, true),
+          isNull(responseTimeLogs.agentResponseId)
+        )
+      )
+      .orderBy(desc(responseTimeLogs.clientMessageAt))
+      .limit(10);
+
+    if (overdueSla.length > 0) {
+      const slaLines = await Promise.all(
+        overdueSla.map(async (s) => {
+          const waitMin = Math.floor((Date.now() - new Date(s.clientMsgAt).getTime()) / 60_000);
+          let opName = "Sem operador";
+          if (s.operatorId) {
+            opName = await getOperatorName(s.operatorId);
+          }
+          return `  • 🚨 ${s.contactName} — ${waitMin}min sem resposta (operador: ${opName})`;
+        })
+      );
+      sections.push(`⏱️ SLAs ESTOURADOS AGORA (${overdueSla.length}):\n${slaLines.join("\n")}`);
+    } else {
+      sections.push("⏱️ SLAs ESTOURADOS: Nenhum no momento.");
+    }
+
+    // ── Conversas ativas no momento por operador ──────────────────────────────
+    const activeByOp = await db
+      .select({
+        operatorId: conversations.operatorId,
+        total: count(),
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.tenantId, tenantId),
+          eq(conversations.queueState, "meus")
+        )
+      )
+      .groupBy(conversations.operatorId)
+      .orderBy(desc(count()));
+
+    if (activeByOp.length > 0) {
+      const activeLines = await Promise.all(
+        activeByOp.map(async (a) => {
+          const name = a.operatorId ? await getOperatorName(a.operatorId) : "Sem operador";
+          return `  • ${name}: ${a.total} conversa(s) ativa(s)`;
+        })
+      );
+      sections.push(`🔴 CONVERSAS EM ANDAMENTO AGORA:\n${activeLines.join("\n")}`);
+    }
+
+    // ── Pipeline SDR ativo ────────────────────────────────────────────────────
+    const sdrActive = await db
+      .select({ id: agentFlowStates.id, contactId: agentFlowStates.contactId })
+      .from(agentFlowStates)
+      .where(
+        and(
+          eq(agentFlowStates.tenantId, tenantId),
+          eq(agentFlowStates.agentType, "sdr"),
+          isNull(agentFlowStates.completedAt)
+        )
+      );
+    sections.push(`🤖 TRIAGENS SDR ATIVAS: ${sdrActive.length} lead(s) em qualificação agora.`);
+
+    // ── Auditorias recentes (últimas 24h) ─────────────────────────────────────
+    const recentAudits = await db
+      .select({
+        contactName: aiConversationAudits.contactName,
+        score: aiConversationAudits.performanceScore,
+        sentiment: aiConversationAudits.clientSentiment,
+        insight: aiConversationAudits.actionableInsight,
+        operatorId: aiConversationAudits.operatorId,
+        auditedAt: aiConversationAudits.auditedAt,
+      })
+      .from(aiConversationAudits)
+      .where(
+        and(
+          eq(aiConversationAudits.tenantId, tenantId),
+          eq(aiConversationAudits.status, "done"),
+          gte(aiConversationAudits.auditedAt, last24h)
+        )
+      )
+      .orderBy(desc(aiConversationAudits.auditedAt))
+      .limit(8);
+
+    if (recentAudits.length > 0) {
+      const auditLines = await Promise.all(
+        recentAudits.map(async (a) => {
+          const opName = a.operatorId ? await getOperatorName(a.operatorId) : "N/A";
+          return `  • ${a.contactName || "Lead"} | Op: ${opName} | Score: ${a.score ?? "N/A"}/100 | Sentimento: ${a.sentiment ?? "N/A"}\n    Insight: ${(a.insight || "N/A").slice(0, 120)}`;
+        })
+      );
+      sections.push(`🔍 AUDITORIAS RECENTES (últimas 24h — ${recentAudits.length}):\n${auditLines.join("\n")}`);
+    }
+
+    // ── Resumo de sentimento global ───────────────────────────────────────────
+    const sentimentCount = await db
+      .select({
+        sentiment: aiConversationAudits.clientSentiment,
+        total: count(),
+      })
+      .from(aiConversationAudits)
+      .where(
+        and(
+          eq(aiConversationAudits.tenantId, tenantId),
+          gte(aiConversationAudits.createdAt, last24h)
+        )
+      )
+      .groupBy(aiConversationAudits.clientSentiment);
+
+    if (sentimentCount.length > 0) {
+      const sentimentLines = sentimentCount.map((s) => `  • ${s.sentiment}: ${s.total}`).join("\n");
+      sections.push(`😊 SENTIMENTO GLOBAL (últimas 24h):\n${sentimentLines}`);
+    }
+
+    return sections.join("\n\n");
+  } catch (err: any) {
+    console.error("[getManagerContext] Erro:", err);
+    return "⚠️ Não foi possível carregar dados da operação neste momento.";
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROMPTS DAS PERSONAS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function buildSupervisorPrompt(
+  persona: ReturnType<typeof getAiPersona>,
+  operatorName: string,
+  operationalContext: string,
+  fileContext: string
+): string {
+  return `Você é ${persona.name}, I.A. de Business Intelligence e Gestão Comercial da ${persona.company}.
+Você está conversando com o gestor "${operatorName}" em uma interface de chat exclusiva para supervisores.
+
+## SEU PAPEL:
+Você é uma analista de dados comerciais sênior. Seu objetivo é ajudar o gestor a tomar decisões estratégicas com base nos dados reais da operação.
+- Quando pedirem gráficos, métricas, tabelas ou análises, gere os blocos estruturados correspondentes com os dados reais disponíveis.
+- Seja precisa, objetiva e estratégica.
+- Use os dados da operação abaixo como fonte primária — NÃO invente números.
+- Se os dados não estiverem disponíveis, diga isso claramente.
+- Tom profissional, analítico e consultivo.
+
+## DADOS REAIS DA OPERAÇÃO AGORA:
+${operationalContext}
+${fileContext}
+
+## ESTRUTURA DE BLOCOS SUPORTADOS (use "blocks" no JSON quando necessário):
+1. ChartBlock: { "type": "chart", "chart": "bar"|"line"|"pie", "title": "...", "subtitle": "...", "unit": "...", "data": [{ "label": "X", "value": 10 }] }
+2. InsightBlock: { "type": "insight", "title": "...", "items": [{ "label": "...", "value": "...", "delta": "+5%", "trend": "up"|"down"|"flat", "hint": "..." }], "recommendation": "..." }
+3. ReportBlock: { "type": "report", "title": "...", "columns": ["A","B"], "rows": [["1","2"]], "footnote": "..." }
+4. ExcerptBlock: { "type": "excerpt", "title": "...", "conversations": [{ "lead": "...", "channel": "WhatsApp", "when": "Hoje", "sentiment": "positivo"|"neutro"|"negativo", "lines": [{ "from": "lead"|"agente", "text": "..." }] }] }
+
+## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
+{
+  "fragments": [
+    {
+      "text": "mensagem explicativa em texto",
+      "delay": 0,
+      "blocks": [ ... ]
+    }
+  ]
+}`;
+}
+
+function buildColeaguePrompt(
+  persona: ReturnType<typeof getAiPersona>,
+  operatorName: string,
+  operatorContext: string,
+  fileContext: string
+): string {
+  return `Você é ${persona.name}, assistente pessoal de atendimento da ${persona.company}.
+Você está conversando com ${operatorName}, um operador de atendimento.
+
+## SEU PAPEL:
+Você é como uma colega de trabalho experiente — prática, direta e descontraída. Ajude o operador com:
+- As conversas ativas dele (leads, clientes pendentes)
+- Alertas de SLA e clientes esperando resposta
+- Métricas pessoais do dia
+- Dicas de como responder situações difíceis
+- Respostas rápidas a dúvidas sobre o produto ou processo
+
+IMPORTANTE: Você só tem acesso aos dados do próprio ${operatorName}. Não compartilhe informações de outros operadores.
+Tom: caloroso, colega de trabalho, direto ao ponto. Não seja formal demais.
+Não use jargões de BI ou gestão — fale como uma parceira de trabalho.
+
+## DADOS DO ${operatorName.toUpperCase()} AGORA:
+${operatorContext}
+${fileContext}
+
+## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
+{
+  "fragments": [
+    {
+      "text": "mensagem em texto direto e amigável",
+      "delay": 0
+    }
+  ]
+}`;
 }
 
 export const Route = createFileRoute("/api/valentina/messages")({
@@ -293,6 +455,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
+      // ── GET: Carrega histórico de mensagens ────────────────────────────────
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId");
@@ -334,6 +497,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
         }
       },
 
+      // ── POST: Envia mensagem e obtém resposta da IA ────────────────────────
       POST: async ({ request }) => {
         try {
           const body = await request.json();
@@ -352,9 +516,24 @@ export const Route = createFileRoute("/api/valentina/messages")({
             );
           }
 
-          const contextTenantId = knowledgeBase === "all" ? tenantId : (knowledgeBase || tenantId);
-          const now = new Date();
+          // ── Detecta se é Supervisora ou Colega ─────────────────────────────
+          // scope "admin" → Valentina Supervisora (Módulo Valentina, só gestores)
+          // scope "operator" → Valentina Colega (Módulo Chat, todos os operadores)
+          const isSupervisor = scope === "admin";
 
+          // Double-check pelo role do operador no banco por segurança
+          const opRole = await getOperatorRole(operatorId);
+          const isActuallyAdmin = opRole === "admin";
+
+          // Se scope é "admin" mas o operador não é admin, trata como colega
+          const useManagerContext = isSupervisor && isActuallyAdmin;
+
+          const now = new Date();
+          const persona = getAiPersona(tenantId);
+          const operatorName = await getOperatorName(operatorId);
+          const contextTenantId = knowledgeBase === "all" ? tenantId : (knowledgeBase || tenantId);
+
+          // ── Salva mensagem do usuário no banco ─────────────────────────────
           const userMsgId = `val-msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           await db.insert(internalMessages).values({
             id: userMsgId,
@@ -374,15 +553,26 @@ export const Route = createFileRoute("/api/valentina/messages")({
             createdAt: now,
           });
 
-          const operatorName = await getOperatorName(operatorId);
-          const operatorContext = await getOperatorContext(contextTenantId, operatorId);
-
+          // ── Contexto e extração de arquivo ─────────────────────────────────
           let fileContext = "";
           if (attachment?.base64 && attachment?.name) {
             const extracted = await extractFileText(attachment.name, attachment.mimeType || "", attachment.base64);
             fileContext = `\n\n📎 ARQUIVO ANEXADO: "${attachment.name}"\n${extracted}`;
           }
 
+          const operationalContext = useManagerContext
+            ? await getManagerContext(contextTenantId)
+            : await getOperatorContext(contextTenantId, operatorId);
+
+          // ── Seleciona o prompt correto ──────────────────────────────────────
+          const systemPrompt = useManagerContext
+            ? buildSupervisorPrompt(persona, operatorName, operationalContext, fileContext)
+            : buildColeaguePrompt(persona, operatorName, operationalContext, fileContext);
+
+          // ── Feature key para rastreamento de custos ─────────────────────────
+          const featureKey = useManagerContext ? "supervisor_chat" : "valentina_chat";
+
+          // ── Chama o Vertex AI ───────────────────────────────────────────────
           let fragments: { text: string; delay?: number; blocks?: any[] }[] = [];
           let alerts: any[] = [];
 
@@ -390,41 +580,13 @@ export const Route = createFileRoute("/api/valentina/messages")({
             const { vertexAi } = await import("../../../lib/vertex-ai");
 
             if (vertexAi.isReady()) {
-              const systemPrompt = `Você é a Valentina, I.A. Master e Assistente de Gestão & Business Intelligence (BI).
-Você está conversando com o gestor "${operatorName}".
-
-## SEU PAPEL:
-- Você tem visão completa das operações: banco de dados, desempenho da equipe, TMA, métricas e base de conhecimento.
-- Se o usuário pedir gráficos, relatórios, métricas ou trechos de conversas, forneça o bloco estruturado correspondente em "blocks".
-
-## ESTRUTURA DE BLOCOS SUPORTADOS ("blocks"):
-1. ChartBlock: { "type": "chart", "chart": "bar"|"line"|"pie", "title": "...", "subtitle": "...", "data": [{ "label": "X", "value": 10 }] }
-2. InsightBlock: { "type": "insight", "title": "...", "items": [{ "label": "...", "value": "...", "delta": "+5%", "trend": "up"|"down"|"flat" }], "recommendation": "..." }
-3. ReportBlock: { "type": "report", "title": "...", "columns": ["A","B"], "rows": [["1","2"]], "footnote": "..." }
-4. ExcerptBlock: { "type": "excerpt", "title": "...", "conversations": [{ "lead": "...", "channel": "WhatsApp", "when": "Hoje", "sentiment": "positivo"|"neutro"|"negativo", "lines": [{ "from": "lead"|"agente", "text": "..." }] }] }
-
-## DADOS REAIS DA OPERAÇÃO:
-${operatorContext}
-${fileContext}
-
-## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
-{
-  "fragments": [
-    {
-      "text": "mensagem explicativa em texto",
-      "delay": 0,
-      "blocks": [ ... ]
-    }
-  ]
-}`;
-
               const aiRes = await vertexAi.generateStructuredJson<{
                 fragments: { text: string; delay?: number; blocks?: any[] }[];
                 alerts?: any[];
               }>(systemPrompt, "gemini-2.5-pro", undefined, {
                 tenantId,
-                feature: "valentina_chat",
-                metadata: { operatorId, operatorName },
+                feature: featureKey,
+                metadata: { operatorId, operatorName, scope, isManager: useManagerContext },
               });
 
               if (aiRes?.fragments && aiRes.fragments.length > 0) {
@@ -433,18 +595,26 @@ ${fileContext}
               }
             }
           } catch (aiErr: any) {
-            console.warn("[valentina/messages] Vertex AI fallback:", aiErr?.message);
+            console.warn("[valentina/messages] Vertex AI erro:", aiErr?.message);
           }
 
+          // ── Fallback amigável quando a IA não responder ─────────────────────
           if (fragments.length === 0) {
-            fragments = generateMockResponse(content);
+            fragments = [
+              {
+                text: useManagerContext
+                  ? `Estou com dificuldade para processar sua solicitação agora. Por favor, tente novamente em instantes. Se o problema persistir, verifique se o serviço de IA está configurado corretamente.`
+                  : `Tô com uma dificuldade técnica agora 😅 Tenta de novo em um segundo?`,
+              },
+            ];
           }
 
+          // ── Salva fragmentos no banco ───────────────────────────────────────
           const savedFragments: any[] = [];
           for (let i = 0; i < fragments.length; i++) {
             const frag = fragments[i];
             const fragId = `val-ai-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-            const fragTimestamp = new Date(now.getTime() + 600 + (i * 500));
+            const fragTimestamp = new Date(now.getTime() + 600 + i * 500);
 
             await db.insert(internalMessages).values({
               id: fragId,
@@ -459,6 +629,7 @@ ${fileContext}
                 fragmentIndex: i,
                 totalFragments: fragments.length,
                 blocks: frag.blocks || undefined,
+                isManager: useManagerContext,
               },
               read: 0,
               createdAt: fragTimestamp,

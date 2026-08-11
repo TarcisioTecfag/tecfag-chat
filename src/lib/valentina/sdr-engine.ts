@@ -8,6 +8,7 @@ import { QueuedMessageItem } from "./sdr-debouncer";
 import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 import { getKnowledgeBaseContext } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
+import { getAiPersona } from "../ai-persona";
 
 // ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
 export interface SdrAiResult {
@@ -305,7 +306,8 @@ INSTRUÇÕES OBRIGATÓRIAS:
 
       const knowledgeContext = await getKnowledgeBaseContext(tenantId);
 
-      const promptText = `Você é a Valentina, a consultora comercial pré-vendas (SDR) humana da Valem (empresa de válvulas aerosol/spray, frascos, potes, seladoras, embaladoras e componentes industriais).
+      const aiPersona = getAiPersona(tenantId);
+      const promptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) da ${aiPersona.company} (${aiPersona.segment}).
 ${knowledgeContext}
 
 HISTÓRICO COMPLETO DA CONVERSA ATE AGORA:
