@@ -24,20 +24,21 @@ export default defineConfig({
   } as any,
   vite: {
     plugins: [
-      // Polyfill definitivo para módulos Node.js no bundle do client.
-      // O TanStack Start inclui rotas de API no grafo de módulos do client (via routeTree.gen.ts),
-      // e algumas dessas rotas usam Buffer, process, etc do Node.js.
-      // Este plugin injeta os polyfills DENTRO de cada módulo que os usa,
-      // antes mesmo da avaliação do ES module — ao contrário de scripts HTML
-      // que chegam tarde demais.
-      nodePolyfills({
-        // Polyfills específicos necessários:
-        include: ["buffer", "process"],
-        globals: {
-          Buffer: true,
-          process: true,
-        },
-      }),
+      // Polyfill de Buffer/process APENAS no bundle do client.
+      // O TanStack Start inclui rotas de API no grafo do client (via routeTree.gen.ts),
+      // e algumas usam Buffer do Node.js. O apply garante que o plugin NÃO seja aplicado
+      // no bundle SSR do servidor, onde o Node.js nativo já fornece Buffer/process reais.
+      {
+        ...nodePolyfills({
+          include: ["buffer", "process"],
+          globals: {
+            Buffer: true,
+            process: true,
+          },
+        }),
+        // Só rodar no build do client — NUNCA no SSR/servidor
+        apply: (_config, { isSsrBuild }) => !isSsrBuild,
+      },
     ],
   },
 });
