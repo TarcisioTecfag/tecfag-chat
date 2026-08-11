@@ -4,7 +4,7 @@ import { contacts, conversations, messages } from "../../../db/schema";
 import { eq, and, ne, isNotNull, lt, isNull } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 
-export const Route = createFileRoute("/api/contacts/check-inactivity" as any)({
+export const Route = createFileRoute("/api/contacts/check-inactivity")({
   server: {
     handlers: {
       OPTIONS: async () => {

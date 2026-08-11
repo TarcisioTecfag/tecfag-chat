@@ -26,7 +26,7 @@ function formatE164(phone: string): string {
   return "+" + cleaned;
 }
 
-export const Route = createFileRoute("/api/trigger-outbound-call" as any)({
+export const Route = createFileRoute("/api/trigger-outbound-call")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
