@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 💬 VALENTINA CHAT TAB — Redesign Premium com Animações, Cores da Marca e ThreadRail
+// 💬 VALENTINA CHAT TAB — Redesign Premium com Avatar Oficial Padrão (Vetor/PNG)
 // ══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
-import valentinaImg from "@/assets/valentina.png";
 import { ValentinaBlockRenderer } from "./chat-blocks/ValentinaBlockRenderer";
 import { ValentinaThreadRail } from "./chat-blocks/ValentinaThreadRail";
 import type {
@@ -53,6 +52,37 @@ const SECONDARY_SUGGESTIONS = [
   { text: "Quais objeções mais aparecem nas conversas dos leads?", icon: Bot, iconColor: "text-purple-500" },
   { text: "Quais são os 5 principais alertas da operação hoje?", icon: AlertTriangle, iconColor: "text-amber-500" },
 ];
+
+/**
+ * Avatar Oficial Padrão da Valentina (Renderiza a imagem oficial do sistema com fallback vetorizado idêntico à captura)
+ */
+function ValentinaAvatar({ className = "h-8 w-8" }: { className?: string }) {
+  const [hasError, setHasError] = useState(false);
+
+  if (hasError) {
+    return (
+      <div className={`relative flex items-center justify-center rounded-full bg-[#dcfce7] border border-[#bbf7d0] shrink-0 overflow-hidden shadow-xs ${className}`}>
+        <svg className="h-full w-full p-1" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="18" cy="18" r="18" fill="#dcfce7" />
+          <path d="M18 9C14.6863 9 12 11.6863 12 15C12 17.2 13.18 19.12 14.95 20.15C12.02 21.42 10 24.32 10 27.75C10 28.16 10.34 28.5 10.75 28.5C11.16 28.5 11.5 27.75 11.5 27.75C11.5 24.16 14.41 21.25 18 21.25C21.59 21.25 24.5 24.16 24.5 27.75C24.5 28.16 24.84 28.5 25.25 28.5C25.66 28.5 26 28.16 26 27.75C26 24.32 23.98 21.42 21.05 20.15C22.82 19.12 24 17.2 24 15C24 11.6863 21.3137 9 18 9Z" fill="#059669" />
+          <circle cx="15" cy="16" r="1" fill="#047857" />
+          <circle cx="21" cy="16" r="1" fill="#047857" />
+          <circle cx="14" cy="17.5" r="1.2" fill="#f87171" opacity="0.7" />
+          <circle cx="22" cy="17.5" r="1.2" fill="#f87171" opacity="0.7" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src="/valentina.png"
+      alt="Valentina"
+      onError={() => setHasError(true)}
+      className={`rounded-full object-cover border border-[#bbf7d0] bg-[#dcfce7] shrink-0 ${className}`}
+    />
+  );
+}
 
 function FileTypeIcon({ mimeType, name }: { mimeType: string; name: string }) {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -441,7 +471,7 @@ export function ValentinaChatTab() {
           style={{ minHeight: "24px", maxHeight: "144px", overflowY: "auto" }}
         />
 
-        {/* Seletor de Base de Conhecimento (Dropdown Abre para CIMA: bottom-full mb-2) */}
+        {/* Seletor de Base de Conhecimento */}
         <div className="relative shrink-0" ref={baseDropdownRef}>
           <motion.button
             whileHover={{ scale: 1.02 }}
@@ -541,14 +571,10 @@ export function ValentinaChatTab() {
 
       {/* Coluna Central do Chat */}
       <div className="flex min-w-0 flex-1 flex-col h-full rounded-2xl border border-border/80 bg-card shadow-card overflow-hidden">
-        {/* Header do Chat (Com Imagem Real da Valentina) */}
+        {/* Header do Chat (Com Avatar Oficial Padrão) */}
         <header className="flex items-center justify-between border-b border-border/80 bg-card px-5 py-3 shrink-0">
           <div className="flex items-center gap-3">
-            <img
-              src={valentinaImg}
-              alt={persona.name}
-              className="h-9 w-9 rounded-full object-cover ring-2 ring-primary/20 bg-primary-soft shadow-xs"
-            />
+            <ValentinaAvatar className="h-9 w-9" />
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xs font-extrabold text-foreground">{persona.name}</h2>
@@ -582,11 +608,11 @@ export function ValentinaChatTab() {
           )}
         </header>
 
-        {/* Conteúdo Principal do Chat com Transição Suave de Estado */}
+        {/* Conteúdo Principal do Chat */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
           <AnimatePresence mode="wait">
             {activeMessages.length === 0 ? (
-              /* ESTADO 1: TELA DE BOAS-VINDAS (Tipografia e Tamanho idênticos à Imagem 1) */
+              /* ESTADO 1: TELA DE BOAS-VINDAS (Saudação e Tipografia exatas) */
               <motion.div
                 key="welcome-screen"
                 initial={{ opacity: 0, y: 8 }}
@@ -595,7 +621,6 @@ export function ValentinaChatTab() {
                 transition={{ duration: 0.2 }}
                 className="flex flex-col items-center justify-center min-h-[400px] py-8 text-center max-w-2xl mx-auto my-auto"
               >
-                {/* Saudação com tipografia e tamanhos da marca */}
                 <h1 className="text-2xl font-bold text-foreground tracking-tight">
                   Olá, <span className="text-primary font-extrabold">{operatorFirstName}</span>
                 </h1>
@@ -606,7 +631,7 @@ export function ValentinaChatTab() {
                   Use uma das sugestões abaixo ou faça sua própria pergunta para iniciar
                 </p>
 
-                {/* Grid de Cards de Sugestões com Micro-animações */}
+                {/* Grid de Cards de Sugestões */}
                 <div className="mt-8 grid w-full gap-3.5 sm:grid-cols-2">
                   {currentSuggestions.map((sug, idx) => (
                     <motion.button
@@ -629,7 +654,7 @@ export function ValentinaChatTab() {
                   ))}
                 </div>
 
-                {/* Botão de Atualizar Sugestões com Micro-animação */}
+                {/* Botão de Atualizar Sugestões */}
                 <motion.button
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.96 }}
@@ -641,7 +666,7 @@ export function ValentinaChatTab() {
                 </motion.button>
               </motion.div>
             ) : (
-              /* ESTADO 2: MENSAGENS DA CONVERSA (Layout Rico) */
+              /* ESTADO 2: MENSAGENS DA CONVERSA */
               <motion.div
                 key="conversation-screen"
                 initial={{ opacity: 0, y: 8 }}
@@ -652,7 +677,7 @@ export function ValentinaChatTab() {
               >
                 {activeMessages.map((msg) =>
                   msg.sender === "operator" ? (
-                    /* Mensagem do Usuário (Compacta e elegante) */
+                    /* Mensagem do Usuário */
                     <div key={msg.id} className="flex justify-end">
                       <div className="max-w-[80%] flex flex-col items-end">
                         <div className="rounded-2xl rounded-tr-xs bg-primary px-4 py-2.5 text-xs text-primary-foreground shadow-xs">
@@ -676,13 +701,9 @@ export function ValentinaChatTab() {
                       </div>
                     </div>
                   ) : (
-                    /* Mensagem da Valentina (Com Foto Real + Renderizador de Blocos Ricos) */
+                    /* Mensagem da Valentina (Com Avatar Oficial) */
                     <div key={msg.id} className="flex gap-3 items-start">
-                      <img
-                        src={valentinaImg}
-                        alt={persona.name}
-                        className="h-7 w-7 rounded-full object-cover ring-1 ring-border mt-0.5 shrink-0 bg-primary-soft shadow-xs"
-                      />
+                      <ValentinaAvatar className="h-7 w-7 mt-0.5" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-baseline gap-2 mb-1">
                           <span className="text-xs font-bold text-foreground">{persona.name}</span>
@@ -703,11 +724,7 @@ export function ValentinaChatTab() {
                 {/* Indicador de Digitação da Valentina */}
                 {isTyping && (
                   <div className="flex gap-3 items-center">
-                    <img
-                      src={valentinaImg}
-                      alt={persona.name}
-                      className="h-7 w-7 rounded-full object-cover ring-1 ring-border shrink-0 bg-primary-soft"
-                    />
+                    <ValentinaAvatar className="h-7 w-7" />
                     <div className="rounded-2xl bg-muted/40 border border-border/60 px-4 py-2.5 text-xs text-muted-foreground flex items-center gap-2">
                       <Sparkles className="h-3.5 w-3.5 text-primary animate-spin" />
                       <span>Analisando dados do sistema...</span>
@@ -727,7 +744,7 @@ export function ValentinaChatTab() {
         </div>
       </div>
 
-      {/* Coluna Direita: ThreadRail Retrátil com Transição Suave Framer Motion */}
+      {/* Coluna Direita: ThreadRail Retrátil */}
       <AnimatePresence>
         {isRailOpen && (
           <motion.div
