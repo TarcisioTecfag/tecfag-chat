@@ -9,49 +9,35 @@ import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 import { getKnowledgeBaseContext } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { getAiPersona } from "../ai-persona";
-import * as fs from "fs";
-import * as path from "path";
-import { execFile } from "child_process";
-import { promisify } from "util";
 
-const execFileAsync = promisify(execFile);
-
-// ── Diretório de Áudios PTT da Valentina ─────────────────────────────────────────
-const VALENTINA_AUDIOS_DIR = "C:\\Users\\TEC FAG\\Downloads\\AUDIOS VALENTINA";
+// ── Diretório de Áudios PTT da Valentina (relativo ao projeto — funciona local e no Railway)
+// Os arquivos OGG pré-convertidos ficam em public/audios-valentina/ e são incluídos no deploy
+function getAudioDir(): string {
+  return require("path").join(process.cwd(), "public", "audios-valentina");
+}
 
 /**
  * Converte um arquivo MP3 para OGG/Opus (formato obrigatório para PTT do WhatsApp)
  * usando FFmpeg via child_process. Retorna o Buffer do arquivo OGG gerado.
+ * Se o arquivo _ptt.ogg já existir (pré-convertido), usa diretamente sem rodar FFmpeg.
  */
 async function convertMp3ToPttOgg(mp3Path: string): Promise<Buffer> {
+  const fs = require("fs") as typeof import("fs");
+  const { execFile } = require("child_process") as typeof import("child_process");
+  const { promisify } = require("util") as typeof import("util");
+  const execFileAsync = promisify(execFile);
+
   const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
 
-  // Se já existe o OGG convertido, reutiliza sem reconverter
+  // Se já existe o OGG convertido (pré-gerado), reutiliza sem reconverter
   if (fs.existsSync(oggPath)) {
     return fs.readFileSync(oggPath);
   }
 
-  // Tentar localizar o ffmpeg no PATH ou em locais padrão do Windows
-  const ffmpegPaths = [
-    "ffmpeg",
-    "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
-    "C:\\ffmpeg\\bin\\ffmpeg.exe",
-    path.join(process.env["LOCALAPPDATA"] || "", "Microsoft\\WinGet\\Links\\ffmpeg.exe"),
-  ];
-
-  let ffmpegBin = "ffmpeg";
-  for (const candidate of ffmpegPaths) {
-    try {
-      if (candidate !== "ffmpeg" && fs.existsSync(candidate)) {
-        ffmpegBin = candidate;
-        break;
-      }
-    } catch { /* tenta próximo */ }
-  }
-
+  // Tentar rodar FFmpeg para converter na hora
   try {
-    await execFileAsync(ffmpegBin, [
-      "-y",          // sobrescreve sem perguntar
+    await execFileAsync("ffmpeg", [
+      "-y",
       "-i", mp3Path,
       "-c:a", "libopus",
       "-b:a", "32k",
@@ -62,24 +48,22 @@ async function convertMp3ToPttOgg(mp3Path: string): Promise<Buffer> {
     console.log(`[Valentina PTT] ✅ Áudio convertido para Opus/OGG: ${oggPath}`);
     return fs.readFileSync(oggPath);
   } catch (err: any) {
-    console.warn(`[Valentina PTT] ⚠️ FFmpeg não disponível ou falhou (${err?.message}). Enviando MP3 original (pode aparecer como arquivo, não como voz).`);
-    // Fallback: envia o MP3 mesmo — o WhatsApp vai aceitar, mas talvez não mostre a waveform
+    console.warn(`[Valentina PTT] ⚠️ FFmpeg indisponível (${err?.message}). Enviando MP3 original.`);
     return fs.readFileSync(mp3Path);
   }
 }
 
+
 /**
  * Retorna a duração aproximada de um arquivo de áudio em segundos
- * baseado no tamanho do arquivo (estimativa para MP3 a 32kbps).
- * Não depende do FFmpeg para funcionar.
+ * baseado no tamanho do arquivo (estimativa para MP3 a 128kbps).
  */
 function estimateAudioDurationSeconds(fileSizeBytes: number): number {
-  // MP3 a 128kbps ≈ 16KB/s | OGG Opus a 32kbps ≈ 4KB/s
-  // Usamos 16KB/s como estimativa conservadora (válida para MP3 padrão)
+  // MP3 a 128kbps ≈ 16KB/s
   const estimatedSeconds = fileSizeBytes / (16 * 1024);
-  // Clamp entre 3s e 60s para garantir um delay razoável
   return Math.min(60, Math.max(3, estimatedSeconds));
 }
+
 
 // ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
 export interface SdrAiResult {
@@ -897,12 +881,18 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       };
 
       // Verificar no texto do lote atual E no contexto do produto coletado
+      const fs = require("fs") as typeof import("fs");
+      const path = require("path") as typeof import("path");
+      const audioDir = getAudioDir();
+
       const batchTextForAudio = batchItems.map(i => i.text).join(" ").toLowerCase();
       const fullContextForAudio = batchTextForAudio + " " + productContext;
       for (const [keyword, audioFile] of Object.entries(AUDIO_MAP)) {
         if (fullContextForAudio.includes(keyword)) {
-          const audioPath = path.join(VALENTINA_AUDIOS_DIR, audioFile);
-          if (fs.existsSync(audioPath)) {
+          // Checar tanto a versão .mp3 quanto a versão _ptt.ogg pré-convertida em public/audios-valentina
+          const mp3Path = path.join(audioDir, audioFile.replace(/ /g, "_"));
+          const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
+          if (fs.existsSync(mp3Path) || fs.existsSync(oggPath)) {
             matchedAudioFile = audioFile;
             break;
           }
@@ -967,15 +957,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       return;
     }
 
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
     const realJid = await resolveRealJid(sock, phone);
-    const mp3Path = path.join(VALENTINA_AUDIOS_DIR, audioFileName);
+    const audioDir = getAudioDir();
+    const mp3Path = path.join(audioDir, audioFileName.replace(/ /g, "_"));
+    const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
 
-    if (!fs.existsSync(mp3Path)) {
-      console.error(`[SdrEngine PTT] Arquivo de áudio não encontrado: ${mp3Path}`);
+    if (!fs.existsSync(mp3Path) && !fs.existsSync(oggPath)) {
+      console.error(`[SdrEngine PTT] Arquivo de áudio não encontrado em: ${mp3Path}`);
       return;
     }
 
-    const fileSizeBytes = fs.statSync(mp3Path).size;
+
+    const targetPath = fs.existsSync(mp3Path) ? mp3Path : oggPath;
+    const fileSizeBytes = fs.statSync(targetPath).size;
     const estimatedDurationMs = estimateAudioDurationSeconds(fileSizeBytes) * 1000;
 
     console.log(`[SdrEngine PTT] 🎙️ Iniciando envio PTT: ${audioFileName} (~${(estimatedDurationMs / 1000).toFixed(1)}s)`);
@@ -984,7 +980,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     let audioBuffer: Buffer;
     let audioMime: string;
     try {
-      audioBuffer = await convertMp3ToPttOgg(mp3Path);
+      audioBuffer = await convertMp3ToPttOgg(targetPath);
       // Verificar se foi gerado OGG (começa com 'OggS') ou ficou MP3
       const isOgg = audioBuffer[0] === 0x4F && audioBuffer[1] === 0x67 && audioBuffer[2] === 0x67 && audioBuffer[3] === 0x53;
       audioMime = isOgg ? "audio/ogg; codecs=opus" : "audio/mpeg";
