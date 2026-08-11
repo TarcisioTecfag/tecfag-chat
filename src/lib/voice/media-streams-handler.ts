@@ -18,14 +18,34 @@ export class MediaStreamHandler {
   private isProcessing: boolean = false;
   private startTime: Date = new Date();
 
-  // Buffer de áudio do cliente para VAD e STT
-  private audioBufferChunks: string[] = [];
-  private silenceTimer: NodeJS.Timeout | null = null;
-  private hasSpoken: boolean = false;
+  // Fila de áudio de saída com pacing de 20ms
+  private outputQueue: Buffer[] = [];
+  private outputTimer: NodeJS.Timeout | null = null;
+  private isSpeaking: boolean = false;
 
   constructor(ws: WebSocket) {
     this.ws = ws;
+    this.startOutputPacing();
     this.setupListeners();
+  }
+
+  private startOutputPacing() {
+    if (this.outputTimer) return;
+    // Dispara 1 pacote de 160 bytes a cada 20ms (ritmo exato da telefonia 8kHz mu-law)
+    this.outputTimer = setInterval(() => {
+      if (this.outputQueue.length === 0) return;
+      const chunk = this.outputQueue.shift();
+      if (chunk && this.streamSid && this.ws.readyState === WebSocket.OPEN) {
+        const payload = chunk.toString("base64");
+        this.ws.send(
+          JSON.stringify({
+            event: "media",
+            streamSid: this.streamSid,
+            media: { payload },
+          })
+        );
+      }
+    }, 20);
   }
 
   private setupListeners() {
@@ -67,7 +87,7 @@ export class MediaStreamHandler {
 
           case "stop":
             console.log(`[MediaStream] Chamada encerrada. StreamSid=${this.streamSid}`);
-            this.clearSilenceTimer();
+            this.cleanup();
             this.finalizeCallRecord();
             break;
         }
@@ -77,7 +97,7 @@ export class MediaStreamHandler {
     });
 
     this.ws.on("close", (code, reason) => {
-      this.clearSilenceTimer();
+      this.cleanup();
       console.log(`[MediaStream] Conexão fechada para ${this.callSid} — code=${code} reason=${reason?.toString() || '(none)'}`);
       this.finalizeCallRecord();
     });
@@ -87,18 +107,29 @@ export class MediaStreamHandler {
     });
   }
 
+  private cleanup() {
+    this.clearSilenceTimer();
+    if (this.outputTimer) {
+      clearInterval(this.outputTimer);
+      this.outputTimer = null;
+    }
+    this.outputQueue = [];
+    this.isSpeaking = false;
+  }
+
   /**
    * Processa chunks de áudio em tempo real e detecta pausas de voz (VAD 600ms)
    */
   private handleIncomingAudioChunk(base64Payload: string) {
-    if (this.isProcessing) return;
+    // Ignora áudio de entrada enquanto a IA estiver falando ou processando (evita auto-eco)
+    if (this.isProcessing || this.isSpeaking || this.outputQueue.length > 0) return;
 
     const mulawBuffer = Buffer.from(base64Payload, "base64");
     const pcmSamples = decodeMulaw(mulawBuffer);
     const rms = calculateRms(pcmSamples);
 
-    // Limiar de detecção de voz humana (RMS > 300)
-    if (rms > 300) {
+    // Limiar de detecção de voz humana (RMS > 350)
+    if (rms > 350) {
       this.hasSpoken = true;
       this.audioBufferChunks.push(base64Payload);
       this.resetSilenceTimer();
@@ -110,10 +141,10 @@ export class MediaStreamHandler {
 
   private resetSilenceTimer() {
     this.clearSilenceTimer();
-    // Após 700ms de silêncio contínuo depois da fala, dispara o STT e processa
+    // Após 650ms de silêncio contínuo depois da fala, dispara o STT e processa
     this.silenceTimer = setTimeout(() => {
       this.processAccumulatedAudio();
-    }, 700);
+    }, 650);
   }
 
   private clearSilenceTimer() {
@@ -153,7 +184,7 @@ export class MediaStreamHandler {
   }
 
   /**
-   * Envia a fala da Valentina para o Twilio via ElevenLabs TTS (formato ulaw_8000)
+   * Envia a fala da Valentina para a fila de pacing do WebSocket via ElevenLabs TTS
    */
   public async speakText(text: string) {
     if (!this.streamSid || this.ws.readyState !== WebSocket.OPEN) {
@@ -161,8 +192,10 @@ export class MediaStreamHandler {
       return;
     }
 
+    this.isSpeaking = true;
+
     try {
-      console.log(`[MediaStream] 🎤 Chamando ElevenLabs para: "${text.slice(0, 60)}..."`);
+      console.log(`[MediaStream] 🎤 Streaming ElevenLabs para: "${text.slice(0, 60)}..."`);
       const audioStream = streamElevenLabsTts(text, MARIANNE_VOICE_ID);
 
       let chunkCount = 0;
@@ -172,19 +205,20 @@ export class MediaStreamHandler {
           break;
         }
 
-        const payload = chunk.toString("base64");
-        const mediaMsg = JSON.stringify({
-          event: "media",
-          streamSid: this.streamSid,
-          media: { payload },
-        });
-
-        this.ws.send(mediaMsg);
+        // Empurra os pacotes de 160 bytes na fila com pacing de 20ms
+        this.outputQueue.push(chunk);
         chunkCount++;
       }
-      console.log(`[MediaStream] ✅ Áudio enviado para Twilio — ${chunkCount} chunks`);
+      console.log(`[MediaStream] ✅ ${chunkCount} chunks adicionados à fila de pacing.`);
+
+      // Aguarda a fila de pacing ser drenada completamente antes de permitir novo VAD
+      while (this.outputQueue.length > 0 && this.ws.readyState === WebSocket.OPEN) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
     } catch (err: any) {
       console.error("[MediaStream] ❌ Erro ElevenLabs TTS:", err?.message || err);
+    } finally {
+      this.isSpeaking = false;
     }
   }
 

@@ -363,8 +363,24 @@ async function handleWebhook(request: Request): Promise<Response> {
 export const Route = createFileRoute("/api/twilio-voice-webhook")({
   server: {
     handlers: {
-      GET: async ({ request }: { request: Request }) => handleWebhook(request),
-      POST: async ({ request }: { request: Request }) => handleWebhook(request),
+      GET: async () => {
+        const body = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
+  </Connect>
+</Response>`;
+        return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
+      },
+      POST: async () => {
+        const body = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
+  </Connect>
+</Response>`;
+        return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
+      },
     },
   },
 });
