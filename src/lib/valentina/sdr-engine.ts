@@ -602,6 +602,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
+      // Regra 3 (Garantia de Citação): Se não houver citação de mídia/específica, cita a última mensagem do cliente no lote!
+      if (!targetQuoteItem && batchItems.length > 0) {
+        const lastItemWithMsg = [...batchItems].reverse().find(i => i.rawMsg);
+        if (lastItemWithMsg) {
+          targetQuoteItem = lastItemWithMsg;
+        }
+      }
+
+
       // 8. Atualizar dados coletados no banco
       const updatedCollectedData = { ...existingCollectedData };
 
@@ -822,8 +831,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const meta = (flowState?.metadata as Record<string, any>) || {};
       if (meta.awaitingAudioConfirmation) {
         const clientText = batchItems.map((i) => i.text).join(" ").toLowerCase().trim();
-        const clientSaidYes = /^(sim|s|pode|claro|ok|vai|manda|pode mandar|quero|com certeza|tá bom|ta bom|tá|ta|beleza|perfeito|ótimo|otimo|legal|manda sim|pode sim)/.test(clientText);
-        const clientSaidNo = /^(nã|na|não|nao|n(ã|a)o|prefiro texto|prefiro por texto|não precisa|nao precisa|pode ser texto|por texto)/.test(clientText);
+        const clientSaidYes = /(?:^|\b)(sim|s|pode|claro|ok|vai|manda|pode mandar|quero|com certeza|tá bom|ta bom|tá|ta|beleza|perfeito|ótimo|otimo|legal|manda sim|pode sim|manda ai|manda aí|pode ser)(?:\b|$)/i.test(clientText);
+        const clientSaidNo = /(?:^|\b)(nã|na|não|nao|n(ã|a)o|prefiro texto|prefiro por texto|não precisa|nao precisa|pode ser texto|por texto)(?:\b|$)/i.test(clientText);
+
 
         if (clientSaidYes) {
           console.log(`[SdrEngine] 🎙️ Cliente confirmou áudio PTT. Iniciando envio humanizado...`);
@@ -856,15 +866,16 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       // ── DETECÇÃO: Valentina confirmou disponibilidade → ativar fluxo de áudio PTT ─
-      // Verificar se a IA está respondendo com "Temos sim" (confirmando disponibilidade)
-      // e se existe um arquivo de áudio mapeado para este contexto
+      // Verificar se a IA está respondendo confirmando disponibilidade (temos, tem sim, claro, disponível, etc.)
       const firstBotMsg = aiResult.messagesToSend[0]?.toLowerCase() || "";
+      const fullBotMsgText = aiResult.messagesToSend.join(" ").toLowerCase();
       const isConfirmingAvailability = (
-        firstBotMsg.includes("temos sim") ||
-        firstBotMsg.includes("temos, sim") ||
-        firstBotMsg.includes("temos claro") ||
-        firstBotMsg.includes("sim, temos") ||
-        firstBotMsg.includes("sim! temos")
+        fullBotMsgText.includes("temos") ||
+        fullBotMsgText.includes("tem sim") ||
+        fullBotMsgText.includes("sim, tem") ||
+        fullBotMsgText.includes("claro") ||
+        fullBotMsgText.includes("disponív") ||
+        fullBotMsgText.includes("possuí")
       );
 
       // Verificar se existe arquivo de áudio para este atendimento (baseado no produto)
@@ -889,7 +900,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const fullContextForAudio = batchTextForAudio + " " + productContext;
       for (const [keyword, audioFile] of Object.entries(AUDIO_MAP)) {
         if (fullContextForAudio.includes(keyword)) {
-          // Checar tanto a versão .mp3 quanto a versão _ptt.ogg pré-convertida em public/audios-valentina
           const mp3Path = path.join(audioDir, audioFile.replace(/ /g, "_"));
           const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
           if (fs.existsSync(mp3Path) || fs.existsSync(oggPath)) {
@@ -902,10 +912,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (isConfirmingAvailability && matchedAudioFile && !meta.awaitingAudioConfirmation) {
         console.log(`[SdrEngine] 🎙️ Valentina confirmou disponibilidade. Ativando fluxo de áudio PTT para: ${matchedAudioFile}`);
 
-        // Substituir os balões da IA: manter apenas o primeiro ("Temos sim, claro!") e perguntar sobre o áudio
-        const confirmationMsg = aiResult.messagesToSend[0]; // "Temos sim, claro!"
+        // Substituir os balões da IA pela confirmação limpa + pergunta sobre o áudio
         aiResult.messagesToSend = [
-          confirmationMsg,
+          "Temos sim, claro!",
           "Posso te mandar um áudio explicando melhor?",
         ];
 
@@ -915,6 +924,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
         }
       }
+
       // ── DETECÇÃO: Valentina pedindo CNPJ → substituir o texto final pelo áudio PTT do CNPJ ─
       let shouldSendCnpjAudio = false;
       const cnpjMsgIndex = aiResult.messagesToSend.findIndex((m) => /cnpj/i.test(m));
