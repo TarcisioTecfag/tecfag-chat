@@ -36,8 +36,10 @@ export default defineConfig({
             process: true,
           },
         }),
-        // Só rodar no build do client — NUNCA no SSR/servidor
-        apply: (_config, { isSsrBuild }) => !isSsrBuild,
+        // config.build?.ssr é `true` somente no bundle do servidor SSR.
+        // É a forma mais confiável de distinguir client vs SSR no Vite,
+        // independente do pipeline de build (@lovable.dev/vite-tanstack-config, nitro, etc.)
+        apply: (config) => !config.build?.ssr,
       },
     ],
   },
