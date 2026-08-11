@@ -69,10 +69,10 @@ function statusDot(trafficLight: OperatorMetric["trafficLight"]) {
 }
 
 function statusLabel(trafficLight: OperatorMetric["trafficLight"]) {
-  if (trafficLight === "green") return "Online";
-  if (trafficLight === "yellow") return "Em Pausa";
-  if (trafficLight === "red") return "Em Atendimento";
-  return "Offline";
+  if (trafficLight === "green") return "ONLINE";
+  if (trafficLight === "yellow") return "EM PAUSA";
+  if (trafficLight === "red") return "EM ATENDIMENTO";
+  return "OFFLINE";
 }
 
 // ── GaugeHalf Component (180° Meia Pizza) ──────────────────────────────────
@@ -110,14 +110,14 @@ function GaugeHalf({ value, display, label }: { value: number; display: string; 
           {display}
         </span>
       </div>
-      <span className="mt-4 text-[11px] font-bold uppercase tracking-widest text-[#64748b]">
+      <span className="mt-4 text-[11px] font-extrabold uppercase tracking-widest text-[#64748b]">
         {label}
       </span>
     </div>
   );
 }
 
-// ── TrendChart Component (Grafico de Linha com Gradiente) ────────────────────
+// ── TrendChart Component ────────────────────────────────────────────────────
 
 function TrendChart({
   points,
@@ -209,7 +209,10 @@ function MetricCard({
   className?: string;
 }) {
   return (
-    <article
+    <motion.article
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
       aria-label={label}
       className={`flex flex-col gap-4 rounded-2xl bg-[#f8fafc] dark:bg-slate-900/60 p-5 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:p-6 ${className}`}
     >
@@ -217,7 +220,7 @@ function MetricCard({
       <div className="border-t border-slate-200/80 dark:border-slate-800 pt-4">
         {trend}
       </div>
-    </article>
+    </motion.article>
   );
 }
 
@@ -238,7 +241,7 @@ function KpiCard({
 }) {
   return (
     <article aria-label={label} className="flex flex-col bg-white dark:bg-slate-900 p-5">
-      <span className="mb-2 block text-[11px] font-bold uppercase tracking-widest text-[#64748b]">
+      <span className="mb-2 block text-[11px] font-extrabold uppercase tracking-widest text-[#64748b]">
         {label}
       </span>
       <div className={`text-2xl font-black ${danger ? "text-[#ef4444]" : "text-[#2d3748] dark:text-white"}`}>
@@ -271,13 +274,18 @@ function ProgressBar({ label, value, pct }: { label: string; value: string; pct:
         aria-valuemin={0}
         aria-valuemax={100}
       >
-        <div className="h-full bg-[#2dd4a8] transition-all rounded-full" style={{ width: `${pct}%` }} />
+        <motion.div 
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="h-full bg-[#2dd4a8] rounded-full" 
+        />
       </div>
     </div>
   );
 }
 
-// ── Componente de Avatar com Alta Nitidez ─────────────────────────────────────
+// ── HighResAvatar Component ──────────────────────────────────────────────────
 
 function HighResAvatar({ src, name, className = "" }: { src: string | null; name: string; className?: string }) {
   const [imgErr, setImgErr] = useState(false);
@@ -330,12 +338,19 @@ export function OperatorsRankingTab({
     );
   }
 
-  const operadores = overview.operators;
+  // Ordena os operadores por pontuação para exibição exata no Ranking
+  const operadores = [...overview.operators].sort(
+    (a, b) => (b.avgPerformanceScore ?? 0) - (a.avgPerformanceScore ?? 0)
+  );
+
   const atual = operadores.find((o) => o.operatorId === selecionadoId) ?? operadores[0];
 
   const mediaScore = overview.teamPerformanceScore ?? 
     Math.round(operadores.reduce((s, o) => s + (o.avgPerformanceScore ?? 0), 0) / operadores.length);
-  const online = operadores.filter((o) => o.trafficLight === "green").length;
+
+  // Status Real Online vs Offline
+  const onlineCount = operadores.filter((o) => o.trafficLight === "green" || o.status === "disponivel" || o.status === "online").length;
+  const offlineCount = operadores.length - onlineCount;
 
   const totalSent = atual.satisfiedCount + atual.neutralCount + atual.frustratedCount;
   const satisfiedPct = totalSent > 0 ? Math.round((atual.satisfiedCount / totalSent) * 100) : (atual.satisfiedPctLastWeek ?? 84);
@@ -344,7 +359,6 @@ export function OperatorsRankingTab({
   const horasLabels = ["09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h"];
   const diasLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
-  // Dados reais/simulados para gráficos conforme layout da imagem do cliente
   const horasSla = [91, 93, 92, 95, 96, 97, 97, 98];
   const horasSentimento = [7.4, 7.6, 7.5, 7.9, 8.0, 8.1, 8.1, 8.2];
   const horasConversao = [8, 9, 9, 10, 11, 11, 12, 12];
@@ -358,41 +372,60 @@ export function OperatorsRankingTab({
   const operatorAudits = audits.filter((a) => a.operatorId === atual.operatorId);
 
   return (
-    <div className="min-h-dvh w-full bg-[#f9fafb] dark:bg-slate-950 text-[#2d3748] dark:text-slate-100 selection:bg-[#2dd4a8]/30 rounded-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800">
-      <main className="flex min-h-dvh min-w-0 flex-col lg:flex-row">
+    <div className="flex-1 w-full min-h-0 overflow-y-auto scrollbar-thin bg-[#f9fafb] dark:bg-slate-950 text-[#2d3748] dark:text-slate-100 selection:bg-[#2dd4a8]/30 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+      <main className="flex min-h-full w-full min-w-0 flex-col lg:flex-row">
         
-        {/* ── SIDEBAR DE VENDEDORES (Fiel ao Sales Performance Hub) ───────────── */}
+        {/* ── SIDEBAR DE VENDEDORES COM RANKING (#1, #2, #3) ────────────────── */}
         <section
           aria-label="Vendedores monitorados"
-          className="flex w-full shrink-0 flex-col border-b border-slate-200/80 dark:border-slate-800 bg-[#f8fafc]/60 dark:bg-slate-900/40 lg:sticky lg:top-0 lg:h-dvh lg:w-[380px] lg:self-start lg:border-b-0 lg:border-r xl:w-[420px]"
+          className="flex w-full shrink-0 flex-col border-b border-slate-200/80 dark:border-slate-800 bg-[#f8fafc]/60 dark:bg-slate-900/40 lg:w-[380px] xl:w-[420px] lg:border-b-0 lg:border-r"
         >
           <h2 className="sr-only">Lista de vendedores</h2>
-          <ul className="flex flex-col divide-y divide-slate-200/80 dark:divide-slate-800" role="list">
-            {operadores.map((op) => {
+          <ul className="flex flex-col divide-y divide-slate-200/80 dark:divide-slate-800 overflow-y-auto" role="list">
+            {operadores.map((op, idx) => {
               const ativo = op.operatorId === atual.operatorId;
               const opScore = op.avgPerformanceScore ?? 0;
+              const rankPos = idx + 1;
+
               return (
                 <li key={op.operatorId}>
-                  <button
+                  <motion.button
                     type="button"
+                    whileHover={{ x: 2 }}
+                    whileTap={{ scale: 0.99 }}
                     onClick={() => {
                       setSelecionadoId(op.operatorId);
                       setShowOccurrences(false);
                     }}
                     aria-pressed={ativo}
-                    className={`flex w-full items-center gap-4 p-4 text-left transition-colors sm:gap-5 sm:p-5 ${focusRing} focus-visible:ring-inset focus-visible:ring-offset-0 cursor-pointer ${
+                    className={`flex w-full items-center gap-3.5 p-4 text-left transition-all sm:gap-4 sm:p-5 ${focusRing} focus-visible:ring-inset focus-visible:ring-offset-0 cursor-pointer ${
                       ativo ? "bg-white dark:bg-slate-900 ring-1 ring-inset ring-[#2dd4a8]" : "hover:bg-slate-100/60 dark:hover:bg-slate-800/40"
                     }`}
                   >
+                    {/* Badge da Posição no Ranking (#1, #2, #3) */}
+                    <span
+                      className={`font-black text-xs sm:text-sm shrink-0 w-6 text-center ${
+                        rankPos === 1 ? "text-[#2dd4a8] font-black" :
+                        rankPos === 2 ? "text-slate-400 font-bold" :
+                        rankPos === 3 ? "text-amber-700 font-bold" :
+                        "text-[#64748b] font-medium"
+                      }`}
+                    >
+                      #{rankPos}
+                    </span>
+
+                    {/* Avatar do Operador */}
                     <HighResAvatar 
                       src={op.operatorAvatar} 
                       name={op.operatorName} 
                       className="size-14 sm:size-16" 
                     />
+
+                    {/* Nome, Status Real & Tendência */}
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-start justify-between gap-3">
+                      <span className="flex items-start justify-between gap-2">
                         <span
-                          className={`truncate text-base font-semibold sm:text-lg ${
+                          className={`truncate text-base font-bold sm:text-lg ${
                             ativo ? "text-[#2d3748] dark:text-white" : "text-[#4a5568] dark:text-slate-300"
                           }`}
                         >
@@ -410,322 +443,331 @@ export function OperatorsRankingTab({
                       <span className="mt-1 flex items-center gap-2">
                         <span className={`size-2 shrink-0 rounded-full ${statusDot(op.trafficLight)}`} aria-hidden="true" />
                         <span className="truncate text-xs font-semibold uppercase tracking-wider text-[#64748b]">
-                          {statusLabel(op.trafficLight)} • {op.totalConversations} atend.
+                          {statusLabel(op.trafficLight)} • {op.totalConversations} ATEND.
                         </span>
                       </span>
                       <span className="block text-xs font-semibold text-[#2dd4a8] mt-0.5">
                         ↑ Alta vs ontem
                       </span>
                     </span>
-                  </button>
+                  </motion.button>
                 </li>
               );
             })}
           </ul>
 
-          <div className="mt-auto hidden border-t border-slate-200/80 dark:border-slate-800 p-5 lg:block">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#64748b]">
+          {/* Resumo do Time no Rodapé da Sidebar (Online Real vs Offline) */}
+          <div className="mt-auto border-t border-slate-200/80 dark:border-slate-800 p-5">
+            <h3 className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
               Resumo do time
             </h3>
             <dl className="mt-3 grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-white dark:bg-slate-900 p-3 ring-1 ring-slate-200/80 dark:ring-slate-800">
-                <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#64748b]">Score médio</dt>
+                <dt className="text-[11px] font-extrabold uppercase tracking-wider text-[#64748b]">Score médio</dt>
                 <dd className="font-black text-2xl leading-none text-[#2dd4a8] mt-1">{mediaScore}</dd>
               </div>
               <div className="rounded-xl bg-white dark:bg-slate-900 p-3 ring-1 ring-slate-200/80 dark:ring-slate-800">
-                <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#64748b]">Online agora</dt>
+                <dt className="text-[11px] font-extrabold uppercase tracking-wider text-[#64748b]">Online / Offline</dt>
                 <dd className="font-black text-2xl leading-none text-[#2d3748] dark:text-white mt-1">
-                  {online}/{operadores.length}
+                  {onlineCount}/{operadores.length}
                 </dd>
               </div>
             </dl>
           </div>
         </section>
 
-        {/* ── PAINEL DE DETALHE DO VENDEDOR (Fiel ao Sales Performance Hub) ───── */}
+        {/* ── PAINEL DE DETALHE DO VENDEDOR COM ANIMAÇÃO & SCROLL LIBERADO ─────── */}
         <div
           id="detalhe-vendedor"
           tabIndex={-1}
-          className="min-w-0 flex-1 overflow-x-hidden bg-white dark:bg-slate-900 p-4 sm:p-6 lg:p-8"
+          className="min-w-0 flex-1 bg-white dark:bg-slate-900 p-4 sm:p-6 lg:p-8"
         >
-          <div className="mx-auto max-w-5xl space-y-8">
-            
-            {/* Seção Cabeçalho Vendedor (Com Foto de Alta Nitidez) */}
-            <section
-              aria-labelledby="titulo-vendedor"
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-4 lg:flex lg:items-center lg:gap-8"
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={atual.operatorId}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -14 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="mx-auto max-w-5xl space-y-8"
             >
-              <HighResAvatar 
-                src={atual.operatorAvatar} 
-                name={atual.operatorName} 
-                className="col-span-2 size-24 sm:size-32 lg:size-36" 
-              />
-              <div className="min-w-0 flex-1">
-                <h2
-                  id="titulo-vendedor"
-                  className="font-black text-2xl leading-tight tracking-tight text-[#2d3748] dark:text-white sm:text-3xl lg:text-4xl uppercase"
-                >
-                  {atual.operatorName}
-                </h2>
-                <p className="max-w-[56ch] text-pretty text-sm text-[#64748b] lg:text-base font-medium mt-1">
-                  Senior Account Executive • Time de Operações Brasil
-                </p>
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowOccurrences(!showOccurrences)}
-                    className={`flex min-h-11 items-center gap-2 rounded-lg bg-[#2d3748] dark:bg-slate-100 px-4 py-2 text-sm font-bold uppercase text-white dark:text-slate-900 transition-colors hover:bg-[#4a5568] cursor-pointer ${focusRing}`}
-                  >
-                    <Eye className="size-4 shrink-0" aria-hidden="true" />
-                    {showOccurrences ? "Ocultar Ocorrências" : "Ver Ocorrências"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onOpenHistory(atual.operatorId, atual.operatorName)}
-                    className={`flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold uppercase text-[#4a5568] dark:text-slate-300 ring-1 ring-slate-200/80 dark:ring-slate-800 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer ${focusRing}`}
-                  >
-                    <Clock className="size-4 shrink-0" aria-hidden="true" />
-                    Ver Histórico
-                  </button>
-                </div>
-              </div>
-
-              {/* Score Geral Numérico Imponente */}
-              <div className="shrink-0 text-right">
-                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[#64748b]">
-                  Score Geral
-                </span>
-                <div className="mt-1 font-black text-5xl leading-none text-[#2dd4a8] sm:text-6xl lg:text-7xl">
-                  {scoreVal > 0 ? scoreVal : 94}
-                </div>
-              </div>
-            </section>
-
-            {/* Seção 3 Gauges de Meia Pizza */}
-            <section aria-labelledby="titulo-qualidade" className="space-y-4">
-              <h3
-                id="titulo-qualidade"
-                className="text-xs font-semibold uppercase tracking-[0.2em] text-[#64748b]"
+              {/* Seção Cabeçalho Vendedor */}
+              <section
+                aria-labelledby="titulo-vendedor"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-4 lg:flex lg:items-center lg:gap-8"
               >
-                Métricas macro • hoje e últimas horas
-              </h3>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                <MetricCard
-                  label="SLA de Atendimento"
-                  gauge={
-                    <GaugeHalf value={98} display="98%" label="SLA de Atendimento" />
-                  }
-                  trend={
-                    <TrendChart
-                      title="Histórico de SLA nas últimas 8 horas"
-                      points={horasSla}
-                      labels={horasLabels}
-                      format={(v) => `${v}%`}
-                    />
-                  }
+                <HighResAvatar 
+                  src={atual.operatorAvatar} 
+                  name={atual.operatorName} 
+                  className="col-span-2 size-24 sm:size-32 lg:size-36" 
                 />
-                <MetricCard
-                  label="Sentimento do Cliente"
-                  gauge={
-                    <GaugeHalf
-                      value={82}
-                      display="8.2"
-                      label="Sentimento do Cliente"
-                    />
-                  }
-                  trend={
-                    <TrendChart
-                      title="Histórico de sentimento nas últimas 8 horas"
-                      points={horasSentimento}
-                      labels={horasLabels}
-                      format={(v) => v.toFixed(1)}
-                    />
-                  }
-                />
-                <MetricCard
-                  label="Taxa de Conversão"
-                  className="sm:col-span-2 xl:col-span-1"
-                  gauge={
-                    <GaugeHalf
-                      value={60}
-                      display="12%"
-                      label="Taxa de Conversão"
-                    />
-                  }
-                  trend={
-                    <TrendChart
-                      title="Histórico de conversão nas últimas 8 horas"
-                      points={horasConversao}
-                      labels={horasLabels}
-                      format={(v) => `${v}%`}
-                    />
-                  }
-                />
-              </div>
-            </section>
+                <div className="min-w-0 flex-1">
+                  <h2
+                    id="titulo-vendedor"
+                    className="font-black text-2xl leading-tight tracking-tight text-[#2d3748] dark:text-white sm:text-3xl lg:text-4xl uppercase"
+                  >
+                    {atual.operatorName}
+                  </h2>
+                  <p className="max-w-[56ch] text-pretty text-sm text-[#64748b] lg:text-base font-medium mt-1">
+                    Senior Account Executive • Time de Operações Brasil
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowOccurrences(!showOccurrences)}
+                      className={`flex min-h-11 items-center gap-2 rounded-lg bg-[#2d3748] dark:bg-slate-100 px-4 py-2 text-sm font-bold uppercase text-white dark:text-slate-900 transition-colors hover:bg-[#4a5568] cursor-pointer ${focusRing}`}
+                    >
+                      <Eye className="size-4 shrink-0" aria-hidden="true" />
+                      {showOccurrences ? "Ocultar Ocorrências" : "Ver Ocorrências"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenHistory(atual.operatorId, atual.operatorName)}
+                      className={`flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold uppercase text-[#4a5568] dark:text-slate-300 ring-1 ring-slate-200/80 dark:ring-slate-800 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer ${focusRing}`}
+                    >
+                      <Clock className="size-4 shrink-0" aria-hidden="true" />
+                      Ver Histórico
+                    </button>
+                  </div>
+                </div>
 
-            {/* Seção Indicadores Operacionais (4 KPIs com Gráfico Integrado - 100% igual ao Front Novo) */}
-            <section aria-labelledby="titulo-kpis" className="space-y-4">
-              <h3 id="titulo-kpis" className="text-xs font-semibold uppercase tracking-[0.2em] text-[#64748b]">
-                Indicadores operacionais • últimos 7 dias
-              </h3>
-              <div className="grid gap-px overflow-hidden rounded-2xl bg-slate-200/80 dark:bg-slate-800 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:grid-cols-2 xl:grid-cols-4">
-                <KpiCard
-                  label="Atendimentos Hoje"
-                  value={String(atual.totalConversations > 0 ? atual.totalConversations : 48)}
-                  note="+12% vs média"
-                  positive
-                  trend={
-                    <TrendChart
-                      title="Atendimentos por dia nos últimos 7 dias"
-                      points={diasAtendimentos}
-                      labels={diasLabels}
-                      height={48}
-                      format={(v) => `${v}`}
-                    />
-                  }
-                />
-                <KpiCard
-                  label="Tempo Médio (TMA)"
-                  value={atual.avgResponseTimeFormatted !== "–" ? atual.avgResponseTimeFormatted : "04:12"}
-                  note="Meta: 05:00"
-                  trend={
-                    <TrendChart
-                      title="Tempo médio de atendimento nos últimos 7 dias"
-                      points={diasTmaMin}
-                      labels={diasLabels}
-                      height={48}
-                      invert
-                      format={(v) => `${v.toFixed(1)}m`}
-                    />
-                  }
-                />
-                <KpiCard
-                  label="Casos Atrasados"
-                  value={String(atual.overdueCount).padStart(2, "0")}
-                  note={atual.overdueCount > 0 ? "Atenção necessária" : "Nenhum alerta"}
-                  danger={atual.overdueCount > 0}
-                  trend={
-                    <TrendChart
-                      title="Casos atrasados nos últimos 7 dias"
-                      points={diasAtrasados}
-                      labels={diasLabels}
-                      height={48}
-                      invert
-                      format={(v) => `${v}`}
-                    />
-                  }
-                />
-                <KpiCard
-                  label="Ranking Mensal"
-                  value="2º Lugar"
-                  note="Top 1% da operação"
-                  positive
-                  trend={
-                    <TrendChart
-                      title="Posição no ranking nos últimos 7 dias"
-                      points={diasRanking}
-                      labels={diasLabels}
-                      height={48}
-                      invert
-                      format={(v) => `${v}º`}
-                    />
-                  }
-                />
-              </div>
-            </section>
+                {/* Score Geral Numérico Imponente */}
+                <div className="shrink-0 text-right">
+                  <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+                    Score Geral
+                  </span>
+                  <div className="mt-1 font-black text-5xl leading-none text-[#2dd4a8] sm:text-6xl lg:text-7xl">
+                    {scoreVal > 0 ? scoreVal : 94}
+                  </div>
+                </div>
+              </section>
 
-            {/* Evolução do Score & Comparativo Mensal (100% igual ao Front Novo) */}
-            <section aria-labelledby="titulo-evolucao" className="grid gap-4 lg:grid-cols-2">
-              <article className="rounded-2xl bg-[#f8fafc] dark:bg-slate-900/60 p-5 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:p-6">
-                <h4 className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-[#64748b]">
-                  Evolução do Score (hoje)
-                </h4>
-                <TrendChart
-                  title="Evolução do score geral nas últimas 8 horas"
-                  points={horasScore}
-                  labels={horasLabels}
-                  height={96}
-                />
-              </article>
-              <article className="rounded-2xl bg-[#f8fafc] dark:bg-slate-900/60 p-5 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:p-6">
-                <h4 className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-[#64748b]">
-                  Comparativo Mensal
-                </h4>
-                <div className="space-y-4">
-                  <ProgressBar
-                    label="Volume de Conversas"
-                    value="1.240"
-                    pct={85}
+              {/* Seção 3 Gauges de Meia Pizza */}
+              <section aria-labelledby="titulo-qualidade" className="space-y-4">
+                <h3
+                  id="titulo-qualidade"
+                  className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]"
+                >
+                  Métricas macro • hoje e últimas horas
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  <MetricCard
+                    label="SLA de Atendimento"
+                    gauge={
+                      <GaugeHalf value={98} display="98%" label="SLA de Atendimento" />
+                    }
+                    trend={
+                      <TrendChart
+                        title="Histórico de SLA nas últimas 8 horas"
+                        points={horasSla}
+                        labels={horasLabels}
+                        format={(v) => `${v}%`}
+                      />
+                    }
                   />
-                  <ProgressBar
-                    label="Retenção de Base"
-                    value="92%"
-                    pct={92}
+                  <MetricCard
+                    label="Sentimento do Cliente"
+                    gauge={
+                      <GaugeHalf
+                        value={82}
+                        display="8.2"
+                        label="Sentimento do Cliente"
+                      />
+                    }
+                    trend={
+                      <TrendChart
+                        title="Histórico de sentimento nas últimas 8 horas"
+                        points={horasSentimento}
+                        labels={horasLabels}
+                        format={(v) => v.toFixed(1)}
+                      />
+                    }
+                  />
+                  <MetricCard
+                    label="Taxa de Conversão"
+                    className="sm:col-span-2 xl:col-span-1"
+                    gauge={
+                      <GaugeHalf
+                        value={60}
+                        display="12%"
+                        label="Taxa de Conversão"
+                      />
+                    }
+                    trend={
+                      <TrendChart
+                        title="Histórico de conversão nas últimas 8 horas"
+                        points={horasConversao}
+                        labels={horasLabels}
+                        format={(v) => `${v}%`}
+                      />
+                    }
                   />
                 </div>
-              </article>
-            </section>
+              </section>
 
-            {/* Painel Expansível de Ocorrências & Auditorias de I.A. */}
-            <AnimatePresence>
-              {showOccurrences && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-[#f8fafc] dark:bg-slate-900/60 p-6 space-y-4 overflow-hidden"
-                >
-                  <h4 className="text-xs font-bold text-[#2d3748] dark:text-white uppercase tracking-wider flex items-center gap-2">
-                    <ClipboardCheck className="h-4 w-4 text-[#2dd4a8]" />
-                    Ocorrências Recentes e Auditorias de I.A. ({operatorAudits.length})
+              {/* Seção Indicadores Operacionais (4 KPIs com Gráficos 7d) */}
+              <section aria-labelledby="titulo-kpis" className="space-y-4">
+                <h3 id="titulo-kpis" className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+                  Indicadores operacionais • últimos 7 dias
+                </h3>
+                <div className="grid gap-px overflow-hidden rounded-2xl bg-slate-200/80 dark:bg-slate-800 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:grid-cols-2 xl:grid-cols-4">
+                  <KpiCard
+                    label="Atendimentos Hoje"
+                    value={String(atual.totalConversations > 0 ? atual.totalConversations : 48)}
+                    note="+12% vs média"
+                    positive
+                    trend={
+                      <TrendChart
+                        title="Atendimentos por dia nos últimos 7 dias"
+                        points={diasAtendimentos}
+                        labels={diasLabels}
+                        height={48}
+                        format={(v) => `${v}`}
+                      />
+                    }
+                  />
+                  <KpiCard
+                    label="Tempo Médio (TMA)"
+                    value={atual.avgResponseTimeFormatted !== "–" ? atual.avgResponseTimeFormatted : "04:12"}
+                    note="Meta: 05:00"
+                    trend={
+                      <TrendChart
+                        title="Tempo médio de atendimento nos últimos 7 dias"
+                        points={diasTmaMin}
+                        labels={diasLabels}
+                        height={48}
+                        invert
+                        format={(v) => `${v.toFixed(1)}m`}
+                      />
+                    }
+                  />
+                  <KpiCard
+                    label="Casos Atrasados"
+                    value={String(atual.overdueCount).padStart(2, "0")}
+                    note={atual.overdueCount > 0 ? "Atenção necessária" : "Nenhum alerta"}
+                    danger={atual.overdueCount > 0}
+                    trend={
+                      <TrendChart
+                        title="Casos atrasados nos últimos 7 dias"
+                        points={diasAtrasados}
+                        labels={diasLabels}
+                        height={48}
+                        invert
+                        format={(v) => `${v}`}
+                      />
+                    }
+                  />
+                  <KpiCard
+                    label="Ranking Mensal"
+                    value="2º Lugar"
+                    note="Top 1% da operação"
+                    positive
+                    trend={
+                      <TrendChart
+                        title="Posição no ranking nos últimos 7 dias"
+                        points={diasRanking}
+                        labels={diasLabels}
+                        height={48}
+                        invert
+                        format={(v) => `${v}º`}
+                      />
+                    }
+                  />
+                </div>
+              </section>
+
+              {/* Evolução do Score & Comparativo Mensal */}
+              <section aria-labelledby="titulo-evolucao" className="grid gap-4 lg:grid-cols-2">
+                <article className="rounded-2xl bg-[#f8fafc] dark:bg-slate-900/60 p-5 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:p-6">
+                  <h4 className="mb-4 text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+                    Evolução do Score (hoje)
                   </h4>
+                  <TrendChart
+                    title="Evolução do score geral nas últimas 8 horas"
+                    points={horasScore}
+                    labels={horasLabels}
+                    height={96}
+                  />
+                </article>
+                <article className="rounded-2xl bg-[#f8fafc] dark:bg-slate-900/60 p-5 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:p-6">
+                  <h4 className="mb-4 text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+                    Comparativo Mensal
+                  </h4>
+                  <div className="space-y-4">
+                    <ProgressBar
+                      label="Volume de Conversas"
+                      value="1.240"
+                      pct={85}
+                    />
+                    <ProgressBar
+                      label="Retenção de Base"
+                      value="92%"
+                      pct={92}
+                    />
+                  </div>
+                </article>
+              </section>
 
-                  {operatorAudits.length === 0 ? (
-                    <p className="text-xs text-[#64748b] py-2 italic">
-                      Nenhuma auditoria recente encontrada para este operador.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {operatorAudits.map((audit) => (
-                        <div
-                          key={audit.id}
-                          onClick={() => onSelectAudit(audit.id)}
-                          className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition cursor-pointer flex flex-col gap-2 group"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-[#2d3748] dark:text-white truncate">
-                              Atendimento: {audit.contactName || "Cliente"}
-                            </span>
-                            <span className="text-xs font-black text-[#2dd4a8] flex items-center gap-1">
-                              Score: {audit.performanceScore ?? "–"}
-                              <ChevronRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
-                            </span>
+              {/* Painel Expansível de Ocorrências & Auditorias de I.A. */}
+              <AnimatePresence>
+                {showOccurrences && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-[#f8fafc] dark:bg-slate-900/60 p-6 space-y-4 overflow-hidden"
+                  >
+                    <h4 className="text-xs font-extrabold text-[#2d3748] dark:text-white uppercase tracking-wider flex items-center gap-2">
+                      <ClipboardCheck className="h-4 w-4 text-[#2dd4a8]" />
+                      Ocorrências Recentes e Auditorias de I.A. ({operatorAudits.length})
+                    </h4>
+
+                    {operatorAudits.length === 0 ? (
+                      <p className="text-xs text-[#64748b] py-2 italic">
+                        Nenhuma auditoria recente encontrada para este operador.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {operatorAudits.map((audit) => (
+                          <div
+                            key={audit.id}
+                            onClick={() => onSelectAudit(audit.id)}
+                            className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition cursor-pointer flex flex-col gap-2 group"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-[#2d3748] dark:text-white truncate">
+                                Atendimento: {audit.contactName || "Cliente"}
+                              </span>
+                              <span className="text-xs font-black text-[#2dd4a8] flex items-center gap-1">
+                                Score: {audit.performanceScore ?? "–"}
+                                <ChevronRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
+                              </span>
+                            </div>
+
+                            {audit.strengths && (
+                              <div className="text-xs bg-[#2dd4a8]/10 text-emerald-800 dark:text-emerald-300 p-2 rounded border border-[#2dd4a8]/20">
+                                <strong className="block text-[10px] font-extrabold uppercase text-[#2dd4a8] mb-0.5">Pontos Fortes:</strong>
+                                <p className="line-clamp-2">{audit.strengths}</p>
+                              </div>
+                            )}
+
+                            {audit.weaknesses && (
+                              <div className="text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300 p-2 rounded border border-red-200/50">
+                                <strong className="block text-[10px] font-extrabold uppercase text-red-600 mb-0.5">Pontos a Melhorar:</strong>
+                                <p className="line-clamp-2">{audit.weaknesses}</p>
+                              </div>
+                            )}
                           </div>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-                          {audit.strengths && (
-                            <div className="text-xs bg-[#2dd4a8]/10 text-emerald-800 dark:text-emerald-300 p-2 rounded border border-[#2dd4a8]/20">
-                              <strong className="block text-[10px] font-bold uppercase text-[#2dd4a8] mb-0.5">Pontos Fortes:</strong>
-                              <p className="line-clamp-2">{audit.strengths}</p>
-                            </div>
-                          )}
-
-                          {audit.weaknesses && (
-                            <div className="text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300 p-2 rounded border border-red-200/50">
-                              <strong className="block text-[10px] font-bold uppercase text-red-600 mb-0.5">Pontos a Melhorar:</strong>
-                              <p className="line-clamp-2">{audit.weaknesses}</p>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-          </div>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
     </div>

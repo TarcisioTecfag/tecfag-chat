@@ -3594,15 +3594,15 @@ export function MonitorView() {
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-hidden px-5 py-4 flex flex-col">
+      <div className={`flex-1 ${activeTab === "operators" ? "overflow-y-auto min-h-0" : "overflow-hidden"} px-5 py-4 flex flex-col`}>
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 6 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
-            className="flex flex-col flex-1 overflow-hidden"
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+            className={`flex flex-col flex-1 ${activeTab === "operators" ? "min-h-0 overflow-visible" : "overflow-hidden"}`}
           >
             {activeTab === "live" && (
               <LiveTab demoMode={DEMO_MODE} />
