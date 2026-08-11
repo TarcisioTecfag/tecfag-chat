@@ -94,19 +94,12 @@ function OperatorWalletCard({ op }: OperatorWalletCardProps) {
           {/* Cabecalho do Operador */}
           <div className="flex items-center gap-3 border-b border-line pb-3 mb-4">
             <img
-              src={op.id === "op-valentina" || op.id === "valentina" ? "/valentina.png" : (op.avatar || "https://i.pravatar.cc/80")}
+              src={op.avatar || "https://i.pravatar.cc/80"}
               alt={op.name}
               className="h-10 w-10 rounded-full object-cover border border-border shadow-xs"
             />
             <div>
-              <div className="flex items-center gap-1.5">
-                <h4 className="font-bold text-sm text-foreground">{op.name}</h4>
-                {(op.id === "op-valentina" || op.id === "valentina" || op.name.toLowerCase().includes("valentina")) && (
-                  <span className="inline-flex items-center gap-1 bg-primary/15 text-primary text-[9px] font-black px-1.5 py-0.5 rounded-md border border-primary/20">
-                    <Bot className="h-2.5 w-2.5" /> IA Persona
-                  </span>
-                )}
-              </div>
+              <h4 className="font-bold text-sm text-foreground">{op.name}</h4>
               <span className="text-[10px] text-muted-foreground block">{op.email}</span>
             </div>
           </div>
@@ -352,10 +345,7 @@ import {
   X,
   Search,
   MessageSquare,
-  ArrowLeftRight,
-  Bot,
-  Clock,
-  Sparkles,
+  ArrowLeftRight
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";

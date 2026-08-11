@@ -15,8 +15,8 @@ import { Route as ApiVoiceStreamRouteImport } from './routes/api/voice-stream'
 import { Route as ApiVoiceEnrichContactRouteImport } from './routes/api/voice-enrich-contact'
 import { Route as ApiVoiceCampaignsRouteImport } from './routes/api/voice-campaigns'
 import { Route as ApiVoiceCallsRouteImport } from './routes/api/voice-calls'
-import { Route as ApiVoiceBufferRouteImport } from './routes/api/voice-buffer'
 import { Route as ApiVoiceAgendaRouteImport } from './routes/api/voice-agenda'
+import { Route as ApiVoiceBufferRouteImport } from './routes/api/voice-buffer'
 import { Route as ApiValentinaVoiceRouteImport } from './routes/api/valentina-voice'
 import { Route as ApiTwilioVoiceWebhookRouteImport } from './routes/api/twilio-voice-webhook'
 import { Route as ApiTemplatesRouteImport } from './routes/api/templates'
@@ -55,7 +55,6 @@ import { Route as ApiGestaoContactsAnalyticsRouteImport } from './routes/api/ges
 import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
 import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
 import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
-import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/contacts/check-inactivity'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
@@ -104,14 +103,14 @@ const ApiVoiceCallsRoute = ApiVoiceCallsRouteImport.update({
   path: '/api/voice-calls',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiVoiceBufferRoute = ApiVoiceBufferRouteImport.update({
-  id: '/api/voice-buffer',
-  path: '/api/voice-buffer',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiVoiceAgendaRoute = ApiVoiceAgendaRouteImport.update({
   id: '/api/voice-agenda',
   path: '/api/voice-agenda',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVoiceBufferRoute = ApiVoiceBufferRouteImport.update({
+  id: '/api/voice-buffer',
+  path: '/api/voice-buffer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiValentinaVoiceRoute = ApiValentinaVoiceRouteImport.update({
@@ -306,12 +305,6 @@ const ApiContactsUpdateWalletRoute = ApiContactsUpdateWalletRouteImport.update({
   path: '/update-wallet',
   getParentRoute: () => ApiContactsRoute,
 } as any)
-const ApiContactsCheckInactivityRoute =
-  ApiContactsCheckInactivityRouteImport.update({
-    id: '/check-inactivity',
-    path: '/check-inactivity',
-    getParentRoute: () => ApiContactsRoute,
-  } as any)
 const ApiContactsContactIdRoute = ApiContactsContactIdRouteImport.update({
   id: '/$contactId',
   path: '/$contactId',
@@ -416,7 +409,6 @@ export interface FileRoutesByFullPath {
   '/api/templates': typeof ApiTemplatesRoute
   '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
   '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
-  '/api/voice-agenda': typeof ApiVoiceAgendaRoute
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
   '/api/voice-campaigns': typeof ApiVoiceCampaignsRoute
@@ -435,7 +427,6 @@ export interface FileRoutesByFullPath {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
-  '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -482,7 +473,6 @@ export interface FileRoutesByTo {
   '/api/templates': typeof ApiTemplatesRoute
   '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
   '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
-  '/api/voice-agenda': typeof ApiVoiceAgendaRoute
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
   '/api/voice-campaigns': typeof ApiVoiceCampaignsRoute
@@ -501,7 +491,6 @@ export interface FileRoutesByTo {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
-  '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -549,7 +538,6 @@ export interface FileRoutesById {
   '/api/templates': typeof ApiTemplatesRoute
   '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
   '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
-  '/api/voice-agenda': typeof ApiVoiceAgendaRoute
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
   '/api/voice-campaigns': typeof ApiVoiceCampaignsRoute
@@ -568,7 +556,6 @@ export interface FileRoutesById {
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
-  '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -617,7 +604,6 @@ export interface FileRouteTypes {
     | '/api/templates'
     | '/api/twilio-voice-webhook'
     | '/api/valentina-voice'
-    | '/api/voice-agenda'
     | '/api/voice-buffer'
     | '/api/voice-calls'
     | '/api/voice-campaigns'
@@ -636,7 +622,6 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
-    | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
@@ -683,7 +668,6 @@ export interface FileRouteTypes {
     | '/api/templates'
     | '/api/twilio-voice-webhook'
     | '/api/valentina-voice'
-    | '/api/voice-agenda'
     | '/api/voice-buffer'
     | '/api/voice-calls'
     | '/api/voice-campaigns'
@@ -702,7 +686,6 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
-    | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
@@ -749,7 +732,6 @@ export interface FileRouteTypes {
     | '/api/templates'
     | '/api/twilio-voice-webhook'
     | '/api/valentina-voice'
-    | '/api/voice-agenda'
     | '/api/voice-buffer'
     | '/api/voice-calls'
     | '/api/voice-campaigns'
@@ -768,7 +750,6 @@ export interface FileRouteTypes {
     | '/api/baileys/sync-avatars'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
-    | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
@@ -816,7 +797,6 @@ export interface RootRouteChildren {
   ApiTemplatesRoute: typeof ApiTemplatesRoute
   ApiTwilioVoiceWebhookRoute: typeof ApiTwilioVoiceWebhookRoute
   ApiValentinaVoiceRoute: typeof ApiValentinaVoiceRouteWithChildren
-  ApiVoiceAgendaRoute: typeof ApiVoiceAgendaRoute
   ApiVoiceBufferRoute: typeof ApiVoiceBufferRoute
   ApiVoiceCallsRoute: typeof ApiVoiceCallsRoute
   ApiVoiceCampaignsRoute: typeof ApiVoiceCampaignsRoute
@@ -904,18 +884,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiVoiceCallsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/voice-buffer': {
-      id: '/api/voice-buffer'
-      path: '/api/voice-buffer'
-      fullPath: '/api/voice-buffer'
-      preLoaderRoute: typeof ApiVoiceBufferRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/voice-agenda': {
       id: '/api/voice-agenda'
       path: '/api/voice-agenda'
       fullPath: '/api/voice-agenda'
       preLoaderRoute: typeof ApiVoiceAgendaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/voice-buffer': {
+      id: '/api/voice-buffer'
+      path: '/api/voice-buffer'
+      fullPath: '/api/voice-buffer'
+      preLoaderRoute: typeof ApiVoiceBufferRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina-voice': {
@@ -1184,13 +1164,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiContactsUpdateWalletRouteImport
       parentRoute: typeof ApiContactsRoute
     }
-    '/api/contacts/check-inactivity': {
-      id: '/api/contacts/check-inactivity'
-      path: '/check-inactivity'
-      fullPath: '/api/contacts/check-inactivity'
-      preLoaderRoute: typeof ApiContactsCheckInactivityRouteImport
-      parentRoute: typeof ApiContactsRoute
-    }
     '/api/contacts/$contactId': {
       id: '/api/contacts/$contactId'
       path: '/$contactId'
@@ -1338,13 +1311,11 @@ const ApiContactsContactIdRouteWithChildren =
 
 interface ApiContactsRouteChildren {
   ApiContactsContactIdRoute: typeof ApiContactsContactIdRouteWithChildren
-  ApiContactsCheckInactivityRoute: typeof ApiContactsCheckInactivityRoute
   ApiContactsUpdateWalletRoute: typeof ApiContactsUpdateWalletRoute
 }
 
 const ApiContactsRouteChildren: ApiContactsRouteChildren = {
   ApiContactsContactIdRoute: ApiContactsContactIdRouteWithChildren,
-  ApiContactsCheckInactivityRoute: ApiContactsCheckInactivityRoute,
   ApiContactsUpdateWalletRoute: ApiContactsUpdateWalletRoute,
 }
 
@@ -1393,7 +1364,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTemplatesRoute: ApiTemplatesRoute,
   ApiTwilioVoiceWebhookRoute: ApiTwilioVoiceWebhookRoute,
   ApiValentinaVoiceRoute: ApiValentinaVoiceRouteWithChildren,
-  ApiVoiceAgendaRoute: ApiVoiceAgendaRoute,
   ApiVoiceBufferRoute: ApiVoiceBufferRoute,
   ApiVoiceCallsRoute: ApiVoiceCallsRoute,
   ApiVoiceCampaignsRoute: ApiVoiceCampaignsRoute,

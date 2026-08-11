@@ -5,45 +5,20 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
-import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
+    // nitro/vite builds from this
     server: { entry: "server" },
   },
   nitro: {
-    // @whiskeysockets/baileys usa process.hrtime.bigint() que quebra quando bundlado pelo Nitro.
-    // Externalizando, o Node.js nativo resolve o módulo em runtime sem bundling.
+    // Externalizar socket.io e groq-sdk do bundle do servidor
+    // Eles usam APIs Node.js nativas e não podem ser bundlados
     externals: {
-      external: ["socket.io", "groq-sdk", "@whiskeysockets/baileys"],
+      external: ["socket.io", "groq-sdk"],
     },
+    // Incluir explicitamente os plugins do servidor (ex: WebSocket handler)
     plugins: ["server/plugins/websocket.ts"],
   } as any,
-  vite: {
-    plugins: [
-      // Polyfill de Buffer para o bundle do browser.
-      //
-      // O routeTree.gen.ts importa TODAS as rotas de API (incluindo /api/voice-buffer,
-      // /api/baileys/*, etc.) que usam Buffer do Node.js. Sem polyfill, o browser
-      // gera "ReferenceError: Buffer is not defined".
-      //
-      // Incluímos APENAS 'buffer' — NÃO 'process':
-      //   - O npm 'buffer' é browser-safe e substitui Node.js Buffer corretamente.
-      //   - O npm 'process' substituiria o process nativo do Node.js no bundle SSR,
-      //     quebrando APIs como process.env e hrtime. Como externalizamos o Baileys,
-      //     não há mais risco de process.hrtime no servidor.
-      //
-      // Não usamos 'apply' para restringir ao client porque o spread+apply
-      // não é suportado corretamente pelo pipeline do @lovable.dev/vite-tanstack-config.
-      // O polyfill de 'buffer' é seguro no bundle SSR pois o Node.js tem buffer nativo
-      // e o pacote npm é compatível com a API Node.js Buffer.
-      nodePolyfills({
-        include: ["buffer"],
-        globals: {
-          Buffer: true,
-        },
-      }),
-    ],
-  },
 });

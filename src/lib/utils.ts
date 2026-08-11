@@ -83,89 +83,12 @@ export async function urlToBase64(url: string): Promise<string | undefined> {
     const res = await fetch(url);
     if (!res.ok) return undefined;
     const arrayBuffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
+    const buffer = Buffer.from(arrayBuffer);
     const contentType = res.headers.get("content-type") || "image/jpeg";
-    return `data:${contentType};base64,${btoa(binary)}`;
+    return `data:${contentType};base64,${buffer.toString("base64")}`;
   } catch (err) {
     console.error("[urlToBase64] Erro ao converter imagem para base64:", err);
     return undefined;
   }
 }
-
-export function getDaysWithoutContact(item: {
-  lastContactAt?: string | Date | null;
-  lastMessageTime?: string | Date | null;
-  daysWithoutContact?: number;
-  createdAt?: string | Date | null;
-}): number {
-  if (typeof item?.daysWithoutContact === "number") {
-    return item.daysWithoutContact;
-  }
-
-  const dateVal = item?.lastContactAt || item?.lastMessageTime;
-  if (!dateVal) return 0;
-
-  if (dateVal instanceof Date) {
-    const diffMs = Date.now() - dateVal.getTime();
-    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-  }
-
-  const str = String(dateVal).trim();
-
-  // Se for string ISO ou formato data (ex: 2026-06-01T...)
-  if (str.includes("-") || str.includes("T")) {
-    const parsed = new Date(str);
-    if (!isNaN(parsed.getTime())) {
-      const diffMs = Date.now() - parsed.getTime();
-      return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-    }
-  }
-
-  // Se for formato DD/MM (ex: "26/06")
-  if (/^\d{2}\/\d{2}$/.test(str)) {
-    const [day, month] = str.split("/").map(Number);
-    const now = new Date();
-    let parsed = new Date(now.getFullYear(), month - 1, day);
-    if (parsed > now) {
-      parsed.setFullYear(now.getFullYear() - 1);
-    }
-    const diffMs = now.getTime() - parsed.getTime();
-    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-  }
-
-  // Se for formato relógio "10:45" ou "Hoje", são 0 dias
-  if (str.includes(":") || str.toLowerCase() === "hoje") {
-    return 0;
-  }
-
-  // Se for "Ontem", é 1 dia
-  if (str.toLowerCase() === "ontem") {
-    return 1;
-  }
-
-  return 0;
-}
-
-export function ensureValentinaOperator<T extends { id: string }>(opList: T[]): T[] {
-  const hasValentina = opList.some((o) => o.id === "op-valentina" || o.id === "valentina");
-  if (!hasValentina) {
-    const valentinaOp = {
-      id: "op-valentina",
-      name: "Valentina (I.A)",
-      email: "valentina@valem.ai",
-      avatar: "/valentina.png",
-      status: "disponivel",
-      passwordHash: "valentina_ai_hash",
-      groupId: "group-valem-comercial",
-      tenantId: "valem",
-    } as unknown as T;
-    return [valentinaOp, ...opList];
-  }
-  return opList;
-}
-
 
