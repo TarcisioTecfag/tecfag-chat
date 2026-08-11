@@ -175,7 +175,12 @@ export class MediaStreamHandler {
 
     this.isProcessing = true;
     this.hasSpoken = false;
-    const combinedBase64 = this.audioBufferChunks.join("");
+
+    // Converte cada string Base64 em Buffer binário e depois concatena para gerar um Base64 contínuo e válido
+    const rawBuffers = this.audioBufferChunks.map(chunk => Buffer.from(chunk, "base64"));
+    const combinedBuffer = Buffer.concat(rawBuffers);
+    const combinedBase64 = combinedBuffer.toString("base64");
+
     const chunkCount = this.audioBufferChunks.length;
     this.audioBufferChunks = [];
 
