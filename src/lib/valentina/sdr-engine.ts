@@ -9,6 +9,77 @@ import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 import { getKnowledgeBaseContext } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { getAiPersona } from "../ai-persona";
+import * as fs from "fs";
+import * as path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
+
+// ── Diretório de Áudios PTT da Valentina ─────────────────────────────────────────
+const VALENTINA_AUDIOS_DIR = "C:\\Users\\TEC FAG\\Downloads\\AUDIOS VALENTINA";
+
+/**
+ * Converte um arquivo MP3 para OGG/Opus (formato obrigatório para PTT do WhatsApp)
+ * usando FFmpeg via child_process. Retorna o Buffer do arquivo OGG gerado.
+ */
+async function convertMp3ToPttOgg(mp3Path: string): Promise<Buffer> {
+  const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
+
+  // Se já existe o OGG convertido, reutiliza sem reconverter
+  if (fs.existsSync(oggPath)) {
+    return fs.readFileSync(oggPath);
+  }
+
+  // Tentar localizar o ffmpeg no PATH ou em locais padrão do Windows
+  const ffmpegPaths = [
+    "ffmpeg",
+    "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+    "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    path.join(process.env["LOCALAPPDATA"] || "", "Microsoft\\WinGet\\Links\\ffmpeg.exe"),
+  ];
+
+  let ffmpegBin = "ffmpeg";
+  for (const candidate of ffmpegPaths) {
+    try {
+      if (candidate !== "ffmpeg" && fs.existsSync(candidate)) {
+        ffmpegBin = candidate;
+        break;
+      }
+    } catch { /* tenta próximo */ }
+  }
+
+  try {
+    await execFileAsync(ffmpegBin, [
+      "-y",          // sobrescreve sem perguntar
+      "-i", mp3Path,
+      "-c:a", "libopus",
+      "-b:a", "32k",
+      "-vbr", "on",
+      "-application", "voip",
+      oggPath,
+    ]);
+    console.log(`[Valentina PTT] ✅ Áudio convertido para Opus/OGG: ${oggPath}`);
+    return fs.readFileSync(oggPath);
+  } catch (err: any) {
+    console.warn(`[Valentina PTT] ⚠️ FFmpeg não disponível ou falhou (${err?.message}). Enviando MP3 original (pode aparecer como arquivo, não como voz).`);
+    // Fallback: envia o MP3 mesmo — o WhatsApp vai aceitar, mas talvez não mostre a waveform
+    return fs.readFileSync(mp3Path);
+  }
+}
+
+/**
+ * Retorna a duração aproximada de um arquivo de áudio em segundos
+ * baseado no tamanho do arquivo (estimativa para MP3 a 32kbps).
+ * Não depende do FFmpeg para funcionar.
+ */
+function estimateAudioDurationSeconds(fileSizeBytes: number): number {
+  // MP3 a 128kbps ≈ 16KB/s | OGG Opus a 32kbps ≈ 4KB/s
+  // Usamos 16KB/s como estimativa conservadora (válida para MP3 padrão)
+  const estimatedSeconds = fileSizeBytes / (16 * 1024);
+  // Clamp entre 3s e 60s para garantir um delay razoável
+  return Math.min(60, Math.max(3, estimatedSeconds));
+}
 
 // ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
 export interface SdrAiResult {
@@ -762,6 +833,100 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return false;
 
+      // ── INTERCEPTAÇÃO DE CONFIRMAÇÃO DE ÁUDIO PTT ──────────────────────────────
+      // Se o cliente está respondendo a pergunta "Posso te mandar um áudio?"
+      const meta = (flowState?.metadata as Record<string, any>) || {};
+      if (meta.awaitingAudioConfirmation) {
+        const clientText = batchItems.map((i) => i.text).join(" ").toLowerCase().trim();
+        const clientSaidYes = /^(sim|s|pode|claro|ok|vai|manda|pode mandar|quero|com certeza|tá bom|ta bom|tá|ta|beleza|perfeito|ótimo|otimo|legal|manda sim|pode sim)/.test(clientText);
+        const clientSaidNo = /^(nã|na|não|nao|n(ã|a)o|prefiro texto|prefiro por texto|não precisa|nao precisa|pode ser texto|por texto)/.test(clientText);
+
+        if (clientSaidYes) {
+          console.log(`[SdrEngine] 🎙️ Cliente confirmou áudio PTT. Iniciando envio humanizado...`);
+
+          // Resetar o flag no banco
+          if (flowState) {
+            const newMeta = { ...meta, awaitingAudioConfirmation: false };
+            await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
+          }
+
+          // Enviar o PTT com presença 'recording'
+          await this.sendPttAudio(
+            tenantId,
+            conversationId,
+            contactPhone,
+            meta.audioFileName || "25MIL UNIDADES.mp3",
+            signal
+          );
+          return true;
+        } else if (clientSaidNo) {
+          console.log(`[SdrEngine] 📝 Cliente recusou áudio PTT. Continuando por texto.`);
+          // Resetar o flag e continuar o fluxo normal de texto
+          if (flowState) {
+            const newMeta = { ...meta, awaitingAudioConfirmation: false };
+            await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
+          }
+          // Deixa o fluxo continuar normalmente abaixo (envia as mensagens de texto)
+        }
+        // Se o cliente respondeu outra coisa (nem sim nem não), também continua normalmente
+      }
+
+      // ── DETECÇÃO: Valentina confirmou disponibilidade → ativar fluxo de áudio PTT ─
+      // Verificar se a IA está respondendo com "Temos sim" (confirmando disponibilidade)
+      // e se existe um arquivo de áudio mapeado para este contexto
+      const firstBotMsg = aiResult.messagesToSend[0]?.toLowerCase() || "";
+      const isConfirmingAvailability = (
+        firstBotMsg.includes("temos sim") ||
+        firstBotMsg.includes("temos, sim") ||
+        firstBotMsg.includes("temos claro") ||
+        firstBotMsg.includes("sim, temos") ||
+        firstBotMsg.includes("sim! temos")
+      );
+
+      // Verificar se existe arquivo de áudio para este atendimento (baseado no produto)
+      const productContext = (updatedCollectedData["QUAL O TIPO DE PRODUTO?"]?.value || batchItems.map(i => i.text).join(" ")).toLowerCase();
+      let matchedAudioFile: string | null = null;
+
+      // Mapa de contextos → arquivos de áudio PTT
+      // Chaves são PALAVRAS-CHAVE detectadas no texto do cliente (lote atual + histórico)
+      const AUDIO_MAP: Record<string, string> = {
+        "25mil": "25MIL UNIDADES.mp3",
+        "25 mil": "25MIL UNIDADES.mp3",
+        "25000": "25MIL UNIDADES.mp3",
+        "25.000": "25MIL UNIDADES.mp3",
+      };
+
+      // Verificar no texto do lote atual E no contexto do produto coletado
+      const batchTextForAudio = batchItems.map(i => i.text).join(" ").toLowerCase();
+      const fullContextForAudio = batchTextForAudio + " " + productContext;
+      for (const [keyword, audioFile] of Object.entries(AUDIO_MAP)) {
+        if (fullContextForAudio.includes(keyword)) {
+          const audioPath = path.join(VALENTINA_AUDIOS_DIR, audioFile);
+          if (fs.existsSync(audioPath)) {
+            matchedAudioFile = audioFile;
+            break;
+          }
+        }
+      }
+
+      if (isConfirmingAvailability && matchedAudioFile && !meta.awaitingAudioConfirmation) {
+        console.log(`[SdrEngine] 🎙️ Valentina confirmou disponibilidade. Ativando fluxo de áudio PTT para: ${matchedAudioFile}`);
+
+        // Substituir os balões da IA: manter apenas o primeiro ("Temos sim, claro!") e perguntar sobre o áudio
+        const confirmationMsg = aiResult.messagesToSend[0]; // "Temos sim, claro!"
+        aiResult.messagesToSend = [
+          confirmationMsg,
+          "Posso te mandar um áudio explicando melhor?",
+        ];
+
+        // Salvar o flag no banco para o próximo turno
+        if (flowState) {
+          const newMeta = { ...meta, awaitingAudioConfirmation: true, audioFileName: matchedAudioFile };
+          await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
+        }
+      }
+      // ── FIM DA INTERCEPTAÇÃO DE ÁUDIO PTT ────────────────────────────────────────
+
       // 11. Envio Humanizado das Mensagens com presencia 'composing' longa, citação no WhatsApp e AbortSignal
       await this.sendHumanizedBotMessages(
         tenantId,
@@ -782,6 +947,149 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
       console.error("[SdrEngine] Erro no fluxo SDR Valentina:", e);
       return false;
+    }
+  }
+
+  /**
+   * Envia um áudio pré-gravado como PTT (Push-To-Talk / Mensagem de Voz) com simulação
+   * realista de "gravando áudio..." (recording presence) antes do envio.
+   */
+  private async sendPttAudio(
+    tenantId: string,
+    conversationId: string,
+    phone: string,
+    audioFileName: string,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const sock = SessionManager.getInstance().getSession(tenantId);
+    if (!sock) {
+      console.error(`[SdrEngine PTT] Sessão Baileys não encontrada para tenant ${tenantId}`);
+      return;
+    }
+
+    const realJid = await resolveRealJid(sock, phone);
+    const mp3Path = path.join(VALENTINA_AUDIOS_DIR, audioFileName);
+
+    if (!fs.existsSync(mp3Path)) {
+      console.error(`[SdrEngine PTT] Arquivo de áudio não encontrado: ${mp3Path}`);
+      return;
+    }
+
+    const fileSizeBytes = fs.statSync(mp3Path).size;
+    const estimatedDurationMs = estimateAudioDurationSeconds(fileSizeBytes) * 1000;
+
+    console.log(`[SdrEngine PTT] 🎙️ Iniciando envio PTT: ${audioFileName} (~${(estimatedDurationMs / 1000).toFixed(1)}s)`);
+
+    // 1. Converter MP3 → OGG Opus (necessário para o balão de voz do WhatsApp)
+    let audioBuffer: Buffer;
+    let audioMime: string;
+    try {
+      audioBuffer = await convertMp3ToPttOgg(mp3Path);
+      // Verificar se foi gerado OGG (começa com 'OggS') ou ficou MP3
+      const isOgg = audioBuffer[0] === 0x4F && audioBuffer[1] === 0x67 && audioBuffer[2] === 0x67 && audioBuffer[3] === 0x53;
+      audioMime = isOgg ? "audio/ogg; codecs=opus" : "audio/mpeg";
+    } catch (convErr: any) {
+      console.error(`[SdrEngine PTT] Erro na conversão de áudio:`, convErr?.message);
+      return;
+    }
+
+    // 2. Simular presença de "gravando áudio..." por tempo proporcional à duração real
+    try {
+      await sock.sendPresenceUpdate("recording", realJid);
+      console.log(`[SdrEngine PTT] 🎙️ Presença 'recording' enviada. Aguardando ${(estimatedDurationMs / 1000).toFixed(1)}s...`);
+    } catch { /* silencia */ }
+
+    // Aguardar (com checagem de abort a cada 200ms)
+    const startTs = Date.now();
+    while (Date.now() - startTs < estimatedDurationMs) {
+      if (signal?.aborted) {
+        try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+        console.log(`[SdrEngine PTT] Envio PTT abortado pelo AbortSignal.`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    // 3. Pausar o estado de 'gravando' e enviar o PTT
+    try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+
+    if (signal?.aborted) return;
+
+    let sentMsg: any;
+    try {
+      sentMsg = await sock.sendMessage(realJid, {
+        audio: audioBuffer,
+        mimetype: audioMime,
+        ptt: true, // 👈 Exibe o balão de voz oficial (com waveform e foto de perfil)
+      });
+      console.log(`[SdrEngine PTT] ✅ PTT enviado com sucesso! MessageId: ${sentMsg?.key?.id}`);
+    } catch (sendErr: any) {
+      console.error(`[SdrEngine PTT] ❌ Erro ao enviar PTT via Baileys:`, sendErr?.message);
+      return;
+    }
+
+    // 4. Registrar no banco de dados e notificar a UI via SSE
+    const botMessageId = sentMsg?.key?.id || `bot-ptt-${Date.now()}`;
+    const displayContent = "🎤 Mensagem de Voz";
+
+    try {
+      await db.insert(conversations).values({
+        id: conversationId,
+        tenantId,
+        contactId: `c-${phone}`,
+        queueState: "automacao",
+        lastMessageText: displayContent,
+        lastMessageTime: new Date(),
+        createdAt: new Date(),
+      }).onConflictDoNothing();
+
+      await db.insert(messages).values({
+        id: botMessageId,
+        tenantId,
+        conversationId,
+        senderType: "bot",
+        senderName: "Valentina (SDR)",
+        content: `[MEDIA:audio]${botMessageId}`,
+        isInternalNote: false,
+        sentAt: new Date(),
+      }).onConflictDoNothing();
+
+      await db.update(conversations)
+        .set({ lastMessageText: displayContent, lastMessageTime: new Date() })
+        .where(eq(conversations.id, conversationId));
+
+      // Persistir buffer do áudio no banco
+      try {
+        const { mediaFiles } = await import("../../db/schema");
+        await db.insert(mediaFiles).values({
+          id: botMessageId,
+          fileName: audioFileName,
+          mimeType: audioMime,
+          base64Data: audioBuffer.toString("base64"),
+          createdAt: new Date(),
+        }).onConflictDoNothing();
+      } catch { /* não crítico */ }
+
+      // Notificar a UI via SSE
+      const currentConv = await db.query.conversations.findFirst({
+        where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+      });
+
+      SessionManager.getInstance().notifyPublic(tenantId, {
+        type: "message",
+        message: {
+          id: botMessageId,
+          conversationId,
+          senderType: "bot",
+          senderName: "Valentina (SDR)",
+          content: `[MEDIA:audio]${botMessageId}`,
+          sentAt: new Date(),
+          queue: currentConv?.queueState || "automacao",
+          operatorId: currentConv?.operatorId || null,
+        },
+      });
+    } catch (dbErr: any) {
+      console.error(`[SdrEngine PTT] Erro ao salvar PTT no banco:`, dbErr?.message);
     }
   }
 
