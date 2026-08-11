@@ -15,7 +15,7 @@ import {
 } from "../api/twilio-voice-webhook";
 import { cleanVoiceResponse } from "../../lib/valentina/voice-engine";
 
-const VOICE = "Google.pt-BR-Neural2-C";
+const VOICE = "Polly.Camila-Neural";
 const LANGUAGE = "pt-BR";
 const BASE_URL = "https://tecfagchat.up.railway.app";
 const WEBHOOK_PATH = "/api/twilio-voice-webhook";

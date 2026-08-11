@@ -19,7 +19,7 @@ import type { VoiceMessage } from "../../lib/valentina/voice-types";
 import { vertexAi } from "../../lib/vertex-ai";
 
 const TENANT_ID = "valem";
-const VOICE = "Google.pt-BR-Neural2-C";
+const VOICE = "Polly.Camila-Neural";
 const LANGUAGE = "pt-BR";
 const BASE_URL = "https://tecfagchat.up.railway.app";
 const WEBHOOK_PATH = "/api/twilio-voice-webhook";
@@ -362,28 +362,8 @@ async function handleWebhook(request: Request): Promise<Response> {
 export const Route = createFileRoute("/api/twilio-voice-webhook")({
   server: {
     handlers: {
-      GET: async () => {
-        // Conecta direto ao WebSocket — Valentina fala via ElevenLabs
-        const body = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect>
-    <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
-  </Connect>
-</Response>`;
-        return new Response(body, { headers: { "Content-Type": "text/xml" } });
-      },
-      POST: async () => {
-        // Sem <Say> — Valentina fala APENAS via ElevenLabs pelo WebSocket MediaStream
-        const body = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect>
-    <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
-  </Connect>
-</Response>`;
-        return new Response(body, {
-          headers: { "Content-Type": "text/xml; charset=utf-8" },
-        });
-      },
+      GET: async ({ request }: { request: Request }) => handleWebhook(request),
+      POST: async ({ request }: { request: Request }) => handleWebhook(request),
     },
   },
 });
