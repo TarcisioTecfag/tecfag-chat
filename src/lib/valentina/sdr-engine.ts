@@ -865,6 +865,59 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         // Se o cliente respondeu outra coisa (nem sim nem não), também continua normalmente
       }
 
+      // ── INTERCEPTAÇÃO DE CONFIRMAÇÃO DE EMPRESA → ÁUDIO "TARCISIO VOU TE LIGAR" + DISPARO DE LIGAÇÃO ──
+      const clientFullText = batchItems.map((i) => i.text).join(" ").toLowerCase().trim();
+      const isCompanyConfirm = Boolean(
+        meta.awaitingCompanyConfirmation || 
+        /é essa (?:mesma|empresa)/i.test(clientFullText) ||
+        /sim,? é essa/i.test(clientFullText) ||
+        /sim,? é a tecfag/i.test(clientFullText) ||
+        ((/(?:^|\b)(sim|é essa mesma|exato|correto|essa mesma|isso mesmo)(?:\b|$)/i.test(clientFullText)) && Boolean(updatedCollectedData["RAZAO_SOCIAL"] || updatedCollectedData["NOME DA EMPRESA"]))
+      );
+
+      if (isCompanyConfirm && !meta.callTriggered) {
+        console.log(`[SdrEngine] 🎯 Cliente confirmou a empresa ("${clientFullText}"). Enviando áudio "Tarcisio_um_minuto_vou_te_ligar.mp3" e programando ligação ativa!`);
+        
+        // 1. Atualizar flag no banco
+        if (flowState) {
+          const newMeta = { ...meta, awaitingCompanyConfirmation: false, callTriggered: true };
+          await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
+        }
+
+        // 2. Enviar o PTT "Tarcisio_um_minuto_vou_te_ligar.mp3" com status 'recording' imediato
+        await this.sendPttAudio(
+          tenantId,
+          conversationId,
+          contactPhone,
+          "Tarcisio_um_minuto_vou_te_ligar.mp3",
+          signal
+        );
+
+        // 3. Aguardar 10 segundos antes de disparar a ligação
+        console.log(`[SdrEngine] ⏳ Áudio enviado! Aguardando 10 segundos para iniciar a ligação ativa...`);
+        const callWaitStart = Date.now();
+        while (Date.now() - callWaitStart < 10000) {
+          if (signal?.aborted) return true;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
+        // 4. Disparar a chamada via endpoint de Outbound Call
+        try {
+          console.log(`[SdrEngine] 📞 Disparando ligação ativa da Valentina para ${contactPhone}...`);
+          const appUrl = process.env.PUBLIC_APP_URL || "https://tecfagchat.up.railway.app";
+          const callRes = await fetch(`${appUrl}/api/trigger-outbound-call`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phone: contactPhone }),
+          });
+          console.log(`[SdrEngine] 🚀 Chamada ativa solicitada. Status HTTP: ${callRes.status}`);
+        } catch (callErr: any) {
+          console.error(`[SdrEngine] ❌ Erro ao disparar chamada ativa:`, callErr?.message || callErr);
+        }
+
+        return true;
+      }
+
       // ── DETECÇÃO: Valentina confirmou disponibilidade → ativar fluxo de áudio PTT ─
       // Verificar se a IA está respondendo confirmando disponibilidade (temos, tem sim, claro, disponível, etc.)
       const firstBotMsg = aiResult.messagesToSend[0]?.toLowerCase() || "";
@@ -944,6 +997,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
       // ─────────────────────────────────────────────────────────────────────────────
 
+      // ── DETECÇÃO: Se Valentina perguntou a confirmação da Empresa → definir flag no metadata
+      const fullTextToSend = aiResult.messagesToSend.join(" ");
+      if (/sua empresa é a|certo\? só me responde/i.test(fullTextToSend) && flowState) {
+        const newMeta = { ...meta, awaitingCompanyConfirmation: true };
+        await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
+        console.log(`[SdrEngine] 🏢 Flag 'awaitingCompanyConfirmation' ativado para a conversa ${conversationId}.`);
+      }
+
       // 11. Envio Humanizado das Mensagens com presencia 'composing' longa, citação no WhatsApp e AbortSignal
       await this.sendHumanizedBotMessages(
         tenantId,
@@ -998,6 +1059,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     const fs = require("fs") as typeof import("fs");
     const path = require("path") as typeof import("path");
     const realJid = await resolveRealJid(sock, phone);
+
+    // 1. Mostrar imediatamente a presença 'recording' (gravando áudio...) no WhatsApp
+    try {
+      await sock.sendPresenceUpdate("recording", realJid);
+      console.log(`[SdrEngine PTT] 🎙️ Presença 'recording' ativada imediatamente para ${phone}`);
+    } catch { /* silencia */ }
+
     const audioDir = getAudioDir();
     const mp3Path = path.join(audioDir, audioFileName.replace(/ /g, "_"));
     const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
@@ -1007,14 +1075,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       return;
     }
 
-
     const targetPath = fs.existsSync(mp3Path) ? mp3Path : oggPath;
     const fileSizeBytes = fs.statSync(targetPath).size;
     const estimatedDurationMs = estimateAudioDurationSeconds(fileSizeBytes) * 1000;
 
-    console.log(`[SdrEngine PTT] 🎙️ Iniciando envio PTT: ${audioFileName} (~${(estimatedDurationMs / 1000).toFixed(1)}s)`);
+    console.log(`[SdrEngine PTT] 🎙️ Envio PTT iniciado: ${audioFileName} (~${(estimatedDurationMs / 1000).toFixed(1)}s)`);
 
-    // 1. Converter MP3 → OGG Opus (necessário para o balão de voz do WhatsApp)
+    // 2. Converter MP3 → OGG Opus (necessário para o balão de voz do WhatsApp)
     let audioBuffer: Buffer;
     let audioMime: string;
     try {
@@ -1027,13 +1094,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       return;
     }
 
-    // 2. Simular presença de "gravando áudio..." por tempo proporcional à duração real
-    try {
-      await sock.sendPresenceUpdate("recording", realJid);
-      console.log(`[SdrEngine PTT] 🎙️ Presença 'recording' enviada. Aguardando ${(estimatedDurationMs / 1000).toFixed(1)}s...`);
-    } catch { /* silencia */ }
-
-    // Aguardar (com checagem de abort a cada 200ms)
+    // 3. Aguardar gravação simulada
     const startTs = Date.now();
     while (Date.now() - startTs < estimatedDurationMs) {
       if (signal?.aborted) {

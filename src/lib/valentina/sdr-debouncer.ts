@@ -112,12 +112,17 @@ export class SdrDebouncer {
     session.abortController = abortController;
     session.isProcessing = true;
 
-    // 1. Mostrar caixinha de "digitando..." no WhatsApp imediatamente ao iniciar raciocínio
+    // 1. Mostrar caixinha de "gravando áudio..." ou "digitando..." no WhatsApp imediatamente ao iniciar raciocínio
     try {
       const sock = SessionManager.getInstance().getSession(session.tenantId);
       if (sock) {
         const realJid = await resolveRealJid(sock, session.phone);
-        await sock.sendPresenceUpdate("composing", realJid);
+
+        // Verificar se a conversa está em um turno de áudio PTT
+        const clientText = session.messagesQueue.map((m) => m.text).join(" ").toLowerCase();
+        const isAudioTurn = /(?:claro|sim|pode|manda|é essa|essa mesma|correto|exato|isso mesmo)/i.test(clientText);
+        
+        await sock.sendPresenceUpdate(isAudioTurn ? "recording" : "composing", realJid);
       }
     } catch { /* silencia */ }
 

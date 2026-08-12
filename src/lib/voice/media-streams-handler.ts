@@ -13,9 +13,53 @@ export class MediaStreamHandler {
   private history: VoiceMessage[] = [];
   private startTime: Date = new Date();
 
+  private fromNumber: string = "";
+  private toNumber: string = "";
+
   constructor(ws: WebSocket) {
     this.ws = ws;
     this.setupListeners();
+  }
+
+  private async getLatestTriageContext(phone: string) {
+    const cleanPhone = phone.replace(/\D/g, "").replace(/^55/, "");
+    try {
+      const flowState = await db.query.agentFlowStates.findFirst({
+        where: (table, { sql }) => sql`${table.phone} LIKE ${"%" + cleanPhone + "%"}`,
+        orderBy: (table, { desc }) => [desc(table.updatedAt)],
+      });
+
+      const collectedData = (flowState?.collectedData as Record<string, any>) || {};
+      const name = collectedData["QUAL O SEU NOME?"]?.value || "Tarcísio";
+      const product = collectedData["QUAL O TIPO DE PRODUTO?"]?.value || "Válvula Trigger";
+      const quantity = collectedData["QUAL A QUANTIDADE DESEJADA?"]?.value || "25 mil unidades";
+      const cnpj = collectedData["QUAL O SEU CNPJ?"]?.value || "14.050.364/0001-90";
+      const company = collectedData["RAZAO_SOCIAL"]?.value || collectedData["NOME DA EMPRESA"]?.value || "TECFAG COMERCIO E IMPORTACAO DE MAQUINAS LTDA";
+
+      const dynamic_variables = {
+        user_name: name,
+        company_name: company,
+        product_name: product,
+        quantity: quantity,
+        cnpj: cnpj,
+      };
+
+      const first_message = `Oii, ${name}! É a Valentina da Valem Válvulas! Consegui pegar aqui com o pessoal os dados da cotação das ${quantity} de ${product} para a ${company}!`;
+
+      return { dynamic_variables, first_message };
+    } catch (err: any) {
+      console.error("[MediaStream] Aviso ao buscar contexto da triagem:", err?.message || err);
+      return {
+        dynamic_variables: {
+          user_name: "Tarcísio",
+          company_name: "TECFAG COMERCIO E IMPORTACAO DE MAQUINAS LTDA",
+          product_name: "Válvula Trigger",
+          quantity: "25 mil unidades",
+          cnpj: "14.050.364/0001-90",
+        },
+        first_message: "Oii, Tarcísio! É a Valentina da Valem Válvulas! Consegui pegar aqui com o pessoal os dados da cotação das 25 mil válvulas trigger para a Tecfag!",
+      };
+    }
   }
 
   private setupListeners() {
@@ -29,19 +73,21 @@ export class MediaStreamHandler {
           case "start":
             this.streamSid = msg.start.streamSid;
             this.callSid = msg.start.callSid;
+            this.fromNumber = msg.start.customParameters?.from || msg.start.from || msg.start.customParameters?.To || msg.start.to || "";
+            this.toNumber = msg.start.customParameters?.to || msg.start.to || "";
             this.startTime = new Date();
             this.dbCallId = `call_${Date.now()}`;
 
-            console.log(`[MediaStream] ✅ Sessão Twilio iniciada. StreamSid=${this.streamSid} | CallSid=${this.callSid}`);
+            console.log(`[MediaStream] ✅ Sessão Twilio iniciada. StreamSid=${this.streamSid} | CallSid=${this.callSid} | TargetPhone=${this.fromNumber}`);
 
             // Salva registro inicial da chamada no banco (Fire & Forget)
             void db.insert(voiceCalls).values({
               id: this.dbCallId,
               tenantId: "valem",
               callSid: this.callSid,
-              fromNumber: msg.start.customParameters?.from || msg.start.from || "Desconhecido",
-              toNumber: msg.start.customParameters?.to || msg.start.to || "Valem Line",
-              direction: "inbound",
+              fromNumber: this.fromNumber || "Desconhecido",
+              toNumber: this.toNumber || "Valem Line",
+              direction: "outbound",
               status: "active",
               startedAt: this.startTime,
               createdAt: this.startTime,
@@ -94,8 +140,29 @@ export class MediaStreamHandler {
       headers: { "xi-api-key": apiKey }
     });
 
-    this.elevenLabsWs.on("open", () => {
+    this.elevenLabsWs.on("open", async () => {
       console.log(`[MediaStream] 🤖 Agente Conversacional ElevenLabs CONECTADO COM SUCESSO!`);
+      try {
+        const targetPhone = this.fromNumber || this.toNumber || "14998364338";
+        const context = await this.getLatestTriageContext(targetPhone);
+        console.log(`[MediaStream] 📋 Injetando variáveis dinâmicas de contexto na Valentina:`, context);
+
+        const initPayload = {
+          type: "conversation_initiation_client_data",
+          dynamic_variables: context.dynamic_variables,
+          conversation_config_override: {
+            agent: {
+              first_message: context.first_message
+            }
+          }
+        };
+
+        if (this.elevenLabsWs && this.elevenLabsWs.readyState === WebSocket.OPEN) {
+          this.elevenLabsWs.send(JSON.stringify(initPayload));
+        }
+      } catch (initErr: any) {
+        console.error("[MediaStream] Erro ao enviar conversation_initiation_client_data:", initErr?.message || initErr);
+      }
     });
 
     this.elevenLabsWs.on("message", (data: any) => {
