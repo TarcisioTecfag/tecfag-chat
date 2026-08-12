@@ -84,8 +84,8 @@ export class MediaStreamHandler {
   }
 
   private connectElevenLabsAgent() {
-    const agentId = process.env.ELEVENLABS_AGENT_ID || "agent_0201kztttybmejx8x9ex01jhdfdv";
-    const apiKey = process.env.ELEVENLABS_API_KEY || "sk_78e73bd4e14dc41a256b44797f742dda9db5fdba2cc65c8a";
+    const agentId = process.env.ELEVENLABS_AGENT_ID || "agent_4401kztzk430fgrv1ac62hbbnymk";
+    const apiKey = process.env.ELEVENLABS_API_KEY || "sk_dd142c168bfd9061e0025a57af2361007b6e7d5947ac4168";
 
     const elevenLabsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`;
     console.log(`[MediaStream] 🔌 Conectando ao Agente Conversacional ElevenLabs: ${agentId}...`);
