@@ -1,8 +1,8 @@
 import WebSocket from "ws";
 import type { VoiceMessage } from "../valentina/voice-types";
 import { db } from "../../db";
-import { voiceCalls, voiceCallMessages } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { voiceCalls, voiceCallMessages, messages } from "../../db/schema";
+import { eq, asc } from "drizzle-orm";
 
 export class MediaStreamHandler {
   private ws: WebSocket;
@@ -30,23 +30,53 @@ export class MediaStreamHandler {
       });
 
       let collectedData: Record<string, any> = {};
+      let chatHistorySummary = "";
 
       if (conv) {
         const flowState = await db.query.agentFlowStates.findFirst({
-          where: (table, { eq }) => eq(table.conversationId, conv.id),
+          where: (table, { eq: dEq }) => dEq(table.conversationId, conv.id),
           orderBy: (table, { desc }) => [desc(table.lastInteractionAt)],
         });
 
         if (flowState?.collectedData) {
           collectedData = flowState.collectedData as Record<string, any>;
         }
+
+        // Buscar últimas 20 mensagens do WhatsApp para montar o contexto real da conversa
+        const recentMsgs = await db
+          .select()
+          .from(messages)
+          .where(eq(messages.conversationId, conv.id))
+          .orderBy(asc(messages.sentAt))
+          .limit(20);
+
+        if (recentMsgs.length > 0) {
+          chatHistorySummary = recentMsgs
+            .map((m: any) => `${m.senderType === "client" ? "Cliente" : "Valentina"}: ${m.content}`)
+            .join(" | ");
+        }
       }
 
-      const name = collectedData["QUAL O SEU NOME?"]?.value || "Tarcísio";
-      const product = collectedData["QUAL O TIPO DE PRODUTO?"]?.value || "Válvula Trigger";
-      const quantity = collectedData["QUAL A QUANTIDADE DESEJADA?"]?.value || "25 mil unidades";
-      const cnpj = collectedData["QUAL O SEU CNPJ?"]?.value || "14.050.364/0001-90";
-      const company = collectedData["RAZAO_SOCIAL"]?.value || collectedData["NOME DA EMPRESA"]?.value || "TECFAG COMERCIO E IMPORTACAO DE MAQUINAS LTDA";
+      // Função auxiliar para buscar chaves flexíveis no objeto collectedData
+      const getVal = (keys: string[]) => {
+        for (const [k, item] of Object.entries(collectedData)) {
+          for (const targetKey of keys) {
+            if (k.toLowerCase().includes(targetKey.toLowerCase())) {
+              if (typeof item === "object" && item !== null && "value" in item) {
+                return (item as any).value;
+              }
+              return String(item);
+            }
+          }
+        }
+        return null;
+      };
+
+      const name = getVal(["nome", "client"]) || "Tarcísio";
+      const product = getVal(["produto", "valvula", "frasco", "item"]) || "Válvulas Spray Aerosol";
+      const quantity = getVal(["quantidade", "qtd", "volume", "unidades"]) || "25.000 unidades";
+      const cnpj = getVal(["cnpj", "cpf"]) || "14.050.364/0001-90";
+      const company = getVal(["razao_social", "empresa", "razao", "nome da empresa"]) || "TECFAG COMERCIO E IMPORTACAO DE MAQUINAS LTDA";
 
       const dynamic_variables = {
         user_name: name,
@@ -54,9 +84,10 @@ export class MediaStreamHandler {
         product_name: product,
         quantity: quantity,
         cnpj: cnpj,
+        whatsapp_history: chatHistorySummary || `Cotação de ${quantity} de ${product} para a empresa ${company} (CNPJ: ${cnpj}).`,
       };
 
-      const first_message = `Oii, ${name}! É a Valentina da Valem Válvulas! Consegui pegar aqui com o pessoal os dados da cotação das ${quantity} de ${product} para a ${company}!`;
+      const first_message = `Oii, ${name}! É a Valentina da Valem Válvulas! Consegui pegar aqui os dados da cotação das ${quantity} de ${product} para a ${company}!`;
 
       return { dynamic_variables, first_message };
     } catch (err: any) {
@@ -65,11 +96,12 @@ export class MediaStreamHandler {
         dynamic_variables: {
           user_name: "Tarcísio",
           company_name: "TECFAG COMERCIO E IMPORTACAO DE MAQUINAS LTDA",
-          product_name: "Válvula Trigger",
-          quantity: "25 mil unidades",
+          product_name: "Válvulas Spray Aerosol",
+          quantity: "25.000 unidades",
           cnpj: "14.050.364/0001-90",
+          whatsapp_history: "Cotação no WhatsApp de 25.000 unidades de válvulas spray aerosol para a Tecfag.",
         },
-        first_message: "Oii, Tarcísio! É a Valentina da Valem Válvulas! Consegui pegar aqui com o pessoal os dados da cotação das 25 mil válvulas trigger para a Tecfag!",
+        first_message: "Oii, Tarcísio! É a Valentina da Valem Válvulas! Consegui pegar aqui com o pessoal os dados da cotação das 25 mil válvulas spray para a Tecfag!",
       };
     }
   }
