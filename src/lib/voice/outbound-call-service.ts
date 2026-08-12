@@ -18,19 +18,35 @@ export interface OutboundCallOptions {
   twimlUrl?: string;
 }
 
+import { db } from "../../db";
+import { agentConfigs } from "../../db/schema";
+
 export async function triggerOutboundCallInternal(options: OutboundCallOptions) {
   const targetPhone = formatE164(options.phone);
   const fromPhone = options.fromPhone ? formatE164(options.fromPhone) : "+551423980186";
 
-  const accountSid = options.accountSid || process.env.TWILIO_ACCOUNT_SID;
-  const authToken = options.authToken || process.env.TWILIO_AUTH_TOKEN;
+  let accountSid = options.accountSid || process.env.TWILIO_ACCOUNT_SID;
+  let authToken = options.authToken || process.env.TWILIO_AUTH_TOKEN;
+
+  if (!accountSid || !authToken) {
+    try {
+      const dbConfig = await db.query.agentConfigs.findFirst({
+        where: (table, { eq }) => eq(table.agentType, "sdr"),
+      });
+      const configData = (dbConfig?.config as Record<string, any>) || {};
+      accountSid = accountSid || configData.twilioAccountSid || configData.twilioSid;
+      authToken = authToken || configData.twilioAuthToken || configData.twilioToken;
+    } catch (e: any) {
+      console.warn("[OutboundCallService] Aviso ao tentar ler credenciais Twilio do banco:", e?.message);
+    }
+  }
 
   if (!accountSid || !authToken) {
     console.error("[OutboundCallService] ❌ Erro: TWILIO_ACCOUNT_SID e TWILIO_AUTH_TOKEN não configurados!");
     return {
       success: false,
       error: "CredentialsMissing",
-      message: "TWILIO_ACCOUNT_SID e TWILIO_AUTH_TOKEN são obrigatórios."
+      message: "TWILIO_ACCOUNT_SID e TWILIO_AUTH_TOKEN são obrigatórios em process.env ou no agentConfig do banco."
     };
   }
 

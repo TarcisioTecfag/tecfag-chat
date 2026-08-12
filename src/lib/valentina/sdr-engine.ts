@@ -903,7 +903,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         // 4. Disparar a chamada via serviço interno de Outbound Call
         try {
           console.log(`[SdrEngine] 📞 Disparando ligação ativa da Valentina via serviço interno para ${contactPhone}...`);
-          const callRes = await triggerOutboundCallInternal({ phone: contactPhone });
+          const callRes = await triggerOutboundCallInternal({ 
+            phone: contactPhone,
+            accountSid: configData.twilioAccountSid || configData.twilioSid,
+            authToken: configData.twilioAuthToken || configData.twilioToken,
+          });
           console.log(`[SdrEngine] 🚀 Chamada ativa disparada! Sucesso: ${callRes.success} | CallSid: ${callRes.callSid || "N/A"}`);
         } catch (callErr: any) {
           console.error(`[SdrEngine] ❌ Erro ao disparar chamada ativa:`, callErr?.message || callErr);
