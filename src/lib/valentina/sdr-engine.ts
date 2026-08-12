@@ -869,9 +869,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // ── INTERCEPTAÇÃO DE CONFIRMAÇÃO DE EMPRESA → ÁUDIO "TARCISIO VOU TE LIGAR" + DISPARO DE LIGAÇÃO ──
       const clientFullText = batchItems.map((i) => i.text).join(" ").toLowerCase().trim();
+      const isClientAffirmation = /^(?:sim|é essa|essa mesmo|essa mesma|exato|correto|isso mesmo|com certeza|sim essa mesmo|sim essa mesma)(?:\b|$)/i.test(clientFullText);
+      const isExplicitCompanyMention = /é a tecfag|tecfag comercio|confirmar tecfag/i.test(clientFullText);
+
       const isCompanyConfirm = Boolean(
-        meta.awaitingCompanyConfirmation || 
-        /sim|é essa|essa mesmo|essa mesma|tecfag|exato|correto|isso mesmo|com certeza/i.test(clientFullText)
+        (meta.awaitingCompanyConfirmation && isClientAffirmation) || 
+        isExplicitCompanyMention
       );
 
       if (isCompanyConfirm && !meta.callTriggered) {
@@ -997,7 +1000,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // ── DETECÇÃO: Se Valentina perguntou a confirmação da Empresa → definir flag no metadata
       const fullTextToSend = aiResult.messagesToSend.join(" ");
-      if (/sua empresa|empresa é|certo\?|confirma|tecfag/i.test(fullTextToSend) && flowState) {
+      const isAskingCompanyConfirm = (
+        (/sua empresa é|empresa é a|confirmar.*empresa|é a .* (?:ltda|sa|me|eireli|comercio|industria|maquinas)|posso te ligar nesse número mesmo do whats/i.test(fullTextToSend)) &&
+        !fullTextToSend.toLowerCase().includes("mandar um áudio")
+      );
+      if (isAskingCompanyConfirm && flowState) {
         const newMeta = { ...meta, awaitingCompanyConfirmation: true };
         await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
         console.log(`[SdrEngine] 🏢 Flag 'awaitingCompanyConfirmation' ativado para a conversa ${conversationId}.`);
