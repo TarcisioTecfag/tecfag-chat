@@ -871,10 +871,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const clientFullText = batchItems.map((i) => i.text).join(" ").toLowerCase().trim();
       const isCompanyConfirm = Boolean(
         meta.awaitingCompanyConfirmation || 
-        /é essa (?:mesma|empresa)/i.test(clientFullText) ||
-        /sim,? é essa/i.test(clientFullText) ||
-        /sim,? é a tecfag/i.test(clientFullText) ||
-        ((/(?:^|\b)(sim|é essa mesma|exato|correto|essa mesma|isso mesmo)(?:\b|$)/i.test(clientFullText)) && Boolean(updatedCollectedData["RAZAO_SOCIAL"] || updatedCollectedData["NOME DA EMPRESA"]))
+        /sim|é essa|essa mesmo|essa mesma|tecfag|exato|correto|isso mesmo|com certeza/i.test(clientFullText)
       );
 
       if (isCompanyConfirm && !meta.callTriggered) {
@@ -996,7 +993,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // ── DETECÇÃO: Se Valentina perguntou a confirmação da Empresa → definir flag no metadata
       const fullTextToSend = aiResult.messagesToSend.join(" ");
-      if (/sua empresa é a|certo\? só me responde/i.test(fullTextToSend) && flowState) {
+      if (/sua empresa|empresa é|certo\?|confirma|tecfag/i.test(fullTextToSend) && flowState) {
         const newMeta = { ...meta, awaitingCompanyConfirmation: true };
         await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
         console.log(`[SdrEngine] 🏢 Flag 'awaitingCompanyConfirmation' ativado para a conversa ${conversationId}.`);
