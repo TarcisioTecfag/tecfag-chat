@@ -85,7 +85,7 @@ export class MediaStreamHandler {
           case "start":
             this.streamSid = msg.start.streamSid;
             this.callSid = msg.start.callSid;
-            this.fromNumber = msg.start.customParameters?.from || msg.start.from || msg.start.customParameters?.To || msg.start.to || "";
+            this.fromNumber = msg.start.customParameters?.from || msg.start.from || msg.start.customParameters?.To || msg.start.to || "14998364338";
             this.toNumber = msg.start.customParameters?.to || msg.start.to || "";
             this.startTime = new Date();
             this.dbCallId = `call_${Date.now()}`;
@@ -162,11 +162,6 @@ export class MediaStreamHandler {
         const initPayload = {
           type: "conversation_initiation_client_data",
           dynamic_variables: context.dynamic_variables,
-          conversation_config_override: {
-            agent: {
-              first_message: context.first_message
-            }
-          }
         };
 
         if (this.elevenLabsWs && this.elevenLabsWs.readyState === WebSocket.OPEN) {
@@ -247,8 +242,8 @@ export class MediaStreamHandler {
       console.error(`[MediaStream] ❌ Erro no WebSocket ElevenLabs:`, err.message);
     });
 
-    this.elevenLabsWs.on("close", (code) => {
-      console.log(`[MediaStream] Conexão ElevenLabs fechada. Code: ${code}`);
+    this.elevenLabsWs.on("close", (code, reason) => {
+      console.log(`[MediaStream] Conexão ElevenLabs fechada. Code: ${code}, Reason: ${reason ? reason.toString() : "N/A"}`);
     });
   }
 
