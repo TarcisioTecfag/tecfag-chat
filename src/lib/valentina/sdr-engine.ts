@@ -9,6 +9,7 @@ import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 import { getKnowledgeBaseContext } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { getAiPersona } from "../ai-persona";
+import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 
 // ── Diretório de Áudios PTT da Valentina (relativo ao projeto — funciona local e no Railway)
 // Os arquivos OGG pré-convertidos ficam em public/audios-valentina/ e são incluídos no deploy
@@ -408,6 +409,7 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - Quando o cliente enviar o CNPJ, sua única pergunta de confirmação deve ser: "Sua empresa é a [Nome da Empresa], certo?".
    - 🛑 ATENÇÃO CRÍTICA SOBRE CONFIRMAÇÃO: Quando você perguntar "Sua empresa é a [Nome da Empresa], certo?", MANTENHA \`isCompleted: false\`! Você É OBRIGADA a aguardar o cliente responder confirmando ("Sim", "Certo", "Correto") ou corrigindo antes de concluir o atendimento!
    - 🛑 PROIBIÇÃO ABSOLUTA DE COBRANÇA OU QUESTIONAMENTO DE RAMO DA EMPRESA: Se o cliente responder confirmando ("Sim", "Certo", "Correto"), ACEITE A RESPOSTA IMEDIATAMENTE SEM DAR OPINIÃO E SEM QUESTIONAR! NUNCA demonstre estranheza, dúvida ou peça justificativas sobre a relação entre o ramo da empresa (ex: pagamentos, TI, serviços, comércio, holding) e o produto a ser comprado (ex: válvulas, frascos, body splash). Valentina NÃO TEM O DIREITO de cobrar explicações ou opinar sobre o negócio do cliente!
+   - 🛑 REGRA DE TELEFONE / LIGAÇÃO: É ESTRITAMENTE PROIBIDO pedir o número de telefone com DDD ao cliente! A pergunta sobre ligação DEVE ser sempre exatamente: "Posso te ligar nesse número mesmo do Whats?" (ou "O ideal é que a gente te ligue com a cotação já prontinha, posso te ligar nesse número do Whats mesmo?").
    - Se o cliente responder que o nome não é esse ou corrigir, aceite o nome digitado pelo cliente IMEDIATAMENTE com muita elegância humana: "Ah, me desculpe pelo equívoco! Qual é o nome correto da sua empresa para eu registrar aqui?".
    - Se o CNPJ for inválido ou tiver erro nos dígitos, diga educadamente: "Ops, parece que esse CNPJ tem algum dígito incorreto ou faltando. Consegue me enviar novamente por favor?". NUNCA invente nome de empresa nem preencha CNPJ inválido.
 
@@ -901,16 +903,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           await new Promise((r) => setTimeout(r, 500));
         }
 
-        // 4. Disparar a chamada via endpoint de Outbound Call
+        // 4. Disparar a chamada via serviço interno de Outbound Call
         try {
-          console.log(`[SdrEngine] 📞 Disparando ligação ativa da Valentina para ${contactPhone}...`);
-          const appUrl = process.env.PUBLIC_APP_URL || "https://tecfagchat.up.railway.app";
-          const callRes = await fetch(`${appUrl}/api/trigger-outbound-call`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ phone: contactPhone }),
-          });
-          console.log(`[SdrEngine] 🚀 Chamada ativa solicitada. Status HTTP: ${callRes.status}`);
+          console.log(`[SdrEngine] 📞 Disparando ligação ativa da Valentina via serviço interno para ${contactPhone}...`);
+          const callRes = await triggerOutboundCallInternal({ phone: contactPhone });
+          console.log(`[SdrEngine] 🚀 Chamada ativa disparada! Sucesso: ${callRes.success} | CallSid: ${callRes.callSid || "N/A"}`);
         } catch (callErr: any) {
           console.error(`[SdrEngine] ❌ Erro ao disparar chamada ativa:`, callErr?.message || callErr);
         }
