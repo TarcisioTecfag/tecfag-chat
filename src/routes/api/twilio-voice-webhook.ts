@@ -366,7 +366,7 @@ export const Route = createFileRoute("/api/twilio-voice-webhook")({
   server: {
     handlers: {
       GET: async ({ request }: { request: Request }) => {
-        const host = request.headers.get("host") || "pixel-perfect-replica-production-3fec.up.railway.app";
+        const host = request.headers.get("host") || "tecfagchat.up.railway.app";
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
@@ -376,7 +376,7 @@ export const Route = createFileRoute("/api/twilio-voice-webhook")({
         return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
       },
       POST: async ({ request }: { request: Request }) => {
-        const host = request.headers.get("host") || "pixel-perfect-replica-production-3fec.up.railway.app";
+        const host = request.headers.get("host") || "tecfagchat.up.railway.app";
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
