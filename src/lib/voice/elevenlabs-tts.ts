@@ -1,7 +1,7 @@
 // Usando fetch nativo do Node 18+ (não precisa de node-fetch)
 
 export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "sk_78e73bd4e14dc41a256b44797f742dda9db5fdba2cc65c8a";
-export const MARIANNE_VOICE_ID = "uYn64k2L7SzZRFmekMti"; // Valentina — voz customizada (Voice Design, plano free ✅)
+export const MARIANNE_VOICE_ID = "RGymW84CSmfVugnA5tvA"; // Valentina — nova voz ultra-humana ElevenLabs
 
 /**
  * Twilio Media Stream exige chunks de exatamente 160 bytes (20ms @ 8000Hz mu-law).
