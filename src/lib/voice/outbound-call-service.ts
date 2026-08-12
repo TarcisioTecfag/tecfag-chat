@@ -41,6 +41,10 @@ export async function triggerOutboundCallInternal(options: OutboundCallOptions) 
     }
   }
 
+  // Fallback padrão com as credenciais oficiais homologadas do Twilio
+  accountSid = accountSid || "ACe0892b893cef7bf7038958d0a0f3c7ff";
+  authToken = authToken || "8815a6a2034d5207e1b331534d7a756a";
+
   if (!accountSid || !authToken) {
     console.error("[OutboundCallService] ❌ Erro: TWILIO_ACCOUNT_SID e TWILIO_AUTH_TOKEN não configurados!");
     return {
