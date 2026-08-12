@@ -360,6 +360,8 @@ async function handleWebhook(request: Request): Promise<Response> {
   }
 }
 
+const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID || "agent_0201kztttybmejx8x9ex01jhdfdv";
+
 export const Route = createFileRoute("/api/twilio-voice-webhook")({
   server: {
     handlers: {
@@ -367,7 +369,7 @@ export const Route = createFileRoute("/api/twilio-voice-webhook")({
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
+    <ConversationRelay url="wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}" />
   </Connect>
 </Response>`;
         return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
@@ -376,7 +378,7 @@ export const Route = createFileRoute("/api/twilio-voice-webhook")({
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://tecfagchat.up.railway.app/api/voice-stream" />
+    <ConversationRelay url="wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}" />
   </Connect>
 </Response>`;
         return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
