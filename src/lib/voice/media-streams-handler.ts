@@ -24,12 +24,24 @@ export class MediaStreamHandler {
   private async getLatestTriageContext(phone: string) {
     const cleanPhone = phone.replace(/\D/g, "").replace(/^55/, "");
     try {
-      const flowState = await db.query.agentFlowStates.findFirst({
-        where: (table, { sql }) => sql`${table.phone} LIKE ${"%" + cleanPhone + "%"}`,
-        orderBy: (table, { desc }) => [desc(table.updatedAt)],
+      const conv = await db.query.conversations.findFirst({
+        where: (table, { sql }) => sql`${table.contactId} LIKE ${"%" + cleanPhone + "%"} OR ${table.id} LIKE ${"%" + cleanPhone + "%"}`,
+        orderBy: (table, { desc }) => [desc(table.lastMessageTime)],
       });
 
-      const collectedData = (flowState?.collectedData as Record<string, any>) || {};
+      let collectedData: Record<string, any> = {};
+
+      if (conv) {
+        const flowState = await db.query.agentFlowStates.findFirst({
+          where: (table, { eq }) => eq(table.conversationId, conv.id),
+          orderBy: (table, { desc }) => [desc(table.lastInteractionAt)],
+        });
+
+        if (flowState?.collectedData) {
+          collectedData = flowState.collectedData as Record<string, any>;
+        }
+      }
+
       const name = collectedData["QUAL O SEU NOME?"]?.value || "Tarcísio";
       const product = collectedData["QUAL O TIPO DE PRODUTO?"]?.value || "Válvula Trigger";
       const quantity = collectedData["QUAL A QUANTIDADE DESEJADA?"]?.value || "25 mil unidades";
