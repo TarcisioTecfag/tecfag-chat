@@ -365,20 +365,22 @@ const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID || "agent_0201kzttty
 export const Route = createFileRoute("/api/twilio-voice-webhook")({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }: { request: Request }) => {
+        const host = request.headers.get("host") || "pixel-perfect-replica-production-3fec.up.railway.app";
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <ConversationRelay url="wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}" />
+    <Stream url="wss://${host}/api/voice-stream" />
   </Connect>
 </Response>`;
         return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
       },
-      POST: async () => {
+      POST: async ({ request }: { request: Request }) => {
+        const host = request.headers.get("host") || "pixel-perfect-replica-production-3fec.up.railway.app";
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <ConversationRelay url="wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}" />
+    <Stream url="wss://${host}/api/voice-stream" />
   </Connect>
 </Response>`;
         return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
