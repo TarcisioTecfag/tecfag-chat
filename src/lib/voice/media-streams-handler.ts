@@ -3,6 +3,7 @@ import type { VoiceMessage } from "../valentina/voice-types";
 import { db } from "../../db";
 import { voiceCalls, voiceCallMessages, messages } from "../../db/schema";
 import { eq, asc } from "drizzle-orm";
+import { getKnowledgeBaseContext } from "../valentina/knowledge-service";
 
 export class MediaStreamHandler {
   private ws: WebSocket;
@@ -78,6 +79,8 @@ export class MediaStreamHandler {
       const cnpj = getVal(["cnpj", "cpf"]) || "14.050.364/0001-90";
       const company = getVal(["razao_social", "empresa", "razao", "nome da empresa"]) || "TECFAG COMERCIO E IMPORTACAO DE MAQUINAS LTDA";
 
+      const knowledgeContext = await getKnowledgeBaseContext("valem");
+
       const dynamic_variables = {
         user_name: name,
         company_name: company,
@@ -85,6 +88,7 @@ export class MediaStreamHandler {
         quantity: quantity,
         cnpj: cnpj,
         whatsapp_history: chatHistorySummary || `Cotação de ${quantity} de ${product} para a empresa ${company} (CNPJ: ${cnpj}).`,
+        knowledge_base_context: knowledgeContext || "Catálogo geral de válvulas spray, aerosol, frascos PET/PEAD, potes e seladoras da Valem Válvulas.",
       };
 
       const first_message = `Oii, ${name}! É a Valentina da Valem Válvulas! Consegui pegar aqui os dados da cotação das ${quantity} de ${product} para a ${company}!`;
