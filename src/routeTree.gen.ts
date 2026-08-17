@@ -17,6 +17,7 @@ import { Route as ApiVoiceCampaignsRouteImport } from './routes/api/voice-campai
 import { Route as ApiVoiceCallsRouteImport } from './routes/api/voice-calls'
 import { Route as ApiVoiceBufferRouteImport } from './routes/api/voice-buffer'
 import { Route as ApiVoiceAgendaRouteImport } from './routes/api/voice-agenda'
+import { Route as ApiVersionRouteImport } from './routes/api/version'
 import { Route as ApiValentinaVoiceRouteImport } from './routes/api/valentina-voice'
 import { Route as ApiTwilioVoiceWebhookRouteImport } from './routes/api/twilio-voice-webhook'
 import { Route as ApiTriggerOutboundCallRouteImport } from './routes/api/trigger-outbound-call'
@@ -27,7 +28,6 @@ import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-respon
 import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as ApiVersionRouteImport } from './routes/api/version'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiElevenlabsAudioRouteImport } from './routes/api/elevenlabs-audio'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
@@ -118,6 +118,11 @@ const ApiVoiceAgendaRoute = ApiVoiceAgendaRouteImport.update({
   path: '/api/voice-agenda',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiVersionRoute = ApiVersionRouteImport.update({
+  id: '/api/version',
+  path: '/api/version',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiValentinaVoiceRoute = ApiValentinaVoiceRouteImport.update({
   id: '/api/valentina-voice',
   path: '/api/valentina-voice',
@@ -166,11 +171,6 @@ const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiVersionRoute = ApiVersionRouteImport.update({
-  id: '/api/version',
-  path: '/api/version',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGroupsRoute = ApiGroupsRouteImport.update({
@@ -434,7 +434,6 @@ export interface FileRoutesByFullPath {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/version': typeof ApiVersionRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -444,6 +443,7 @@ export interface FileRoutesByFullPath {
   '/api/trigger-outbound-call': typeof ApiTriggerOutboundCallRoute
   '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
   '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
+  '/api/version': typeof ApiVersionRoute
   '/api/voice-agenda': typeof ApiVoiceAgendaRoute
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
@@ -504,7 +504,6 @@ export interface FileRoutesByTo {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/version': typeof ApiVersionRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -514,6 +513,7 @@ export interface FileRoutesByTo {
   '/api/trigger-outbound-call': typeof ApiTriggerOutboundCallRoute
   '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
   '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
+  '/api/version': typeof ApiVersionRoute
   '/api/voice-agenda': typeof ApiVoiceAgendaRoute
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
@@ -575,7 +575,6 @@ export interface FileRoutesById {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/version': typeof ApiVersionRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -585,6 +584,7 @@ export interface FileRoutesById {
   '/api/trigger-outbound-call': typeof ApiTriggerOutboundCallRoute
   '/api/twilio-voice-webhook': typeof ApiTwilioVoiceWebhookRoute
   '/api/valentina-voice': typeof ApiValentinaVoiceRouteWithChildren
+  '/api/version': typeof ApiVersionRoute
   '/api/voice-agenda': typeof ApiVoiceAgendaRoute
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
@@ -656,6 +656,7 @@ export interface FileRouteTypes {
     | '/api/trigger-outbound-call'
     | '/api/twilio-voice-webhook'
     | '/api/valentina-voice'
+    | '/api/version'
     | '/api/voice-agenda'
     | '/api/voice-buffer'
     | '/api/voice-calls'
@@ -725,6 +726,7 @@ export interface FileRouteTypes {
     | '/api/trigger-outbound-call'
     | '/api/twilio-voice-webhook'
     | '/api/valentina-voice'
+    | '/api/version'
     | '/api/voice-agenda'
     | '/api/voice-buffer'
     | '/api/voice-calls'
@@ -794,6 +796,7 @@ export interface FileRouteTypes {
     | '/api/trigger-outbound-call'
     | '/api/twilio-voice-webhook'
     | '/api/valentina-voice'
+    | '/api/version'
     | '/api/voice-agenda'
     | '/api/voice-buffer'
     | '/api/voice-calls'
@@ -855,7 +858,6 @@ export interface RootRouteChildren {
   ApiElevenlabsAudioRoute: typeof ApiElevenlabsAudioRoute
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiHealthRoute: typeof ApiHealthRoute
-  ApiVersionRoute: typeof ApiVersionRoute
   ApiOperatorsRoute: typeof ApiOperatorsRoute
   ApiPushRoute: typeof ApiPushRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
@@ -865,6 +867,7 @@ export interface RootRouteChildren {
   ApiTriggerOutboundCallRoute: typeof ApiTriggerOutboundCallRoute
   ApiTwilioVoiceWebhookRoute: typeof ApiTwilioVoiceWebhookRoute
   ApiValentinaVoiceRoute: typeof ApiValentinaVoiceRouteWithChildren
+  ApiVersionRoute: typeof ApiVersionRoute
   ApiVoiceAgendaRoute: typeof ApiVoiceAgendaRoute
   ApiVoiceBufferRoute: typeof ApiVoiceBufferRoute
   ApiVoiceCallsRoute: typeof ApiVoiceCallsRoute
@@ -967,6 +970,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiVoiceAgendaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/version': {
+      id: '/api/version'
+      path: '/api/version'
+      fullPath: '/api/version'
+      preLoaderRoute: typeof ApiVersionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/valentina-voice': {
       id: '/api/valentina-voice'
       path: '/api/valentina-voice'
@@ -1035,13 +1045,6 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/version': {
-      id: '/api/version'
-      path: '/api/version'
-      fullPath: '/api/version'
-      preLoaderRoute: typeof ApiVersionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/groups': {
@@ -1464,7 +1467,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiElevenlabsAudioRoute: ApiElevenlabsAudioRoute,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiHealthRoute: ApiHealthRoute,
-  ApiVersionRoute: ApiVersionRoute,
   ApiOperatorsRoute: ApiOperatorsRoute,
   ApiPushRoute: ApiPushRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
@@ -1474,6 +1476,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTriggerOutboundCallRoute: ApiTriggerOutboundCallRoute,
   ApiTwilioVoiceWebhookRoute: ApiTwilioVoiceWebhookRoute,
   ApiValentinaVoiceRoute: ApiValentinaVoiceRouteWithChildren,
+  ApiVersionRoute: ApiVersionRoute,
   ApiVoiceAgendaRoute: ApiVoiceAgendaRoute,
   ApiVoiceBufferRoute: ApiVoiceBufferRoute,
   ApiVoiceCallsRoute: ApiVoiceCallsRoute,
