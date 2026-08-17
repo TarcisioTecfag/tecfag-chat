@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { ChatProvider } from "@/hooks/useChatState";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { DeployNotificationModal } from "@/components/ui/DeployNotificationModal";
 
 function NotFoundComponent() {
   return (
@@ -159,6 +160,7 @@ function RootComponent() {
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
           <Toaster />
+          <DeployNotificationModal />
         </ChatProvider>
       </TooltipProvider>
     </QueryClientProvider>

@@ -1,11 +1,8 @@
 /**
  * /api/valentina-voice/v1/chat/completions
  *
- * Endpoint OpenAI-compatible chamado pelo Vapi Custom LLM a cada turno da conversa.
- * URL completa: https://tecfagchat.up.railway.app/api/valentina-voice/v1/chat/completions
- * Base URL fornecida ao Vapi: https://tecfagchat.up.railway.app/api/valentina-voice/v1
- *
- * Documentação Vapi Custom LLM: https://docs.vapi.ai/customization/custom-llm
+ * Endpoint OpenAI-compatible chamado pelo ElevenLabs / Vapi a cada turno da conversa.
+ * Suporta respostas em JSON padrão e em SSE Event Stream (stream: true).
  */
 
 import { createFileRoute } from "@tanstack/react-router";
@@ -16,13 +13,57 @@ const TENANT_ID = "valem";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-vapi-secret",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-vapi-secret, x-api-key",
 };
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function sseStream(content: string, modelName: string = "gemini-2.5-flash") {
+  const streamId = `chatcmpl-valentina-${Date.now()}`;
+
+  const chunk1 = JSON.stringify({
+    id: streamId,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model: modelName,
+    choices: [
+      {
+        index: 0,
+        delta: { role: "assistant", content },
+        finish_reason: null,
+      },
+    ],
+  });
+
+  const chunk2 = JSON.stringify({
+    id: streamId,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model: modelName,
+    choices: [
+      {
+        index: 0,
+        delta: {},
+        finish_reason: "stop",
+      },
+    ],
+  });
+
+  const sseBody = `data: ${chunk1}\n\ndata: ${chunk2}\n\ndata: [DONE]\n\n`;
+
+  return new Response(sseBody, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
   });
 }
 
@@ -33,59 +74,54 @@ export const Route = createFileRoute("/api/valentina-voice/v1/chat/completions")
 
       POST: async ({ request }: { request: Request }) => {
         try {
-          const body = await request.json();
+          const body = await request.json().catch(() => ({}));
+          const isStream = body?.stream === true || request.headers.get("accept")?.includes("text/event-stream");
 
-          // Vapi envia messages no formato OpenAI Chat Completions
           const messages: VoiceMessage[] = (body?.messages ?? []).filter(
             (m: any) => m?.role && typeof m?.content === "string"
           );
 
           console.log(
-            `[ValentinaVoice] Turno recebido do Vapi — ${messages.length} msgs no histórico.`
+            `[ValentinaVoice/v1] Turno recebido. ${messages.length} msgs. Stream: ${isStream}`
           );
 
-          // Fallback para caso o histórico chegue vazio (primeira chamada do Vapi)
-          if (messages.length === 0) {
-            return json(
-              buildOpenAiResponse(
-                "Olá, boa tarde! Aqui é a Valentina, da Valem Válvulas e Embalagens. Tudo bem?"
-              )
-            );
+          const defaultGreeting = "Olá, boa tarde! Aqui é a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
+
+          let responseText = defaultGreeting;
+
+          if (messages.length > 0) {
+            const rawResponse = await generateVoiceResponse(messages, TENANT_ID);
+            if (rawResponse && rawResponse.trim().length > 0) {
+              responseText = rawResponse;
+            }
           }
 
-          // Gera resposta da Valentina via Vertex AI (Gemini 2.5 Pro)
-          const rawResponse = await generateVoiceResponse(messages, TENANT_ID);
-          const responseText =
-            rawResponse && rawResponse.trim().length > 0
-              ? rawResponse
-              : "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
-
           console.log(
-            `[ValentinaVoice] ✅ Resposta: "${responseText.substring(0, 100)}..."`
+            `[ValentinaVoice/v1] ✅ Resposta (${responseText.length} chars): ${responseText.substring(0, 100)}...`
           );
 
-          return json(buildOpenAiResponse(responseText));
+          if (isStream) {
+            return sseStream(responseText, body?.model);
+          }
+
+          return json(buildOpenAiResponse(responseText, body?.model));
+
         } catch (e: any) {
-          console.error("[ValentinaVoice] Erro ao processar turno:", e?.message ?? e);
-          return json(
-            buildOpenAiResponse(
-              "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?"
-            )
-          );
+          console.error("[ValentinaVoice/v1] Erro:", e?.message ?? e);
+          const fallback = "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
+          return json(buildOpenAiResponse(fallback, "gemini-2.5-flash"));
         }
       },
     },
   },
 });
 
-// ── Formato de resposta OpenAI Chat Completions ───────────────────────────────
-
-function buildOpenAiResponse(content: string) {
+function buildOpenAiResponse(content: string, modelName: string = "gemini-2.5-flash") {
   return {
     id: `chatcmpl-valentina-${Date.now()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: "valentina-voice-valem",
+    model: modelName,
     choices: [
       {
         index: 0,

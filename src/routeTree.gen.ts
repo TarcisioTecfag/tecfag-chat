@@ -27,6 +27,7 @@ import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-respon
 import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiVersionRouteImport } from './routes/api/version'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiElevenlabsAudioRouteImport } from './routes/api/elevenlabs-audio'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
@@ -165,6 +166,11 @@ const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVersionRoute = ApiVersionRouteImport.update({
+  id: '/api/version',
+  path: '/api/version',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGroupsRoute = ApiGroupsRouteImport.update({
@@ -428,6 +434,7 @@ export interface FileRoutesByFullPath {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/version': typeof ApiVersionRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -497,6 +504,7 @@ export interface FileRoutesByTo {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/version': typeof ApiVersionRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -567,6 +575,7 @@ export interface FileRoutesById {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/version': typeof ApiVersionRoute
   '/api/operators': typeof ApiOperatorsRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -846,6 +855,7 @@ export interface RootRouteChildren {
   ApiElevenlabsAudioRoute: typeof ApiElevenlabsAudioRoute
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiVersionRoute: typeof ApiVersionRoute
   ApiOperatorsRoute: typeof ApiOperatorsRoute
   ApiPushRoute: typeof ApiPushRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
@@ -1025,6 +1035,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/version': {
+      id: '/api/version'
+      path: '/api/version'
+      fullPath: '/api/version'
+      preLoaderRoute: typeof ApiVersionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/groups': {
@@ -1447,6 +1464,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiElevenlabsAudioRoute: ApiElevenlabsAudioRoute,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiVersionRoute: ApiVersionRoute,
   ApiOperatorsRoute: ApiOperatorsRoute,
   ApiPushRoute: ApiPushRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
