@@ -273,20 +273,6 @@ export function ProfileModal() {
                 </button>
               </div>
             </div>
-
-            {/* Link Customizado de Avatar */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider">
-                URL da Foto de Perfil (Customizada)
-              </label>
-              <input
-                type="text"
-                placeholder="Insira um link de imagem externo..."
-                value={avatar}
-                onChange={(e) => setAvatar(e.target.value)}
-                className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
-              />
-            </div>
           </div>
 
           {/* Footer Actions */}
