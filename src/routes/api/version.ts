@@ -13,10 +13,11 @@ export const Route = createFileRoute("/api/version")({
   server: {
     handlers: {
       GET: async () => {
+        const env = typeof process !== "undefined" && process.env ? process.env : {};
         const deploymentId =
-          process.env.RAILWAY_DEPLOYMENT_ID ||
-          process.env.RAILWAY_GIT_COMMIT_SHA ||
-          process.env.BUILD_ID ||
+          env.RAILWAY_DEPLOYMENT_ID ||
+          env.RAILWAY_GIT_COMMIT_SHA ||
+          env.BUILD_ID ||
           SERVER_BOOT_TIME;
 
         return new Response(
