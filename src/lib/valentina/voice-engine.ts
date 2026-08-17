@@ -76,7 +76,7 @@ export async function generateVoiceResponse(
       tenantId,
       metadata: { channel: "voice_sync" },
     });
-    return cleanVoiceResponse(raw);
+    return raw ? cleanVoiceResponse(raw) : "";
   } finally {
     clearTimeout(timeoutId);
   }

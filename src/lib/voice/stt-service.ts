@@ -29,7 +29,7 @@ export class SttService {
 
       // 2. Prepara multipart/form-data para a API do Groq Whisper
       const formData = new FormData();
-      const blob = new Blob([wavBuffer], { type: "audio/wav" });
+      const blob = new Blob([new Uint8Array(wavBuffer)], { type: "audio/wav" });
       formData.append("file", blob, "speech.wav");
       formData.append("model", "whisper-large-v3-turbo");
       formData.append("language", "pt");
