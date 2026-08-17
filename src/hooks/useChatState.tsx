@@ -156,14 +156,33 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Tenant ativo. Fallback para 'valem' (tenant em produção) enquanto o localStorage ainda não foi lido.
-  // O useEffect abaixo substitui o valor correto do localStorage logo na montagem.
-  const [tenant, setTenantState] = useState<"tecfag" | "valem">("valem");
-  const [activeQueue, setActiveQueue] = useState<QueueType>("meus");
+  // Tenant ativo. Inicializar diretamente do localStorage se disponível (fallback 'valem')
+  const [tenant, setTenantState] = useState<"tecfag" | "valem">(() => {
+    if (typeof window !== "undefined") {
+      const savedTenant = localStorage.getItem("chat_tenant");
+      if (savedTenant === "valem" || savedTenant === "tecfag") {
+        return savedTenant;
+      }
+    }
+    return "valem";
+  });
+  const [activeQueue, setActiveQueue] = useState<QueueType>(() => {
+    if (typeof window !== "undefined") {
+      const savedQueue = localStorage.getItem("chat_active_queue");
+      if (savedQueue) return savedQueue as QueueType;
+    }
+    return "meus";
+  });
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">(() => {
+    if (typeof window !== "undefined") {
+      const savedView = localStorage.getItem("chat_active_view");
+      if (savedView) return savedView as any;
+    }
+    return "chat";
+  });
 
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
@@ -180,46 +199,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [quickResponses, setQuickResponses] = useState<QuickResponse[]>([]);
   const [templates, setTemplates] = useState<OperatorTemplate[]>([]);
 
-  const [operators, setOperators] = useState<Operator[]>([
-    {
-      id: "op-1",
-      name: "Fagner F. (Admin)",
-      email: "fagner@tecfag.com.br",
-      avatar: "https://i.pravatar.cc/80?img=12",
-      status: "disponivel",
-      passwordHash: "123456",
-      groupId: "group-admin",
-    },
-    {
-      id: "op-2",
-      name: "Tarcísio (Valem)",
-      email: "tarcisio@valem.com.br",
-      avatar: "https://i.pravatar.cc/80?img=60",
-      status: "disponivel",
-      passwordHash: "123456",
-      groupId: "group-valem-comercial",
-    },
-    {
-      id: "op-3",
-      name: "Pedro (Tecfag)",
-      email: "pedro@tecfag.com.br",
-      avatar: "https://i.pravatar.cc/80?img=33",
-      status: "disponivel",
-      passwordHash: "123456",
-      groupId: "group-tecfag-vendedor",
-    },
-    {
-      id: "op-4",
-      name: "Julia (Whats Only)",
-      email: "julia@valem.com.br",
-      avatar: "https://i.pravatar.cc/80?img=47",
-      status: "disponivel",
-      passwordHash: "123456",
-      groupId: "group-whats-only",
-    },
-  ]);
+  // Inicializar lista de operadores do localStorage se disponível (sem forçar op-1 tecfag hardcoded)
+  const [operators, setOperators] = useState<Operator[]>(() => {
+    if (typeof window !== "undefined") {
+      const savedOperators = localStorage.getItem("rbac_operators");
+      if (savedOperators) {
+        try {
+          const parsed = JSON.parse(savedOperators);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {}
+      }
+    }
+    return [];
+  });
 
-  const [currentOperatorId, setCurrentOperatorId] = useState<string>("op-1");
+  // Inicializar operador ativo diretamente do localStorage (nunca hardcode op-1 Tecfag)
+  const [currentOperatorId, setCurrentOperatorId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const savedOpId = localStorage.getItem("rbac_current_operator_id");
+      if (savedOpId) return savedOpId;
+    }
+    return "";
+  });
 
   // Refs to avoid stale closures in SSE event listener
   const selectedChatIdRef = useRef(selectedChatId);
@@ -239,8 +240,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     tenantRef.current = tenant;
   }, [tenant]);
+
   const [isClient, setIsClient] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("chat_is_authenticated") === "true";
+    }
+    return false;
+  });
 
   // Restaurar dados do localStorage após a montagem do componente no cliente (evita Hydration Mismatch)
   useEffect(() => {
@@ -356,22 +363,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [tenant, currentOperatorId]);
 
   // Garantir que currentOperatorId seja sempre um operador válido na lista do tenant.
-  // Se o operador ativo salvo em localStorage não existir no tenant atual,
-  // faz o fallback automático para o primeiro operador válido (ex: Fagner) em vez de travar em "Carregando...".
+  // Só executa o fallback se o usuário estiver autenticado, a lista de operadores já tiver sido carregada do banco para o tenant atual
+  // e o operador ativo realmente não pertencer a este tenant.
   useEffect(() => {
-    if (operators.length > 0) {
-      const exists = operators.some((op) => op.id === currentOperatorId);
-      if (!exists) {
-        console.warn(`[useChatState] Operador ativo '${currentOperatorId}' não encontrado no tenant '${tenant}'. Ajustando para '${operators[0].id}' (${operators[0].name}).`);
-        setCurrentOperatorId(operators[0].id);
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem("rbac_current_operator_id", operators[0].id);
-          } catch (e) {}
-        }
+    if (!isAuthenticated || operators.length === 0 || !currentOperatorId) return;
+
+    const exists = operators.some((op) => op.id === currentOperatorId);
+    if (!exists) {
+      console.warn(`[useChatState] Operador ativo '${currentOperatorId}' não encontrado no tenant '${tenant}'. Ajustando para '${operators[0].id}' (${operators[0].name}).`);
+      setCurrentOperatorId(operators[0].id);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("rbac_current_operator_id", operators[0].id);
+        } catch (e) {}
       }
     }
-  }, [operators, currentOperatorId, tenant]);
+  }, [operators, currentOperatorId, tenant, isAuthenticated]);
 
   // Persistir alterações apenas após o cliente estar pronto
   useEffect(() => {
@@ -902,55 +909,45 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [activeQueue]);
 
-  // Re-verify tenant when operator or group changes.
-  // IMPORTANTE: NÃO incluir `tenant` nas dependências para evitar loop infinito de pisca-pisca.
-  // Usar tenantRef.current para ler o tenant atual sem disparar re-renders.
+  // Re-verify tenant quando o operador logado for carregado ou mudar.
+  // IMPORTANTE: Só executa quando isAuthenticated for true e a lista de operadores contiver o operador ativo.
   useEffect(() => {
-    // Se já sincronizamos o tenant para este operador, não fazer nada
-    // Isso evita que a sincronização de dados do banco cause piscadas
+    if (!isAuthenticated || !currentOperatorId || operators.length === 0) return;
     if (tenantSyncedRef.current) return;
 
+    const activeOp = operators.find((op) => op.id === currentOperatorId);
+    if (!activeOp) return; // Esperar a lista carregar o operador ativo antes de inferir tenant!
+
     const currentTenant = tenantRef.current;
-    const email = (currentOperator?.email || "").toLowerCase();
-    const isValemUser = email.includes("@valempack") || email.includes("@valem") || currentOperator?.tenantId === "valem";
-    const isTecfagUser = email.includes("@tecfag") || currentOperator?.tenantId === "tecfag";
-
-    // Se o operador não tem tenant no email nem no tenantId, não forçar troca
-    if (!isValemUser && !isTecfagUser && !currentGroup) return;
-
     let targetTenant: "tecfag" | "valem" | null = null;
 
-    // Prioridade 1: grupo não tem acesso ao tenant atual → forçar para um válido
-    if (currentGroup && !currentGroup.allowedTenants.includes(currentTenant)) {
-      targetTenant = currentGroup.allowedTenants[0] || null;
-    }
-
-    // Prioridade 2: inferir pelo email/tenantId do operador
-    if (!targetTenant) {
-      if (isValemUser && currentTenant !== "valem" && (!currentGroup || currentGroup.allowedTenants.includes("valem"))) {
+    // Prioridade 1: usar tenantId explícito do operador no banco
+    if (activeOp.tenantId === "valem" || activeOp.tenantId === "tecfag") {
+      targetTenant = activeOp.tenantId;
+    } else {
+      const email = (activeOp.email || "").toLowerCase();
+      if (email.includes("@valempack") || email.includes("@valem")) {
         targetTenant = "valem";
-      } else if (isTecfagUser && currentTenant !== "tecfag" && (!currentGroup || currentGroup.allowedTenants.includes("tecfag"))) {
+      } else if (email.includes("@tecfag")) {
         targetTenant = "tecfag";
       }
     }
 
     if (targetTenant && targetTenant !== currentTenant) {
-      tenantSyncedRef.current = true; // Marcar como sincronizado para não repetir
+      console.log(`[useChatState] Sincronizando tenant do operador '${activeOp.name}': ${currentTenant} -> ${targetTenant}`);
+      tenantSyncedRef.current = true;
       setTenantState(targetTenant);
       if (typeof window !== "undefined") {
         try {
           localStorage.setItem("chat_tenant", targetTenant);
-        } catch (e) {
-          console.error("Erro ao persistir chat_tenant no localStorage:", e);
-        }
+        } catch (e) {}
       }
       document.title = targetTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
-    } else if (currentOperator?.id && currentOperator.id !== "op-1") {
-      // Operador real carregado e tenant já está correto → marcar como sincronizado
+    } else {
       tenantSyncedRef.current = true;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentOperatorId, currentGroup]);
+  }, [currentOperatorId, operators, isAuthenticated]);
 
   const setTenant = (newTenant: "tecfag" | "valem") => {
     if (currentGroup && !currentGroup.allowedTenants.includes(newTenant)) {
@@ -2577,6 +2574,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (typeof window !== "undefined") {
       try {
         localStorage.removeItem("chat_is_authenticated");
+        localStorage.removeItem("rbac_current_operator_id");
       } catch (e) {
         console.error("Erro ao limpar dados de autenticação:", e);
       }
