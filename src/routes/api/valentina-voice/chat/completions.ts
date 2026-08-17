@@ -50,7 +50,11 @@ export const Route = createFileRoute("/api/valentina-voice/chat/completions")({
           }
 
           // Gera a resposta da Valentina via Vertex AI
-          const responseText = await generateVoiceResponse(messages, TENANT_ID);
+          const rawResponse = await generateVoiceResponse(messages, TENANT_ID);
+          const responseText =
+            rawResponse && rawResponse.trim().length > 0
+              ? rawResponse
+              : "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
 
           console.log(
             `[ValentinaVoice/completions] ✅ Resposta gerada (${responseText.length} chars): ${responseText.substring(0, 100)}...`
@@ -62,7 +66,7 @@ export const Route = createFileRoute("/api/valentina-voice/chat/completions")({
           console.error("[ValentinaVoice/completions] Erro:", e?.message ?? e);
           return json(
             buildOpenAiResponse(
-              "Peço desculpas, tive uma instabilidade aqui. Pode repetir?"
+              "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?"
             )
           );
         }

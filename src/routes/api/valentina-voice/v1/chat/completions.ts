@@ -54,7 +54,11 @@ export const Route = createFileRoute("/api/valentina-voice/v1/chat/completions")
           }
 
           // Gera resposta da Valentina via Vertex AI (Gemini 2.5 Pro)
-          const responseText = await generateVoiceResponse(messages, TENANT_ID);
+          const rawResponse = await generateVoiceResponse(messages, TENANT_ID);
+          const responseText =
+            rawResponse && rawResponse.trim().length > 0
+              ? rawResponse
+              : "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
 
           console.log(
             `[ValentinaVoice] ✅ Resposta: "${responseText.substring(0, 100)}..."`
@@ -65,7 +69,7 @@ export const Route = createFileRoute("/api/valentina-voice/v1/chat/completions")
           console.error("[ValentinaVoice] Erro ao processar turno:", e?.message ?? e);
           return json(
             buildOpenAiResponse(
-              "Peço desculpas, tive uma instabilidade aqui. Pode repetir o que disse?"
+              "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?"
             )
           );
         }
