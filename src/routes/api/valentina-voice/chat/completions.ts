@@ -1,14 +1,54 @@
 /**
  * /api/valentina-voice/chat/completions
  *
- * Endpoint OpenAI-compatible chamado pelo ElevenLabs / Vapi a cada turno da conversa de voz.
+ * Endpoint OpenAI-compatible chamado pelo ElevenLabs a cada turno da conversa de voz.
  * Suporta respostas em JSON padrão e em SSE Event Stream (stream: true).
+ *
+ * PROTEÇÃO ANTI-DUPLICATA:
+ * ElevenLabs pode enviar o mesmo turno múltiplas vezes (speculative_turn, retry).
+ * Usamos um Map keyed pelo hash das mensagens para reutilizar a mesma Promise
+ * em-flight, garantindo UMA única chamada ao Vertex AI por turno.
  */
 
 import { createFileRoute } from "@tanstack/react-router";
 import { generateVoiceResponse, VoiceMessage } from "../../../../lib/valentina/voice-engine";
 
 const TENANT_ID = "valem";
+
+// ── Anti-duplicate request cache ──────────────────────────────────────────────
+// Key: SHA-ish hash of the conversation messages
+// Value: in-flight Promise<string>
+// Auto-cleared after TTL to prevent memory leaks.
+const TTL_MS = 30_000; // 30s: safe window to coalesce duplicates
+const inflightCache = new Map<string, { promise: Promise<string>; timer: ReturnType<typeof setTimeout> }>();
+
+function hashMessages(messages: VoiceMessage[]): string {
+  // Lightweight hash: role+content of last 6 messages (enough for uniqueness)
+  return messages
+    .slice(-6)
+    .map((m) => `${m.role}:${m.content}`)
+    .join("|");
+}
+
+function getOrFetch(messages: VoiceMessage[]): Promise<string> {
+  const key = hashMessages(messages);
+
+  if (inflightCache.has(key)) {
+    console.log(`[ValentinaVoice/completions] ♻️  Reutilizando resposta em cache para ${messages.length} msgs`);
+    return inflightCache.get(key)!.promise;
+  }
+
+  const promise = generateVoiceResponse(messages, TENANT_ID).finally(() => {
+    // Remove entry after response (or on error) to allow fresh calls on next turn
+    inflightCache.delete(key);
+  });
+
+  const timer = setTimeout(() => inflightCache.delete(key), TTL_MS);
+  inflightCache.set(key, { promise, timer });
+  return promise;
+}
+
+// ── CORS & helpers ────────────────────────────────────────────────────────────
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -67,6 +107,8 @@ function sseStream(content: string, modelName: string = "gemini-2.5-flash") {
   });
 }
 
+// ── Route ─────────────────────────────────────────────────────────────────────
+
 export const Route = createFileRoute("/api/valentina-voice/chat/completions")({
   server: {
     handlers: {
@@ -85,12 +127,13 @@ export const Route = createFileRoute("/api/valentina-voice/chat/completions")({
             `[ValentinaVoice/completions] Turno recebido. ${messages.length} msgs. Stream: ${isStream}`
           );
 
-          const defaultGreeting = "Olá, boa tarde! Aqui é a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
+          const defaultGreeting =
+            "Olá, boa tarde! Aqui é a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
 
           let responseText = defaultGreeting;
 
           if (messages.length > 0) {
-            const rawResponse = await generateVoiceResponse(messages, TENANT_ID);
+            const rawResponse = await getOrFetch(messages);
             if (rawResponse && rawResponse.trim().length > 0) {
               responseText = rawResponse;
             }
@@ -105,10 +148,10 @@ export const Route = createFileRoute("/api/valentina-voice/chat/completions")({
           }
 
           return json(buildOpenAiResponse(responseText, body?.model));
-
         } catch (e: any) {
           console.error("[ValentinaVoice/completions] Erro:", e?.message ?? e);
-          const fallback = "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
+          const fallback =
+            "Olá! Sou a Valentina, da Valem Válvulas e Embalagens. Como posso ajudar sua empresa hoje?";
           return json(buildOpenAiResponse(fallback, "gemini-2.5-flash"));
         }
       },
