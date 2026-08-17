@@ -1,15 +1,33 @@
 import { useEffect, useState, useRef } from "react";
-import { RotateCw, Sparkles, RefreshCw } from "lucide-react";
+import { RotateCw, Sparkles } from "lucide-react";
+import { useChat } from "@/hooks/useChatState";
 
 /**
  * Componente Modal Responsivo de Notificação de Novo Deploy (Railway)
  * Exibe a foto da Valentina e solicita o recarregamento da página
  * quando uma nova versão da aplicação é detectada no servidor.
+ * As cores se adaptam dinamicamente ao tenant ativo (Valem = Verde #2dc4a0, Tecfag = Vermelho #df3d3d).
  */
 export function DeployNotificationModal() {
+  const { tenant } = useChat();
   const [hasNewDeploy, setHasNewDeploy] = useState(false);
   const initialVersionRef = useRef<string | null>(null);
   const isCheckingRef = useRef(false);
+
+  // Estilos de tema dinâmicos para o modal conforme o tenant ativo
+  const isTecfag = tenant === "tecfag";
+  const themeStyles = isTecfag
+    ? ({
+        "--primary": "#df3d3d", // Vermelho Tecfag
+        "--primary-soft": "#fde8e8",
+      } as React.CSSProperties)
+    : ({
+        "--primary": "#2dc4a0", // Verde Esmeralda Valem
+        "--primary-soft": "#d8f1ea",
+      } as React.CSSProperties);
+
+  const shadowColor = isTecfag ? "rgba(223, 61, 61, 0.15)" : "rgba(45, 196, 160, 0.15)";
+  const gradientVia = isTecfag ? "via-red-400" : "via-emerald-400";
 
   const checkVersion = async () => {
     if (isCheckingRef.current) return;
@@ -74,12 +92,15 @@ export function DeployNotificationModal() {
   if (!hasNewDeploy) return null;
 
   return (
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-300">
+    <div 
+      className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-300"
+      style={themeStyles}
+    >
       <div 
         className="relative w-full max-w-md bg-card border border-border/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-center text-foreground overflow-hidden animate-in zoom-in-95 duration-300"
-        style={{ boxShadow: "0 20px 50px rgba(223, 61, 61, 0.15), 0 10px 30px rgba(0, 0, 0, 0.3)" }}
+        style={{ boxShadow: `0 20px 50px ${shadowColor}, 0 10px 30px rgba(0, 0, 0, 0.3)` }}
       >
-        {/* Glow decorativo no topo com a cor da marca (#df3d3d) */}
+        {/* Glow decorativo no topo com a cor da marca */}
         <div className="absolute -top-16 -left-16 w-32 h-32 bg-primary/20 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute -bottom-16 -right-16 w-32 h-32 bg-primary/15 rounded-full blur-2xl pointer-events-none" />
 
@@ -93,7 +114,7 @@ export function DeployNotificationModal() {
 
         {/* Foto da Valentina em tamanho destacado */}
         <div className="relative mx-auto w-28 h-28 sm:w-32 sm:h-32">
-          <div className="absolute -inset-1.5 rounded-full bg-gradient-to-r from-primary via-red-400 to-primary opacity-75 blur-sm animate-pulse" />
+          <div className={`absolute -inset-1.5 rounded-full bg-gradient-to-r from-primary ${gradientVia} to-primary opacity-75 blur-sm animate-pulse`} />
           <img
             src="/valentina.png"
             alt="Valentina IA"
