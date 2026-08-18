@@ -1,15 +1,16 @@
 import React, { useState } from "react";
-import { PhoneCall, CalendarDays, History, Users, Megaphone } from "lucide-react";
+import { PhoneCall, CalendarDays, History, Users, Megaphone, Target } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DashboardTab } from "./DashboardTab";
 import { AgendaTab } from "./AgendaTab";
 import { HistoricoTab } from "./HistoricoTab";
 import { ClientesTab } from "./ClientesTab";
 import { CampanhasTab } from "./CampanhasTab";
+import { ObjetivosTab } from "./ObjetivosTab";
 
 import { TestCallButton } from "./TestCallButton";
 
-type VoiceTab = "dashboard" | "agenda" | "historico" | "clientes" | "campanhas";
+type VoiceTab = "dashboard" | "agenda" | "historico" | "clientes" | "campanhas" | "objetivos";
 
 export function LigacoesView() {
   const [activeTab, setActiveTab] = useState<VoiceTab>("dashboard");
@@ -20,6 +21,7 @@ export function LigacoesView() {
     { id: "historico", label: "Histórico & Transcrições", icon: History },
     { id: "clientes", label: "Base de Clientes", icon: Users },
     { id: "campanhas", label: "Campanhas em Massa", icon: Megaphone },
+    { id: "objetivos", label: "Objetivos da Valentina", icon: Target },
   ];
 
   return (
@@ -83,6 +85,7 @@ export function LigacoesView() {
             {activeTab === "historico" && <HistoricoTab />}
             {activeTab === "clientes" && <ClientesTab />}
             {activeTab === "campanhas" && <CampanhasTab />}
+            {activeTab === "objetivos" && <ObjetivosTab />}
           </motion.div>
         </AnimatePresence>
       </div>

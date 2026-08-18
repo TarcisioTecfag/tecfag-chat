@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Upload,
   Play,
@@ -12,9 +12,20 @@ import {
   XCircle,
   RefreshCw,
   AlertCircle,
+  Target,
+  Phone,
+  Sparkles,
 } from 'lucide-react'
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
+
+interface ObjectiveItem {
+  id: string
+  name: string
+  emoji: string
+  description?: string
+  isActive: boolean
+}
 
 interface LeadItem {
   id?: string
@@ -32,6 +43,7 @@ interface Campaign {
   status: 'idle' | 'running' | 'paused' | 'completed' | 'cancelled'
   leads: LeadItem[]
   intervalSeconds: number
+  objectiveId?: string | null
 }
 
 // ─── CSV Parser ───────────────────────────────────────────────────────────────
@@ -146,9 +158,80 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
   const [isPaused, setIsPaused] = useState(false)
   const [fileUploaded, setFileUploaded] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
+  const [objectives, setObjectives] = useState<ObjectiveItem[]>([])
+  const [selectedObjectiveId, setSelectedObjectiveId] = useState<string>('')
+
+  // ─── Estado do Disparo Individual ──────────────────────────────────────────
+  const [singlePhone, setSinglePhone] = useState('')
+  const [singleObjectiveId, setSingleObjectiveId] = useState('')
+  const [singleCalling, setSingleCalling] = useState(false)
+  const [singleCallResult, setSingleCallResult] = useState<{
+    success: boolean
+    message: string
+  } | null>(null)
 
   // ref para controle do loop async sem re-render
   const isPausedRef = useRef(false)
+
+  // ─── Carregar Objetivos da Valentina ─────────────────────────────────────────
+  useEffect(() => {
+    fetch(`/api/voice-objectives?tenantId=${tenantId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.objectives)) {
+          setObjectives(data.objectives.filter((o: any) => o.isActive))
+        }
+      })
+      .catch(() => {})
+  }, [tenantId])
+
+  // ─── Handler de Disparo Individual ─────────────────────────────────────────
+  const handleSingleCall = async () => {
+    const cleanPhone = singlePhone.replace(/\D/g, '')
+    if (cleanPhone.length < 10) {
+      setSingleCallResult({
+        success: false,
+        message: 'Digite um número válido com DDD (ex: 14998887766)',
+      })
+      return
+    }
+
+    setSingleCalling(true)
+    setSingleCallResult(null)
+
+    try {
+      const res = await fetch('/api/trigger-outbound-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: singlePhone,
+          tenantId,
+          objectiveId: singleObjectiveId || undefined,
+        }),
+      })
+
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setSingleCallResult({
+          success: true,
+          message: `Ligação iniciada com sucesso para ${singlePhone}!`,
+        })
+        setSinglePhone('')
+      } else {
+        setSingleCallResult({
+          success: false,
+          message: data.message || data.error || 'Erro ao disparar ligação.',
+        })
+      }
+    } catch (err: any) {
+      setSingleCallResult({
+        success: false,
+        message: err?.message || 'Falha de conexão com o servidor.',
+      })
+    } finally {
+      setSingleCalling(false)
+    }
+  }
 
   // ─── CSV File Handler ───────────────────────────────────────────────────────
 
@@ -190,7 +273,11 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
           await fetch('/api/trigger-outbound-call', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: lead.phone, tenantId }),
+            body: JSON.stringify({
+              phone: lead.phone,
+              tenantId,
+              objectiveId: selectedObjectiveId || undefined,
+            }),
           })
           setLeads(prev =>
             prev.map(l =>
@@ -221,7 +308,7 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
         setCampaignStatus('completed')
       }
     },
-    [intervalSeconds, tenantId],
+    [intervalSeconds, tenantId, selectedObjectiveId],
   )
 
   // ─── Criar Campanha + Iniciar Loop ─────────────────────────────────────────
@@ -236,6 +323,7 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
           name: campaignName,
           intervalSeconds,
           leads,
+          objectiveId: selectedObjectiveId || undefined,
         }),
       })
       const { id: newCampaignId, leads: savedLeads } = await res.json()
@@ -311,7 +399,91 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
 
   return (
     <div className="flex flex-col gap-6 overflow-y-auto h-full pr-1">
-      {/* ── Cabeçalho e Upload / Configuração ─────────────────────────────── */}
+      {/* ── SEÇÃO DE DISPARO INDIVIDUAL (LIGAÇÃO AVULSA) ────────────────── */}
+      <div className="bg-card border border-border rounded-2xl p-5 shadow-soft">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+              <Phone className="w-4 h-4 text-primary" />
+              Disparo Individual de Ligação IA
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Dispare uma ligação imediata da Valentina para um número específico com o objetivo desejado.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+              Número de Telefone
+            </label>
+            <input
+              type="text"
+              value={singlePhone}
+              onChange={e => setSinglePhone(e.target.value)}
+              placeholder="Ex: (14) 99888-7766 ou 5514998887766"
+              className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+              <Target className="w-3 h-3 text-primary" />
+              Objetivo da Valentina
+            </label>
+            <select
+              value={singleObjectiveId}
+              onChange={e => setSingleObjectiveId(e.target.value)}
+              className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">🎯 Padrão (SDR Comercial Geral)</option>
+              {objectives.map(obj => (
+                <option key={obj.id} value={obj.id}>
+                  {obj.emoji} {obj.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={handleSingleCall}
+            disabled={singleCalling || !singlePhone.trim()}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:opacity-90 disabled:opacity-50 text-primary-foreground rounded-xl text-xs font-semibold cursor-pointer transition shadow-soft h-[36px]"
+          >
+            {singleCalling ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                Discando...
+              </>
+            ) : (
+              <>
+                <PhoneCall className="w-3.5 h-3.5" />
+                Disparar Ligação Agora
+              </>
+            )}
+          </button>
+        </div>
+
+        {singleCallResult && (
+          <div
+            className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium ${
+              singleCallResult.success
+                ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                : 'bg-rose-500/10 border border-rose-500/20 text-rose-500'
+            }`}
+          >
+            {singleCallResult.success ? (
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            )}
+            {singleCallResult.message}
+          </div>
+        )}
+      </div>
+
+      {/* ── Cabeçalho e Upload / Configuração da Campanha em Massa ─────── */}
       <div className="bg-card border border-border rounded-2xl p-5 shadow-soft">
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
@@ -337,7 +509,7 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
         {campaignStatus === 'idle' && !fileUploaded && (
           <div className="flex flex-col gap-4 mt-4">
             {/* Campos de configuração */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Nome da Campanha
@@ -350,6 +522,26 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
                   className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
               </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <Target className="w-3 h-3 text-primary" />
+                  Objetivo da Valentina
+                </label>
+                <select
+                  value={selectedObjectiveId}
+                  onChange={e => setSelectedObjectiveId(e.target.value)}
+                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="">🎯 Padrão (SDR Comercial Geral)</option>
+                  {objectives.map(obj => (
+                    <option key={obj.id} value={obj.id}>
+                      {obj.emoji} {obj.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Intervalo entre ligações
@@ -406,7 +598,7 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
         {campaignStatus === 'idle' && fileUploaded && (
           <div className="flex flex-col gap-4 mt-4">
             {/* Configurações resumidas */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Nome da Campanha
@@ -418,6 +610,26 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
                   className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
               </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <Target className="w-3 h-3 text-primary" />
+                  Objetivo da Valentina
+                </label>
+                <select
+                  value={selectedObjectiveId}
+                  onChange={e => setSelectedObjectiveId(e.target.value)}
+                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="">🎯 Padrão (SDR Comercial Geral)</option>
+                  {objectives.map(obj => (
+                    <option key={obj.id} value={obj.id}>
+                      {obj.emoji} {obj.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Intervalo entre ligações

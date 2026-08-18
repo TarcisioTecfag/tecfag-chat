@@ -1,4 +1,4 @@
-﻿// src/routes/api/voice-agenda.ts
+// src/routes/api/voice-agenda.ts
 // API endpoints para listagem, agendamento, reagendamento e gestao da Agenda de Ligacoes da Valentina
 
 import { createFileRoute } from "@tanstack/react-router";
@@ -54,7 +54,8 @@ export const Route = createFileRoute("/api/voice-agenda")({
 
           // Insercao em lote (importacao de lista Excel)
           if (Array.isArray(items) && items.length > 0) {
-            const rows = items.map((it: any) => ({
+            const rows = items.map((it: any, idx: number) => ({
+              id: it.id || `ag_excel_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
               tenantId,
               clientName: it.clientName || it.name || "Cliente sem Nome",
               clientPhone: it.clientPhone || it.phone || "",
@@ -76,6 +77,7 @@ export const Route = createFileRoute("/api/voice-agenda")({
 
           // Insercao individual
           const row = {
+            id: singleItem.id || `ag_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             tenantId,
             clientName: singleItem.clientName || "Cliente sem Nome",
             clientPhone: singleItem.clientPhone || "",

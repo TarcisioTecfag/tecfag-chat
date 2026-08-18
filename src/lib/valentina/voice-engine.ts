@@ -18,7 +18,8 @@ Diferenciais: entrega rápida, pedido mínimo baixo, suporte técnico, personali
  */
 export function buildVoicePrompt(
   messages: VoiceMessage[],
-  tenantId: string = "valem"
+  tenantId: string = "valem",
+  customPrompt?: string
 ): string {
   const historyText = messages
     .filter((m) => m.role !== "system")
@@ -28,21 +29,22 @@ export function buildVoicePrompt(
     })
     .join("\n");
 
-  return `Você é Valentina, consultora comercial da Valem Válvulas e Embalagens. Você está em uma LIGAÇÃO TELEFÔNICA AO VIVO com um cliente.
+  const systemInstructions = customPrompt?.trim()
+    ? customPrompt.trim()
+    : `Você é Valentina, consultora comercial da Valem Válvulas e Embalagens. Você está em uma LIGAÇÃO TELEFÔNICA AO VIVO com um cliente.\n\n${VALEM_CATALOG_SUMMARY}`;
 
-${VALEM_CATALOG_SUMMARY}
+  return `${systemInstructions}
 
 REGRAS CRÍTICAS DE CONVERSAÇÃO HUMANA:
-1. NUNCA se reapresente nem diga "Olá, sou a Valentina" (você já fez a saudação inicial).
+1. NUNCA se reapresente se a conversa já começou.
 2. Responda diretamente ao que o cliente acabou de falar de forma humana, simpática e natural.
-3. Responda em APENAS 1 FRASE CURTA. NUNCA faça discursos longos nem explicativos.
-4. Se o cliente apenas cumprimentar ("Alô", "E aí", "Tudo bem"), diga: "Tudo ótimo por aqui! O que você está buscando para a sua empresa hoje?"
-5. NUNCA use pontuações estranhas, emojis, asteriscos, markdown ou listas. Apenas texto falado em português fluido.
+3. Responda em APENAS 1 A 2 FRASES CURTAS. NUNCA faça discursos longos nem explicativos.
+4. NUNCA use pontuações estranhas, emojis, asteriscos, markdown ou listas. Apenas texto falado em português fluido.
 
 HISTÓRICO DA LIGAÇÃO:
 ${historyText || "(início)"}
 
-Responda ao CLIENTE agora em apenas 1 frase falada natural:`;
+Responda ao CLIENTE agora de forma falada e natural:`;
 }
 
 /**
@@ -59,7 +61,8 @@ export function cleanVoiceResponse(text: string): string {
 export async function generateVoiceResponse(
   messages: VoiceMessage[],
   tenantId: string = "valem",
-  externalSignal?: AbortSignal
+  externalSignal?: AbortSignal,
+  customPrompt?: string
 ): Promise<string> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 12_000);
@@ -70,7 +73,7 @@ export async function generateVoiceResponse(
       : controller.signal;
 
   try {
-    const prompt = buildVoicePrompt(messages, tenantId);
+    const prompt = buildVoicePrompt(messages, tenantId, customPrompt);
     const raw = await vertexAi.generateText(prompt, "gemini-2.5-flash", signal, {
       feature: "sdr_agent",
       tenantId,

@@ -1,0 +1,262 @@
+﻿// src/routes/api/voice-objectives.ts
+// CRUD para Objetivos da Valentina
+
+import { createFileRoute } from "@tanstack/react-router";
+import { db } from "../../db";
+import { voiceObjectives } from "../../db/schema";
+import { eq, and } from "drizzle-orm";
+
+const corsHeaders = { "Content-Type": "application/json" };
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: corsHeaders });
+}
+
+// ── Templates pre-definidos ──────────────────────────────────────────────────
+const TEMPLATES = [
+  {
+    emoji: "🌟",
+    name: "Valentina NPS",
+    description: "Coleta NPS pos-compra: avaliacao da experiencia com a Valem em nota de 1 a 10 e feedback livre.",
+    prompt: `Voce e a Valentina, representante de relacionamento da Valem Valvulas e Embalagens.
+Seu objetivo nesta ligacao e coletar o NPS (Net Promoter Score) do cliente sobre a experiencia recente de compra.
+
+ROTEIRO:
+1. Apresente-se cordialmente: "Ola! Aqui e a Valentina, da Valem Valvulas. Tudo bem?"
+2. Explique o motivo: "Estou ligando para saber como foi sua experiencia com a nossa empresa."
+3. Pergunte a nota: "De 0 a 10, qual nota voce daria para a Valem? Sendo 0 pessimo e 10 excelente."
+4. Colete o feedback: "O que motivou essa nota? Tem algo que poderemos melhorar?"
+5. Agradeca e finalize: "Muito obrigada pelo seu feedback! Ele e muito importante para nos."
+
+REGRAS:
+- Tom amigavel, empatico e breve (max. 5 minutos)
+- Se nota < 7: demonstre preocupacao e pergunte o que podemos fazer melhor
+- Se nota >= 9: pergunte se indicaria a Valem para algum conhecido
+- Nunca tente vender nada nesta ligacao`,
+    collectFields: [
+      { key: "rating", label: "Nota NPS (0-10)", type: "number", required: true },
+      { key: "feedback", label: "Feedback do cliente", type: "text", required: false },
+      { key: "recommendation", label: "Indicaria a Valem?", type: "boolean", required: false },
+    ],
+    actions: ["collect_nps", "schedule_callback"],
+    isTemplate: true,
+  },
+  {
+    emoji: "🔄",
+    name: "Valentina Requalificacao",
+    description: "Re-engaja leads que demonstraram interesse mas nao converteram. Identifica objecoes e retoma a negociacao.",
+    prompt: `Voce e a Valentina, consultora comercial da Valem Valvulas e Embalagens.
+Seu objetivo e retomar contato com um cliente que anteriormente demonstrou interesse em produtos Valem mas nao avancou na compra.
+
+ROTEIRO:
+1. Apresentacao: "Ola! Aqui e a Valentina, da Valem Valvulas. Ainda me lembra?"
+2. Contextualize: "Notei que conversamos anteriormente sobre embalagens. Queria saber como esta esse projeto."
+3. Identifique objecoes: "O que fez voce nao avancar na epoca? Preco, prazo, especificacao tecnica?"
+4. Requalifique: "Esse projeto ainda esta ativo? Qual seria o volume e o prazo ideal?"
+5. Proponha proximo passo: "Posso te enviar uma proposta atualizada pelo WhatsApp agora?"
+
+REGRAS:
+- Tom consultivo e sem pressao
+- Se cliente nao tem mais interesse: registre o motivo e agradeca
+- Se cliente tem interesse: colete produto, volume e prazo para proposta
+- Maximo 7 minutos`,
+    collectFields: [
+      { key: "motivation", label: "Motivo da desistencia anterior", type: "text", required: false },
+      { key: "project_active", label: "Projeto ainda ativo?", type: "boolean", required: true },
+      { key: "product_interest", label: "Produto de interesse", type: "text", required: false },
+      { key: "volume", label: "Volume estimado", type: "text", required: false },
+      { key: "timeline", label: "Prazo desejado", type: "text", required: false },
+    ],
+    actions: ["create_rd_deal", "send_whatsapp_catalog", "schedule_callback"],
+    isTemplate: true,
+  },
+  {
+    emoji: "🥶",
+    name: "Valentina Prospeccao Fria",
+    description: "Primeiro contato com potenciais clientes. Qualifica empresa, identifica necessidade e gera oportunidade no CRM.",
+    prompt: `Voce e a Valentina, consultora comercial da Valem Valvulas e Embalagens.
+Esta e uma ligacao de primeiro contato (prospeccao fria).
+
+ROTEIRO:
+1. Apresente a Valem em 15 segundos: empresa com mais de 15 anos no mercado de embalagens
+2. Identifique o decisor: "Voce e responsavel pelas compras de embalagens?"
+3. Qualifique a empresa: "Qual o principal produto que voces embalam? Em que volume?"
+4. Apresente valor: "A Valem pode reduzir seu custo de embalagem com escala. Posso enviar uma simulacao?"
+5. Capture contato: "Posso enviar o material pelo WhatsApp?"
+
+REGRAS:
+- Seja direta e objetiva - maximo 4 minutos
+- Se nao e o decisor: pergunte o nome e como chegar ao responsavel
+- Sempre tente conseguir um proximo passo`,
+    collectFields: [
+      { key: "is_decision_maker", label: "E o decisor de compras?", type: "boolean", required: true },
+      { key: "product_packaged", label: "Produto que embalam", type: "text", required: false },
+      { key: "volume", label: "Volume mensal estimado", type: "text", required: false },
+      { key: "current_supplier", label: "Fornecedor atual", type: "text", required: false },
+      { key: "interest_level", label: "Nivel de interesse (1-5)", type: "number", required: false },
+    ],
+    actions: ["enrich_cnpj", "create_rd_deal", "send_whatsapp_catalog", "schedule_callback"],
+    isTemplate: true,
+  },
+  {
+    emoji: "📅",
+    name: "Valentina Agendamento de Visita",
+    description: "Agenda visita tecnica/comercial presencial. Confirma endereco, horario e decisor presente.",
+    prompt: `Voce e a Valentina, assistente comercial da Valem Valvulas e Embalagens.
+Seu objetivo e agendar uma visita tecnica ou comercial com o cliente.
+
+ROTEIRO:
+1. Contextualize: "Nosso consultor gostaria de visitar sua empresa para apresentar nossas solucoes."
+2. Confirme disponibilidade: "Qual seria o melhor dia e horario? Trabalhamos de segunda a sexta."
+3. Confirme endereco: "Qual o endereco da empresa?"
+4. Confirme presenca do decisor: "O responsavel pelas compras estara presente na visita?"
+5. Resuma o agendamento e confirme todos os detalhes.
+
+REGRAS:
+- Confirme TODOS os detalhes antes de encerrar
+- Se cliente nao tem disponibilidade: sugira 3 opcoes de datas
+- Sempre envie confirmacao pelo WhatsApp ao final`,
+    collectFields: [
+      { key: "visit_date", label: "Data da visita", type: "text", required: true },
+      { key: "visit_time", label: "Horario da visita", type: "text", required: true },
+      { key: "address", label: "Endereco confirmado", type: "text", required: false },
+      { key: "decision_maker_present", label: "Decisor estara presente?", type: "boolean", required: false },
+      { key: "decision_maker_name", label: "Nome do decisor", type: "text", required: false },
+    ],
+    actions: ["schedule_callback", "send_whatsapp_catalog"],
+    isTemplate: true,
+  },
+  {
+    emoji: "💰",
+    name: "Valentina Cobranca Amigavel",
+    description: "Lembrete amigavel de pagamento para clientes com fatura em aberto. Tom positivo e sem pressao.",
+    prompt: `Voce e a Valentina, do setor financeiro da Valem Valvulas e Embalagens.
+Seu objetivo e entrar em contato sobre uma fatura em aberto de forma amigavel e profissional.
+
+ROTEIRO:
+1. Apresente-se: "Ola! Aqui e a Valentina, do financeiro da Valem. Tudo bem?"
+2. Informe o motivo: "Identifiquei uma fatura em aberto. O pagamento ja foi realizado?"
+3. Se ja pagou: agradeca e peca o comprovante
+4. Se nao pagou: "Quando seria possivel realizar o pagamento? Posso enviar o boleto atualizado."
+5. Registre o compromisso de pagamento.
+
+REGRAS:
+- Tom sempre amigavel - pode ser esquecimento
+- Se tem dificuldades: oferecer parcelamento (sujeito a aprovacao)
+- Maximo 5 minutos`,
+    collectFields: [
+      { key: "already_paid", label: "Cliente diz que ja pagou?", type: "boolean", required: true },
+      { key: "payment_date", label: "Data prometida de pagamento", type: "text", required: false },
+      { key: "installments_requested", label: "Solicitou parcelamento?", type: "boolean", required: false },
+      { key: "notes", label: "Observacoes", type: "text", required: false },
+    ],
+    actions: ["send_whatsapp_catalog", "schedule_callback"],
+    isTemplate: true,
+  },
+];
+
+async function seedTemplates(tenantId: string) {
+  try {
+    const existing = await db
+      .select({ id: voiceObjectives.id })
+      .from(voiceObjectives)
+      .where(and(eq(voiceObjectives.tenantId, tenantId), eq(voiceObjectives.isTemplate, true)));
+    if (existing.length > 0) return;
+
+    const rows = TEMPLATES.map((t, idx) => ({
+      id: `obj_tpl_${idx + 1}_${tenantId}`,
+      tenantId,
+      name: t.name,
+      description: t.description,
+      emoji: t.emoji,
+      prompt: t.prompt,
+      collectFields: t.collectFields as any,
+      actions: t.actions as any,
+      isActive: true,
+      isTemplate: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    await db.insert(voiceObjectives).values(rows);
+    console.log(`[VoiceObjectives] ${rows.length} templates criados para ${tenantId}`);
+  } catch (err: any) {
+    console.warn("[VoiceObjectives] Seed falhou:", err?.message);
+  }
+}
+
+export const Route = createFileRoute("/api/voice-objectives")({
+  server: {
+    handlers: {
+      GET: async ({ request }) => {
+        const url = new URL(request.url);
+        const tenantId = url.searchParams.get("tenantId");
+        if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
+        await seedTemplates(tenantId);
+        const list = await db
+          .select()
+          .from(voiceObjectives)
+          .where(eq(voiceObjectives.tenantId, tenantId));
+        return json({ objectives: list });
+      },
+
+      POST: async ({ request }) => {
+        try {
+          const body = await request.json();
+          const { tenantId, ...data } = body;
+          if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
+          if (!data.name || !data.prompt) return json({ error: "name e prompt sao obrigatorios" }, 400);
+          const row = {
+            id: `obj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            tenantId,
+            name: data.name,
+            description: data.description || null,
+            emoji: data.emoji || "🎯",
+            prompt: data.prompt,
+            collectFields: (data.collectFields || []) as any,
+            actions: (data.actions || []) as any,
+            isActive: data.isActive !== false,
+            isTemplate: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          const [inserted] = await db.insert(voiceObjectives).values(row).returning();
+          return json({ success: true, objective: inserted }, 201);
+        } catch (err: any) {
+          return json({ error: err?.message ?? "Erro ao criar objetivo" }, 500);
+        }
+      },
+
+      PUT: async ({ request }) => {
+        try {
+          const body = await request.json();
+          const { tenantId, id, ...updates } = body;
+          if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
+          if (!id) return json({ error: "id e obrigatorio" }, 400);
+          await db
+            .update(voiceObjectives)
+            .set({ ...updates, updatedAt: new Date() })
+            .where(and(eq(voiceObjectives.id, id), eq(voiceObjectives.tenantId, tenantId)));
+          return json({ success: true });
+        } catch (err: any) {
+          return json({ error: err?.message ?? "Erro ao atualizar" }, 500);
+        }
+      },
+
+      DELETE: async ({ request }) => {
+        try {
+          const url = new URL(request.url);
+          const tenantId = url.searchParams.get("tenantId");
+          if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
+          const id = url.searchParams.get("id");
+          if (!id) return json({ error: "id e obrigatorio" }, 400);
+          await db
+            .delete(voiceObjectives)
+            .where(and(eq(voiceObjectives.id, id), eq(voiceObjectives.tenantId, tenantId)));
+          return json({ success: true });
+        } catch (err: any) {
+          return json({ error: err?.message ?? "Erro ao remover" }, 500);
+        }
+      },
+    },
+  },
+});

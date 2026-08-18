@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
 import { Route as ApiVoiceStreamRouteImport } from './routes/api/voice-stream'
+import { Route as ApiVoiceObjectivesRouteImport } from './routes/api/voice-objectives'
 import { Route as ApiVoiceEnrichContactRouteImport } from './routes/api/voice-enrich-contact'
+import { Route as ApiVoiceClientsRouteImport } from './routes/api/voice-clients'
 import { Route as ApiVoiceCampaignsRouteImport } from './routes/api/voice-campaigns'
 import { Route as ApiVoiceCallsRouteImport } from './routes/api/voice-calls'
 import { Route as ApiVoiceBufferRouteImport } from './routes/api/voice-buffer'
@@ -29,6 +31,7 @@ import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
+import { Route as ApiElevenlabsConversationsRouteImport } from './routes/api/elevenlabs-conversations'
 import { Route as ApiElevenlabsAudioRouteImport } from './routes/api/elevenlabs-audio'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
@@ -93,9 +96,19 @@ const ApiVoiceStreamRoute = ApiVoiceStreamRouteImport.update({
   path: '/api/voice-stream',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiVoiceObjectivesRoute = ApiVoiceObjectivesRouteImport.update({
+  id: '/api/voice-objectives',
+  path: '/api/voice-objectives',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiVoiceEnrichContactRoute = ApiVoiceEnrichContactRouteImport.update({
   id: '/api/voice-enrich-contact',
   path: '/api/voice-enrich-contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVoiceClientsRoute = ApiVoiceClientsRouteImport.update({
+  id: '/api/voice-clients',
+  path: '/api/voice-clients',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiVoiceCampaignsRoute = ApiVoiceCampaignsRouteImport.update({
@@ -178,6 +191,12 @@ const ApiGroupsRoute = ApiGroupsRouteImport.update({
   path: '/api/groups',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiElevenlabsConversationsRoute =
+  ApiElevenlabsConversationsRouteImport.update({
+    id: '/api/elevenlabs-conversations',
+    path: '/api/elevenlabs-conversations',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiElevenlabsAudioRoute = ApiElevenlabsAudioRouteImport.update({
   id: '/api/elevenlabs-audio',
   path: '/api/elevenlabs-audio',
@@ -432,6 +451,7 @@ export interface FileRoutesByFullPath {
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
+  '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -448,7 +468,9 @@ export interface FileRoutesByFullPath {
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
   '/api/voice-campaigns': typeof ApiVoiceCampaignsRoute
+  '/api/voice-clients': typeof ApiVoiceClientsRoute
   '/api/voice-enrich-contact': typeof ApiVoiceEnrichContactRoute
+  '/api/voice-objectives': typeof ApiVoiceObjectivesRoute
   '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
@@ -502,6 +524,7 @@ export interface FileRoutesByTo {
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
+  '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -518,7 +541,9 @@ export interface FileRoutesByTo {
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
   '/api/voice-campaigns': typeof ApiVoiceCampaignsRoute
+  '/api/voice-clients': typeof ApiVoiceClientsRoute
   '/api/voice-enrich-contact': typeof ApiVoiceEnrichContactRoute
+  '/api/voice-objectives': typeof ApiVoiceObjectivesRoute
   '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
@@ -573,6 +598,7 @@ export interface FileRoutesById {
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
+  '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -589,7 +615,9 @@ export interface FileRoutesById {
   '/api/voice-buffer': typeof ApiVoiceBufferRoute
   '/api/voice-calls': typeof ApiVoiceCallsRoute
   '/api/voice-campaigns': typeof ApiVoiceCampaignsRoute
+  '/api/voice-clients': typeof ApiVoiceClientsRoute
   '/api/voice-enrich-contact': typeof ApiVoiceEnrichContactRoute
+  '/api/voice-objectives': typeof ApiVoiceObjectivesRoute
   '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
@@ -645,6 +673,7 @@ export interface FileRouteTypes {
     | '/api/chats'
     | '/api/contacts'
     | '/api/elevenlabs-audio'
+    | '/api/elevenlabs-conversations'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -661,7 +690,9 @@ export interface FileRouteTypes {
     | '/api/voice-buffer'
     | '/api/voice-calls'
     | '/api/voice-campaigns'
+    | '/api/voice-clients'
     | '/api/voice-enrich-contact'
+    | '/api/voice-objectives'
     | '/api/voice-stream'
     | '/call/$roomId'
     | '/api/admin/reset'
@@ -715,6 +746,7 @@ export interface FileRouteTypes {
     | '/api/chats'
     | '/api/contacts'
     | '/api/elevenlabs-audio'
+    | '/api/elevenlabs-conversations'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -731,7 +763,9 @@ export interface FileRouteTypes {
     | '/api/voice-buffer'
     | '/api/voice-calls'
     | '/api/voice-campaigns'
+    | '/api/voice-clients'
     | '/api/voice-enrich-contact'
+    | '/api/voice-objectives'
     | '/api/voice-stream'
     | '/call/$roomId'
     | '/api/admin/reset'
@@ -785,6 +819,7 @@ export interface FileRouteTypes {
     | '/api/chats'
     | '/api/contacts'
     | '/api/elevenlabs-audio'
+    | '/api/elevenlabs-conversations'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -801,7 +836,9 @@ export interface FileRouteTypes {
     | '/api/voice-buffer'
     | '/api/voice-calls'
     | '/api/voice-campaigns'
+    | '/api/voice-clients'
     | '/api/voice-enrich-contact'
+    | '/api/voice-objectives'
     | '/api/voice-stream'
     | '/call/$roomId'
     | '/api/admin/reset'
@@ -856,6 +893,7 @@ export interface RootRouteChildren {
   ApiChatsRoute: typeof ApiChatsRouteWithChildren
   ApiContactsRoute: typeof ApiContactsRouteWithChildren
   ApiElevenlabsAudioRoute: typeof ApiElevenlabsAudioRoute
+  ApiElevenlabsConversationsRoute: typeof ApiElevenlabsConversationsRoute
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiOperatorsRoute: typeof ApiOperatorsRoute
@@ -872,7 +910,9 @@ export interface RootRouteChildren {
   ApiVoiceBufferRoute: typeof ApiVoiceBufferRoute
   ApiVoiceCallsRoute: typeof ApiVoiceCallsRoute
   ApiVoiceCampaignsRoute: typeof ApiVoiceCampaignsRoute
+  ApiVoiceClientsRoute: typeof ApiVoiceClientsRoute
   ApiVoiceEnrichContactRoute: typeof ApiVoiceEnrichContactRoute
+  ApiVoiceObjectivesRoute: typeof ApiVoiceObjectivesRoute
   ApiVoiceStreamRoute: typeof ApiVoiceStreamRoute
   CallRoomIdRoute: typeof CallRoomIdRoute
   ApiAdminResetRoute: typeof ApiAdminResetRoute
@@ -935,11 +975,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiVoiceStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/voice-objectives': {
+      id: '/api/voice-objectives'
+      path: '/api/voice-objectives'
+      fullPath: '/api/voice-objectives'
+      preLoaderRoute: typeof ApiVoiceObjectivesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/voice-enrich-contact': {
       id: '/api/voice-enrich-contact'
       path: '/api/voice-enrich-contact'
       fullPath: '/api/voice-enrich-contact'
       preLoaderRoute: typeof ApiVoiceEnrichContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/voice-clients': {
+      id: '/api/voice-clients'
+      path: '/api/voice-clients'
+      fullPath: '/api/voice-clients'
+      preLoaderRoute: typeof ApiVoiceClientsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/voice-campaigns': {
@@ -1052,6 +1106,13 @@ declare module '@tanstack/react-router' {
       path: '/api/groups'
       fullPath: '/api/groups'
       preLoaderRoute: typeof ApiGroupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/elevenlabs-conversations': {
+      id: '/api/elevenlabs-conversations'
+      path: '/api/elevenlabs-conversations'
+      fullPath: '/api/elevenlabs-conversations'
+      preLoaderRoute: typeof ApiElevenlabsConversationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/elevenlabs-audio': {
@@ -1465,6 +1526,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatsRoute: ApiChatsRouteWithChildren,
   ApiContactsRoute: ApiContactsRouteWithChildren,
   ApiElevenlabsAudioRoute: ApiElevenlabsAudioRoute,
+  ApiElevenlabsConversationsRoute: ApiElevenlabsConversationsRoute,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiOperatorsRoute: ApiOperatorsRoute,
@@ -1481,7 +1543,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiVoiceBufferRoute: ApiVoiceBufferRoute,
   ApiVoiceCallsRoute: ApiVoiceCallsRoute,
   ApiVoiceCampaignsRoute: ApiVoiceCampaignsRoute,
+  ApiVoiceClientsRoute: ApiVoiceClientsRoute,
   ApiVoiceEnrichContactRoute: ApiVoiceEnrichContactRoute,
+  ApiVoiceObjectivesRoute: ApiVoiceObjectivesRoute,
   ApiVoiceStreamRoute: ApiVoiceStreamRoute,
   CallRoomIdRoute: CallRoomIdRoute,
   ApiAdminResetRoute: ApiAdminResetRoute,

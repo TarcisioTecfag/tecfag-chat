@@ -513,8 +513,27 @@ export const voiceCampaigns = pgTable("voice_campaigns", {
   qualifiedLeads: integer("qualified_leads").default(0).notNull(),
   intervalSeconds: integer("interval_seconds").default(30).notNull(),
   maxAttempts: integer("max_attempts").default(2).notNull(),
+  objectiveId: text("objective_id"), // FK lógica para voice_objectives (sem constraint para evitar ordem circular)
   startedAt: timestamp("started_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── 26. VOICE OBJECTIVES (Objetivos configuráveis da Valentina) ───────────────
+export const voiceObjectives = pgTable("voice_objectives", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),                    // Ex: "Valentina NPS"
+  description: text("description"),               // Descrição interna para o operador
+  emoji: text("emoji").default("🎯"),             // Ícone visual do objetivo
+  prompt: text("prompt").notNull(),               // System prompt completo que substitui o padrão
+  collectFields: jsonb("collect_fields").default([]).notNull(),
+  // [{ key: "rating", label: "Nota 1-10", type: "number"|"text"|"boolean", required: boolean }]
+  actions: jsonb("actions").default([]).notNull(),
+  // ["collect_nps", "create_rd_deal", "send_whatsapp_catalog", "schedule_callback", "enrich_cnpj"]
+  isActive: boolean("is_active").default(true).notNull(),
+  isTemplate: boolean("is_template").default(false).notNull(), // templates pré-definidos do sistema
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const voiceCampaignLeads = pgTable("voice_campaign_leads", {
@@ -586,6 +605,7 @@ export type VoiceCallMessage = typeof voiceCallMessages.$inferSelect;
 export type VoiceCampaign = typeof voiceCampaigns.$inferSelect;
 export type VoiceCampaignLead = typeof voiceCampaignLeads.$inferSelect;
 export type VoiceAgenda = typeof voiceAgenda.$inferSelect;
+export type VoiceObjective = typeof voiceObjectives.$inferSelect;
 
 
 

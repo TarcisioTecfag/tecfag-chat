@@ -67,7 +67,7 @@ export const Route = createFileRoute("/api/voice-campaigns")({
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { tenantId, name, intervalSeconds = 30, leads = [] } = body;
+          const { tenantId, name, intervalSeconds = 30, leads = [], objectiveId } = body;
 
           if (!tenantId) return json({ error: "tenantId é obrigatório" }, 400);
 
@@ -85,6 +85,7 @@ export const Route = createFileRoute("/api/voice-campaigns")({
             calledLeads: 0,
             qualifiedLeads: 0,
             intervalSeconds,
+            objectiveId: objectiveId || null,
             status: "draft",
             createdAt: new Date(),
           });

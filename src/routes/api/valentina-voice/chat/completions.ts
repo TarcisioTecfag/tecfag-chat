@@ -71,28 +71,31 @@ Responda APENAS com JSON válido (sem markdown):
 Se o cliente nao pediu retorno explicitamente, retorne: {"hasSchedulingIntent": false, "scheduledAt": null, "notes": null}
 Se pediu mas nao especificou horario, use o proximo dia util as 14:00 (UTC-3).`;
 
-    const result = await vertexAi.generateStructuredJson(
+    const result = (await vertexAi.generateStructuredJson(
       prompt,
       "gemini-2.0-flash",
       undefined,
       { feature: "sdr_agent", tenantId: TENANT_ID, metadata: { source: "voice_scheduling" } }
-    );
+    )) as { hasSchedulingIntent?: boolean; scheduledAt?: string; notes?: string } | null;
 
     if (!result?.hasSchedulingIntent || !result?.scheduledAt) return;
 
     // Persiste o agendamento no banco
     await db.insert(voiceAgenda).values({
+      id: `ag_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       tenantId: TENANT_ID,
       clientName: "Cliente (via ligação)",
       clientPhone: callerPhone ?? "desconhecido",
       company: "",
       scheduledAt: new Date(result.scheduledAt),
       type: "follow_up",
-      status: "scheduled",
-      priority: "medium",
+      status: "pending",
+      priority: "normal",
       notes: result.notes ?? "Retorno solicitado durante ligação Valentina",
       campaignName: "Valentina Voice",
       assignedAgent: "Valentina",
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
     console.log(`[ValentinaVoice] 📅 Agendamento criado: ${result.scheduledAt} | ${result.notes}`);
@@ -110,23 +113,24 @@ Se pediu mas nao especificou horario, use o proximo dia util as 14:00 (UTC-3).`;
 const TTL_MS = 30_000; // 30s: safe window to coalesce duplicates
 const inflightCache = new Map<string, { promise: Promise<string>; timer: ReturnType<typeof setTimeout> }>();
 
-function hashMessages(messages: VoiceMessage[]): string {
-  // Lightweight hash: role+content of last 6 messages (enough for uniqueness)
-  return messages
+function hashMessages(messages: VoiceMessage[], customPrompt?: string): string {
+  // Lightweight hash: role+content of last 6 messages + customPrompt length
+  const pHash = customPrompt ? `${customPrompt.length}:` : "";
+  return pHash + messages
     .slice(-6)
     .map((m) => `${m.role}:${m.content}`)
     .join("|");
 }
 
-function getOrFetch(messages: VoiceMessage[]): Promise<string> {
-  const key = hashMessages(messages);
+function getOrFetch(messages: VoiceMessage[], customPrompt?: string): Promise<string> {
+  const key = hashMessages(messages, customPrompt);
 
   if (inflightCache.has(key)) {
     console.log(`[ValentinaVoice/completions] ♻️  Reutilizando resposta em cache para ${messages.length} msgs`);
     return inflightCache.get(key)!.promise;
   }
 
-  const promise = generateVoiceResponse(messages, TENANT_ID).finally(() => {
+  const promise = generateVoiceResponse(messages, TENANT_ID, undefined, customPrompt).finally(() => {
     // Remove entry after response (or on error) to allow fresh calls on next turn
     inflightCache.delete(key);
   });
@@ -207,12 +211,23 @@ export const Route = createFileRoute("/api/valentina-voice/chat/completions")({
           const body = await request.json().catch(() => ({}));
           const isStream = body?.stream === true || request.headers.get("accept")?.includes("text/event-stream");
 
-          const messages: VoiceMessage[] = (body?.messages ?? []).filter(
-            (m: any) => m?.role && typeof m?.content === "string"
+          const rawMessages: any[] = body?.messages ?? [];
+          
+          // Extrair prompt customizado se houver mensagem com role "system"
+          const systemMsg = rawMessages.find((m) => m?.role === "system");
+          const customPrompt =
+            typeof systemMsg?.content === "string" && systemMsg.content.trim().length > 0
+              ? systemMsg.content
+              : typeof body?.metadata?.custom_prompt === "string"
+              ? body.metadata.custom_prompt
+              : undefined;
+
+          const messages: VoiceMessage[] = rawMessages.filter(
+            (m: any) => m?.role && m.role !== "system" && typeof m?.content === "string"
           );
 
           console.log(
-            `[ValentinaVoice/completions] Turno recebido. ${messages.length} msgs. Stream: ${isStream}`
+            `[ValentinaVoice/completions] Turno recebido. ${messages.length} msgs. CustomPrompt: ${!!customPrompt}. Stream: ${isStream}`
           );
 
           const defaultGreeting =
@@ -221,7 +236,7 @@ export const Route = createFileRoute("/api/valentina-voice/chat/completions")({
           let responseText = defaultGreeting;
 
           if (messages.length > 0) {
-            const rawResponse = await getOrFetch(messages);
+            const rawResponse = await getOrFetch(messages, customPrompt);
             if (rawResponse && rawResponse.trim().length > 0) {
               responseText = rawResponse;
             }
