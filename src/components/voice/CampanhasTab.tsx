@@ -16,6 +16,19 @@ import {
   Phone,
   Sparkles,
 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -432,18 +445,24 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
               <Target className="w-3 h-3 text-primary" />
               Objetivo da Valentina
             </label>
-            <select
-              value={singleObjectiveId}
-              onChange={e => setSingleObjectiveId(e.target.value)}
-              className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+            <Select
+              value={singleObjectiveId || "default"}
+              onValueChange={val => setSingleObjectiveId(val === "default" ? "" : val)}
             >
-              <option value="">Padrão (SDR Comercial Geral)</option>
-              {objectives.map(obj => (
-                <option key={obj.id} value={obj.id}>
-                  {obj.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-[38px] text-xs">
+                <SelectValue placeholder="Selecione um objetivo..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default" className="text-xs font-medium">
+                  Padrão (SDR Comercial Geral)
+                </SelectItem>
+                {objectives.map(obj => (
+                  <SelectItem key={obj.id} value={obj.id} className="text-xs">
+                    {obj.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <button
@@ -528,34 +547,44 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
                   <Target className="w-3 h-3 text-primary" />
                   Objetivo da Valentina
                 </label>
-                <select
-                  value={selectedObjectiveId}
-                  onChange={e => setSelectedObjectiveId(e.target.value)}
-                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+                <Select
+                  value={selectedObjectiveId || "default"}
+                  onValueChange={val => setSelectedObjectiveId(val === "default" ? "" : val)}
                 >
-                  <option value="">Padrão (SDR Comercial Geral)</option>
-                  {objectives.map(obj => (
-                    <option key={obj.id} value={obj.id}>
-                      {obj.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-[38px] text-xs">
+                    <SelectValue placeholder="Selecione o objetivo..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default" className="text-xs font-medium">
+                      Padrão (SDR Comercial Geral)
+                    </SelectItem>
+                    {objectives.map(obj => (
+                      <SelectItem key={obj.id} value={obj.id} className="text-xs">
+                        {obj.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Intervalo entre ligações
                 </label>
-                <select
-                  value={intervalSeconds}
-                  onChange={e => setIntervalSeconds(Number(e.target.value))}
-                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                <Select
+                  value={String(intervalSeconds)}
+                  onValueChange={val => setIntervalSeconds(Number(val))}
                 >
-                  <option value={15}>15 segundos</option>
-                  <option value={30}>30 segundos</option>
-                  <option value={60}>60 segundos</option>
-                  <option value={120}>120 segundos</option>
-                </select>
+                  <SelectTrigger className="h-[38px] text-xs">
+                    <SelectValue placeholder="Selecione o intervalo..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15" className="text-xs">15 segundos</SelectItem>
+                    <SelectItem value="30" className="text-xs">30 segundos</SelectItem>
+                    <SelectItem value="60" className="text-xs">60 segundos</SelectItem>
+                    <SelectItem value="120" className="text-xs">120 segundos</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -616,34 +645,44 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
                   <Target className="w-3 h-3 text-primary" />
                   Objetivo da Valentina
                 </label>
-                <select
-                  value={selectedObjectiveId}
-                  onChange={e => setSelectedObjectiveId(e.target.value)}
-                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+                <Select
+                  value={selectedObjectiveId || "default"}
+                  onValueChange={val => setSelectedObjectiveId(val === "default" ? "" : val)}
                 >
-                  <option value="">Padrão (SDR Comercial Geral)</option>
-                  {objectives.map(obj => (
-                    <option key={obj.id} value={obj.id}>
-                      {obj.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-[38px] text-xs">
+                    <SelectValue placeholder="Selecione o objetivo..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default" className="text-xs font-medium">
+                      Padrão (SDR Comercial Geral)
+                    </SelectItem>
+                    {objectives.map(obj => (
+                      <SelectItem key={obj.id} value={obj.id} className="text-xs">
+                        {obj.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Intervalo entre ligações
                 </label>
-                <select
-                  value={intervalSeconds}
-                  onChange={e => setIntervalSeconds(Number(e.target.value))}
-                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                <Select
+                  value={String(intervalSeconds)}
+                  onValueChange={val => setIntervalSeconds(Number(val))}
                 >
-                  <option value={15}>15 segundos</option>
-                  <option value={30}>30 segundos</option>
-                  <option value={60}>60 segundos</option>
-                  <option value={120}>120 segundos</option>
-                </select>
+                  <SelectTrigger className="h-[38px] text-xs">
+                    <SelectValue placeholder="Selecione o intervalo..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15" className="text-xs">15 segundos</SelectItem>
+                    <SelectItem value="30" className="text-xs">30 segundos</SelectItem>
+                    <SelectItem value="60" className="text-xs">60 segundos</SelectItem>
+                    <SelectItem value="120" className="text-xs">120 segundos</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
