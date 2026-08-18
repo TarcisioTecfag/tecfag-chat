@@ -12,8 +12,96 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import { generateVoiceResponse, VoiceMessage } from "../../../../lib/valentina/voice-engine";
+import { vertexAi } from "../../../../lib/vertex-ai";
+import { db } from "../../../../db";
+import { voiceAgenda } from "../../../../db/schema";
 
 const TENANT_ID = "valem";
+
+// ── Scheduling Intent Detection ───────────────────────────────────────────────
+// Roda após cada turno para detectar se o cliente pediu retorno/agendamento.
+// Usa Vertex AI (flash) para análise estruturada — sem depender de tool calls.
+
+const SCHEDULING_KEYWORDS = [
+  "ligue", "me liga", "me ligue", "me contate", "me contacte",
+  "pode ligar", "retorne", "retorno", "agendar", "agendamento",
+  "segunda", "terça", "quarta", "quinta", "sexta", "sábado",
+  "amanhã", "próxima semana", "próximo", "depois de",
+  "às ", " horas", "de tarde", "de manhã", "outro momento",
+  "outro horário", "melhor hora"
+];
+
+function hasSchedulingKeyword(text: string): boolean {
+  const lower = text.toLowerCase();
+  return SCHEDULING_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+async function detectAndScheduleCallback(
+  messages: VoiceMessage[],
+  callerPhone: string | null
+): Promise<void> {
+  // Só analisa se há keywords de agendamento nas últimas 2 msgs
+  const recentText = messages.slice(-2).map(m => m.content).join(" ");
+  if (!hasSchedulingKeyword(recentText)) return;
+
+  try {
+    const historyText = messages.slice(-6)
+      .map(m => `${m.role === "user" ? "CLIENTE" : "VALENTINA"}: ${m.content}`)
+      .join("\n");
+
+    const todayISO = new Date().toLocaleDateString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "long", day: "2-digit", month: "long", year: "numeric"
+    });
+
+    const prompt = `Hoje é ${todayISO} (fuso Brasília, UTC-3).
+
+Analise o histórico desta conversa telefônica e determine se o CLIENTE solicitou que a Valentina ligue de volta em outro momento ou agendou um retorno.
+
+HISTÓRICO:
+${historyText}
+
+Responda APENAS com JSON válido (sem markdown):
+{
+  "hasSchedulingIntent": boolean,
+  "scheduledAt": "ISO 8601 com fuso -03:00 ou null se nao mencionou data/hora",
+  "notes": "resumo do interesse do cliente em 1 frase ou null"
+}
+
+Se o cliente nao pediu retorno explicitamente, retorne: {"hasSchedulingIntent": false, "scheduledAt": null, "notes": null}
+Se pediu mas nao especificou horario, use o proximo dia util as 14:00 (UTC-3).`;
+
+    const result = await vertexAi.generateStructuredJson(
+      prompt,
+      "gemini-2.0-flash",
+      undefined,
+      { feature: "sdr_agent", tenantId: TENANT_ID, metadata: { source: "voice_scheduling" } }
+    );
+
+    if (!result?.hasSchedulingIntent || !result?.scheduledAt) return;
+
+    // Persiste o agendamento no banco
+    await db.insert(voiceAgenda).values({
+      tenantId: TENANT_ID,
+      clientName: "Cliente (via ligação)",
+      clientPhone: callerPhone ?? "desconhecido",
+      company: "",
+      scheduledAt: new Date(result.scheduledAt),
+      type: "follow_up",
+      status: "scheduled",
+      priority: "medium",
+      notes: result.notes ?? "Retorno solicitado durante ligação Valentina",
+      campaignName: "Valentina Voice",
+      assignedAgent: "Valentina",
+    });
+
+    console.log(`[ValentinaVoice] 📅 Agendamento criado: ${result.scheduledAt} | ${result.notes}`);
+  } catch (err: any) {
+    // Não deixa erro de agendamento quebrar a resposta de voz
+    console.warn("[ValentinaVoice] ⚠️ Erro ao detectar agendamento:", err?.message ?? err);
+  }
+}
+
 
 // ── Anti-duplicate request cache ──────────────────────────────────────────────
 // Key: SHA-ish hash of the conversation messages
@@ -142,6 +230,13 @@ export const Route = createFileRoute("/api/valentina-voice/chat/completions")({
           console.log(
             `[ValentinaVoice/completions] ✅ Resposta (${responseText.length} chars): ${responseText.substring(0, 100)}...`
           );
+
+          // 🔥 Detecção de agendamento — fire-and-forget (não bloqueia a resposta)
+          const callerPhone: string | null =
+            body?.metadata?.caller_phone ??
+            body?.metadata?.from_number ??
+            null;
+          detectAndScheduleCallback(messages, callerPhone).catch(() => {});
 
           if (isStream) {
             return sseStream(responseText, body?.model);
