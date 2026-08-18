@@ -435,12 +435,12 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
             <select
               value={singleObjectiveId}
               onChange={e => setSingleObjectiveId(e.target.value)}
-              className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
             >
-              <option value="">🎯 Padrão (SDR Comercial Geral)</option>
+              <option value="">Padrão (SDR Comercial Geral)</option>
               {objectives.map(obj => (
                 <option key={obj.id} value={obj.id}>
-                  {obj.emoji} {obj.name}
+                  {obj.name}
                 </option>
               ))}
             </select>
@@ -531,12 +531,12 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
                 <select
                   value={selectedObjectiveId}
                   onChange={e => setSelectedObjectiveId(e.target.value)}
-                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
                 >
-                  <option value="">🎯 Padrão (SDR Comercial Geral)</option>
+                  <option value="">Padrão (SDR Comercial Geral)</option>
                   {objectives.map(obj => (
                     <option key={obj.id} value={obj.id}>
-                      {obj.emoji} {obj.name}
+                      {obj.name}
                     </option>
                   ))}
                 </select>
@@ -619,12 +619,12 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
                 <select
                   value={selectedObjectiveId}
                   onChange={e => setSelectedObjectiveId(e.target.value)}
-                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
                 >
-                  <option value="">🎯 Padrão (SDR Comercial Geral)</option>
+                  <option value="">Padrão (SDR Comercial Geral)</option>
                   {objectives.map(obj => (
                     <option key={obj.id} value={obj.id}>
-                      {obj.emoji} {obj.name}
+                      {obj.name}
                     </option>
                   ))}
                 </select>

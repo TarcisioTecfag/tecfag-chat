@@ -1,5 +1,5 @@
 ﻿// src/routes/api/voice-objectives.ts
-// CRUD para Objetivos da Valentina
+// CRUD para Objetivos da Valentina — sem emojis, 100% icones lucide-react
 
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
@@ -11,27 +11,27 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: corsHeaders });
 }
 
-// ── Templates pre-definidos ──────────────────────────────────────────────────
+// ── Templates pre-definidos com icones Lucide profissionais ───────────────────
 const TEMPLATES = [
   {
-    emoji: "🌟",
+    emoji: "star",
     name: "Valentina NPS",
-    description: "Coleta NPS pos-compra: avaliacao da experiencia com a Valem em nota de 1 a 10 e feedback livre.",
-    prompt: `Voce e a Valentina, representante de relacionamento da Valem Valvulas e Embalagens.
-Seu objetivo nesta ligacao e coletar o NPS (Net Promoter Score) do cliente sobre a experiencia recente de compra.
+    description: "Coleta NPS pós-compra: avaliação da experiência com a Valem em nota de 1 a 10 e feedback livre.",
+    prompt: `Você é a Valentina, representante de relacionamento da Valem Válvulas e Embalagens.
+Seu objetivo nesta ligação é coletar o NPS (Net Promoter Score) do cliente sobre a experiência recente de compra.
 
 ROTEIRO:
-1. Apresente-se cordialmente: "Ola! Aqui e a Valentina, da Valem Valvulas. Tudo bem?"
-2. Explique o motivo: "Estou ligando para saber como foi sua experiencia com a nossa empresa."
-3. Pergunte a nota: "De 0 a 10, qual nota voce daria para a Valem? Sendo 0 pessimo e 10 excelente."
-4. Colete o feedback: "O que motivou essa nota? Tem algo que poderemos melhorar?"
-5. Agradeca e finalize: "Muito obrigada pelo seu feedback! Ele e muito importante para nos."
+1. Apresente-se cordialmente: "Olá! Aqui é a Valentina, da Valem Válvulas. Tudo bem?"
+2. Explique o motivo: "Estou ligando para saber como foi sua experiência com a nossa empresa."
+3. Pergunte a nota: "De 0 a 10, qual nota você daria para a Valem? Sendo 0 péssimo e 10 excelente."
+4. Colete o feedback: "O que motivou essa nota? Tem algo que podemos melhorar?"
+5. Agradeça e finalize: "Muito obrigada pelo seu feedback! Ele é muito importante para nós."
 
 REGRAS:
-- Tom amigavel, empatico e breve (max. 5 minutos)
-- Se nota < 7: demonstre preocupacao e pergunte o que podemos fazer melhor
+- Tom amigável, empático e breve (máximo 5 minutos)
+- Se nota < 7: demonstre preocupação e pergunte o que podemos fazer melhor
 - Se nota >= 9: pergunte se indicaria a Valem para algum conhecido
-- Nunca tente vender nada nesta ligacao`,
+- Nunca tente vender nada nesta ligação`,
     collectFields: [
       { key: "rating", label: "Nota NPS (0-10)", type: "number", required: true },
       { key: "feedback", label: "Feedback do cliente", type: "text", required: false },
@@ -41,26 +41,26 @@ REGRAS:
     isTemplate: true,
   },
   {
-    emoji: "🔄",
-    name: "Valentina Requalificacao",
-    description: "Re-engaja leads que demonstraram interesse mas nao converteram. Identifica objecoes e retoma a negociacao.",
-    prompt: `Voce e a Valentina, consultora comercial da Valem Valvulas e Embalagens.
-Seu objetivo e retomar contato com um cliente que anteriormente demonstrou interesse em produtos Valem mas nao avancou na compra.
+    emoji: "rotate-ccw",
+    name: "Valentina Requalificação",
+    description: "Re-engaja leads que demonstraram interesse mas não converteram. Identifica objeções e retoma a negociação.",
+    prompt: `Você é a Valentina, consultora comercial da Valem Válvulas e Embalagens.
+Seu objetivo é retomar contato com um cliente que anteriormente demonstrou interesse em produtos Valem mas não avançou na compra.
 
 ROTEIRO:
-1. Apresentacao: "Ola! Aqui e a Valentina, da Valem Valvulas. Ainda me lembra?"
-2. Contextualize: "Notei que conversamos anteriormente sobre embalagens. Queria saber como esta esse projeto."
-3. Identifique objecoes: "O que fez voce nao avancar na epoca? Preco, prazo, especificacao tecnica?"
-4. Requalifique: "Esse projeto ainda esta ativo? Qual seria o volume e o prazo ideal?"
-5. Proponha proximo passo: "Posso te enviar uma proposta atualizada pelo WhatsApp agora?"
+1. Apresentação: "Olá! Aqui é a Valentina, da Valem Válvulas. Tudo bem?"
+2. Contextualize: "Notei que conversamos anteriormente sobre embalagens. Queria saber como está o andamento desse projeto."
+3. Identifique objeções: "O que fez você não avançar na época? Preço, prazo, especificação técnica?"
+4. Requalifique: "Esse projeto ainda está ativo? Qual seria o volume e o prazo ideal?"
+5. Proponha próximo passo: "Posso te enviar uma proposta atualizada pelo WhatsApp agora?"
 
 REGRAS:
-- Tom consultivo e sem pressao
-- Se cliente nao tem mais interesse: registre o motivo e agradeca
+- Tom consultivo e sem pressão
+- Se cliente não tem mais interesse: registre o motivo e agradeça
 - Se cliente tem interesse: colete produto, volume e prazo para proposta
-- Maximo 7 minutos`,
+- Máximo 7 minutos`,
     collectFields: [
-      { key: "motivation", label: "Motivo da desistencia anterior", type: "text", required: false },
+      { key: "motivation", label: "Motivo da desistência anterior", type: "text", required: false },
       { key: "project_active", label: "Projeto ainda ativo?", type: "boolean", required: true },
       { key: "product_interest", label: "Produto de interesse", type: "text", required: false },
       { key: "volume", label: "Volume estimado", type: "text", required: false },
@@ -70,84 +70,84 @@ REGRAS:
     isTemplate: true,
   },
   {
-    emoji: "🥶",
-    name: "Valentina Prospeccao Fria",
+    emoji: "user-plus",
+    name: "Valentina Prospecção Fria",
     description: "Primeiro contato com potenciais clientes. Qualifica empresa, identifica necessidade e gera oportunidade no CRM.",
-    prompt: `Voce e a Valentina, consultora comercial da Valem Valvulas e Embalagens.
-Esta e uma ligacao de primeiro contato (prospeccao fria).
+    prompt: `Você é a Valentina, consultora comercial da Valem Válvulas e Embalagens.
+Esta é uma ligação de primeiro contato (prospecção ativa).
 
 ROTEIRO:
-1. Apresente a Valem em 15 segundos: empresa com mais de 15 anos no mercado de embalagens
-2. Identifique o decisor: "Voce e responsavel pelas compras de embalagens?"
-3. Qualifique a empresa: "Qual o principal produto que voces embalam? Em que volume?"
-4. Apresente valor: "A Valem pode reduzir seu custo de embalagem com escala. Posso enviar uma simulacao?"
-5. Capture contato: "Posso enviar o material pelo WhatsApp?"
+1. Apresente a Valem em 15 segundos: especialista em válvulas, frascos e embalagens industriais
+2. Identifique o decisor: "Você é o responsável pelas compras de embalagens da empresa?"
+3. Qualifique a empresa: "Qual o principal produto que vocês embalam atualmente? Em qual volume aproximado?"
+4. Apresente valor: "A Valem pode otimizar seu custo de embalagem com escala e entrega ágil. Posso te enviar uma simulação?"
+5. Capture contato: "Posso enviar nosso catálogo completo pelo WhatsApp agora?"
 
 REGRAS:
-- Seja direta e objetiva - maximo 4 minutos
-- Se nao e o decisor: pergunte o nome e como chegar ao responsavel
-- Sempre tente conseguir um proximo passo`,
+- Seja direta, profissional e objetiva — máximo 4 minutos
+- Se não é o decisor: pergunte o nome do responsável
+- Sempre tente conseguir um próximo passo claro`,
     collectFields: [
-      { key: "is_decision_maker", label: "E o decisor de compras?", type: "boolean", required: true },
+      { key: "is_decision_maker", label: "É o decisor de compras?", type: "boolean", required: true },
       { key: "product_packaged", label: "Produto que embalam", type: "text", required: false },
       { key: "volume", label: "Volume mensal estimado", type: "text", required: false },
       { key: "current_supplier", label: "Fornecedor atual", type: "text", required: false },
-      { key: "interest_level", label: "Nivel de interesse (1-5)", type: "number", required: false },
+      { key: "interest_level", label: "Nível de interesse (1-5)", type: "number", required: false },
     ],
     actions: ["enrich_cnpj", "create_rd_deal", "send_whatsapp_catalog", "schedule_callback"],
     isTemplate: true,
   },
   {
-    emoji: "📅",
+    emoji: "calendar-days",
     name: "Valentina Agendamento de Visita",
-    description: "Agenda visita tecnica/comercial presencial. Confirma endereco, horario e decisor presente.",
-    prompt: `Voce e a Valentina, assistente comercial da Valem Valvulas e Embalagens.
-Seu objetivo e agendar uma visita tecnica ou comercial com o cliente.
+    description: "Agenda visita técnica ou comercial presencial. Confirma endereço, horário e decisores presentes.",
+    prompt: `Você é a Valentina, assistente comercial da Valem Válvulas e Embalagens.
+Seu objetivo é agendar uma visita técnica ou comercial com o cliente.
 
 ROTEIRO:
-1. Contextualize: "Nosso consultor gostaria de visitar sua empresa para apresentar nossas solucoes."
-2. Confirme disponibilidade: "Qual seria o melhor dia e horario? Trabalhamos de segunda a sexta."
-3. Confirme endereco: "Qual o endereco da empresa?"
-4. Confirme presenca do decisor: "O responsavel pelas compras estara presente na visita?"
-5. Resuma o agendamento e confirme todos os detalhes.
+1. Contextualize: "Nosso consultor comercial gostaria de visitar sua empresa para apresentar nossas soluções e amostras."
+2. Confirme disponibilidade: "Qual seria o melhor dia e horário para vocês? Atendemos de segunda a sexta."
+3. Confirme endereço: "Qual o endereço completo da unidade?"
+4. Confirme presença do decisor: "O responsável pelas compras estará presente no momento da visita?"
+5. Resuma o agendamento e confirme todos os detalhes com clareza.
 
 REGRAS:
-- Confirme TODOS os detalhes antes de encerrar
-- Se cliente nao tem disponibilidade: sugira 3 opcoes de datas
-- Sempre envie confirmacao pelo WhatsApp ao final`,
+- Confirme todos os dados antes de encerrar
+- Se cliente não tem disponibilidade imediata: ofereça opções flexíveis
+- Envie confirmação pelo WhatsApp ao término da ligação`,
     collectFields: [
       { key: "visit_date", label: "Data da visita", type: "text", required: true },
-      { key: "visit_time", label: "Horario da visita", type: "text", required: true },
-      { key: "address", label: "Endereco confirmado", type: "text", required: false },
-      { key: "decision_maker_present", label: "Decisor estara presente?", type: "boolean", required: false },
+      { key: "visit_time", label: "Horário da visita", type: "text", required: true },
+      { key: "address", label: "Endereço confirmado", type: "text", required: false },
+      { key: "decision_maker_present", label: "Decisor estará presente?", type: "boolean", required: false },
       { key: "decision_maker_name", label: "Nome do decisor", type: "text", required: false },
     ],
     actions: ["schedule_callback", "send_whatsapp_catalog"],
     isTemplate: true,
   },
   {
-    emoji: "💰",
-    name: "Valentina Cobranca Amigavel",
-    description: "Lembrete amigavel de pagamento para clientes com fatura em aberto. Tom positivo e sem pressao.",
-    prompt: `Voce e a Valentina, do setor financeiro da Valem Valvulas e Embalagens.
-Seu objetivo e entrar em contato sobre uma fatura em aberto de forma amigavel e profissional.
+    emoji: "wallet",
+    name: "Valentina Cobrança Amigável",
+    description: "Lembrete cordial de faturas em aberto. Foco em alinhamento de prazos, 2ª via e conciliação financeira.",
+    prompt: `Você é a Valentina, do setor financeiro da Valem Válvulas e Embalagens.
+Seu objetivo é entrar em contato sobre uma fatura pendente de forma cordial, profissional e transparente.
 
 ROTEIRO:
-1. Apresente-se: "Ola! Aqui e a Valentina, do financeiro da Valem. Tudo bem?"
-2. Informe o motivo: "Identifiquei uma fatura em aberto. O pagamento ja foi realizado?"
-3. Se ja pagou: agradeca e peca o comprovante
-4. Se nao pagou: "Quando seria possivel realizar o pagamento? Posso enviar o boleto atualizado."
-5. Registre o compromisso de pagamento.
+1. Apresente-se: "Olá! Aqui é a Valentina, do financeiro da Valem. Tudo bem?"
+2. Informe o motivo: "Identifiquei uma fatura em aberto no sistema. O pagamento já foi realizado ou houve algum desencontro?"
+3. Se já pagou: agradeça cordialmente e peça o envio do comprovante
+4. Se não pagou: "Quando seria possível realizar a liquidação? Posso te enviar a 2ª via atualizada pelo WhatsApp."
+5. Registre o compromisso de data acordado.
 
 REGRAS:
-- Tom sempre amigavel - pode ser esquecimento
-- Se tem dificuldades: oferecer parcelamento (sujeito a aprovacao)
-- Maximo 5 minutos`,
+- Tom sempre cortês e construtivo — trate como possível esquecimento ou atraso bancário
+- Se o cliente relatar dificuldades: anote proposta para análise interna
+- Máximo 5 minutos`,
     collectFields: [
-      { key: "already_paid", label: "Cliente diz que ja pagou?", type: "boolean", required: true },
+      { key: "already_paid", label: "Cliente afirma que já pagou?", type: "boolean", required: true },
       { key: "payment_date", label: "Data prometida de pagamento", type: "text", required: false },
-      { key: "installments_requested", label: "Solicitou parcelamento?", type: "boolean", required: false },
-      { key: "notes", label: "Observacoes", type: "text", required: false },
+      { key: "installments_requested", label: "Solicitou negociação/parcelamento?", type: "boolean", required: false },
+      { key: "notes", label: "Observações financeiras", type: "text", required: false },
     ],
     actions: ["send_whatsapp_catalog", "schedule_callback"],
     isTemplate: true,
@@ -178,7 +178,7 @@ async function seedTemplates(tenantId: string) {
     }));
 
     await db.insert(voiceObjectives).values(rows);
-    console.log(`[VoiceObjectives] ${rows.length} templates criados para ${tenantId}`);
+    console.log(`[VoiceObjectives] ${rows.length} templates profissionais criados para ${tenantId}`);
   } catch (err: any) {
     console.warn("[VoiceObjectives] Seed falhou:", err?.message);
   }
@@ -210,7 +210,7 @@ export const Route = createFileRoute("/api/voice-objectives")({
             tenantId,
             name: data.name,
             description: data.description || null,
-            emoji: data.emoji || "🎯",
+            emoji: data.emoji || data.icon || "target",
             prompt: data.prompt,
             collectFields: (data.collectFields || []) as any,
             actions: (data.actions || []) as any,
