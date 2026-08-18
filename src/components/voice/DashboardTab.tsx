@@ -1,175 +1,204 @@
-import React, { useState } from "react";
-import { PhoneCall, PhoneIncoming, UserCheck, Clock, Smile, Frown, Meh, Mic, PhoneOff, Volume2 } from "lucide-react";
+﻿import React, { useState, useEffect, useCallback } from "react";
+import {
+  PhoneIncoming, UserCheck, Clock, Smile, Frown, Meh,
+  RefreshCw, TrendingUp, AlertCircle, PhoneCall
+} from "lucide-react";
 import { motion } from "framer-motion";
 
-export function DashboardTab() {
-  const [activeCall, setActiveCall] = useState<{
-    id: string;
-    from: string;
-    contactName: string;
-    duration: string;
-    sentiment: "positive" | "neutral" | "negative";
-    liveTranscript: string;
-  } | null>({
-    id: "call-1",
-    from: "+55 14 99836-4338",
-    contactName: "João Silva (Valem)",
-    duration: "02:14",
-    sentiment: "positive",
-    liveTranscript: "Valentina: Entendo perfeitamente! Nossas válvulas aerossol de 300ml possuem certificação de vazão e estão com pronta entrega..."
-  });
+interface ElevenLabsConversation {
+  conversation_id: string;
+  start_time_unix_secs: number;
+  call_duration_secs: number;
+  status: string;
+  termination_reason: string | null;
+  call_summary_title: string | null;
+  direction: "outbound" | "inbound" | null;
+  sentiment_analysis: {
+    overall_label: "positive" | "neutral" | "negative";
+    overall_sentiment_score: number;
+  } | null;
+}
 
-  const [recentCalls] = useState([
-    { id: "c-101", from: "+55 14 99123-4567", name: "Carlos Eduardo", date: "Hoje, 11:20", duration: "3m 45s", sentiment: "positive", status: "IA Finalizou", summary: "Interessado em 5.000 unidades de válvulas spray." },
-    { id: "c-102", from: "+55 11 98765-4321", name: "Mariana Costa", date: "Hoje, 10:45", duration: "1m 12s", sentiment: "neutral", status: "IA Finalizou", summary: "Pediu tabela de preços por WhatsApp." },
-    { id: "c-103", from: "+55 19 97654-3210", name: "Roberto Alves", date: "Hoje, 09:30", duration: "5m 02s", sentiment: "positive", status: "Humano Interveio", summary: "Transferido para vendedor devido a negociação de prazo." },
-    { id: "c-104", from: "+55 41 96543-2109", name: "Empresa Embalagens LTDA", date: "Ontem, 16:50", duration: "2m 30s", sentiment: "negative", status: "IA Finalizou", summary: "Reclamou de atraso na entrega da última nota." },
-  ]);
+function isToday(unixSecs: number): boolean {
+  const d = new Date(unixSecs * 1000), now = new Date();
+  return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+}
+function isYesterday(unixSecs: number): boolean {
+  const d = new Date(unixSecs * 1000), y = new Date();
+  y.setDate(y.getDate() - 1);
+  return d.getDate() === y.getDate() && d.getMonth() === y.getMonth() && d.getFullYear() === y.getFullYear();
+}
+function formatDuration(secs: number): string {
+  return `${Math.floor(secs / 60)}m ${(secs % 60).toString().padStart(2, "0")}s`;
+}
+function formatDateTime(unixSecs: number): string {
+  const d = new Date(unixSecs * 1000);
+  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (isToday(unixSecs)) return `Hoje, ${time}`;
+  if (isYesterday(unixSecs)) return `Ontem, ${time}`;
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+export function DashboardTab({ tenantId = "valem" }: { tenantId?: string }) {
+  const [conversations, setConversations] = useState<ElevenLabsConversation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const fetchConversations = useCallback(async () => {
+    try {
+      setError(null);
+      const res = await fetch(`/api/elevenlabs-conversations?tenantId=${tenantId}`);
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      const data = await res.json();
+      setConversations(data.conversations ?? data ?? []);
+      setLastUpdated(new Date());
+    } catch (err: any) {
+      setError(err.message ?? "Erro ao carregar");
+    } finally {
+      setLoading(false);
+    }
+  }, [tenantId]);
+
+  useEffect(() => {
+    fetchConversations();
+    const t = setInterval(fetchConversations, 60_000);
+    return () => clearInterval(t);
+  }, [fetchConversations]);
+
+  const today = conversations.filter(c => isToday(c.start_time_unix_secs));
+  const yesterday = conversations.filter(c => isYesterday(c.start_time_unix_secs));
+  const withSentiment = today.filter(c => c.sentiment_analysis);
+  const positive = withSentiment.filter(c => c.sentiment_analysis?.overall_label === "positive");
+  const successful = today.filter(c => c.status === "done");
+  const avgDuration = today.length > 0 ? Math.round(today.reduce((a, c) => a + c.call_duration_secs, 0) / today.length) : 0;
+  const positivePct = withSentiment.length > 0 ? Math.round((positive.length / withSentiment.length) * 100) : 0;
+  const successPct = today.length > 0 ? Math.round((successful.length / today.length) * 100) : 0;
+  const delta = yesterday.length > 0 ? Math.round(((today.length - yesterday.length) / yesterday.length) * 100) : null;
+  const lastCall = conversations[0] ?? null;
+  const recent = conversations.slice(0, 10);
 
   return (
     <div className="flex flex-col gap-6 overflow-y-auto h-full pr-1">
-      {/* Cards de Métricas Principais */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : error ? <AlertCircle className="w-3.5 h-3.5 text-rose-500" /> : <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+          {loading ? "Carregando..." : error ? `Erro: ${error}` : `Atualizado ${lastUpdated?.toLocaleTimeString("pt-BR")}`}
+        </span>
+        <button onClick={fetchConversations} className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer">
+          <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ligações Hoje</p>
-            <h3 className="text-2xl font-extrabold text-foreground mt-1">14</h3>
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">↑ +25% que ontem</span>
+            <h3 className="text-2xl font-extrabold text-foreground mt-1">{loading ? "—" : today.length}</h3>
+            {delta !== null ? <span className={`text-[11px] font-semibold ${delta >= 0 ? "text-emerald-600" : "text-rose-500"}`}>{delta >= 0 ? "↑" : "↓"} {Math.abs(delta)}% que ontem</span> : <span className="text-[11px] text-muted-foreground">{yesterday.length} ontem</span>}
           </div>
-          <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-            <PhoneIncoming className="w-5.5 h-5.5" />
-          </div>
+          <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary"><PhoneIncoming className="w-5 h-5" /></div>
         </div>
 
         <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Atendidas por Valentina</p>
-            <h3 className="text-2xl font-extrabold text-foreground mt-1">12 <span className="text-xs text-muted-foreground font-normal">(85.7%)</span></h3>
+            <h3 className="text-2xl font-extrabold text-foreground mt-1">{loading ? "—" : successful.length} <span className="text-xs text-muted-foreground font-normal">({loading ? "—" : `${successPct}%`})</span></h3>
             <span className="text-[11px] text-muted-foreground">Qualificação automatizada</span>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-            <UserCheck className="w-5.5 h-5.5" />
-          </div>
+          <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600"><UserCheck className="w-5 h-5" /></div>
         </div>
 
         <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Duração Média</p>
-            <h3 className="text-2xl font-extrabold text-foreground mt-1">3m 18s</h3>
+            <h3 className="text-2xl font-extrabold text-foreground mt-1">{loading ? "—" : formatDuration(avgDuration)}</h3>
             <span className="text-[11px] text-muted-foreground">Tempo de engajamento</span>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400">
-            <Clock className="w-5.5 h-5.5" />
-          </div>
+          <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600"><Clock className="w-5 h-5" /></div>
         </div>
 
         <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sentimento</p>
-            <h3 className="text-2xl font-extrabold text-foreground mt-1">82% Positivo</h3>
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">Excelente recepção</span>
+            <h3 className="text-2xl font-extrabold text-foreground mt-1">{loading ? "—" : `${positivePct}% Positivo`}</h3>
+            <span className={`text-[11px] font-semibold ${positivePct >= 70 ? "text-emerald-600" : positivePct >= 40 ? "text-amber-600" : "text-rose-500"}`}>{positivePct >= 70 ? "Excelente recepção" : positivePct >= 40 ? "Recepção moderada" : "Requer atenção"}</span>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
-            <Smile className="w-5.5 h-5.5" />
-          </div>
+          <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600"><Smile className="w-5 h-5" /></div>
         </div>
       </div>
 
-      {/* Monitor de Chamada em Tempo Real */}
-      {activeCall ? (
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-card border border-primary/40 rounded-2xl p-5 shadow-soft relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 px-4 py-1 bg-primary/10 border-l border-b border-primary/30 text-primary text-xs font-extrabold flex items-center gap-2 rounded-bl-2xl">
-            <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
-            AO VIVO ({activeCall.duration})
+      {lastCall ? (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-border rounded-2xl p-5 shadow-soft">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-sm font-bold text-foreground flex items-center gap-2"><PhoneCall className="w-4 h-4 text-primary" />Última Ligação</h4>
+            <span className="text-xs text-muted-foreground">{formatDateTime(lastCall.start_time_unix_secs)}</span>
           </div>
-
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-            <div>
-              <h4 className="text-base font-extrabold text-foreground flex items-center gap-2">
-                <PhoneCall className="w-5 h-5 text-primary animate-pulse" />
-                {activeCall.contactName}
-              </h4>
-              <p className="text-xs text-muted-foreground mt-0.5">{activeCall.from}</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div className="bg-muted/40 rounded-xl p-3"><span className="text-muted-foreground block mb-1">Duração</span><span className="font-bold text-foreground">{formatDuration(lastCall.call_duration_secs)}</span></div>
+            <div className="bg-muted/40 rounded-xl p-3"><span className="text-muted-foreground block mb-1">Status</span><span className={`font-bold ${lastCall.status === "done" ? "text-emerald-600" : "text-amber-600"}`}>{lastCall.status === "done" ? "Finalizada" : lastCall.status}</span></div>
+            <div className="bg-muted/40 rounded-xl p-3"><span className="text-muted-foreground block mb-1">Sentimento</span>
+              <span className={`font-bold flex items-center gap-1 ${lastCall.sentiment_analysis?.overall_label === "positive" ? "text-emerald-600" : lastCall.sentiment_analysis?.overall_label === "negative" ? "text-rose-500" : "text-muted-foreground"}`}>
+                {lastCall.sentiment_analysis?.overall_label === "positive" && <><Smile className="w-3.5 h-3.5" />Positivo</>}
+                {lastCall.sentiment_analysis?.overall_label === "neutral" && <><Meh className="w-3.5 h-3.5" />Neutro</>}
+                {lastCall.sentiment_analysis?.overall_label === "negative" && <><Frown className="w-3.5 h-3.5" />Negativo</>}
+                {!lastCall.sentiment_analysis && "—"}
+              </span>
             </div>
-
-            <div className="flex items-center gap-2">
-              <button className="px-3.5 py-2 bg-muted hover:bg-muted/80 border border-border rounded-xl text-xs font-semibold text-foreground flex items-center gap-1.5 transition cursor-pointer shadow-soft">
-                <Volume2 className="w-4 h-4 text-primary" />
-                Ouvir
-              </button>
-              <button className="px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1.5 transition cursor-pointer shadow-soft">
-                <Mic className="w-4 h-4 text-amber-500" />
-                Intervir (WebRTC)
-              </button>
-              <button 
-                onClick={() => setActiveCall(null)}
-                className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5 transition cursor-pointer shadow-soft"
-              >
-                <PhoneOff className="w-4 h-4 text-rose-500" />
-                Encerrar
-              </button>
-            </div>
+            <div className="bg-muted/40 rounded-xl p-3"><span className="text-muted-foreground block mb-1">Encerramento</span><span className="font-bold text-foreground text-[11px]">{lastCall.termination_reason ?? "—"}</span></div>
           </div>
-
-          {/* Transcript Ao Vivo */}
-          <div className="bg-muted/40 border border-border rounded-xl p-3.5 text-xs text-foreground font-mono leading-relaxed">
-            <span className="text-primary font-bold">[Transcrição ao vivo]:</span> {activeCall.liveTranscript}
-          </div>
+          {lastCall.call_summary_title && <div className="mt-3 bg-primary/5 border border-primary/20 rounded-xl px-3.5 py-2.5 text-xs"><span className="text-primary font-semibold">Resumo: </span>{lastCall.call_summary_title}</div>}
         </motion.div>
-      ) : (
-        <div className="bg-card border border-border border-dashed rounded-2xl p-6 text-center text-muted-foreground text-xs shadow-soft">
-          Nenhuma ligação em andamento neste momento. Novas chamadas recebidas ou disparadas aparecerão aqui automaticamente.
+      ) : !loading && (
+        <div className="bg-card border border-dashed border-border rounded-2xl p-6 text-center text-muted-foreground text-xs shadow-soft">
+          Nenhuma ligação registrada ainda. Realize a primeira chamada de saída pelo botão no topo.
         </div>
       )}
 
-      {/* Tabela de Chamadas Recentes */}
       <div className="bg-card border border-border rounded-2xl p-5 shadow-soft">
-        <h4 className="text-sm font-bold text-foreground mb-4">Últimas Ligações Atendidas</h4>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-foreground">
-            <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
-              <tr>
-                <th className="p-3 font-semibold">Cliente / Telefone</th>
-                <th className="p-3 font-semibold">Data / Hora</th>
-                <th className="p-3 font-semibold">Duração</th>
-                <th className="p-3 font-semibold">Status</th>
-                <th className="p-3 font-semibold">Sentimento</th>
-                <th className="p-3 font-semibold">Resumo da IA</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {recentCalls.map((call) => (
-                <tr key={call.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="p-3 font-bold text-foreground">
-                    {call.name}
-                    <span className="block text-[11px] text-muted-foreground font-normal">{call.from}</span>
-                  </td>
-                  <td className="p-3 text-muted-foreground">{call.date}</td>
-                  <td className="p-3 text-foreground">{call.duration}</td>
-                  <td className="p-3">
-                    <span className={`inline-flex px-2.5 py-0.5 text-[10px] font-bold rounded-lg border ${
-                      call.status.includes("IA") 
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                    }`}>
-                      {call.status}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    {call.sentiment === "positive" && <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-medium"><Smile className="w-3.5 h-3.5" /> Positivo</span>}
-                    {call.sentiment === "neutral" && <span className="text-muted-foreground flex items-center gap-1 font-medium"><Meh className="w-3.5 h-3.5" /> Neutro</span>}
-                    {call.sentiment === "negative" && <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1 font-medium"><Frown className="w-3.5 h-3.5" /> Negativo</span>}
-                  </td>
-                  <td className="p-3 text-muted-foreground max-w-xs truncate">{call.summary}</td>
+        <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" />Últimas Ligações</h4>
+        {loading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2"><RefreshCw className="w-4 h-4 animate-spin" />Carregando...</div>
+        ) : recent.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground text-xs">Nenhuma ligação encontrada.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-foreground">
+              <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
+                <tr>
+                  <th className="p-3 font-semibold">Resumo / Tipo</th>
+                  <th className="p-3 font-semibold">Data / Hora</th>
+                  <th className="p-3 font-semibold">Duração</th>
+                  <th className="p-3 font-semibold">Status</th>
+                  <th className="p-3 font-semibold">Sentimento</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {recent.map((conv) => (
+                  <tr key={conv.conversation_id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-3 font-bold text-foreground">
+                      {conv.call_summary_title ?? "Ligação"}
+                      <span className="block text-[11px] text-muted-foreground font-normal capitalize">{conv.direction === "outbound" ? "Saída" : conv.direction === "inbound" ? "Entrada" : "—"}</span>
+                    </td>
+                    <td className="p-3 text-muted-foreground">{formatDateTime(conv.start_time_unix_secs)}</td>
+                    <td className="p-3 text-foreground">{formatDuration(conv.call_duration_secs)}</td>
+                    <td className="p-3">
+                      <span className={`inline-flex px-2.5 py-0.5 text-[10px] font-bold rounded-lg border ${conv.status === "done" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}`}>
+                        {conv.status === "done" ? "IA Finalizou" : conv.status}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      {conv.sentiment_analysis?.overall_label === "positive" && <span className="text-emerald-600 flex items-center gap-1 font-medium"><Smile className="w-3.5 h-3.5" />Positivo</span>}
+                      {conv.sentiment_analysis?.overall_label === "neutral" && <span className="text-muted-foreground flex items-center gap-1 font-medium"><Meh className="w-3.5 h-3.5" />Neutro</span>}
+                      {conv.sentiment_analysis?.overall_label === "negative" && <span className="text-rose-500 flex items-center gap-1 font-medium"><Frown className="w-3.5 h-3.5" />Negativo</span>}
+                      {!conv.sentiment_analysis && <span className="text-muted-foreground">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

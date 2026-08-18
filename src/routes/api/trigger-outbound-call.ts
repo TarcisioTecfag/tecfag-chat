@@ -22,8 +22,16 @@ export const Route = createFileRoute("/api/trigger-outbound-call")({
       POST: async ({ request }) => {
         try {
           const body = await request.json().catch(() => ({}));
+
+          if (!body.tenantId) {
+            return jsonResponse({ error: "tenantId é obrigatório" }, 400);
+          }
+          if (!body.phone) {
+            return jsonResponse({ error: "phone é obrigatório" }, 400);
+          }
+
           const result = await triggerOutboundCallInternal({
-            phone: body.phone || "+5514998364338",
+            phone: body.phone,
             fromPhone: body.fromPhone,
             accountSid: body.accountSid,
             authToken: body.authToken,

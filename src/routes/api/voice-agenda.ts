@@ -1,12 +1,12 @@
-// src/routes/api/voice-agenda.ts
-// API endpoints para listagem, agendamento, reagendamento e gestão da Agenda de Ligações da Valentina
+﻿// src/routes/api/voice-agenda.ts
+// API endpoints para listagem, agendamento, reagendamento e gestÃ£o da Agenda de LigaÃ§Ãµes da Valentina
 
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { voiceAgenda } from "../../db/schema";
 import { eq, and, asc } from "drizzle-orm";
 
-// Em-memória fallback cache para dev/produção imediata
+// Em-memÃ³ria fallback cache para dev/produÃ§Ã£o imediata
 const inMemoryAgenda = new Map<string, any[]>();
 
 function getInitialMockAgenda(tenantId: string) {
@@ -24,12 +24,12 @@ function getInitialMockAgenda(tenantId: string) {
       tenantId,
       clientName: "Marcos Oliveira",
       clientPhone: "(11) 98765-4321",
-      company: "Embalagens Aliança",
+      company: "Embalagens AlianÃ§a",
       scheduledAt: formatIso(0, 10, 30),
       type: "customer_request",
       status: "pending",
       priority: "high",
-      notes: "Cliente solicitou ligação às 10h30 para tirar dúvidas sobre Máquina Seladora Vácuo Dupla.",
+      notes: "Cliente solicitou ligaÃ§Ã£o Ã s 10h30 para tirar dÃºvidas sobre MÃ¡quina Seladora VÃ¡cuo Dupla.",
       campaignName: undefined,
       assignedAgent: "Valentina",
       createdAt: new Date().toISOString(),
@@ -45,7 +45,7 @@ function getInitialMockAgenda(tenantId: string) {
       type: "follow_up",
       status: "pending",
       priority: "normal",
-      notes: "Follow-up de orçamento enviado de Válvulas Aerosol 20mm alumínio.",
+      notes: "Follow-up de orÃ§amento enviado de VÃ¡lvulas Aerosol 20mm alumÃ­nio.",
       campaignName: undefined,
       assignedAgent: "Valentina",
       createdAt: new Date().toISOString(),
@@ -56,12 +56,12 @@ function getInitialMockAgenda(tenantId: string) {
       tenantId,
       clientName: "Carlos Eduardo Costa",
       clientPhone: "(41) 98844-5511",
-      company: "Indústria de Cosméticos Beleza Pura",
+      company: "IndÃºstria de CosmÃ©ticos Beleza Pura",
       scheduledAt: formatIso(0, 16, 15),
       type: "excel_list",
       status: "pending",
       priority: "normal",
-      notes: "Carga da lista Excel 'Leads_Agosto_Semana1.xlsx' — Frascos PET 100ml.",
+      notes: "Carga da lista Excel 'Leads_Agosto_Semana1.xlsx' â€” Frascos PET 100ml.",
       campaignName: "Leads_Agosto_Semana1.xlsx",
       assignedAgent: "Valentina",
       createdAt: new Date().toISOString(),
@@ -72,12 +72,12 @@ function getInitialMockAgenda(tenantId: string) {
       tenantId,
       clientName: "Juliana Mendes",
       clientPhone: "(31) 97112-9900",
-      company: "Farmácia de Manipulação Botânica",
+      company: "FarmÃ¡cia de ManipulaÃ§Ã£o BotÃ¢nica",
       scheduledAt: formatIso(1, 11, 0),
       type: "customer_request",
       status: "pending",
       priority: "urgent",
-      notes: "Agendado via chat: confirmar especificações de Bomba Spray Roscável 24/410.",
+      notes: "Agendado via chat: confirmar especificaÃ§Ãµes de Bomba Spray RoscÃ¡vel 24/410.",
       campaignName: undefined,
       assignedAgent: "Valentina",
       createdAt: new Date().toISOString(),
@@ -93,7 +93,7 @@ function getInitialMockAgenda(tenantId: string) {
       type: "follow_up",
       status: "completed",
       priority: "normal",
-      notes: "Chamada concluída com sucesso pela Valentina. Proposta aceita.",
+      notes: "Chamada concluÃ­da com sucesso pela Valentina. Proposta aceita.",
       campaignName: undefined,
       assignedAgent: "Valentina",
       createdAt: new Date().toISOString(),
@@ -107,7 +107,12 @@ export const Route = createFileRoute("/api/voice-agenda")({
     handlers: {
       GET: async ({ request }) => {
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId") || "valem";
+        const tenantId = url.searchParams.get("tenantId");
+        if (!tenantId) {
+          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
+            status: 400, headers: { "Content-Type": "application/json" }
+          });
+        }
         const status = url.searchParams.get("status");
         const type = url.searchParams.get("type");
 
@@ -121,7 +126,7 @@ export const Route = createFileRoute("/api/voice-agenda")({
               .where(eq(voiceAgenda.tenantId, tenantId))
               .orderBy(asc(voiceAgenda.scheduledAt));
           } catch {
-            // Tabela pode não estar criada fisicamente no Postgres ainda — usar fallback em memória
+            // Tabela pode nÃ£o estar criada fisicamente no Postgres ainda â€” usar fallback em memÃ³ria
           }
 
           if (list.length === 0) {
@@ -151,12 +156,17 @@ export const Route = createFileRoute("/api/voice-agenda")({
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { tenantId = "valem", items, ...singleItem } = body;
+          const { tenantId, items, ...singleItem } = body;
+          if (!tenantId) {
+            return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
+              status: 400, headers: { "Content-Type": "application/json" }
+            });
+          }
 
           const memoryList = inMemoryAgenda.get(tenantId) || getInitialMockAgenda(tenantId);
 
           if (Array.isArray(items) && items.length > 0) {
-            // Inserção em lote (ex: importação da lista Excel)
+            // InserÃ§Ã£o em lote (ex: importaÃ§Ã£o da lista Excel)
             const createdItemsDb = items.map((it: any, idx: number) => ({
               id: `ag_excel_${Date.now()}_${idx}`,
               tenantId,
@@ -185,7 +195,7 @@ export const Route = createFileRoute("/api/voice-agenda")({
             try {
               await db.insert(voiceAgenda).values(createdItemsDb);
             } catch {
-              // fallback memória
+              // fallback memÃ³ria
             }
 
             inMemoryAgenda.set(tenantId, [...createdItemsMemory, ...memoryList]);
@@ -196,7 +206,7 @@ export const Route = createFileRoute("/api/voice-agenda")({
             });
           }
 
-          // Inserção individual
+          // InserÃ§Ã£o individual
           const scheduledDate = new Date(singleItem.scheduledAt || Date.now());
           const newItemDb = {
             id: `ag_${Date.now()}`,
@@ -225,7 +235,7 @@ export const Route = createFileRoute("/api/voice-agenda")({
           try {
             await db.insert(voiceAgenda).values(newItemDb);
           } catch {
-            // fallback memória
+            // fallback memÃ³ria
           }
 
           inMemoryAgenda.set(tenantId, [newItemMemory, ...memoryList]);
@@ -243,10 +253,15 @@ export const Route = createFileRoute("/api/voice-agenda")({
       PUT: async ({ request }) => {
         try {
           const body = await request.json();
-          const { tenantId = "valem", id, ...updates } = body;
+          const { tenantId, id, ...updates } = body;
+          if (!tenantId) {
+            return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
+              status: 400, headers: { "Content-Type": "application/json" }
+            });
+          }
 
           if (!id) {
-            return new Response(JSON.stringify({ error: "ID é obrigatório para atualização" }), { status: 400 });
+            return new Response(JSON.stringify({ error: "ID Ã© obrigatÃ³rio para atualizaÃ§Ã£o" }), { status: 400 });
           }
 
           const dbUpdates: any = { ...updates, updatedAt: new Date() };
@@ -261,7 +276,7 @@ export const Route = createFileRoute("/api/voice-agenda")({
               .set(dbUpdates)
               .where(and(eq(voiceAgenda.id, id), eq(voiceAgenda.tenantId, tenantId)));
           } catch {
-            // fallback memória
+            // fallback memÃ³ria
           }
 
           const memoryList = inMemoryAgenda.get(tenantId) || getInitialMockAgenda(tenantId);
@@ -282,11 +297,16 @@ export const Route = createFileRoute("/api/voice-agenda")({
       DELETE: async ({ request }) => {
         try {
           const url = new URL(request.url);
-          const tenantId = url.searchParams.get("tenantId") || "valem";
+          const tenantId = url.searchParams.get("tenantId");
+        if (!tenantId) {
+          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
+            status: 400, headers: { "Content-Type": "application/json" }
+          });
+        }
           const id = url.searchParams.get("id");
 
           if (!id) {
-            return new Response(JSON.stringify({ error: "ID é obrigatório" }), { status: 400 });
+            return new Response(JSON.stringify({ error: "ID Ã© obrigatÃ³rio" }), { status: 400 });
           }
 
           try {
@@ -314,3 +334,4 @@ export const Route = createFileRoute("/api/voice-agenda")({
     },
   },
 });
+

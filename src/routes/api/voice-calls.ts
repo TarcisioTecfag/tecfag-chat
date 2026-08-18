@@ -11,7 +11,12 @@ export const Route = createFileRoute("/api/voice-calls")({
     handlers: {
       GET: async ({ request }) => {
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId") || "valem";
+        const tenantId = url.searchParams.get("tenantId");
+        if (!tenantId) {
+          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
+            status: 400, headers: { "Content-Type": "application/json" }
+          });
+        }
         const callId = url.searchParams.get("id");
 
         try {

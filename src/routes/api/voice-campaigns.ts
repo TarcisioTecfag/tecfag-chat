@@ -4,35 +4,51 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { voiceCampaigns, voiceCampaignLeads } from "../../db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
+
+const json = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 
 export const Route = createFileRoute("/api/voice-campaigns")({
   server: {
     handlers: {
       GET: async ({ request }) => {
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId") || "valem";
+        const tenantId = url.searchParams.get("tenantId");
         const campaignId = url.searchParams.get("id");
+
+        if (!tenantId) return json({ error: "tenantId é obrigatório" }, 400);
 
         try {
           if (campaignId) {
             const [campaign] = await db
               .select()
               .from(voiceCampaigns)
-              .where(eq(voiceCampaigns.id, campaignId));
+              .where(
+                and(
+                  eq(voiceCampaigns.id, campaignId),
+                  eq(voiceCampaigns.tenantId, tenantId)
+                )
+              );
 
             if (!campaign) {
-              return new Response(JSON.stringify({ error: "Campanha não encontrada" }), { status: 404 });
+              return json({ error: "Campanha não encontrada" }, 404);
             }
 
             const leads = await db
               .select()
               .from(voiceCampaignLeads)
-              .where(eq(voiceCampaignLeads.campaignId, campaignId));
+              .where(
+                and(
+                  eq(voiceCampaignLeads.campaignId, campaignId),
+                  eq(voiceCampaignLeads.tenantId, tenantId)
+                )
+              );
 
-            return new Response(JSON.stringify({ campaign, leads }), {
-              headers: { "Content-Type": "application/json" },
-            });
+            return json({ campaign, leads });
           }
 
           const campaignsList = await db
@@ -41,22 +57,22 @@ export const Route = createFileRoute("/api/voice-campaigns")({
             .where(eq(voiceCampaigns.tenantId, tenantId))
             .orderBy(desc(voiceCampaigns.createdAt));
 
-          return new Response(JSON.stringify({ campaigns: campaignsList }), {
-            headers: { "Content-Type": "application/json" },
-          });
+          return json({ campaigns: campaignsList });
         } catch (err: any) {
           console.error("[VoiceCampaigns API] Erro ao buscar campanhas:", err?.message || err);
-          return new Response(JSON.stringify({ error: "Erro interno do servidor" }), { status: 500 });
+          return json({ error: "Erro interno do servidor" }, 500);
         }
       },
 
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { tenantId = "valem", name, intervalSeconds = 30, leads = [] } = body;
+          const { tenantId, name, intervalSeconds = 30, leads = [] } = body;
+
+          if (!tenantId) return json({ error: "tenantId é obrigatório" }, 400);
 
           if (!name || !Array.isArray(leads) || leads.length === 0) {
-            return new Response(JSON.stringify({ error: "Nome e lista de leads são obrigatórios" }), { status: 400 });
+            return json({ error: "Nome e lista de leads são obrigatórios" }, 400);
           }
 
           const campaignId = `camp_${Date.now()}`;
@@ -89,13 +105,53 @@ export const Route = createFileRoute("/api/voice-campaigns")({
 
           await db.insert(voiceCampaignLeads).values(leadRecords);
 
-          return new Response(JSON.stringify({ success: true, campaignId, totalLeads: leads.length }), {
-            status: 201,
-            headers: { "Content-Type": "application/json" },
-          });
+          return json({ success: true, campaignId, totalLeads: leads.length }, 201);
         } catch (err: any) {
           console.error("[VoiceCampaigns API] Erro ao criar campanha:", err?.message || err);
-          return new Response(JSON.stringify({ error: "Erro ao criar campanha" }), { status: 500 });
+          return json({ error: "Erro ao criar campanha" }, 500);
+        }
+      },
+
+      PATCH: async ({ request }) => {
+        try {
+          const body = await request.json();
+          const { tenantId, campaignId, status, leadId, leadStatus } = body;
+
+          if (!tenantId) return json({ error: "tenantId é obrigatório" }, 400);
+
+          // Atualizar status da campanha
+          if (campaignId && status) {
+            await db
+              .update(voiceCampaigns)
+              .set({ status })
+              .where(
+                and(
+                  eq(voiceCampaigns.id, campaignId),
+                  eq(voiceCampaigns.tenantId, tenantId)
+                )
+              );
+          }
+
+          // Atualizar status de um lead específico (+ incrementar tentativas)
+          if (leadId && leadStatus) {
+            await db
+              .update(voiceCampaignLeads)
+              .set({
+                status: leadStatus,
+                attempts: sql`${voiceCampaignLeads.attempts} + 1`,
+              })
+              .where(
+                and(
+                  eq(voiceCampaignLeads.id, leadId),
+                  eq(voiceCampaignLeads.tenantId, tenantId)
+                )
+              );
+          }
+
+          return json({ success: true });
+        } catch (err: any) {
+          console.error("[VoiceCampaigns API] Erro no PATCH:", err?.message || err);
+          return json({ error: "Erro ao atualizar campanha" }, 500);
         }
       },
     },
