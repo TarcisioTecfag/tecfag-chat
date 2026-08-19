@@ -961,6 +961,52 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // 11. Envio de Mensagens de Texto / Áudio Dinâmico ElevenLabs
       const dynamicAudio = aiResult.audioMessage && aiResult.audioMessage.text?.trim() ? aiResult.audioMessage : null;
 
+      // DEDUPLICAÇÃO DEFENSIVA DE SAUDAÇÃO:
+      // Protege contra dois cenários:
+      // A) Gemini retorna o greeting duas vezes em messagesToSend (bug de prompt)
+      // B) Outra instância/processo já enviou o greeting antes (race condition residual)
+      if (aiResult.messagesToSend.length > 0) {
+        // LOG diagnóstico para rastrear se Gemini está duplicando no array
+        console.log(`[SdrEngine] 📤 messagesToSend do Gemini (${aiResult.messagesToSend.length} balões):`, JSON.stringify(aiResult.messagesToSend));
+
+        // Verificar se DB já tem mensagens bot para esta conversa
+        const existingBotMsg = await db.select({ id: messages.id })
+          .from(messages)
+          .where(eq(messages.conversationId, conversationId))
+          .limit(1);
+        const botAlreadyResponded = existingBotMsg.length > 0;
+
+        if (botAlreadyResponded) {
+          // Se o bot já respondeu, remove saudações do array (Gemini não deveria mandar, mas protege)
+          const greetingPatterns = [
+            /^(boa\s*(tarde|noite)|bom\s*dia)[!.]?\s*$/i,
+            /^eu\s+sou\s+(a\s+)?valentina/i,
+            /^eu\s+sou\s+(o\s+)?fagner/i,
+          ];
+          const before = aiResult.messagesToSend.length;
+          aiResult.messagesToSend = aiResult.messagesToSend.filter(
+            msg => !greetingPatterns.some(p => p.test(msg.trim()))
+          );
+          if (aiResult.messagesToSend.length < before) {
+            console.log(`[SdrEngine] ⚠️ DEDUPLICAÇÃO: removidas ${before - aiResult.messagesToSend.length} mensagem(ns) de saudação duplicada (bot já havia respondido no DB).`);
+          }
+        } else {
+          // Bot ainda não respondeu — remove apenas saudações DUPLICADAS dentro do próprio array
+          const seen = new Set<string>();
+          aiResult.messagesToSend = aiResult.messagesToSend.filter(msg => {
+            const key = msg.trim().toLowerCase();
+            if (seen.has(key)) {
+              console.log(`[SdrEngine] ⚠️ DEDUPLICAÇÃO: mensagem duplicada removida do array do Gemini: "${msg.slice(0, 60)}"`);
+              return false;
+            }
+            seen.add(key);
+            return true;
+          });
+        }
+      }
+
+      const dynamicAudioFinal = dynamicAudio;
+
       if (dynamicAudio && dynamicAudio.position === "before_text" && !signal?.aborted) {
         await this.sendDynamicPttAudio(
           tenantId,
