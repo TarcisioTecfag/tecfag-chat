@@ -75,8 +75,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
 
         let config = {
           enabled: true,
-          testMode: true,
-          whitelistPhone: "14998364338",
         };
 
         const sessions: any[] = [];
@@ -90,11 +88,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           });
 
           if (dbConfig) {
-            const configData = (dbConfig.config as Record<string, any>) || {};
             config = {
               enabled: dbConfig.enabled === 1,
-              testMode: configData.testMode !== undefined ? Boolean(configData.testMode) : true,
-              whitelistPhone: configData.whitelistPhone || "14998364338",
             };
           }
           // Se não encontrar config para o tenant, retorna config padrão segura
@@ -312,9 +307,9 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           const currentJson = (existingConfig?.config as Record<string, any>) || {};
           const updatedJson = {
             ...currentJson,
-            testMode: testMode !== undefined ? Boolean(testMode) : true,
-            whitelistPhone: whitelistPhone !== undefined ? String(whitelistPhone).trim() : "14998364338",
           };
+          if (testMode !== undefined) updatedJson.testMode = Boolean(testMode);
+          if (whitelistPhone !== undefined) updatedJson.whitelistPhone = String(whitelistPhone).trim();
 
           if (existingConfig) {
             await db
@@ -330,14 +325,14 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               id: `cfg-sdr-${Date.now()}`,
               tenantId,
               agentType: "sdr",
-              enabled: enabled ? 1 : 0,
+              enabled: enabled !== undefined ? (enabled ? 1 : 0) : 1,
               config: updatedJson,
               createdAt: new Date(),
               updatedAt: new Date(),
             });
           }
 
-          return new Response(JSON.stringify({ success: true }), {
+          return new Response(JSON.stringify({ success: true, enabled: enabled !== undefined ? Boolean(enabled) : true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
 

@@ -12,59 +12,6 @@ import { getAiPersona } from "../ai-persona";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
 
-// ── Diretório de Áudios PTT da Valentina (relativo ao projeto — funciona local e no Railway)
-// Os arquivos OGG pré-convertidos ficam em public/audios-valentina/ e são incluídos no deploy
-function getAudioDir(): string {
-  return require("path").join(process.cwd(), "public", "audios-valentina");
-}
-
-/**
- * Converte um arquivo MP3 para OGG/Opus (formato obrigatório para PTT do WhatsApp)
- * usando FFmpeg via child_process. Retorna o Buffer do arquivo OGG gerado.
- * Se o arquivo _ptt.ogg já existir (pré-convertido), usa diretamente sem rodar FFmpeg.
- */
-async function convertMp3ToPttOgg(mp3Path: string): Promise<Buffer> {
-  const fs = require("fs") as typeof import("fs");
-  const { execFile } = require("child_process") as typeof import("child_process");
-  const { promisify } = require("util") as typeof import("util");
-  const execFileAsync = promisify(execFile);
-
-  const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
-
-  // Se já existe o OGG convertido (pré-gerado), reutiliza sem reconverter
-  if (fs.existsSync(oggPath)) {
-    return fs.readFileSync(oggPath);
-  }
-
-  // Tentar rodar FFmpeg para converter na hora
-  try {
-    await execFileAsync("ffmpeg", [
-      "-y",
-      "-i", mp3Path,
-      "-c:a", "libopus",
-      "-b:a", "32k",
-      "-vbr", "on",
-      "-application", "voip",
-      oggPath,
-    ]);
-    console.log(`[Valentina PTT] ✅ Áudio convertido para Opus/OGG: ${oggPath}`);
-    return fs.readFileSync(oggPath);
-  } catch (err: any) {
-    console.warn(`[Valentina PTT] ⚠️ FFmpeg indisponível (${err?.message}). Enviando MP3 original.`);
-    return fs.readFileSync(mp3Path);
-  }
-}
-
-
-/**
- * Retorna a duração aproximada de um arquivo de áudio em segundos
- * baseado no tamanho do arquivo (estimativa para MP3 a 128kbps).
- */
-function estimateAudioDurationSeconds(fileSizeBytes: number): number {
-  // MP3 a 128kbps ≈ 16KB/s
-  const estimatedSeconds = fileSizeBytes / (16 * 1024);
-  return Math.min(60, Math.max(3, estimatedSeconds));
-}
 
 
 // ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
@@ -196,24 +143,11 @@ export class SdrEngine {
         return false;
       }
 
-      const configData = (dbConfig?.config as Record<string, any>) || {};
       const isEnabled = dbConfig ? dbConfig.enabled === 1 : true;
-      const isTestMode = configData.testMode !== undefined ? Boolean(configData.testMode) : true;
-      const whitelistPhone = configData.whitelistPhone || "14998364338";
 
       if (!isEnabled) {
         console.log(`[SdrEngine] SDR Valentina está DESATIVADO para tenant ${tenantId}. Ignorando lote.`);
         return false;
-      }
-
-      // Se o Modo de Testes estiver ATIVO, Valentina responde EXCLUSIVAMENTE ao número da whitelist!
-      if (isTestMode) {
-        const whitelisted = isPhoneWhitelisted(contactPhone, whitelistPhone);
-        if (!whitelisted) {
-          console.log(`[SdrEngine] 🛡️ Modo de Testes ATIVO: Telefone ${contactPhone} NÃO está na Whitelist (${whitelistPhone}). Ignorando.`);
-          return false;
-        }
-        console.log(`[SdrEngine] Telefone ${contactPhone} APROVADO na Whitelist!`);
       }
 
       // 2. Buscar ou Criar Estado do Fluxo (agentFlowStates)
@@ -231,7 +165,7 @@ export class SdrEngine {
           agentType: "sdr",
           currentStep: "Em Qualificação",
           collectedData: {},
-          metadata: { stepNumber: 1, totalSteps: 7 },
+          metadata: { stepNumber: 1, totalSteps: 7, followUpStage: 0 },
           startedAt: new Date(),
           lastInteractionAt: new Date(),
           outcome: "in_progress",
@@ -860,187 +794,74 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if (signal?.aborted) return false;
 
-      // ── INTERCEPTAÇÃO DE CONFIRMAÇÃO DE ÁUDIO PTT ──────────────────────────────
-      // Se o cliente está respondendo a pergunta "Posso te mandar um áudio?"
+      // ── GATILHOS DE LIGAÇÃO ATIVA EM TEMPO REAL ──────────────────────────────
+      // Todos os gatilhos geram um áudio dinâmico de aviso via ElevenLabs e disparam a chamada em 5s.
+      // Apenas para tenant "valem" — tecfag permanece inativo.
       const meta = (flowState?.metadata as Record<string, any>) || {};
-      if (meta.awaitingAudioConfirmation) {
-        const clientText = batchItems.map((i) => i.text).join(" ").toLowerCase().trim();
-        const clientSaidYes = /(?:^|\b)(sim|s|pode|claro|ok|vai|manda|pode mandar|quero|com certeza|tá bom|ta bom|tá|ta|beleza|perfeito|ótimo|otimo|legal|manda sim|pode sim|manda ai|manda aí|pode ser)(?:\b|$)/i.test(clientText);
-        const clientSaidNo = /(?:^|\b)(nã|na|não|nao|n(ã|a)o|prefiro texto|prefiro por texto|não precisa|nao precisa|pode ser texto|por texto)(?:\b|$)/i.test(clientText);
-
-
-        if (clientSaidYes) {
-          console.log(`[SdrEngine] 🎙️ Cliente confirmou áudio PTT. Iniciando envio humanizado...`);
-
-          // Resetar o flag no banco
-          if (flowState) {
-            const newMeta = { ...meta, awaitingAudioConfirmation: false };
-            await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
-          }
-
-          // Enviar o PTT com presença 'recording'
-          await this.sendPttAudio(
-            tenantId,
-            conversationId,
-            contactPhone,
-            meta.audioFileName || "25MIL UNIDADES.mp3",
-            signal
-          );
-          return true;
-        } else if (clientSaidNo) {
-          console.log(`[SdrEngine] 📝 Cliente recusou áudio PTT. Continuando por texto.`);
-          // Resetar o flag e continuar o fluxo normal de texto
-          if (flowState) {
-            const newMeta = { ...meta, awaitingAudioConfirmation: false };
-            await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
-          }
-          // Deixa o fluxo continuar normalmente abaixo (envia as mensagens de texto)
-        }
-        // Se o cliente respondeu outra coisa (nem sim nem não), também continua normalmente
-      }
-
-      // ── INTERCEPTAÇÃO DE CONFIRMAÇÃO DE EMPRESA → ÁUDIO "TARCISIO VOU TE LIGAR" + DISPARO DE LIGAÇÃO ──
       const clientFullText = batchItems.map((i) => i.text).join(" ").toLowerCase().trim();
-      const isClientAffirmation = /^(?:sim|é essa|essa mesmo|essa mesma|exato|correto|isso mesmo|com certeza|sim essa mesmo|sim essa mesma)(?:\b|$)/i.test(clientFullText);
-      const isExplicitCompanyMention = /é a tecfag|tecfag comercio|confirmar tecfag/i.test(clientFullText);
 
-      const isCompanyConfirm = Boolean(
-        (meta.awaitingCompanyConfirmation && isClientAffirmation) || 
-        isExplicitCompanyMention
-      );
+      // Gatilho 1: Cliente frustrado / sentimento negativo severo
+      const isFrustrated = (
+        aiResult as any
+      ).sentiment === "negative" ||
+        /não\s*(tô|to|tou|estou|vou|consigo|aguento)\s*(mais|esperando|conseguindo)|que\s*(saco|raiva|absurdo)|péssimo\s*atendimento|muito\s*(demorado|ruim|lento)|isso\s*é\s*(um\s*absurdo|ridículo|horrível)|não\s*me\s*(responderam|atenderam)/i.test(clientFullText);
 
-      if (isCompanyConfirm && !meta.callTriggered) {
-        console.log(`[SdrEngine] 🎯 Cliente confirmou a empresa ("${clientFullText}"). Enviando áudio "Tarcisio_um_minuto_vou_te_ligar.mp3" e programando ligação ativa!`);
-        
-        // 1. Atualizar flag no banco
+      // Gatilho 2: Pedido explícito de ligação pelo cliente
+      const wantsCall = /\b(me\s*liga|pode\s*me\s*ligar|quero\s*(falar|conversar)\s*(por\s*telefone|ao\s*telefone|ligação)|prefiro\s*(por\s*telefone|falar|ligar)|me\s*chama|me\s*contacta?\s*por\s*telefone|fala\s*comigo\s*por\s*telefone|liga\s*(pra\s*mim|para\s*mim))\b/i.test(clientFullText);
+
+      // Gatilho 3: Lead VIP / Alto volume (>= 50.000 unidades) — aciona se cliente aceitar proposta de ligação
+      const quantityVal = updatedCollectedData["QUANTIDADE DE UNIDADES"]?.value || updatedCollectedData["QUANTIDADE"]?.value || "";
+      const numericQuantity = parseInt(String(quantityVal).replace(/\D/g, ""), 10);
+      const isVip = !isNaN(numericQuantity) && numericQuantity >= 50000;
+
+      if (!meta.callTriggered && (isFrustrated || wantsCall || isVip) && !signal?.aborted) {
+        let callReason = "";
+        let announceText = "";
+
+        if (isFrustrated) {
+          callReason = "frustração_detectada";
+          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "cliente";
+          announceText = `Ei, ${clientName}! Entendo perfeitamente a situação. Para resolver isso com prioridade máxima, estou te ligando agora mesmo! Um segundo.`;
+        } else if (wantsCall) {
+          callReason = "pedido_explicito";
+          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "cliente";
+          announceText = `Com certeza, ${clientName}! Estou te ligando agora no número do WhatsApp. Um segundo.`;
+        } else if (isVip) {
+          callReason = "lead_vip_alto_volume";
+          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "cliente";
+          announceText = `${clientName}, para um pedido desse volume eu prefiro conversar diretamente com você! Vou te ligar agora.`;
+        }
+
+        console.log(`[SdrEngine] 📞 Gatilho de ligação ativado (${callReason}). Enviando aviso por áudio e disparando chamada em 5s...`);
+
+        // Marcar que a ligação foi disparada para não repetir
         if (flowState) {
-          const newMeta = { ...meta, awaitingCompanyConfirmation: false, callTriggered: true };
+          const newMeta = { ...meta, callTriggered: true, callReason };
           await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
         }
 
-        // 2. Enviar o PTT "Tarcisio_um_minuto_vou_te_ligar.mp3" com status 'recording' imediato
-        await this.sendPttAudio(
-          tenantId,
-          conversationId,
-          contactPhone,
-          "Tarcisio_um_minuto_vou_te_ligar.mp3",
-          signal
-        );
+        // 1. Enviar aviso de áudio dinâmico (ElevenLabs) anunciando a ligação
+        void this.sendDynamicPttAudio(tenantId, conversationId, contactPhone, announceText, signal);
 
-        // 3. Aguardar 10 segundos antes de disparar a ligação
-        console.log(`[SdrEngine] ⏳ Áudio enviado! Aguardando 10 segundos para iniciar a ligação ativa...`);
-        const callWaitStart = Date.now();
-        while (Date.now() - callWaitStart < 10000) {
-          if (signal?.aborted) return true;
-          await new Promise((r) => setTimeout(r, 500));
-        }
-
-        // 4. Disparar a chamada via serviço interno de Outbound Call
-        try {
-          console.log(`[SdrEngine] 📞 Disparando ligação ativa da Valentina via serviço interno para ${contactPhone}...`);
-          const callRes = await triggerOutboundCallInternal({ 
-            phone: contactPhone,
-            accountSid: configData.twilioAccountSid || configData.twilioSid,
-            authToken: configData.twilioAuthToken || configData.twilioToken,
-          });
-          console.log(`[SdrEngine] 🚀 Chamada ativa disparada! Sucesso: ${callRes.success} | CallSid: ${callRes.callSid || "N/A"}`);
-        } catch (callErr: any) {
-          console.error(`[SdrEngine] ❌ Erro ao disparar chamada ativa:`, callErr?.message || callErr);
-        }
+        // 2. Aguardar 5s e disparar chamada (fire & forget para não bloquear o retorno do processamento)
+        void (async () => {
+          await new Promise((r) => setTimeout(r, 5000));
+          if (signal?.aborted) return;
+          try {
+            const callRes = await triggerOutboundCallInternal({
+              phone: contactPhone,
+              accountSid: configData.twilioAccountSid || configData.twilioSid,
+              authToken: configData.twilioAuthToken || configData.twilioToken,
+            });
+            console.log(`[SdrEngine] 🚀 Chamada ativa disparada (${callReason})! Sucesso: ${callRes.success} | CallSid: ${callRes.callSid || "N/A"}`);
+          } catch (callErr: any) {
+            console.error(`[SdrEngine] ❌ Erro ao disparar chamada ativa:`, callErr?.message || callErr);
+          }
+        })();
 
         return true;
       }
-
-      // ── DETECÇÃO: Valentina confirmou disponibilidade → ativar fluxo de áudio PTT ─
-      // Verificar se a IA está respondendo confirmando disponibilidade (temos, tem sim, claro, disponível, etc.)
-      const firstBotMsg = aiResult.messagesToSend[0]?.toLowerCase() || "";
-      const fullBotMsgText = aiResult.messagesToSend.join(" ").toLowerCase();
-      const isConfirmingAvailability = (
-        fullBotMsgText.includes("temos") ||
-        fullBotMsgText.includes("tem sim") ||
-        fullBotMsgText.includes("sim, tem") ||
-        fullBotMsgText.includes("claro") ||
-        fullBotMsgText.includes("disponív") ||
-        fullBotMsgText.includes("possuí")
-      );
-
-      // Verificar se existe arquivo de áudio para este atendimento (baseado no produto)
-      const productContext = (updatedCollectedData["QUAL O TIPO DE PRODUTO?"]?.value || batchItems.map(i => i.text).join(" ")).toLowerCase();
-      let matchedAudioFile: string | null = null;
-
-      // Mapa de contextos → arquivos de áudio PTT
-      // Chaves são PALAVRAS-CHAVE detectadas no texto do cliente (lote atual + histórico)
-      const AUDIO_MAP: Record<string, string> = {
-        "25mil": "25MIL UNIDADES.mp3",
-        "25 mil": "25MIL UNIDADES.mp3",
-        "25000": "25MIL UNIDADES.mp3",
-        "25.000": "25MIL UNIDADES.mp3",
-      };
-
-      // Verificar no texto do lote atual E no contexto do produto coletado
-      const fs = require("fs") as typeof import("fs");
-      const path = require("path") as typeof import("path");
-      const audioDir = getAudioDir();
-
-      const batchTextForAudio = batchItems.map(i => i.text).join(" ").toLowerCase();
-      const fullContextForAudio = batchTextForAudio + " " + productContext;
-      for (const [keyword, audioFile] of Object.entries(AUDIO_MAP)) {
-        if (fullContextForAudio.includes(keyword)) {
-          const mp3Path = path.join(audioDir, audioFile.replace(/ /g, "_"));
-          const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
-          if (fs.existsSync(mp3Path) || fs.existsSync(oggPath)) {
-            matchedAudioFile = audioFile;
-            break;
-          }
-        }
-      }
-
-      if (isConfirmingAvailability && matchedAudioFile && !meta.awaitingAudioConfirmation) {
-        console.log(`[SdrEngine] 🎙️ Valentina confirmou disponibilidade. Ativando fluxo de áudio PTT para: ${matchedAudioFile}`);
-
-        // Substituir os balões da IA pela confirmação limpa + pergunta sobre o áudio
-        aiResult.messagesToSend = [
-          "Temos sim, claro!",
-          "Posso te mandar um áudio explicando melhor?",
-        ];
-
-        // Salvar o flag no banco para o próximo turno
-        if (flowState) {
-          const newMeta = { ...meta, awaitingAudioConfirmation: true, audioFileName: matchedAudioFile };
-          await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
-        }
-      }
-
-      // ── DETECÇÃO: Valentina pedindo CNPJ → substituir o texto final pelo áudio PTT do CNPJ ─
-      let shouldSendCnpjAudio = false;
-      const cnpjMsgIndex = aiResult.messagesToSend.findIndex((m) => /cnpj/i.test(m));
-
-      if (cnpjMsgIndex !== -1) {
-        shouldSendCnpjAudio = true;
-        const originalMsg = aiResult.messagesToSend[cnpjMsgIndex];
-        const cnpjQuestionRegex = /(?:você pode me|pode me|me passa|informar|passar|envia|mandar|manda) (?:o|seu|por favor)?\s*cnpj.*/i;
-        const introPart = originalMsg.replace(cnpjQuestionRegex, "").trim().replace(/,$/, "");
-
-        if (introPart && introPart.length > 5) {
-          aiResult.messagesToSend[cnpjMsgIndex] = introPart;
-        } else {
-          aiResult.messagesToSend.splice(cnpjMsgIndex, 1);
-        }
-        console.log(`[SdrEngine] 🎙️ Detetado pedido de CNPJ na mensagem. Áudio PTT será enviado após os balões de texto.`);
-      }
-      // ─────────────────────────────────────────────────────────────────────────────
-
-      // ── DETECÇÃO: Se Valentina perguntou a confirmação da Empresa → definir flag no metadata
-      const fullTextToSend = aiResult.messagesToSend.join(" ");
-      const isAskingCompanyConfirm = (
-        (/sua empresa é|empresa é a|confirmar.*empresa|é a .* (?:ltda|sa|me|eireli|comercio|industria|maquinas)|posso te ligar nesse número mesmo do whats/i.test(fullTextToSend)) &&
-        !fullTextToSend.toLowerCase().includes("mandar um áudio")
-      );
-      if (isAskingCompanyConfirm && flowState) {
-        const newMeta = { ...meta, awaitingCompanyConfirmation: true };
-        await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
-        console.log(`[SdrEngine] 🏢 Flag 'awaitingCompanyConfirmation' ativado para a conversa ${conversationId}.`);
-      }
+      // ── FIM GATILHOS DE LIGAÇÃO ───────────────────────────────────────────────
 
       // 11. Envio de Mensagens de Texto / Áudio Dinâmico ElevenLabs
       const dynamicAudio = aiResult.audioMessage && aiResult.audioMessage.text?.trim() ? aiResult.audioMessage : null;
@@ -1077,17 +898,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         );
       }
 
-      // 12. Se houver áudio PTT de CNPJ pendente (legado) e não gerou áudio dinâmico, envia após as mensagens
-      if (shouldSendCnpjAudio && !dynamicAudio && !signal?.aborted) {
-        await this.sendPttAudio(
-          tenantId,
-          conversationId,
-          contactPhone,
-          "CNPJ POR FAVOR.mp3",
-          signal
-        );
-      }
-
       return true;
 
     } catch (e: any) {
@@ -1097,156 +907,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
       console.error("[SdrEngine] Erro no fluxo SDR Valentina:", e);
       return false;
-    }
-  }
-
-  /**
-   * Envia um áudio pré-gravado como PTT (Push-To-Talk / Mensagem de Voz) com simulação
-   * realista de "gravando áudio..." (recording presence) antes do envio.
-   */
-  private async sendPttAudio(
-    tenantId: string,
-    conversationId: string,
-    phone: string,
-    audioFileName: string,
-    signal?: AbortSignal
-  ): Promise<void> {
-    const sock = SessionManager.getInstance().getSession(tenantId);
-    if (!sock) {
-      console.error(`[SdrEngine PTT] Sessão Baileys não encontrada para tenant ${tenantId}`);
-      return;
-    }
-
-    const fs = require("fs") as typeof import("fs");
-    const path = require("path") as typeof import("path");
-    const realJid = await resolveRealJid(sock, phone);
-
-    // 1. Mostrar imediatamente a presença 'recording' (gravando áudio...) no WhatsApp
-    try {
-      await sock.sendPresenceUpdate("recording", realJid);
-      console.log(`[SdrEngine PTT] 🎙️ Presença 'recording' ativada imediatamente para ${phone}`);
-    } catch { /* silencia */ }
-
-    const audioDir = getAudioDir();
-    const mp3Path = path.join(audioDir, audioFileName.replace(/ /g, "_"));
-    const oggPath = mp3Path.replace(/\.mp3$/i, "_ptt.ogg");
-
-    if (!fs.existsSync(mp3Path) && !fs.existsSync(oggPath)) {
-      console.error(`[SdrEngine PTT] Arquivo de áudio não encontrado em: ${mp3Path}`);
-      return;
-    }
-
-    const targetPath = fs.existsSync(mp3Path) ? mp3Path : oggPath;
-    const fileSizeBytes = fs.statSync(targetPath).size;
-    const estimatedDurationMs = estimateAudioDurationSeconds(fileSizeBytes) * 1000;
-
-    console.log(`[SdrEngine PTT] 🎙️ Envio PTT iniciado: ${audioFileName} (~${(estimatedDurationMs / 1000).toFixed(1)}s)`);
-
-    // 2. Converter MP3 → OGG Opus (necessário para o balão de voz do WhatsApp)
-    let audioBuffer: Buffer;
-    let audioMime: string;
-    try {
-      audioBuffer = await convertMp3ToPttOgg(targetPath);
-      // Verificar se foi gerado OGG (começa com 'OggS') ou ficou MP3
-      const isOgg = audioBuffer[0] === 0x4F && audioBuffer[1] === 0x67 && audioBuffer[2] === 0x67 && audioBuffer[3] === 0x53;
-      audioMime = isOgg ? "audio/ogg; codecs=opus" : "audio/mpeg";
-    } catch (convErr: any) {
-      console.error(`[SdrEngine PTT] Erro na conversão de áudio:`, convErr?.message);
-      return;
-    }
-
-    // 3. Aguardar gravação simulada
-    const startTs = Date.now();
-    while (Date.now() - startTs < estimatedDurationMs) {
-      if (signal?.aborted) {
-        try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
-        console.log(`[SdrEngine PTT] Envio PTT abortado pelo AbortSignal.`);
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 200));
-    }
-
-    // 3. Pausar o estado de 'gravando' e enviar o PTT
-    try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
-
-    if (signal?.aborted) return;
-
-    let sentMsg: any;
-    try {
-      sentMsg = await sock.sendMessage(realJid, {
-        audio: audioBuffer,
-        mimetype: audioMime,
-        ptt: true, // 👈 Exibe o balão de voz oficial (com waveform e foto de perfil)
-      });
-      console.log(`[SdrEngine PTT] ✅ PTT enviado com sucesso! MessageId: ${sentMsg?.key?.id}`);
-    } catch (sendErr: any) {
-      console.error(`[SdrEngine PTT] ❌ Erro ao enviar PTT via Baileys:`, sendErr?.message);
-      return;
-    }
-
-    // 4. Registrar no banco de dados e notificar a UI via SSE
-    const botMessageId = sentMsg?.key?.id || `bot-ptt-${Date.now()}`;
-    const displayContent = "🎤 Mensagem de Voz";
-
-    try {
-      await db.insert(conversations).values({
-        id: conversationId,
-        tenantId,
-        contactId: `c-${phone}`,
-        queueState: "automacao",
-        lastMessageText: displayContent,
-        lastMessageTime: new Date(),
-        createdAt: new Date(),
-      }).onConflictDoNothing();
-
-      await db.insert(messages).values({
-        id: botMessageId,
-        tenantId,
-        conversationId,
-        senderType: "bot",
-        senderName: "Valentina (SDR)",
-        content: `[MEDIA:audio]${botMessageId}`,
-        mediaInterpretation: `Áudio gravado: ${audioFileName.replace(/\.mp3$/i, "")}`,
-        isInternalNote: false,
-        sentAt: new Date(),
-      }).onConflictDoNothing();
-
-      await db.update(conversations)
-        .set({ lastMessageText: displayContent, lastMessageTime: new Date() })
-        .where(eq(conversations.id, conversationId));
-
-      // Persistir buffer do áudio no banco
-      try {
-        const { mediaFiles } = await import("../../db/schema");
-        await db.insert(mediaFiles).values({
-          id: botMessageId,
-          fileName: audioFileName,
-          mimeType: audioMime,
-          base64Data: audioBuffer.toString("base64"),
-          createdAt: new Date(),
-        }).onConflictDoNothing();
-      } catch { /* não crítico */ }
-
-      // Notificar a UI via SSE
-      const currentConv = await db.query.conversations.findFirst({
-        where: (t, { eq: dEq }) => dEq(t.id, conversationId),
-      });
-
-      SessionManager.getInstance().notifyPublic(tenantId, {
-        type: "message",
-        message: {
-          id: botMessageId,
-          conversationId,
-          senderType: "bot",
-          senderName: "Valentina (SDR)",
-          content: `[MEDIA:audio]${botMessageId}`,
-          sentAt: new Date(),
-          queue: currentConv?.queueState || "automacao",
-          operatorId: currentConv?.operatorId || null,
-        },
-      });
-    } catch (dbErr: any) {
-      console.error(`[SdrEngine PTT] Erro ao salvar PTT no banco:`, dbErr?.message);
     }
   }
 

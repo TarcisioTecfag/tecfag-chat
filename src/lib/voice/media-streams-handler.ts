@@ -73,11 +73,11 @@ export class MediaStreamHandler {
         return null;
       };
 
-      const name = getVal(["nome", "client"]) || "Tarcísio";
+      const name = getVal(["nome", "client"]) || "cliente";
       const product = getVal(["produto", "valvula", "frasco", "item"]) || "Válvulas Spray Aerosol";
       const quantity = getVal(["quantidade", "qtd", "volume", "unidades"]) || "25.000 unidades";
-      const cnpj = getVal(["cnpj", "cpf"]) || "14.050.364/0001-90";
-      const company = getVal(["razao_social", "empresa", "razao", "nome da empresa"]) || "TECFAG COMERCIO E IMPORTACAO DE MAQUINAS LTDA";
+      const cnpj = getVal(["cnpj", "cpf"]) || "";
+      const company = getVal(["razao_social", "empresa", "razao", "nome da empresa"]) || "sua empresa";
 
       const knowledgeContext = await getKnowledgeBaseContext("valem");
 
@@ -87,25 +87,25 @@ export class MediaStreamHandler {
         product_name: product,
         quantity: quantity,
         cnpj: cnpj,
-        whatsapp_history: chatHistorySummary || `Cotação de ${quantity} de ${product} para a empresa ${company} (CNPJ: ${cnpj}).`,
+        whatsapp_history: chatHistorySummary || `Cotação de ${quantity} de ${product} para ${company}${cnpj ? ` (CNPJ: ${cnpj})` : ""}.`,
         knowledge_base_context: knowledgeContext || "Catálogo geral de válvulas spray, aerosol, frascos PET/PEAD, potes e seladoras da Valem Válvulas.",
       };
 
-      const first_message = `Oii, ${name}! É a Valentina da Valem Válvulas! Consegui pegar aqui os dados da cotação das ${quantity} de ${product} para a ${company}!`;
+      const first_message = `Oii, ${name}! É a Valentina da Valem Válvulas! Peguei aqui os dados da cotação das ${quantity} de ${product} para ${company}!`;
 
       return { dynamic_variables, first_message };
     } catch (err: any) {
       console.error("[MediaStream] Aviso ao buscar contexto da triagem:", err?.message || err);
       return {
         dynamic_variables: {
-          user_name: "Tarcísio",
-          company_name: "TECFAG COMERCIO E IMPORTACAO DE MAQUINAS LTDA",
+          user_name: "cliente",
+          company_name: "sua empresa",
           product_name: "Válvulas Spray Aerosol",
-          quantity: "25.000 unidades",
-          cnpj: "14.050.364/0001-90",
-          whatsapp_history: "Cotação no WhatsApp de 25.000 unidades de válvulas spray aerosol para a Tecfag.",
+          quantity: "",
+          cnpj: "",
+          whatsapp_history: "Conversa via WhatsApp para cotação de válvulas/embalagens da Valem.",
         },
-        first_message: "Oii, Tarcísio! É a Valentina da Valem Válvulas! Consegui pegar aqui com o pessoal os dados da cotação das 25 mil válvulas spray para a Tecfag!",
+        first_message: "Oii! É a Valentina da Valem Válvulas! Estou ligando para dar continuidade à sua cotação!",
       };
     }
   }
@@ -179,10 +179,12 @@ export class MediaStreamHandler {
 
   private connectElevenLabsAgent() {
     const agentId = process.env.ELEVENLABS_AGENT_ID || "agent_4401kztzk430fgrv1ac62hbbnymk";
-    const apiKey = process.env.ELEVENLABS_API_KEY || "sk_dd142c168bfd9061e0025a57af2361007b6e7d5947ac4168";
+    const apiKey = process.env.ELEVENLABS_API_KEY || "sk_f4b5e613103e040403bf5ca43ffc46a1b08c774d5d9fa2fd";
 
-    const elevenLabsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`;
-    console.log(`[MediaStream] 🔌 Conectando ao Agente Conversacional ElevenLabs: ${agentId}...`);
+    // CRÍTICO: audio_format=ulaw_8000 obrigatório para compatibilidade com Twilio MediaStreams (8kHz μ-law)
+    // Sem esse parâmetro, o ElevenLabs gera Linear PCM 16kHz que o Twilio reproduz como ruído estático.
+    const elevenLabsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}&audio_format=ulaw_8000`;
+    console.log(`[MediaStream] 🔌 Conectando ao Agente Conversacional ElevenLabs (ulaw_8000): ${agentId}...`);
 
     this.elevenLabsWs = new WebSocket(elevenLabsUrl, {
       headers: { "xi-api-key": apiKey }
@@ -191,12 +193,15 @@ export class MediaStreamHandler {
     this.elevenLabsWs.on("open", async () => {
       console.log(`[MediaStream] 🤖 Agente Conversacional ElevenLabs CONECTADO COM SUCESSO!`);
       try {
-        const targetPhone = this.fromNumber || this.toNumber || "14998364338";
+        const targetPhone = this.fromNumber || this.toNumber || "";
         const context = await this.getLatestTriageContext(targetPhone);
         console.log(`[MediaStream] 📋 Injetando variáveis dinâmicas de contexto na Valentina:`, context);
 
         const initPayload = {
           type: "conversation_initiation_client_data",
+          // CRÍTICO: Informar ao ElevenLabs que deve sintetizar e aceitar áudio em ulaw_8000
+          // Isso garante compatibilidade bidirecional com o codec telefônico do Twilio MediaStreams
+          audio_format: "ulaw_8000",
           dynamic_variables: context.dynamic_variables,
         };
 

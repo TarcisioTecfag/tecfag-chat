@@ -8,8 +8,9 @@ import {
   UserPlus, CheckCircle, Clock, XCircle, Bot, User as UserIcon,
   ChevronRight, ChevronDown, Circle, Search, ExternalLink, ShieldCheck, Smartphone,
   Power, Save, RefreshCw, MessageSquare, Square, UserCheck, Calendar, Filter, X,
-  Play, Pause, FileText, Download
+  Play, Pause, FileText, Download, Globe
 } from "lucide-react";
+import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
 import { useChat } from "@/hooks/useChatState";
 import { toast } from "sonner";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
@@ -200,13 +201,13 @@ export function SdrTab() {
   const { tenant, setActiveView, setSelectedChatId } = useChat();
 
   const [sdrEnabled, setSdrEnabled] = useState(true);
-  const [testMode, setTestMode] = useState(true);
-  const [whitelistPhone, setWhitelistPhone] = useState("14998364338");
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   // Filtros
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "completed">("all");
+  const [channelFilter, setChannelFilter] = useState<"all" | "whatsapp" | "instagram" | "messenger" | "site">("all");
+  const [isChannelDropdownOpen, setIsChannelDropdownOpen] = useState(false);
   const [periodFilter, setPeriodFilter] = useState<"todos" | "hoje" | "7dias" | "30dias">("todos");
   const [isPeriodDropdownOpen, setIsPeriodDropdownOpen] = useState(false);
   const [isStoppingValentina, setIsStoppingValentina] = useState(false);
@@ -230,10 +231,6 @@ export function SdrTab() {
         const data = await res.json();
         if (data.config) {
           setSdrEnabled(Boolean(data.config.enabled));
-          setTestMode(Boolean(data.config.testMode));
-          if (data.config.whitelistPhone) {
-            setWhitelistPhone(data.config.whitelistPhone);
-          }
         }
         if (Array.isArray(data.sessions)) {
           const formattedLiveSessions: SdrTriageSession[] = data.sessions.map((s: any) => ({
@@ -274,7 +271,9 @@ export function SdrTab() {
     return () => clearInterval(interval);
   }, [fetchSdrData]);
 
-  const handleSaveConfig = async () => {
+  const handleToggleSdr = async () => {
+    const nextState = !sdrEnabled;
+    setSdrEnabled(nextState);
     setIsSavingConfig(true);
     try {
       const res = await fetch(`${BACKEND_URL}/api/valentina/sdr`, {
@@ -282,20 +281,20 @@ export function SdrTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tenantId: tenant,
-          enabled: sdrEnabled,
-          testMode: testMode,
-          whitelistPhone: whitelistPhone,
+          enabled: nextState,
         }),
       });
 
       if (res.ok) {
-        toast.success("Configurações do Agente SDR salvas!");
+        toast.success(nextState ? "SDR Valentina ativado para todos os contatos!" : "SDR Valentina pausado com sucesso!");
       } else {
-        toast.error("Erro ao salvar configurações do SDR.");
+        setSdrEnabled(!nextState); // rollback
+        toast.error("Erro ao alternar status do SDR.");
       }
     } catch (e) {
-      console.error("Erro ao salvar config:", e);
-      toast.error("Erro ao comunicar com o servidor.");
+      console.error("Erro ao alternar status do SDR:", e);
+      setSdrEnabled(!nextState); // rollback
+      toast.error("Erro de comunicação com o servidor.");
     } finally {
       setIsSavingConfig(false);
     }
@@ -385,67 +384,41 @@ export function SdrTab() {
 
   return (
     <div className="flex flex-col gap-3 h-full overflow-hidden">
-      {/* ── PAINEL SUPERIOR — Controle da Whitelist de Testes ──────────────── */}
+      {/* ── PAINEL SUPERIOR — Controle Global SDR Valentina ──────────────── */}
       <div className="bg-card rounded-2xl border border-border shadow-soft px-4 py-3 shrink-0 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary font-bold">
-            <ShieldCheck className="h-5 w-5" />
+            <Bot className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-xs font-extrabold text-foreground">Modo de Testes — Whitelist SDR</h3>
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold border ${
-                testMode ? "bg-primary-soft text-primary border-primary/30" : "bg-primary-soft/50 text-muted-foreground border-border"
+              <h3 className="text-xs font-extrabold text-foreground">Triagem Automática — Valentina SDR</h3>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold border ${
+                sdrEnabled ? "bg-primary-soft text-primary border-primary/30" : "bg-muted text-muted-foreground border-border"
               }`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${testMode ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
-                {testMode ? "WHITELIST ATIVA (1 NÚMERO)" : "PRODUÇÃO (TODOS OS LEADS)"}
+                <span className={`h-1.5 w-1.5 rounded-full ${sdrEnabled ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
+                {sdrEnabled ? "SDR ATIVO (TODOS OS LEADS)" : "SDR PAUSADO"}
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              Valentina responde exclusivamente ao número cadastrado abaixo durante os testes.
+              Valentina responde e qualifica automaticamente todos os contatos que chegam sem responsável.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="relative flex items-center">
-            <Smartphone className="absolute left-2.5 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              value={whitelistPhone}
-              onChange={(e) => setWhitelistPhone(e.target.value)}
-              placeholder="Ex: 14998364338"
-              className="pl-8 pr-3 py-1.5 w-44 rounded-xl border border-border bg-muted/20 text-xs font-mono font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              title="Número de telefone de teste autorizador"
-            />
-          </div>
-
           <button
-            onClick={() => setTestMode(!testMode)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
-              testMode ? "bg-primary-soft text-primary border-primary/30" : "bg-muted text-muted-foreground border-border"
-            }`}
-          >
-            Modo Teste: {testMode ? "ON" : "OFF"}
-          </button>
-
-          <button
-            onClick={() => setSdrEnabled(!sdrEnabled)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
-              sdrEnabled ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-border"
-            }`}
+            onClick={handleToggleSdr}
+            disabled={isSavingConfig}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition flex items-center gap-2 cursor-pointer shadow-soft border ${
+              sdrEnabled
+                ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
+                : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+            } ${isSavingConfig ? "opacity-70 cursor-not-allowed" : ""}`}
+            title={sdrEnabled ? "Clique para pausar a Valentina globalmente" : "Clique para ativar a Valentina globalmente"}
           >
             <Power className="h-3.5 w-3.5" />
-            {sdrEnabled ? "SDR Ativo" : "SDR Inativo"}
-          </button>
-
-          <button
-            onClick={handleSaveConfig}
-            disabled={isSavingConfig}
-            className="px-4 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-extrabold hover:bg-primary-hover transition flex items-center gap-1.5 cursor-pointer shadow-soft disabled:opacity-50"
-          >
-            <Save className="h-3.5 w-3.5" />
-            {isSavingConfig ? "Salvando..." : "Salvar"}
+            <span>{sdrEnabled ? "SDR Ativo" : "SDR Inativo"}</span>
           </button>
         </div>
       </div>
@@ -474,7 +447,7 @@ export function SdrTab() {
               </button>
             </div>
 
-            {/* ── BOTÕES DE FILTRO DE HARMONIA VERDE: ATIVOS, CONCLUÍDOS E PERÍODO ───────── */}
+            {/* ── BOTÕES DE FILTRO DE HARMONIA VERDE: ATIVOS, CONCLUÍDOS, CANAL E PERÍODO ───────── */}
             <div className="flex items-center gap-2 pt-0.5 flex-wrap">
               <button
                 onClick={() => setStatusFilter(statusFilter === "active" ? "all" : "active")}
@@ -500,9 +473,95 @@ export function SdrTab() {
                 Concluídos
               </button>
 
+              {/* ── NOVO FILTRO: CANAL (WhatsApp, Instagram, Messenger, Site) ── */}
               <div className="relative">
                 <button
-                  onClick={() => setIsPeriodDropdownOpen(!isPeriodDropdownOpen)}
+                  onClick={() => {
+                    setIsChannelDropdownOpen(!isChannelDropdownOpen);
+                    setIsPeriodDropdownOpen(false);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-xs border ${
+                    channelFilter !== "all"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
+                  }`}
+                >
+                  {channelFilter === "whatsapp" && <WhatsappLogo className="h-3 w-3 fill-current" />}
+                  {channelFilter === "instagram" && <InstagramLogo className="h-3 w-3 stroke-current" />}
+                  {channelFilter === "messenger" && <MessengerLogo className="h-3 w-3 fill-current" />}
+                  {channelFilter === "site" && <Globe className="h-3 w-3 text-current" />}
+                  {channelFilter === "all" && <MessageSquare className="h-3 w-3 text-primary" />}
+                  <span>
+                    {channelFilter === "all"
+                      ? "Canal: Todos"
+                      : channelFilter === "whatsapp"
+                      ? "WhatsApp"
+                      : channelFilter === "instagram"
+                      ? "Instagram"
+                      : channelFilter === "messenger"
+                      ? "Messenger"
+                      : "Site"}
+                  </span>
+                  <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${isChannelDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                <AnimatePresence>
+                  {isChannelDropdownOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-30"
+                        onClick={() => setIsChannelDropdownOpen(false)}
+                      />
+                      <motion.div
+                        initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -4, scale: 1 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute left-0 mt-1.5 z-40 w-44 rounded-xl bg-card border border-border shadow-xl p-1 space-y-0.5 overflow-hidden"
+                      >
+                        {[
+                          { id: "all", label: "Canal: Todos", icon: MessageSquare },
+                          { id: "whatsapp", label: "WhatsApp", icon: WhatsappLogo },
+                          { id: "instagram", label: "Instagram", icon: InstagramLogo },
+                          { id: "messenger", label: "Messenger", icon: MessengerLogo },
+                          { id: "site", label: "Site (Web Chat)", icon: Globe },
+                        ].map((item) => {
+                          const isSelected = channelFilter === item.id;
+                          const Icon = item.icon;
+                          return (
+                            <button
+                              key={item.id}
+                              onClick={() => {
+                                setChannelFilter(item.id as any);
+                                setIsChannelDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-between cursor-pointer ${
+                                isSelected
+                                  ? "bg-primary-soft text-primary font-extrabold"
+                                  : "text-foreground hover:bg-muted/60"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                <Icon className="h-3 w-3 text-primary shrink-0" />
+                                <span>{item.label}</span>
+                              </span>
+                              {isSelected && <CheckCircle className="h-3 w-3 text-primary shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* ── FILTRO: PERÍODO ── */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setIsPeriodDropdownOpen(!isPeriodDropdownOpen);
+                    setIsChannelDropdownOpen(false);
+                  }}
                   className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-primary-soft text-primary border border-primary/20 hover:bg-primary-soft/80 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
                   <Calendar className="h-3 w-3 text-primary" />
@@ -597,7 +656,7 @@ export function SdrTab() {
                       </>
                     ) : (
                       <>
-                        Envie uma mensagem pelo WhatsApp para o número cadastrado (<span className="font-mono text-primary font-bold">{whitelistPhone}</span>) para iniciar o atendimento real!
+                        Envie uma mensagem pelo WhatsApp para iniciar o atendimento e triagem ao vivo com a Valentina!
                       </>
                     )}
                   </p>
