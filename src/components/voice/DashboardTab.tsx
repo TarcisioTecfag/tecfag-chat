@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   PhoneIncoming, UserCheck, Clock, Smile, Frown, Meh,
   RefreshCw, TrendingUp, AlertCircle, PhoneCall
@@ -115,7 +115,7 @@ export function DashboardTab({ tenantId = "valem" }: { tenantId?: string }) {
             <h3 className="text-2xl font-extrabold text-foreground mt-1">{loading ? "—" : formatDuration(avgDuration)}</h3>
             <span className="text-[11px] text-muted-foreground">Tempo de engajamento</span>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600"><Clock className="w-5 h-5" /></div>
+          <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary"><Clock className="w-5 h-5" /></div>
         </div>
 
         <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">

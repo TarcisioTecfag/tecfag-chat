@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { motion, AnimatePresence } from "framer-motion";
+import * as XLSX from "xlsx";
 import {
   Calendar as CalendarIcon,
   List,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Plus,
   FileSpreadsheet,
   RefreshCw,
@@ -25,6 +27,7 @@ import {
   Trash2,
   Edit2,
   Check,
+  Download,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -85,13 +88,13 @@ function isSameDay(a: Date, b: Date): boolean {
 function getTypeBadge(type: VoiceAgendaItem["type"]) {
   switch (type) {
     case "customer_request":
-      return { label: "Cliente Solicitou", bg: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20" };
+      return { label: "Cliente Solicitou", bg: "bg-primary-soft text-primary border-primary/25 font-bold" };
     case "follow_up":
-      return { label: "Follow-up", bg: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" };
+      return { label: "Follow-up", bg: "bg-primary-soft/80 text-primary border-primary/20 font-bold" };
     case "excel_list":
-      return { label: "Lista Excel", bg: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" };
+      return { label: "Lista Excel", bg: "bg-primary-soft/60 text-primary border-primary/20 font-semibold" };
     case "sdr_outreach":
-      return { label: "Prospecção SDR", bg: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" };
+      return { label: "Prospecção SDR", bg: "bg-primary/15 text-primary border-primary/30 font-bold" };
     default:
       return { label: "Agendamento", bg: "bg-muted text-muted-foreground border-border" };
   }
@@ -120,10 +123,50 @@ export function AgendaTab() {
   const [agenda, setAgenda] = useState<VoiceAgendaItem[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Filtro de Métrica Superior (Hoje, Pendentes, Atendidas, Follow-ups ou Todos)
+  const [metricFilter, setMetricFilter] = useState<"all" | "today" | "pending" | "completed" | "follow_up">("all");
+
   // Filtros da Visão Listagem
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
+
+  const statusDropdownRef = useRef<HTMLDivElement | null>(null);
+  const typeDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Opções dos Dropdowns
+  const statusOptions = [
+    { id: "all", label: "Todos os Status" },
+    { id: "pending", label: "Pendentes" },
+    { id: "completed", label: "Realizadas" },
+    { id: "rescheduled", label: "Reagendadas" },
+    { id: "cancelled", label: "Canceladas" },
+    { id: "no_answer", label: "Não Atendeu" },
+  ];
+
+  const typeOptions = [
+    { id: "all", label: "Todas as Origens" },
+    { id: "follow_up", label: "Follow-ups" },
+    { id: "customer_request", label: "Pedido do Cliente" },
+    { id: "excel_list", label: "Lista Excel" },
+    { id: "sdr_outreach", label: "Prospecção SDR" },
+  ];
+
+  // Fechar dropdowns ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
+        setIsStatusDropdownOpen(false);
+      }
+      if (typeDropdownRef.current && !typeDropdownRef.current.contains(event.target as Node)) {
+        setIsTypeDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Navegação do Calendário
   const today = new Date();
@@ -326,10 +369,11 @@ export function AgendaTab() {
   };
 
   // Métricas
+  const totalAll = agenda.length;
   const totalToday = agenda.filter((item) => isSameDay(new Date(item.scheduledAt), today)).length;
   const totalPending = agenda.filter((item) => item.status === "pending").length;
   const totalCompleted = agenda.filter((item) => item.status === "completed").length;
-  const totalRescheduled = agenda.filter((item) => item.status === "rescheduled" || item.type === "follow_up").length;
+  const totalFollowUp = agenda.filter((item) => item.status === "rescheduled" || item.type === "follow_up").length;
 
   // Filtragem da Lista
   const filteredAgenda = agenda.filter((item) => {
@@ -339,46 +383,160 @@ export function AgendaTab() {
       (item.company && item.company.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (item.notes && item.notes.toLowerCase().includes(searchQuery.toLowerCase()));
 
+    // Filtro rápido de métrica superior
+    let matchesMetric = true;
+    if (metricFilter === "today") {
+      matchesMetric = isSameDay(new Date(item.scheduledAt), today);
+    } else if (metricFilter === "pending") {
+      matchesMetric = item.status === "pending";
+    } else if (metricFilter === "completed") {
+      matchesMetric = item.status === "completed";
+    } else if (metricFilter === "follow_up") {
+      matchesMetric = item.status === "rescheduled" || item.type === "follow_up";
+    }
+
     const matchesStatus = statusFilter === "all" || item.status === statusFilter;
     const matchesType = typeFilter === "all" || item.type === typeFilter;
 
-    return matchesSearch && matchesStatus && matchesType;
+    return matchesSearch && matchesMetric && matchesStatus && matchesType;
   });
 
   // Ligações do Dia Selecionado na visão Calendário
   const selectedDayItems = agenda
-    .filter((item) => isSameDay(new Date(item.scheduledAt), selectedDate))
+    .filter((item) => {
+      const isDay = isSameDay(new Date(item.scheduledAt), selectedDate);
+      if (!isDay) return false;
+      if (metricFilter === "today") return isSameDay(new Date(item.scheduledAt), today);
+      if (metricFilter === "pending") return item.status === "pending";
+      if (metricFilter === "completed") return item.status === "completed";
+      if (metricFilter === "follow_up") return item.status === "rescheduled" || item.type === "follow_up";
+      return true;
+    })
     .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+
+  // Download do Template Excel
+  const handleDownloadTemplate = () => {
+    try {
+      const templateData = [
+        {
+          "Nome": "Marcos Oliveira",
+          "Telefone": "(11) 98765-4321",
+          "Empresa": "Embalagens SA",
+          "Observacao": "Interessado em Seladora Contínua",
+        },
+        {
+          "Nome": "Renata Vasconcelos",
+          "Telefone": "(19) 99123-8877",
+          "Empresa": "Vale Verde Cosméticos",
+          "Observacao": "Cotar 25.000 Válvulas Spray 24/410",
+        },
+        {
+          "Nome": "Carlos Eduardo",
+          "Telefone": "(41) 98844-5511",
+          "Empresa": "Beleza Pura Ltda",
+          "Observacao": "Frascos PET 100ml e Válvula Pump",
+        },
+      ];
+
+      const ws = XLSX.utils.json_to_sheet(templateData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Modelo_Importacao");
+      XLSX.writeFile(wb, "modelo_importacao_ligacoes.xlsx");
+    } catch (err) {
+      console.error("[AgendaTab] Erro ao gerar planilha modelo:", err);
+      // Fallback CSV
+      const csvContent = "Nome;Telefone;Empresa;Observacao\nMarcos Oliveira;(11) 98765-4321;Embalagens SA;Interessado em Seladora\nRenata Vasconcelos;(19) 99123-8877;Vale Verde;Cotar Valvulas Spray\nCarlos Eduardo;(41) 98844-5511;Beleza Pura;Frascos PET";
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", "modelo_importacao_ligacoes.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden space-y-4">
-      {/* ─── Top Bar Controls & Metrics ────────────────────────────────────── */}
+      {/* ─── Top Bar Controls & Metrics (Filtros Verdes Institucionais) ────── */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-card p-4 rounded-2xl border border-border shadow-soft shrink-0">
-        {/* Metric Badges */}
+        {/* Metric Badges / Filtros */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-primary">
-            <CalendarDays className="h-4 w-4" />
-            <span className="text-xs font-semibold">Hoje:</span>
-            <span className="text-sm font-extrabold">{totalToday}</span>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400">
-            <Clock className="h-4 w-4" />
-            <span className="text-xs font-semibold">Pendentes:</span>
-            <span className="text-sm font-extrabold">{totalPending}</span>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2 className="h-4 w-4" />
-            <span className="text-xs font-semibold">Atendidas:</span>
-            <span className="text-sm font-extrabold">{totalCompleted}</span>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400">
+          <button
+            type="button"
+            onClick={() => setMetricFilter((prev) => (prev === "all" ? "all" : "all"))}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+              metricFilter === "all"
+                ? "bg-primary text-primary-foreground shadow-soft border-primary font-extrabold"
+                : "bg-primary-soft/60 hover:bg-primary-soft text-primary border-primary/20"
+            }`}
+            title="Exibir todas as ligações"
+          >
             <PhoneCall className="h-4 w-4" />
-            <span className="text-xs font-semibold">Follow-ups:</span>
-            <span className="text-sm font-extrabold">{totalRescheduled}</span>
-          </div>
+            <span>Todos:</span>
+            <span className="text-sm font-extrabold">{totalAll}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMetricFilter((prev) => (prev === "today" ? "all" : "today"))}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+              metricFilter === "today"
+                ? "bg-primary text-primary-foreground shadow-soft border-primary font-extrabold"
+                : "bg-primary-soft/60 hover:bg-primary-soft text-primary border-primary/20"
+            }`}
+            title="Filtrar ligações de Hoje"
+          >
+            <CalendarDays className="h-4 w-4" />
+            <span>Hoje:</span>
+            <span className="text-sm font-extrabold">{totalToday}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMetricFilter((prev) => (prev === "pending" ? "all" : "pending"))}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+              metricFilter === "pending"
+                ? "bg-primary text-primary-foreground shadow-soft border-primary font-extrabold"
+                : "bg-primary-soft/60 hover:bg-primary-soft text-primary border-primary/20"
+            }`}
+            title="Filtrar ligações Pendentes"
+          >
+            <Clock className="h-4 w-4" />
+            <span>Pendentes:</span>
+            <span className="text-sm font-extrabold">{totalPending}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMetricFilter((prev) => (prev === "completed" ? "all" : "completed"))}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+              metricFilter === "completed"
+                ? "bg-primary text-primary-foreground shadow-soft border-primary font-extrabold"
+                : "bg-primary-soft/60 hover:bg-primary-soft text-primary border-primary/20"
+            }`}
+            title="Filtrar ligações Atendidas/Realizadas"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            <span>Atendidas:</span>
+            <span className="text-sm font-extrabold">{totalCompleted}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMetricFilter((prev) => (prev === "follow_up" ? "all" : "follow_up"))}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+              metricFilter === "follow_up"
+                ? "bg-primary text-primary-foreground shadow-soft border-primary font-extrabold"
+                : "bg-primary-soft/60 hover:bg-primary-soft text-primary border-primary/20"
+            }`}
+            title="Filtrar ligações de Follow-up"
+          >
+            <PhoneCall className="h-4 w-4" />
+            <span>Follow-ups:</span>
+            <span className="text-sm font-extrabold">{totalFollowUp}</span>
+          </button>
         </div>
 
         {/* View Switcher & Action Buttons */}
@@ -727,36 +885,92 @@ export function AgendaTab() {
               )}
             </div>
 
-            {/* Filter Selectors */}
+            {/* Custom Dropdown Filter Selectors */}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="flex items-center gap-1 bg-background border border-border px-2 py-1 rounded-xl text-xs">
-                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="bg-transparent text-xs font-semibold text-foreground focus:outline-none"
+              {/* Dropdown Status */}
+              <div className="relative" ref={statusDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsStatusDropdownOpen((v) => !v);
+                    setIsTypeDropdownOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                    statusFilter !== "all"
+                      ? "bg-primary-soft text-primary border-primary/30 font-bold"
+                      : "bg-background border-border text-foreground hover:bg-muted"
+                  }`}
                 >
-                  <option value="all">Todos os Status</option>
-                  <option value="pending">Pendentes</option>
-                  <option value="completed">Realizadas</option>
-                  <option value="rescheduled">Reagendadas</option>
-                  <option value="cancelled">Canceladas</option>
-                </select>
+                  <Filter className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span>{statusOptions.find((o) => o.id === statusFilter)?.label || "Todos os Status"}</span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${isStatusDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {isStatusDropdownOpen && (
+                  <div className="absolute right-0 mt-1.5 w-44 bg-card border border-border rounded-xl shadow-xl p-1 z-30 animate-in fade-in zoom-in-95 duration-150">
+                    {statusOptions.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setStatusFilter(opt.id);
+                          setIsStatusDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer ${
+                          statusFilter === opt.id
+                            ? "bg-primary-soft text-primary font-bold"
+                            : "text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <span>{opt.label}</span>
+                        {statusFilter === opt.id && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="flex items-center gap-1 bg-background border border-border px-2 py-1 rounded-xl text-xs">
-                <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-                <select
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className="bg-transparent text-xs font-semibold text-foreground focus:outline-none"
+              {/* Dropdown Origens */}
+              <div className="relative" ref={typeDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsTypeDropdownOpen((v) => !v);
+                    setIsStatusDropdownOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                    typeFilter !== "all"
+                      ? "bg-primary-soft text-primary border-primary/30 font-bold"
+                      : "bg-background border-border text-foreground hover:bg-muted"
+                  }`}
                 >
-                  <option value="all">Todas as Origens</option>
-                  <option value="follow_up">Follow-ups</option>
-                  <option value="customer_request">Pedido do Cliente</option>
-                  <option value="excel_list">Lista Excel</option>
-                  <option value="sdr_outreach">Prospecção SDR</option>
-                </select>
+                  <Tag className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span>{typeOptions.find((o) => o.id === typeFilter)?.label || "Todas as Origens"}</span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${isTypeDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {isTypeDropdownOpen && (
+                  <div className="absolute right-0 mt-1.5 w-48 bg-card border border-border rounded-xl shadow-xl p-1 z-30 animate-in fade-in zoom-in-95 duration-150">
+                    {typeOptions.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setTypeFilter(opt.id);
+                          setIsTypeDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer ${
+                          typeFilter === opt.id
+                            ? "bg-primary-soft text-primary font-bold"
+                            : "text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <span>{opt.label}</span>
+                        {typeFilter === opt.id && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1019,7 +1233,7 @@ export function AgendaTab() {
           >
             <div className="flex items-center justify-between pb-3 border-b border-border">
               <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                <FileSpreadsheet className="h-5 w-5 text-primary" />
                 Importar Lista de Ligações Excel
               </h3>
               <button
@@ -1030,7 +1244,23 @@ export function AgendaTab() {
               </button>
             </div>
 
-            <form onSubmit={handleImportExcel} className="space-y-3 text-xs">
+            <form onSubmit={handleImportExcel} className="space-y-3.5 text-xs">
+              <div className="flex items-center justify-between gap-3 p-3 bg-primary-soft/60 border border-primary/20 rounded-xl">
+                <div>
+                  <h4 className="font-bold text-foreground text-xs">Planilha Modelo</h4>
+                  <p className="text-[11px] text-muted-foreground">Baixe o modelo com as colunas certas para preencher.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-bold hover:opacity-90 transition text-xs shadow-soft shrink-0 cursor-pointer"
+                  title="Baixar planilha modelo (.xlsx)"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar Modelo (.xlsx)</span>
+                </button>
+              </div>
+
               <div>
                 <label className="block font-bold text-foreground mb-1">Nome da Lista / Campanha</label>
                 <input
@@ -1074,7 +1304,7 @@ export function AgendaTab() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 shadow-soft flex items-center gap-1.5"
+                  className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 shadow-soft flex items-center gap-1.5 cursor-pointer"
                 >
                   <FileSpreadsheet className="h-4 w-4" />
                   Gerar Ligações Agendadas

@@ -50,7 +50,7 @@ export function ConfiguracaoTab() {
         {/* Duração Máxima por Chamada */}
         <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex flex-col gap-3">
           <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-            <Clock className="w-4 h-4 text-purple-500" />
+            <Clock className="w-4 h-4 text-primary" />
             Duração Máxima da Chamada
           </div>
           <p className="text-xs text-muted-foreground">Limite máximo em minutos antes do encerramento automático pela IA.</p>

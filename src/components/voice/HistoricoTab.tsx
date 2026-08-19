@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Search,
   ChevronDown,
@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Volume2,
 } from 'lucide-react'
+import { VoiceAudioPlayer } from './VoiceAudioPlayer'
 
 // ─────────────────────────── TIPOS ───────────────────────────
 
@@ -262,11 +263,7 @@ export function HistoricoTab({ tenantId = 'valem' }: { tenantId?: string }) {
                 >
                   <div className="flex items-center gap-3.5">
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                        conv.direction === 'inbound'
-                          ? 'bg-primary/10 text-primary border border-primary/20'
-                          : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20'
-                      }`}
+                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-primary/10 text-primary border border-primary/20"
                     >
                       {conv.direction === 'inbound' ? (
                         <PhoneIncoming className="w-5 h-5" />
@@ -363,32 +360,22 @@ export function HistoricoTab({ tenantId = 'valem' }: { tenantId?: string }) {
                           </div>
                         </div>
 
-                        {/* ── Player de áudio ── */}
+                        {/* ── Player de áudio customizado ── */}
                         {detail.has_audio && (
-                          <div className="bg-card border border-border rounded-xl p-3 shadow-soft">
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                              <Volume2 className="w-3.5 h-3.5" />
+                          <div className="space-y-1.5">
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5 pl-1">
+                              <Volume2 className="w-3.5 h-3.5 text-primary" />
                               Áudio da ligação
                             </p>
-                            <audio
-                              controls
-                              preload="metadata"
-                              onTimeUpdate={(e) =>
+                            <VoiceAudioPlayer
+                              src={`/api/elevenlabs-conversations?tenantId=${tenantId}&id=${conv.conversation_id}&audio=true`}
+                              onTimeUpdate={(currentTime) =>
                                 setAudioTimes((prev) => ({
                                   ...prev,
-                                  [conv.conversation_id]: (e.target as HTMLAudioElement)
-                                    .currentTime,
+                                  [conv.conversation_id]: currentTime,
                                 }))
                               }
-                              className="w-full rounded-lg"
-                              style={{ height: '40px' }}
-                            >
-                              <source
-                                src={`/api/elevenlabs-conversations?tenantId=${tenantId}&id=${conv.conversation_id}&audio=true`}
-                                type="audio/mpeg"
-                              />
-                              Seu navegador não suporta o player de áudio.
-                            </audio>
+                            />
                           </div>
                         )}
 
