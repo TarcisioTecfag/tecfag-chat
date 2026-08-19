@@ -105,6 +105,9 @@ export async function syncContactDataFromTriage(
 
 export class SdrEngine {
   private static instance: SdrEngine;
+  // Mutex por conversationId: garante que apenas 1 lote processa por conversa por vez
+  // (evita race condition de saudação duplicada quando 2 lotes chegam quase juntos)
+  private processingLocks: Map<string, Promise<boolean>> = new Map();
 
   private constructor() {}
 
@@ -117,8 +120,31 @@ export class SdrEngine {
 
   /**
    * Processa um lote consolidado de mensagens de uma conversa com Gemini 2.5 Pro Multimodal
+   * Serializado por conversationId: apenas 1 lote por vez por conversa.
    */
   public async processBatchMessages(
+    tenantId: string,
+    conversationId: string,
+    contactPhone: string,
+    batchItems: QueuedMessageItem[],
+    signal?: AbortSignal
+  ): Promise<boolean> {
+    // Serializa chamadas concorrentes da mesma conversa encadeando na promise anterior
+    const previous = this.processingLocks.get(conversationId) ?? Promise.resolve(false);
+    const current = previous.then(() => {
+      if (signal?.aborted) return false;
+      return this._processInternal(tenantId, conversationId, contactPhone, batchItems, signal);
+    }).finally(() => {
+      // Remove o lock apenas se ainda aponta para esta promise
+      if (this.processingLocks.get(conversationId) === current) {
+        this.processingLocks.delete(conversationId);
+      }
+    });
+    this.processingLocks.set(conversationId, current);
+    return current;
+  }
+
+  private async _processInternal(
     tenantId: string,
     conversationId: string,
     contactPhone: string,
@@ -268,14 +294,25 @@ export class SdrEngine {
       }
 
       const firstMessageRule = isFirstMessage
-        ? `🟢 ATENÇÃO CRÍTICA (ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO!):
-   - VOCÊ É OBRIGADA A ENVIAR A SEGUINTE ESTRUTURA EM 3 BALÕES SEPARADOS NO ARRAY \`messagesToSend\`:
-     * Balão 1: Exatamente "${greeting}" (dependendo do horário: Bom dia! / Boa tarde! / Boa noite!)
-     * Balão 2: Exatamente "Eu sou a Valentina, da Valem Valvulas e Embalagens  😊"
-     * Balão 3:
-       - SE O CLIENTE APENAS SAUDOU (ex: "Bom dia", "Olá", "Oi", "Tudo bem?"): Envie EXATAMENTE "Como posso te ajudar?".
-       - SE O CLIENTE JÁ INFORMOU O QUE PRECISA OU O PRODUTO (ex: "quero saber mais sobre embalagens de produtos spray", "preciso de válvulas"): É PROIBIDO PERGUNTAR "Como posso te ajudar?". O Balão 3 DEVE RECONHECER O PEDIDO DO CLIENTE com entusiasmo humano e iniciar a triagem (ex: "Com certeza! Vou te passar todas as informações sobre nossas embalagens para spray. Me conta, qual produto você pretende envasar nelas?")!
-   - 🛑 É ESTRITAMENTE PROIBIDO ADICIONAR "tudo bem por aqui?", "tudo joia?", "tudo bem?" OU QUALQUER OUTRA FRASE/PERGUNTA DE SAUDAÇÃO SEPARADA!`
+        ? `🟢 ATENÇÃO — PRIMEIRA MENSAGEM DO ATENDIMENTO (use saudação natural + apresentação adaptada ao contexto do cliente):
+
+   ESTRUTURA OBRIGATÓRIA de apresentação — sem exceção:
+   • Balão 1: Cumprimento no horário (exatamente "${greeting}" — ou "Bom dia!" ou "Boa noite!" conforme o horário. NÃO modifique.)
+   • Balão 2: Apresentação. Exatamente: "Eu sou a Valentina, da Valem Valvulas e Embalagens 😊"
+
+   BALÃO 3 EM DIANTE — adapte COMPLETAMENTE ao que o cliente já disse:
+   ✅ Se o cliente APENAS SAUDOU (ex: "Oi", "Bom dia", "Olá"): Use "Como posso te ajudar?" no balão 3.
+   ✅ Se o cliente JÁ DEU CONTEXTO (ex: "preciso de válvulas", "quero comprar em quantidade", "da pra falar por ligação"):
+      - NÃO pergunte "Como posso te ajudar?" — ele já disse o que quer!
+      - O balão 3 DEVE RECONHECER o que ele disse e puxar a triagem a partir daí.
+      - Exemplos reais:
+        * "Vi que você precisa de válvulas em grande quantidade — ótimo! Me conta um pouco mais sobre seu projeto?"
+        * "Claro, podemos conversar por ligação também! Mas antes, me passa qual válvula você está procurando?"
+        * "Quantidade grande de válvulas — que ótimo! Quer que eu te passe os nossos modelos disponíveis?"
+   ✅ Se o cliente JÁ PEDIU LIGAÇÃO: reconheça e diga que vamos entrar em contato, mas continue colhendo os dados necessários pelo chat enquanto isso.
+
+   🛑 PROIBIDO: "tudo bem por aqui?", "tudo joia?", qualquer frase de checagem de bem-estar.
+   🛑 PROIBIDO: fingir que não leu o que o cliente disse na primeira mensagem!`
         : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
    - NUNCA volte a se apresentar se você já se identificou antes na conversa!
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
