@@ -294,25 +294,17 @@ export class SdrEngine {
       }
 
       const firstMessageRule = isFirstMessage
-        ? `🟢 ATENÇÃO — PRIMEIRA MENSAGEM DO ATENDIMENTO (use saudação natural + apresentação adaptada ao contexto do cliente):
-
-   ESTRUTURA OBRIGATÓRIA de apresentação — sem exceção:
-   • Balão 1: Cumprimento no horário (exatamente "${greeting}" — ou "Bom dia!" ou "Boa noite!" conforme o horário. NÃO modifique.)
-   • Balão 2: Apresentação. Exatamente: "Eu sou a Valentina, da Valem Valvulas e Embalagens 😊"
-
-   BALÃO 3 EM DIANTE — adapte COMPLETAMENTE ao que o cliente já disse:
-   ✅ Se o cliente APENAS SAUDOU (ex: "Oi", "Bom dia", "Olá"): Use "Como posso te ajudar?" no balão 3.
-   ✅ Se o cliente JÁ DEU CONTEXTO (ex: "preciso de válvulas", "quero comprar em quantidade", "da pra falar por ligação"):
-      - NÃO pergunte "Como posso te ajudar?" — ele já disse o que quer!
-      - O balão 3 DEVE RECONHECER o que ele disse e puxar a triagem a partir daí.
-      - Exemplos reais:
-        * "Vi que você precisa de válvulas em grande quantidade — ótimo! Me conta um pouco mais sobre seu projeto?"
-        * "Claro, podemos conversar por ligação também! Mas antes, me passa qual válvula você está procurando?"
-        * "Quantidade grande de válvulas — que ótimo! Quer que eu te passe os nossos modelos disponíveis?"
-   ✅ Se o cliente JÁ PEDIU LIGAÇÃO: reconheça e diga que vamos entrar em contato, mas continue colhendo os dados necessários pelo chat enquanto isso.
-
-   🛑 PROIBIDO: "tudo bem por aqui?", "tudo joia?", qualquer frase de checagem de bem-estar.
-   🛑 PROIBIDO: fingir que não leu o que o cliente disse na primeira mensagem!`
+        ? `🟢 ATENÇÃO — PRIMEIRA MENSAGEM DO ATENDIMENTO:
+   - A saudação e apresentação ("${greeting}" + "Eu sou a Valentina, da Valem Valvulas e Embalagens 😊") JÁ SERÃO ENVIADAS AUTOMATICAMENTE PELO SISTEMA antes da sua resposta.
+   - 🛑 NÃO inclua a saudação nem a apresentação em "messagesToSend" — o sistema cuida disso.
+   - Sua resposta começa DIRETO no contexto do cliente, a partir do que ele disse:
+     ✅ Se o cliente APENAS SAUDOU: balão 1 = "Como posso te ajudar?"
+     ✅ Se o cliente JÁ DEU CONTEXTO (ex: "preciso de válvulas", "quero comprar em quantidade"):
+        - NÃO pergunte "Como posso te ajudar?" — ele já disse o que quer!
+        - Reconheça o que ele disse e puxe a triagem diretamente.
+        - Ex: "Vi que você precisa de válvulas spray — ótimo! Me conta um pouco mais?"
+     ✅ Se o cliente JÁ PEDIU LIGAÇÃO: reconheça e continue coletando dados.
+   - 🛑 PROIBIDO: "tudo bem por aqui?", "tudo joia?", frases de checagem de bem-estar.`
         : `🛑 ATENÇÃO CRÍTICA (ESTA NÃO É A PRIMEIRA MENSAGEM DO ATENDIMENTO! A CONVERSA JÁ ESTÁ EM ANDAMENTO!):
    - NUNCA volte a se apresentar se você já se identificou antes na conversa!
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
@@ -1015,6 +1007,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           dynamicAudio.text,
           signal
         );
+      }
+
+      // GREETING INJETADO PELO CÓDIGO (não pelo Gemini):
+      // Quando é a primeira mensagem, enviamos saudação + apresentação de forma determinística.
+      // O Gemini só responde o CONTEÚDO (a partir do balão 3), sem risco de duplicação.
+      if (isFirstMessage && !signal?.aborted) {
+        const aiPersonaForGreeting = getAiPersona(tenantId);
+        const greetingMessages = [
+          greeting,
+          `Eu sou a ${aiPersonaForGreeting.name}, da ${aiPersonaForGreeting.company} 😊`,
+        ];
+        console.log(`[SdrEngine] 👋 Injetando greeting via código (isFirstMessage=true): ${JSON.stringify(greetingMessages)}`);
+        await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal);
       }
 
       if ((!dynamicAudio || dynamicAudio.position !== "only_audio") && aiResult.messagesToSend.length > 0 && !signal?.aborted) {
