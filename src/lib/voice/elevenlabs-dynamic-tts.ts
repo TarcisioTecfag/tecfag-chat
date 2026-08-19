@@ -7,7 +7,7 @@ const MAX_CACHE_ENTRIES = 150;
 export interface GeneratePttOptions {
   text: string;
   voiceId?: string;
-  modelId?: "eleven_multilingual_v2" | "eleven_flash_v2_5" | "eleven_turbo_v2_5";
+  modelId?: "eleven_v3" | "eleven_multilingual_v2" | "eleven_flash_v2_5" | "eleven_turbo_v2_5";
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -41,9 +41,9 @@ export async function generateDynamicPttAudio(options: GeneratePttOptions): Prom
   const {
     text,
     voiceId = MARIANNE_VOICE_ID,
-    modelId = "eleven_multilingual_v2",
+    modelId = "eleven_v3",   // Máxima expressão humana — ok usar pq PTT é pré-gerado (não real-time)
     signal,
-    timeoutMs = 6000,
+    timeoutMs = 12000,       // eleven_v3 é maior, precisa de mais tempo de geração
   } = options;
 
   const cleanText = text.trim();
