@@ -908,22 +908,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
         if (isFrustrated) {
           callReason = "frustração_detectada";
-          const clientName = updatedCollectedData["NOME COMPLETO"]?.value;
-          announceText = clientName
-            ? `Oi ${clientName.split(" ")[0]}, me dá um segundo — prefiro te ligar diretamente pra gente resolver isso agora!`
-            : `Me dá um segundo — prefiro te ligar agora pra gente resolver isso diretamente!`;
+          announceText = "Claro, vou te ligar agora";
         } else if (wantsCall) {
           callReason = "pedido_explicito";
-          const clientName = updatedCollectedData["NOME COMPLETO"]?.value;
-          announceText = clientName
-            ? `${clientName.split(" ")[0]}, boa ideia! Já estou te ligando nesse número agora!`
-            : `Boa ideia! Já estou te ligando agora nesse número do WhatsApp!`;
+          announceText = "Claro, vou te ligar agora";
         } else if (isVip) {
           callReason = "lead_vip_alto_volume";
-          const clientName = updatedCollectedData["NOME COMPLETO"]?.value;
-          announceText = clientName
-            ? `${clientName.split(" ")[0]}, pra um volume desse tamanho prefiro conversar ao vivo! Te ligo já!`
-            : `Pra um volume desse tamanho prefiro conversar ao vivo! Te ligo já!`;
+          announceText = "Perfeito, vou te ligar agora";
         }
 
         console.log(`[SdrEngine] 📞 Gatilho de ligação ativado (${callReason}). Enviando aviso por áudio e disparando chamada em 5s...`);

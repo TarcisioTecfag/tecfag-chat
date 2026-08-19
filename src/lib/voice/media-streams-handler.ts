@@ -258,12 +258,19 @@ DIRETRIZES DA LIGAÇÃO:
       try {
         const msg = JSON.parse(data.toString());
 
+        // LOG DIAGNÓSTICO — loga todos os tipos de mensagem do ElevenLabs para rastrear silêncio
+        const msgType = msg.type || "unknown";
+        if (msgType !== "audio") {
+          console.log(`[MediaStream] 📨 ElevenLabs msg: type=${msgType}`, msgType === "ping" ? "" : JSON.stringify(msg).slice(0, 200));
+        }
+
         // 1. Áudio gerado pela Valentina (8kHz mu-law -> repassado ao Twilio)
         if (msg.type === "audio" && msg.audio_event?.audio_base_64) {
           const payload = msg.audio_event.audio_base_64;
           if (this.streamSid && this.ws.readyState === WebSocket.OPEN) {
             // streamSid disponível — envia direto
             this.ws.send(JSON.stringify({ event: "media", streamSid: this.streamSid, media: { payload } }));
+            console.log(`[MediaStream] 🔊 Audio relayado → Twilio (streamSid=${this.streamSid.slice(-8)}, bytes=${payload.length})`);
           } else {
             // streamSid ainda não chegou — faz buffer para não perder o áudio inicial
             this.audioQueue.push(payload);
