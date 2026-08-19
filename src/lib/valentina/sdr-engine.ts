@@ -658,20 +658,34 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const filledCount = [hasName, hasCompany || hasCnpj, hasProduct].filter(Boolean).length;
 
       // Verifica se a resposta da Valentina inclui frases EXPLÍCITAS e inequívocas de transferência.
-      // IMPORTANTE: Deve ser restrito o suficiente para não acionar com mensagens genéricas.
       const messagesMentionTransfer = aiResult.messagesToSend.some((m) => {
         const lower = m.toLowerCase();
         return (
+          // Padrões explícitos de transferência ativa
           (lower.includes("transferindo agora") || lower.includes("te transferindo")) ||
-          (lower.includes("passando para") && (lower.includes("especialista") || lower.includes("vendedor"))) ||
-          (lower.includes("dar continuidade ao seu atendimento") && lower.includes("especialista"))
+          (lower.includes("passando") && (lower.includes("especialista") || lower.includes("vendedor"))) ||
+          (lower.includes("passando agora") && (lower.includes("contato") || lower.includes("detalhes") || lower.includes("dados"))) ||
+          (lower.includes("encaminhando") && (lower.includes("especialista") || lower.includes("vendedor"))) ||
+          (lower.includes("dar continuidade ao seu atendimento") && lower.includes("especialista")) ||
+          // Padrões de despedida pós-triagem inequívocos
+          (lower.includes("agradeço muito o seu contato") || lower.includes("agradeco muito o seu contato")) ||
+          (lower.includes("agradecemos o seu contato") || lower.includes("obrigada pelo contato")) ||
+          (lower.includes("boa sorte") && lower.includes("negócios")) ||
+          (lower.includes("vai entrar em contato") && (lower.includes("especialista") || lower.includes("vendedor"))) ||
+          (lower.includes("ligar") && lower.includes("cotação") && lower.includes("especialista"))
         );
       });
 
-      // Verifica se a Valentina está fazendo uma pergunta/solicitação no lote atual
+      // Verifica se a Valentina está fazendo uma pergunta REAL de coleta de dado neste lote
+      // (perguntas retóricas de despedida como "ok?" ou "né?" NÃO bloqueiam a conclusão)
+      const FAREWELL_QUESTION_PATTERNS = /\b(ok\?|tá\?|ta\?|né\?|ne\?|certo\?|combinado\?|não é\?|não é mesmo\?|tudo bem\?)\s*$/i;
+      const REAL_QUESTION_KEYWORDS = /\b(qual|quais|como|onde|quando|quantas|quantos|quanto|você pode|pode me|me informa|me passa|me envia|me confirma o nome|me confirma o cnpj|cnpj|cpf|nome completo|nome da empresa)\b/i;
+
       const botIsAskingQuestion = aiResult.messagesToSend.some((m) => {
-        const lower = m.toLowerCase();
-        return m.includes("?") || lower.includes("qual") || lower.includes("como") || lower.includes("onde") || lower.includes("pode me");
+        // Pergunta retórica/protocolar de despedida — NÃO bloqueia
+        if (FAREWELL_QUESTION_PATTERNS.test(m.trim())) return false;
+        // Pergunta real de coleta de dados — bloqueia
+        return REAL_QUESTION_KEYWORDS.test(m);
       });
 
       // ╔══════════════════════════════════════════════════════════════════════╗
@@ -681,12 +695,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // ╚══════════════════════════════════════════════════════════════════════╝
       let isCompleted = false;
       if (hasVitalInformation) {
-        // Com dados vitais coletados: aceita conclusão da IA (sem pergunta pendente) OU transferência explícita
+        // Com dados vitais coletados: aceita conclusão da IA (sem pergunta real pendente) OU transferência explícita
         if ((aiResult.isCompleted && !botIsAskingQuestion) || messagesMentionTransfer) {
           isCompleted = true;
         }
       }
       // SEM hasVitalInformation → isCompleted = false SEMPRE, independente do que a IA disser
+
+      console.log(`[SdrEngine] 📊 Diagnóstico de conclusão — hasName=${hasName} hasCompany=${hasCompany} hasCnpj=${hasCnpj} hasProduct=${hasProduct} | hasVitalInfo=${hasVitalInformation} | aiIsCompleted=${aiResult.isCompleted} | botAskingQuestion=${botIsAskingQuestion} | mentionTransfer=${messagesMentionTransfer} → isCompleted=${isCompleted}`);
 
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
@@ -789,7 +805,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           .set({
             currentStep: isCompleted ? "Concluído" : "Em Qualificação",
             collectedData: updatedCollectedData,
-            metadata: { stepNumber: filledCount, totalSteps: 7 },
+            metadata: { ...metaState, stepNumber: filledCount, totalSteps: 7 },
             lastInteractionAt: now,
             completedAt: isCompleted ? (flowState.completedAt || now) : null,
             outcome: isCompleted ? (wasAlreadyCompleted ? flowState.outcome : "transferred") : "in_progress",
