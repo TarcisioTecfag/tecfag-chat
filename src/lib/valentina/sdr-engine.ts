@@ -397,6 +397,13 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - O histórico da conversa já contém emoji enviado? ${hasPreviousEmoji ? "SIM (PROIBIDO ENVIAR QUALQUER EMOJI AGORA!)" : "NÃO (Pode usar no máximo 1 emoji empático se for apropriado)"}.
    - NUNCA repita um emoji já enviado!
 
+4.1 REGRA DE OURO — PRIMEIRA PERGUNTA APÓS A APRESENTAÇÃO:
+   - Logo após se apresentar (primeira mensagem do atendimento), a PRIMEIRA E ÚNICA pergunta do balão 3 (ou 4 se necessário) DEVE SER O NOME DO CLIENTE.
+   - Use variações naturais como: "Qual seu nome mesmo?", "Me conta como você se chama!", "Com quem eu tô falando?"
+   - Isso é FUNDAMENTAL para criar rapport e personalizar toda a conversa que se seguirá.
+   - 🛑 EXCEÇÃO: Se o cliente JÁ informou o nome na primeira mensagem de abertura, não pergunte de novo — use o nome já informado e avance para a próxima pergunta de triagem.
+   - Só avance para perguntas de produto/empresa/cnpj DEPOIS de ter o nome do cliente.
+
 5. RESPEITO TOTAL ÀS RESPOSTAS E NÃO-REPETIÇÃO DE PERGUNTAS:
    - Se o cliente responder "não" para uma pergunta opcional (como previsão do projeto ou data), REGISTRE "Sem previsão", diga um "Entendido!" ou "Sem problemas!" curto e NUNCA VOLTE A PERGUNTAR SOBRE PREVISÃO!
    - Se o cliente já informou o Nome (ex: "Tarcisio Pereira da Silva"), REGISTRE O NOME e NUNCA pergunte "qual o seu nome?" de novo!
@@ -901,16 +908,22 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
         if (isFrustrated) {
           callReason = "frustração_detectada";
-          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "cliente";
-          announceText = `Ei, ${clientName}! Entendo perfeitamente a situação. Para resolver isso com prioridade máxima, estou te ligando agora mesmo! Um segundo.`;
+          const clientName = updatedCollectedData["NOME COMPLETO"]?.value;
+          announceText = clientName
+            ? `Oi ${clientName.split(" ")[0]}, me dá um segundo — prefiro te ligar diretamente pra gente resolver isso agora!`
+            : `Me dá um segundo — prefiro te ligar agora pra gente resolver isso diretamente!`;
         } else if (wantsCall) {
           callReason = "pedido_explicito";
-          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "cliente";
-          announceText = `Com certeza, ${clientName}! Estou te ligando agora no número do WhatsApp. Um segundo.`;
+          const clientName = updatedCollectedData["NOME COMPLETO"]?.value;
+          announceText = clientName
+            ? `${clientName.split(" ")[0]}, boa ideia! Já estou te ligando nesse número agora!`
+            : `Boa ideia! Já estou te ligando agora nesse número do WhatsApp!`;
         } else if (isVip) {
           callReason = "lead_vip_alto_volume";
-          const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "cliente";
-          announceText = `${clientName}, para um pedido desse volume eu prefiro conversar diretamente com você! Vou te ligar agora.`;
+          const clientName = updatedCollectedData["NOME COMPLETO"]?.value;
+          announceText = clientName
+            ? `${clientName.split(" ")[0]}, pra um volume desse tamanho prefiro conversar ao vivo! Te ligo já!`
+            : `Pra um volume desse tamanho prefiro conversar ao vivo! Te ligo já!`;
         }
 
         console.log(`[SdrEngine] 📞 Gatilho de ligação ativado (${callReason}). Enviando aviso por áudio e disparando chamada em 5s...`);

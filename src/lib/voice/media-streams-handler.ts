@@ -14,8 +14,24 @@ export class MediaStreamHandler {
   private history: VoiceMessage[] = [];
   private startTime: Date = new Date();
 
+  // Buffer de áudio pré-streamSid: ElevenLabs pode falar antes do Twilio enviar o evento 'start'.
+  // Sem isso, os primeiros chunks de áudio são descartados e a ligação fica muda.
+  private audioQueue: string[] = [];
+
   private fromNumber: string = "";
   private toNumber: string = "";
+
+  private setStreamSid(sid: string) {
+    this.streamSid = sid;
+    // Flush de áudio que chegou antes do streamSid estar disponível
+    if (this.audioQueue.length > 0 && this.ws.readyState === WebSocket.OPEN) {
+      console.log(`[MediaStream] 🔊 Flushing ${this.audioQueue.length} chunk(s) de áudio que chegaram antes do streamSid...`);
+      for (const payload of this.audioQueue) {
+        this.ws.send(JSON.stringify({ event: "media", streamSid: sid, media: { payload } }));
+      }
+      this.audioQueue = [];
+    }
+  }
 
   constructor(ws: WebSocket) {
     this.ws = ws;
@@ -120,12 +136,13 @@ export class MediaStreamHandler {
 
         switch (msg.event) {
           case "start":
-            this.streamSid = msg.start.streamSid;
             this.callSid = msg.start.callSid;
             this.fromNumber = msg.start.customParameters?.from || msg.start.from || msg.start.customParameters?.To || msg.start.to || "14998364338";
             this.toNumber = msg.start.customParameters?.to || msg.start.to || "";
             this.startTime = new Date();
             this.dbCallId = `call_${Date.now()}`;
+            // Usa setStreamSid para disparar flush de áudio buffered (resolve ligação muda)
+            this.setStreamSid(msg.start.streamSid);
 
             console.log(`[MediaStream] ✅ Sessão Twilio iniciada. StreamSid=${this.streamSid} | CallSid=${this.callSid} | TargetPhone=${this.fromNumber}`);
 
@@ -243,12 +260,14 @@ DIRETRIZES DA LIGAÇÃO:
 
         // 1. Áudio gerado pela Valentina (8kHz mu-law -> repassado ao Twilio)
         if (msg.type === "audio" && msg.audio_event?.audio_base_64) {
-          if (this.ws.readyState === WebSocket.OPEN && this.streamSid) {
-            this.ws.send(JSON.stringify({
-              event: "media",
-              streamSid: this.streamSid,
-              media: { payload: msg.audio_event.audio_base_64 }
-            }));
+          const payload = msg.audio_event.audio_base_64;
+          if (this.streamSid && this.ws.readyState === WebSocket.OPEN) {
+            // streamSid disponível — envia direto
+            this.ws.send(JSON.stringify({ event: "media", streamSid: this.streamSid, media: { payload } }));
+          } else {
+            // streamSid ainda não chegou — faz buffer para não perder o áudio inicial
+            this.audioQueue.push(payload);
+            console.log(`[MediaStream] 🕐 Audio buffered (streamSid pendente). Queue: ${this.audioQueue.length} chunks.`);
           }
         }
 
