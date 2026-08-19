@@ -931,7 +931,10 @@ export class SessionManager {
           dAnd(dEq(convsTable.tenantId, tenantId), dEq(convsTable.contactId, contactId))
       });
 
-      const convId = conversation?.id || `conv-${Date.now()}`;
+      // IMPORTANTE: convId DEVE ser determinístico quando a conversa ainda não existe.
+      // Se usarmos conv-${Date.now()}, duas mensagens rápidas do mesmo contato geram
+      // IDs diferentes → duas sessões no debouncer → saudação duplicada.
+      const convId = conversation?.id || `conv-${tenantId}-${contactId}`;
       const isFromMe = !!rawMsg.key.fromMe;
 
       // ── Comando !reset: Zera a triagem e limpa o histórico para recomeçar do zero ──
