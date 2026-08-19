@@ -20,6 +20,7 @@ export function KnowledgeTab() {
   const [folders, setFolders] = useState<FolderType[]>([]);
   const [files, setFiles] = useState<FileType[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
   const [isLoadingFolders, setIsLoadingFolders] = useState(true);
   
   // Modals / Criação / Edição
@@ -47,7 +48,16 @@ export function KnowledgeTab() {
     fetch(`${BACKEND_URL}/api/valentina/knowledge?tenantId=valem`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.folders) setFolders(data.folders);
+        if (data.folders) {
+          setFolders(data.folders);
+          // Expande todas as pastas que possuem filhos ou são raiz por padrão
+          const expanded = new Set<string>();
+          data.folders.forEach((f: FolderType) => {
+            if (f.parentId === null) expanded.add(f.id);
+            if (f.parentId) expanded.add(f.parentId);
+          });
+          setExpandedFolderIds(expanded);
+        }
         if (data.files) setFiles(data.files);
         if (data.folders && data.folders.length > 0) {
           setSelectedFolderId(data.folders[0].id);
@@ -56,6 +66,19 @@ export function KnowledgeTab() {
       .catch((err) => console.warn("[KnowledgeTab] Erro ao carregar do servidor:", err))
       .finally(() => setIsLoadingFolders(false));
   }, []);
+
+  const toggleFolderExpanded = (folderId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  };
 
   // ── Operações de Pasta ──────────────────────────────────────────────────────
   
@@ -69,6 +92,9 @@ export function KnowledgeTab() {
     };
 
     setFolders((prev) => [...prev, newFolder]);
+    if (selectedFolderId) {
+      setExpandedFolderIds((prev) => new Set(prev).add(selectedFolderId));
+    }
     setNewFolderName("");
     setIsCreatingFolder(false);
     setSelectedFolderId(newId);
@@ -142,7 +168,7 @@ export function KnowledgeTab() {
     }
   };
 
-  // ── Drag and Drop Nativo (Pastas & Arquivos) ───────────────────────────────
+  // ── Drag and Drop Nativo com Persistência no Banco ──────────────────────────
 
   const isAncestor = (targetId: string, folderId: string): boolean => {
     let current = folders.find((f) => f.id === targetId);
@@ -169,30 +195,88 @@ export function KnowledgeTab() {
     e.preventDefault();
   };
 
-  const handleFolderDrop = (e: React.DragEvent, targetId: string) => {
+  const handleFolderDrop = async (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     
     if (draggedFolderId) {
       if (draggedFolderId === targetId || isAncestor(targetId, draggedFolderId)) return;
+      const folderId = draggedFolderId;
+      const folderToMove = folders.find((f) => f.id === folderId);
+
       setFolders((prev) =>
-        prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId: targetId } : f))
+        prev.map((f) => (f.id === folderId ? { ...f, parentId: targetId } : f))
       );
+      setExpandedFolderIds((prev) => new Set(prev).add(targetId));
       setDraggedFolderId(null);
+
+      // Persistir mudança de hierarquia de pasta na API
+      try {
+        await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: "valem",
+            action: "update_folder",
+            id: folderId,
+            name: folderToMove?.name || "Pasta",
+            parentId: targetId,
+          }),
+        });
+      } catch (err) {
+        console.error("[KnowledgeTab] Erro ao salvar movimentação de pasta na API:", err);
+      }
     } else if (draggedFileId) {
+      const fileId = draggedFileId;
       setFiles((prev) =>
-        prev.map((file) => (file.id === draggedFileId ? { ...file, folderId: targetId } : file))
+        prev.map((file) => (file.id === fileId ? { ...file, folderId: targetId } : file))
       );
       setDraggedFileId(null);
+
+      // Persistir mudança de pasta do arquivo na API
+      try {
+        await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: "valem",
+            action: "move_file",
+            id: fileId,
+            folderId: targetId,
+          }),
+        });
+      } catch (err) {
+        console.error("[KnowledgeTab] Erro ao salvar movimentação de arquivo na API:", err);
+      }
     }
   };
 
-  const handleRootDrop = (e: React.DragEvent) => {
+  const handleRootDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     if (draggedFolderId) {
+      const folderId = draggedFolderId;
+      const folderToMove = folders.find((f) => f.id === folderId);
+
       setFolders((prev) =>
-        prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId: null } : f))
+        prev.map((f) => (f.id === folderId ? { ...f, parentId: null } : f))
       );
       setDraggedFolderId(null);
+
+      // Persistir mudança para a raiz na API
+      try {
+        await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: "valem",
+            action: "update_folder",
+            id: folderId,
+            name: folderToMove?.name || "Pasta",
+            parentId: null,
+          }),
+        });
+      } catch (err) {
+        console.error("[KnowledgeTab] Erro ao mover pasta para raiz na API:", err);
+      }
     }
   };
 
@@ -220,20 +304,21 @@ export function KnowledgeTab() {
 
     const fileName = fileObj.name;
     const fileSize = fileObj.size;
-    const extension = fileName.split(".").pop()?.toLowerCase();
+    const extension = fileName.split(".").pop()?.toLowerCase() || "";
 
     let type: FileType["type"] = "txt";
     if (extension === "pdf") type = "pdf";
-    else if (["doc", "docx"].includes(extension || "")) type = "word";
-    else if (["png", "jpg", "jpeg", "webp"].includes(extension || "")) type = "image";
+    else if (["doc", "docx"].includes(extension)) type = "word";
+    else if (["png", "jpg", "jpeg", "webp"].includes(extension)) type = "image";
 
     const formattedSize = fileSize > 1024 * 1024
       ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
       : `${(fileSize / 1024).toFixed(0)} KB`;
 
-    // Leitura do conteúdo de texto do arquivo (apenas se não for binário denso)
     let fileContent = "";
-    if (type === "txt" || extension === "md" || extension === "json" || extension === "csv") {
+    let base64Data: string | null = null;
+
+    if (type === "txt" || ["md", "json", "csv", "tsv"].includes(extension)) {
       try {
         fileContent = await new Promise<string>((resolve) => {
           const reader = new FileReader();
@@ -245,8 +330,22 @@ export function KnowledgeTab() {
         console.warn("[KnowledgeTab] Erro ao ler arquivo de texto:", err);
       }
     } else {
-      // Para PDFs e documentos, sinalizamos o nome do arquivo para o backend tratar a extração de conhecimento
-      fileContent = `[Documento ${fileName} - Formato: ${type.toUpperCase()}]`;
+      // Lê como base64 para o backend extrair o texto via pdf-parse ou mammoth
+      try {
+        const rawBase64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const res = (e.target?.result as string) || "";
+            const commaIdx = res.indexOf(",");
+            resolve(commaIdx !== -1 ? res.slice(commaIdx + 1) : res);
+          };
+          reader.onerror = () => resolve("");
+          reader.readAsDataURL(fileObj);
+        });
+        base64Data = rawBase64;
+      } catch (err) {
+        console.warn("[KnowledgeTab] Erro ao ler arquivo como base64:", err);
+      }
     }
 
     setUploadProgress(60);
@@ -263,7 +362,8 @@ export function KnowledgeTab() {
           type,
           format: uploadMode,
           folderId: selectedFolderId,
-          content: fileContent,
+          content: fileContent || null,
+          base64: base64Data,
         }),
       });
 
@@ -303,7 +403,7 @@ export function KnowledgeTab() {
 
   // ── Render Helpers ──────────────────────────────────────────────────────────
 
-  // Função recursiva para renderizar pastas em árvore hierárquica
+  // Função recursiva para renderizar pastas em árvore hierárquica com expandir/recolher
   const renderFolders = (parentId: string | null, depth = 0) => {
     const currentFolders = folders.filter((f) => f.parentId === parentId);
     
@@ -311,6 +411,7 @@ export function KnowledgeTab() {
       const isSelected = selectedFolderId === folder.id;
       const isEditing = editingFolderId === folder.id;
       const hasChildren = folders.some((f) => f.parentId === folder.id);
+      const isExpanded = expandedFolderIds.has(folder.id);
 
       return (
         <div key={folder.id} className="flex flex-col">
@@ -319,7 +420,7 @@ export function KnowledgeTab() {
             onDragStart={(e) => handleFolderDragStart(e, folder.id)}
             onDragOver={handleDragOver}
             onDrop={(e) => handleFolderDrop(e, folder.id)}
-            style={{ paddingLeft: `${depth * 14 + 12}px` }}
+            style={{ paddingLeft: `${depth * 14 + 10}px` }}
             className={`group flex items-center justify-between py-2 pr-3 rounded-xl transition duration-150 cursor-pointer select-none ${
               isSelected 
                 ? "bg-primary-soft text-primary font-bold border-l-2 border-l-primary" 
@@ -327,11 +428,22 @@ export function KnowledgeTab() {
             }`}
             onClick={() => setSelectedFolderId(folder.id)}
           >
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
               {hasChildren ? (
-                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                <button
+                  type="button"
+                  onClick={(e) => toggleFolderExpanded(folder.id, e)}
+                  className="p-1 -ml-1 rounded-md hover:bg-muted-foreground/15 text-muted-foreground/70 hover:text-foreground transition cursor-pointer"
+                  title={isExpanded ? "Recolher subpastas" : "Expandir subpastas"}
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                </button>
               ) : (
-                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/30" />
+                <span className="w-5 shrink-0" />
               )}
               <Folder className={`h-4.5 w-4.5 shrink-0 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
               
@@ -362,7 +474,7 @@ export function KnowledgeTab() {
                       e.stopPropagation();
                       handleRenameFolder(folder.id);
                     }}
-                    className="p-1 rounded hover:bg-card text-green-600 cursor-pointer"
+                    className="p-1 rounded hover:bg-card text-emerald-600 cursor-pointer"
                   >
                     <Check className="h-3 w-3" />
                   </button>
@@ -404,8 +516,8 @@ export function KnowledgeTab() {
             </div>
           </div>
 
-          {/* Subpastas recursivas */}
-          {renderFolders(folder.id, depth + 1)}
+          {/* Subpastas recursivas — apenas renderiza quando a pasta pai estiver expandida */}
+          {hasChildren && isExpanded && renderFolders(folder.id, depth + 1)}
         </div>
       );
     });
@@ -512,30 +624,30 @@ export function KnowledgeTab() {
             </p>
           </div>
 
-          {/* Formato de Upload selector */}
-          <div className="flex items-center gap-1 bg-muted px-1.5 py-1 rounded-xl border border-border select-none shrink-0">
+          {/* Formato de Upload selector com harmonia verde visual */}
+          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border select-none shrink-0">
             <button
               onClick={() => setUploadMode("embeddings")}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
                 uploadMode === "embeddings"
-                  ? "bg-emerald-500 text-white shadow-soft"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
               title="Salva o arquivo como vetor de IA no cérebro da Valentina"
             >
-              <Brain className="h-3 w-3" />
+              <Brain className="h-3.5 w-3.5" />
               <span>Embeddings</span>
             </button>
             <button
               onClick={() => setUploadMode("real")}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
                 uploadMode === "real"
-                  ? "bg-blue-600 text-white shadow-soft"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
               title="Salva o arquivo no formato real para Valentina enviar diretamente aos clientes"
             >
-              <Paperclip className="h-3 w-3" />
+              <Paperclip className="h-3.5 w-3.5" />
               <span>Formato Real</span>
             </button>
           </div>
@@ -561,7 +673,7 @@ export function KnowledgeTab() {
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.md,.json,.csv"
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.md,.json,.csv,.xlsx,.xls"
               className="hidden"
             />
             {isUploading ? (
@@ -579,7 +691,7 @@ export function KnowledgeTab() {
                 <UploadCloud className="h-8 w-8 text-muted-foreground/60 animate-bounce duration-1000" />
                 <div>
                   <p className="text-xs font-bold text-foreground">Arraste e solte arquivos aqui</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Suporta PDF, Word, TXT, Markdown (MD) e Imagens</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Suporta PDF, Word, TXT, Markdown (MD), Planilhas e Imagens</p>
                 </div>
 
                 <div className="mt-1 px-3 py-1 rounded bg-card border border-border text-[9px] font-black uppercase text-primary">
@@ -621,14 +733,14 @@ export function KnowledgeTab() {
                     </div>
 
                     <div className="flex items-center gap-3 shrink-0">
-                      {/* Badge do Formato */}
+                      {/* Badge do Formato em Harmonia Verde */}
                       {file.format === "embeddings" ? (
-                        <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/25 select-none" title="Armazenado no cérebro da IA para aprendizado">
+                        <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-primary-soft text-primary border border-primary/25 select-none" title="Armazenado no cérebro da IA para aprendizado">
                           <Brain className="h-2.5 w-2.5" />
                           <span>Embedding</span>
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-500/10 text-blue-600 border border-blue-500/25 select-none" title="Arquivo real disponível para envio direto aos clientes">
+                        <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-primary-soft/60 text-primary/80 border border-primary/20 select-none" title="Arquivo real disponível para envio direto aos clientes">
                           <Paperclip className="h-2.5 w-2.5" />
                           <span>Real</span>
                         </span>

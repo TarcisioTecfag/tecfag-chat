@@ -144,6 +144,7 @@ export class SdrEngine {
       }
 
       const isEnabled = dbConfig ? dbConfig.enabled === 1 : true;
+      const configData = (dbConfig?.config as Record<string, any>) || {};
 
       if (!isEnabled) {
         console.log(`[SdrEngine] SDR Valentina está DESATIVADO para tenant ${tenantId}. Ignorando lote.`);
@@ -251,8 +252,20 @@ export class SdrEngine {
       if (hour >= 5 && hour < 12) greeting = "Bom dia!";
       if (hour >= 18 || hour < 5) greeting = "Boa noite!";
 
-      const hasBotRespondedBefore = historyMsgs.some((m) => m.senderType === "bot");
+      // Verificar se a saudação já foi enviada usando flag no metadata (evita race condition
+      // entre lotes concorrentes onde ambos leem historyMsgs vazio e enviam saudação dupla)
+      const metaState = (flowState?.metadata as Record<string, any>) || {};
+      const greetingAlreadyDone = metaState.greetingDone === true;
+      const hasBotRespondedBefore = greetingAlreadyDone || historyMsgs.some((m) => m.senderType === "bot");
       const isFirstMessage = !hasBotRespondedBefore;
+
+      // Se for primeira mensagem, marca o flag imediatamente antes de processar
+      // (evita que lotes paralelos também passem pela lógica de saudação)
+      if (isFirstMessage && flowState) {
+        await db.update(agentFlowStates)
+          .set({ metadata: { ...metaState, greetingDone: true } })
+          .where(eq(agentFlowStates.id, flowState.id));
+      }
 
       const firstMessageRule = isFirstMessage
         ? `🟢 ATENÇÃO CRÍTICA (ESTA É A PRIMEIRA MENSAGEM DO ATENDIMENTO!):
@@ -370,7 +383,14 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
       - "Recebi seu PDF!", "Documento recebido!", "Já registrei no sistema!"
       Qualquer frase desse tipo soa como robô e quebra completamente a experiência de conversa humana.
 
-   ✅ REGRA OBRIGATÓRIA: Você DEVE começar a resposta JÁ USANDO o conteúdo da mídia, como uma pessoa real faria:
+   ❌ É IGUALMENTE PROIBIDO confirmar dados informados pelo cliente de forma robótica:
+      - "Já anotei aqui o seu interesse nas 100 mil unidades!"
+      - "Tomei nota do seu pedido!"
+      - "Já registrei sua quantidade!"
+      - "Recebi sua informação!"
+      Uma pessoa NUNCA fala assim. Confirmar que "anotou" soa como sistema de chamados, não conversa.
+
+   ✅ REGRA OBRIGATÓRIA: Você DEVE começar a resposta JÁ USANDO o conteúdo da mídia ou dado recebido, como uma pessoa real faria:
       - Para IMAGEM: "Certo, olhando a foto que você mandou... [observação sobre o produto/conteúdo]"
         ou: "Pelo que vi aqui, parece ser [identificação do produto], é esse mesmo?"
         ou: "Essa valvula da foto é o modelo [X] — você quer esse tipo mesmo?"
@@ -378,6 +398,10 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
         ou: "Entendi! Você falou que quer [resumo do áudio], certo?"
       - Para PDF/DOCUMENTO: "Vi aqui no documento que a empresa é [Nome Empresa] e o CNPJ é [CNPJ]..."
         ou: "Com base no PDF, já registrei seus dados — empresa [X], CNPJ [Y]."
+      - Para DADO INFORMADO (quantidade, produto, etc.): IGNORE o dado e continue DIRETAMENTE para a próxima
+        pergunta ou comentário. Ex: cliente falou "preciso de 100 mil" → Valentina responde "100 mil é bastante!
+        Você tem alguma previsão de quando precisa da primeira entrega?"
+        NÃO: "Temos sim, e já anotei aqui o seu interesse nas 100 mil unidades."
 
    REGRA ESPECIAL — IMAGEM SEM TEXTO (cliente só mandou foto, sem escrever nada):
       Se o cliente enviou apenas uma imagem sem nenhum texto explicativo:
@@ -442,7 +466,11 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      5. "Industrial – Lançamento": Cliente lançando um produto novo no mercado, necessitando de envio de amostras e venda consultiva.
      6. "Industrial – Troca de Fornecedor": Oportunidade de migrar cliente insatisfeito com concorrente por atraso, qualidade ou preço.
 
-14. DIRETRIZES DE RESPOSTA EM ÁUDIO DE VOZ (ELEVENLABS TTS):
+14. CONSULTORIA E RESPOSTA OBRIGATÓRIA COM BASE NA BASE DE CONHECIMENTO & CATÁLOGO:
+   - Você tem acesso direto aos dados técnicos, tabelas, argumentos comerciais e catálogo de produtos contidos na seção "📚 BASE DE CONHECIMENTO" no início do seu prompt.
+   - SEMPRE que o cliente fizer qualquer pergunta sobre produtos, modelos de válvulas (Spray, Pump, Gatilho, Espumadora), terminações de rosca (24/410, 28/410), compatibilidade de materiais (PET, PEAD, Alumínio), volumetrias, argumentos, prazos ou diferenciais, você DEVE responder com autoridade, precisão e naturalidade consultiva ANTES de continuar com o fluxo de triagem. NUNCA diga que não sabe se a informação estiver presente na Base de Conhecimento!
+
+15. DIRETRIZES DE RESPOSTA EM ÁUDIO DE VOZ (ELEVENLABS TTS):
    - Você tem a capacidade de responder enviando uma mensagem de voz/áudio falada por você (Valentina) no WhatsApp.
    - Quando usar o campo "audioMessage":
      a) Se o cliente enviou um áudio no lote atual (espelhamento de canal de comunicação com rapport imediato).

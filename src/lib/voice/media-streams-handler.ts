@@ -104,6 +104,7 @@ export class MediaStreamHandler {
           quantity: "",
           cnpj: "",
           whatsapp_history: "Conversa via WhatsApp para cotação de válvulas/embalagens da Valem.",
+          knowledge_base_context: "Catálogo geral de válvulas spray, aerosol, frascos PET/PEAD, potes e seladoras da Valem Válvulas.",
         },
         first_message: "Oii! É a Valentina da Valem Válvulas! Estou ligando para dar continuidade à sua cotação!",
       };
@@ -202,6 +203,29 @@ export class MediaStreamHandler {
           // CRÍTICO: Informar ao ElevenLabs que deve sintetizar e aceitar áudio em ulaw_8000
           // Isso garante compatibilidade bidirecional com o codec telefônico do Twilio MediaStreams
           audio_format: "ulaw_8000",
+          conversation_config_override: {
+            agent: {
+              prompt: {
+                prompt: `Você é a Valentina, consultora comercial e especialista técnica em vendas da Valem Válvulas e Embalagens.
+${context.dynamic_variables.knowledge_base_context || ""}
+
+INFORMAÇÕES DA COTAÇÃO DO CLIENTE:
+- Nome do cliente: {{user_name}}
+- Empresa: {{company_name}}
+- Produto de interesse: {{product_name}}
+- Quantidade: {{quantity}}
+- CNPJ: {{cnpj}}
+- Histórico da conversa no WhatsApp: {{whatsapp_history}}
+
+DIRETRIZES DA LIGAÇÃO:
+- Fale com simpatia humana natural, tom profissional, ágil e consultivo de vendas.
+- Use as informações da BASE DE CONHECIMENTO e CATÁLOGO acima para responder com domínio e autoridade qualquer dúvida do cliente sobre válvulas (Spray, Pump, Gatilho, Espumadora, Recrave, Roscas 24/410, 28/410, etc.), frascos (PET, PEAD, Vidro, Alumínio), volumetrias, quantidades e materiais.
+- Confirme se os dados da cotação estão corretos e colete o que estiver faltando para fechar o pedido.
+- Fale em frases curtas, naturais e diretas ao telefone.`
+              },
+              first_message: context.first_message,
+            },
+          },
           dynamic_variables: context.dynamic_variables,
         };
 
