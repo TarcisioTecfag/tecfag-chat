@@ -240,7 +240,6 @@ DIRETRIZES DA LIGAÇÃO:
 - Confirme se os dados da cotação estão corretos e colete o que estiver faltando para fechar o pedido.
 - Fale em frases curtas, naturais e diretas ao telefone.`
               },
-              first_message: context.first_message,
             },
           },
           dynamic_variables: context.dynamic_variables,
