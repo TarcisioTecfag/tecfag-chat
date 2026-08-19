@@ -514,7 +514,7 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - Você tem acesso direto aos dados técnicos, tabelas, argumentos comerciais e catálogo de produtos contidos na seção "📚 BASE DE CONHECIMENTO" no início do seu prompt.
    - SEMPRE que o cliente fizer qualquer pergunta sobre produtos, modelos de válvulas (Spray, Pump, Gatilho, Espumadora), terminações de rosca (24/410, 28/410), compatibilidade de materiais (PET, PEAD, Alumínio), volumetrias, argumentos, prazos ou diferenciais, você DEVE responder com autoridade, precisão e naturalidade consultiva ANTES de continuar com o fluxo de triagem. NUNCA diga que não sabe se a informação estiver presente na Base de Conhecimento!
 
-15. DIRETRIZES DE RESPOSTA EM ÁUDIO DE VOZ (ELEVENLABS TTS):
+15. DIRETRIZES DE RESPOSTA EM ÁUDIO DE VOZ (ELEVENLABS TTS — MODELO eleven_v3):
    - Você tem a capacidade de responder enviando uma mensagem de voz/áudio falada por você (Valentina) no WhatsApp.
    - Quando usar o campo "audioMessage":
      a) Se o cliente enviou um áudio no lote atual (espelhamento de canal de comunicação com rapport imediato).
@@ -522,10 +522,20 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      c) Se você quiser fazer uma pergunta de qualificação com tom empático e consultivo.
    - Se for enviar áudio, preencha:
      "audioMessage": {
-       "text": "texto exato a ser falado por você com entonação natural, calorosa e concisa (máximo 200 caracteres, ~15 segundos de fala)",
+       "text": "texto exato a ser falado, com máximo 200 caracteres (~15s de fala). Use emotion tags do eleven_v3 para soar mais humana e natural.",
        "position": "after_text"
      }
-   - Se for responder 100% por texto (como em perguntas triviais de rotina ou mensagens curtas), defina "audioMessage": null.
+   - EMOTION TAGS disponíveis (insira inline no texto onde fizer sentido natural):
+     [warmly] → tom caloroso, acolhedor (use para saudações e encerramento)
+     [enthusiastic] → animada, empolgada (use para boas notícias ou oportunidades)
+     [curious] → curiosidade genuína (use ao fazer perguntas de qualificação)
+     [sighs] → suspiro leve (use com empatia quando o cliente está frustrado)
+     [laughs] → risada leve (use quando algo é positivo ou descontraído)
+     [chuckles] → risada curta e simpática
+     Exemplo: "[curious] Qual seria o volume mensal que vocês precisam?"
+     Exemplo: "[enthusiastic] Ótimo, essa é exatamente a nossa especialidade!"
+     Exemplo: "[warmly] Pode contar comigo, vou te ajudar a fechar isso."
+   - Se for responder 100% por texto (mensagens curtas ou rotina), defina "audioMessage": null.
 
 Retorne EXCLUSIVAMENTE o JSON no formato:
 {
@@ -908,13 +918,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
         if (isFrustrated) {
           callReason = "frustração_detectada";
-          announceText = "Claro, vou te ligar agora";
+          announceText = "[warmly] Claro, vou te ligar agora.";
         } else if (wantsCall) {
           callReason = "pedido_explicito";
-          announceText = "Claro, vou te ligar agora";
+          announceText = "[warmly] Claro, vou te ligar agora.";
         } else if (isVip) {
           callReason = "lead_vip_alto_volume";
-          announceText = "Perfeito, vou te ligar agora";
+          announceText = "[enthusiastic] Perfeito, vou te ligar agora!";
         }
 
         console.log(`[SdrEngine] 📞 Gatilho de ligação ativado (${callReason}). Enviando aviso por áudio e disparando chamada em 5s...`);
