@@ -1,6 +1,6 @@
 // Usando fetch nativo do Node 18+ (não precisa de node-fetch)
 
-export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "sk_dd142c168bfd9061e0025a57af2361007b6e7d5947ac4168";
+export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "sk_f4b5e613103e040403bf5ca43ffc46a1b08c774d5d9fa2fd";
 export const MARIANNE_VOICE_ID = "RGymW84CSmfVugnA5tvA"; // Roberta — voz oficial selecionada no ElevenLabs
 
 /**

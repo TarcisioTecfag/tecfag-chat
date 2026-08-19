@@ -10,6 +10,7 @@ import { getKnowledgeBaseContext } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { getAiPersona } from "../ai-persona";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
+import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
 
 // ── Diretório de Áudios PTT da Valentina (relativo ao projeto — funciona local e no Railway)
 // Os arquivos OGG pré-convertidos ficam em public/audios-valentina/ e são incluídos no deploy
@@ -70,6 +71,10 @@ function estimateAudioDurationSeconds(fileSizeBytes: number): number {
 export interface SdrAiResult {
   extractedData?: Record<string, any>;
   messagesToSend: string[];
+  audioMessage?: {
+    text: string;
+    position?: "before_text" | "after_text" | "only_audio";
+  } | null;
   quoteMessageId?: string | null;
   mediaDescription?: string | null; // Interpretação textual da mídia recebida (imagem/áudio/PDF)
   isCompleted?: boolean;
@@ -269,10 +274,20 @@ export class SdrEngine {
             hasPreviousEmoji = true;
           }
           const sender = m.senderType === "client" ? "Cliente" : "Valentina (SDR)";
+          
+          let contentText = m.content || "";
+          if (typeof contentText === "string" && contentText.startsWith("[MEDIA:audio]")) {
+            contentText = m.mediaInterpretation
+              ? `🎤 [ÁUDIO DE VOZ ENVIADO PELA VALENTINA]: "${m.mediaInterpretation}"`
+              : "🎤 [ÁUDIO DE VOZ]";
+          }
+
           // Se a mensagem do cliente tinha mídia e a IA já interpretou, exibe a interpretação
-          // para que a Valentina se lembre do que foi visto/ouvido sem renviar o binário
-          const mediaCtx = m.mediaInterpretation ? ` [MÍDIA ENVIADA — O QUE FOI VISTO/OUVIDO: "${m.mediaInterpretation}"]` : "";
-          return `[ID MENSAGEM: ${m.id}] [${sender}]${mediaCtx}: ${m.content}`;
+          // para que a Valentina se lembre do que foi visto/ouvido sem reenviar o binário
+          const mediaCtx = (m.senderType === "client" && m.mediaInterpretation)
+            ? ` [MÍDIA RECEBIDA DO CLIENTE — O QUE FOI VISTO/OUVIDO: "${m.mediaInterpretation}"]`
+            : "";
+          return `[ID MENSAGEM: ${m.id}] [${sender}]${mediaCtx}: ${contentText}`;
         })
         .join("\n");
 
@@ -493,6 +508,19 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      5. "Industrial – Lançamento": Cliente lançando um produto novo no mercado, necessitando de envio de amostras e venda consultiva.
      6. "Industrial – Troca de Fornecedor": Oportunidade de migrar cliente insatisfeito com concorrente por atraso, qualidade ou preço.
 
+14. DIRETRIZES DE RESPOSTA EM ÁUDIO DE VOZ (ELEVENLABS TTS):
+   - Você tem a capacidade de responder enviando uma mensagem de voz/áudio falada por você (Valentina) no WhatsApp.
+   - Quando usar o campo "audioMessage":
+     a) Se o cliente enviou um áudio no lote atual (espelhamento de canal de comunicação com rapport imediato).
+     b) Se você estiver explicando detalhes técnicos ou comerciais (diferenças entre válvulas spray/dosadoras, compatibilidade de frascos, acabamentos ou tiragens mínimas) onde uma explicação falada soa muito mais atenciosa e humana que um texto longo.
+     c) Se você quiser fazer uma pergunta de qualificação com tom empático e consultivo.
+   - Se for enviar áudio, preencha:
+     "audioMessage": {
+       "text": "texto exato a ser falado por você com entonação natural, calorosa e concisa (máximo 200 caracteres, ~15 segundos de fala)",
+       "position": "after_text"
+     }
+   - Se for responder 100% por texto (como em perguntas triviais de rotina ou mensagens curtas), defina "audioMessage": null.
+
 Retorne EXCLUSIVAMENTE o JSON no formato:
 {
   "extractedData": {
@@ -505,6 +533,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     "QUAL O TIPO DE PRODUTO?": "valor ou mantem anterior"
   },
   "messagesToSend": ["balão 1 curto", "balão 2 curto", "balão 3 curto", "balão 4 se necessário", "balão 5 se necessário"],
+  "audioMessage": {
+    "text": "texto falado da mensagem de voz ou null se não houver áudio",
+    "position": "after_text"
+  },
   "quoteMessageId": "id_da_mensagem_para_citar_ou_null",
   "mediaDescription": "descrição curta do conteúdo da mídia recebida, ou null se não houve mídia",
   "isCompleted": false
@@ -1010,19 +1042,43 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         console.log(`[SdrEngine] 🏢 Flag 'awaitingCompanyConfirmation' ativado para a conversa ${conversationId}.`);
       }
 
-      // 11. Envio Humanizado das Mensagens com presencia 'composing' longa, citação no WhatsApp e AbortSignal
-      await this.sendHumanizedBotMessages(
-        tenantId,
-        conversationId,
-        contactPhone,
-        aiResult.messagesToSend,
-        signal,
-        targetQuoteItem,
-        aiResult.quoteMessageId
-      );
+      // 11. Envio de Mensagens de Texto / Áudio Dinâmico ElevenLabs
+      const dynamicAudio = aiResult.audioMessage && aiResult.audioMessage.text?.trim() ? aiResult.audioMessage : null;
 
-      // 12. Se houver áudio PTT de CNPJ pendente, envia após as mensagens de texto
-      if (shouldSendCnpjAudio && !signal?.aborted) {
+      if (dynamicAudio && dynamicAudio.position === "before_text" && !signal?.aborted) {
+        await this.sendDynamicPttAudio(
+          tenantId,
+          conversationId,
+          contactPhone,
+          dynamicAudio.text,
+          signal
+        );
+      }
+
+      if ((!dynamicAudio || dynamicAudio.position !== "only_audio") && aiResult.messagesToSend.length > 0 && !signal?.aborted) {
+        await this.sendHumanizedBotMessages(
+          tenantId,
+          conversationId,
+          contactPhone,
+          aiResult.messagesToSend,
+          signal,
+          targetQuoteItem,
+          aiResult.quoteMessageId
+        );
+      }
+
+      if (dynamicAudio && (!dynamicAudio.position || dynamicAudio.position === "after_text") && !signal?.aborted) {
+        await this.sendDynamicPttAudio(
+          tenantId,
+          conversationId,
+          contactPhone,
+          dynamicAudio.text,
+          signal
+        );
+      }
+
+      // 12. Se houver áudio PTT de CNPJ pendente (legado) e não gerou áudio dinâmico, envia após as mensagens
+      if (shouldSendCnpjAudio && !dynamicAudio && !signal?.aborted) {
         await this.sendPttAudio(
           tenantId,
           conversationId,
@@ -1150,6 +1206,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         senderType: "bot",
         senderName: "Valentina (SDR)",
         content: `[MEDIA:audio]${botMessageId}`,
+        mediaInterpretation: `Áudio gravado: ${audioFileName.replace(/\.mp3$/i, "")}`,
         isInternalNote: false,
         sentAt: new Date(),
       }).onConflictDoNothing();
@@ -1190,6 +1247,146 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       });
     } catch (dbErr: any) {
       console.error(`[SdrEngine PTT] Erro ao salvar PTT no banco:`, dbErr?.message);
+    }
+  }
+
+  /**
+   * Sintetiza dinamicamente um áudio com a voz da Valentina via ElevenLabs (formato nativo Opus/OGG)
+   * e envia como PTT (Push-To-Talk / Mensagem de Voz) com simulação de "gravando áudio..." e registro no banco.
+   * A transcrição exata é persistida em `mediaInterpretation` garantindo memória 100% literal nos turnos futuros!
+   */
+  private async sendDynamicPttAudio(
+    tenantId: string,
+    conversationId: string,
+    phone: string,
+    audioText: string,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const cleanText = audioText.trim();
+    if (!cleanText) return;
+
+    const sock = SessionManager.getInstance().getSession(tenantId);
+    if (!sock) {
+      console.error(`[SdrEngine Dynamic PTT] Sessão Baileys não encontrada para tenant ${tenantId}`);
+      return;
+    }
+
+    const realJid = await resolveRealJid(sock, phone);
+
+    // 1. Mostrar imediatamente a presença 'recording' (gravando áudio...) no WhatsApp
+    try {
+      await sock.sendPresenceUpdate("recording", realJid);
+      console.log(`[SdrEngine Dynamic PTT] 🎙️ Presença 'recording' ativada para ${phone}`);
+    } catch { /* silencia */ }
+
+    // 2. Gerar o áudio dinâmico via ElevenLabs (ou recuperar do cache LRU)
+    let pttResult: { buffer: Buffer; durationSeconds: number; mimeType: string };
+    try {
+      pttResult = await generateDynamicPttAudio({
+        text: cleanText,
+        signal,
+      });
+    } catch (ttsErr: any) {
+      console.error(`[SdrEngine Dynamic PTT] ⚠️ Falha na síntese ElevenLabs (${ttsErr?.message}). Fazendo fallback para texto.`);
+      try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+      // Fallback transparente: envia o texto como balão normal sem travar a conversa
+      await this.sendHumanizedBotMessages(tenantId, conversationId, phone, [cleanText], signal);
+      return;
+    }
+
+    const durationMs = Math.max(1500, Math.min(15000, pttResult.durationSeconds * 1000));
+    console.log(`[SdrEngine Dynamic PTT] 🎙️ Simulando gravação de ~${(durationMs / 1000).toFixed(1)}s antes do envio...`);
+
+    // 3. Aguardar gravação simulada
+    const startTs = Date.now();
+    while (Date.now() - startTs < durationMs) {
+      if (signal?.aborted) {
+        try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+        console.log(`[SdrEngine Dynamic PTT] Envio PTT abortado pelo AbortSignal.`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+    if (signal?.aborted) return;
+
+    // 4. Enviar mensagem de áudio PTT pelo WhatsApp via Baileys
+    let sentMsg: any;
+    try {
+      sentMsg = await sock.sendMessage(realJid, {
+        audio: pttResult.buffer,
+        mimetype: pttResult.mimeType,
+        ptt: true,
+      });
+      console.log(`[SdrEngine Dynamic PTT] ✅ PTT dinâmico enviado com sucesso! MessageId: ${sentMsg?.key?.id}`);
+    } catch (sendErr: any) {
+      console.error(`[SdrEngine Dynamic PTT] ❌ Erro ao enviar PTT via Baileys:`, sendErr?.message);
+      return;
+    }
+
+    // 5. Registrar no banco com a transcrição exata em mediaInterpretation (Memória Total)
+    const botMessageId = sentMsg?.key?.id || `bot-ptt-${Date.now()}`;
+    const displayContent = `🎤 ${cleanText.slice(0, 45)}...`;
+
+    try {
+      await db.insert(conversations).values({
+        id: conversationId,
+        tenantId,
+        contactId: `c-${phone}`,
+        queueState: "automacao",
+        lastMessageText: displayContent,
+        lastMessageTime: new Date(),
+        createdAt: new Date(),
+      }).onConflictDoNothing();
+
+      await db.insert(messages).values({
+        id: botMessageId,
+        tenantId,
+        conversationId,
+        senderType: "bot",
+        senderName: "Valentina (SDR)",
+        content: `[MEDIA:audio]${botMessageId}`,
+        mediaInterpretation: cleanText, // 👈 MEMÓRIA EXATA DO QUE A VALENTINA DISSE NO ÁUDIO!
+        isInternalNote: false,
+        sentAt: new Date(),
+      }).onConflictDoNothing();
+
+      await db.update(conversations)
+        .set({ lastMessageText: displayContent, lastMessageTime: new Date() })
+        .where(eq(conversations.id, conversationId));
+
+      // Persistir buffer de áudio em mediaFiles para tocar na interface web
+      try {
+        const { mediaFiles } = await import("../../db/schema");
+        await db.insert(mediaFiles).values({
+          id: botMessageId,
+          fileName: "valentina_audio.ogg",
+          mimeType: pttResult.mimeType,
+          base64Data: pttResult.buffer.toString("base64"),
+          createdAt: new Date(),
+        }).onConflictDoNothing();
+      } catch { /* não crítico */ }
+
+      const currentConv = await db.query.conversations.findFirst({
+        where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+      });
+
+      SessionManager.getInstance().notifyPublic(tenantId, {
+        type: "message",
+        message: {
+          id: botMessageId,
+          conversationId,
+          senderType: "bot",
+          senderName: "Valentina (SDR)",
+          content: `[MEDIA:audio]${botMessageId}`,
+          sentAt: new Date(),
+          queue: currentConv?.queueState || "automacao",
+          operatorId: currentConv?.operatorId || null,
+        },
+      });
+    } catch (dbErr: any) {
+      console.error(`[SdrEngine Dynamic PTT] Erro ao salvar PTT no banco:`, dbErr?.message);
     }
   }
 
