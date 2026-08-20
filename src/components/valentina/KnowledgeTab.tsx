@@ -5,7 +5,8 @@
 import React, { useState, useRef } from "react";
 import { 
   Folder, FolderPlus, Edit3, Trash2, ChevronDown, ChevronRight,
-  Brain, Paperclip, UploadCloud, FileText, Image as ImageIcon, Check, X
+  Brain, Paperclip, UploadCloud, FileText, Image as ImageIcon, Check, X,
+  Eye, Sparkles, BookOpen
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { 
@@ -22,6 +23,7 @@ export function KnowledgeTab() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
   const [isLoadingFolders, setIsLoadingFolders] = useState(true);
+  const [previewFile, setPreviewFile] = useState<FileType | null>(null);
   
   // Modals / Criação / Edição
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -732,7 +734,18 @@ export function KnowledgeTab() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Botão de Ver Conteúdo Extraído (RAG Inspector) */}
+                      <button
+                        type="button"
+                        onClick={() => setPreviewFile(file)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-primary-soft/40 text-[10px] font-bold text-foreground hover:text-primary transition cursor-pointer shadow-soft"
+                        title="Ver o texto que a IA aprendeu deste arquivo"
+                      >
+                        <Eye className="h-3 w-3 text-primary" />
+                        <span>Ver RAG</span>
+                      </button>
+
                       {/* Badge do Formato em Harmonia Verde */}
                       {file.format === "embeddings" ? (
                         <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-primary-soft text-primary border border-primary/25 select-none" title="Armazenado no cérebro da IA para aprendizado">
@@ -766,6 +779,66 @@ export function KnowledgeTab() {
         </div>
       </div>
 
+      {/* ── MODAL: Visualizador de Conteúdo Extraído (RAG Inspector) ─────────── */}
+      {previewFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-border bg-muted/20">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-primary-soft text-primary flex items-center justify-center flex-shrink-0 border border-primary/20">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-extrabold text-foreground truncate">{previewFile.name}</h3>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                      <Sparkles className="w-2.5 h-2.5" /> Ativo no Cérebro da IA
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {previewFile.size} · Extração de Texto para Gemini & Telefonia
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setPreviewFile(null)}
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Conteúdo de Texto Extraído */}
+            <div className="p-4 flex-1 overflow-y-auto min-h-0 bg-background/50 font-mono text-xs leading-relaxed text-foreground/90 whitespace-pre-wrap select-text scrollbar-thin">
+              {previewFile.content && previewFile.content.trim().length > 0 ? (
+                previewFile.content
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-xs gap-2">
+                  <FileText className="w-8 h-8 opacity-30" />
+                  <span>Nenhum texto bruto disponível para este arquivo.</span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3.5 border-t border-border bg-muted/20 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>
+                Total de caracteres: <strong className="text-foreground">{previewFile.content ? previewFile.content.length.toLocaleString("pt-BR") : 0}</strong>
+              </span>
+              <button
+                onClick={() => setPreviewFile(null)}
+                className="px-4 py-1.5 bg-primary text-primary-foreground font-bold rounded-xl text-xs hover:opacity-90 transition cursor-pointer shadow-soft"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

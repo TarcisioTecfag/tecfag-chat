@@ -388,6 +388,7 @@ export type KnowledgeFile = {
   size: string;
   type: "pdf" | "word" | "image" | "txt";
   format: "embeddings" | "real";
+  content?: string | null;
   uploadedAt: string;
   folderId: string;
 };

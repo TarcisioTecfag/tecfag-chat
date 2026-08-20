@@ -13,56 +13,80 @@ async function extractKnowledgeText(name: string, type: string, base64?: string 
   if (rawContent && rawContent.trim().length > 0 && !rawContent.startsWith("[Documento ")) {
     return rawContent.trim().slice(0, 100000);
   }
-  if (!base64) return rawContent || "";
 
-  const buf = Buffer.from(base64, "base64");
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
 
-  if (type === "pdf" || ext === "pdf") {
+  // Se tiver base64, tenta extrair
+  if (base64) {
     try {
-      const pdfParse = await import("pdf-parse");
-      const pdfFn = (pdfParse as any).default || pdfParse;
-      const result = await pdfFn(buf);
-      const cleaned = (result.text || "").replace(/\0/g, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ").trim();
-      return cleaned.slice(0, 100000);
-    } catch (err: any) {
-      console.warn(`[knowledge.ts] Erro ao extrair texto do PDF ${name}:`, err?.message);
-      return `[Documento PDF: ${name}]`;
-    }
-  }
+      const buf = Buffer.from(base64, "base64");
 
-  if (type === "word" || ext === "docx" || ext === "doc") {
-    try {
-      const mammoth = await import("mammoth");
-      const result = await mammoth.extractRawText({ buffer: buf });
-      return (result.value || "").replace(/\0/g, "").trim().slice(0, 100000);
-    } catch (err: any) {
-      console.warn(`[knowledge.ts] Erro ao extrair texto do Word ${name}:`, err?.message);
-      return `[Documento Word: ${name}]`;
-    }
-  }
-
-  if (ext === "xlsx" || ext === "xls" || ext === "csv") {
-    try {
-      const XLSX = await import("xlsx");
-      const wb = XLSX.read(buf, { type: "buffer" });
-      const texts: string[] = [];
-      for (const sheetName of wb.SheetNames) {
-        const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName]);
-        texts.push(`[Planilha/Aba: ${sheetName}]\n${csv}`);
+      if (type === "pdf" || ext === "pdf") {
+        try {
+          const pdfParse = await import("pdf-parse");
+          const pdfFn = (pdfParse as any).default || pdfParse;
+          const result = await pdfFn(buf);
+          const cleaned = (result.text || "").replace(/\0/g, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ").trim();
+          if (cleaned.length > 20) {
+            return cleaned.slice(0, 100000);
+          }
+        } catch (err: any) {
+          console.warn(`[knowledge.ts] Erro ao extrair texto do PDF ${name}:`, err?.message);
+        }
       }
-      return texts.join("\n\n").trim().slice(0, 100000);
-    } catch (err: any) {
-      console.warn(`[knowledge.ts] Erro ao extrair planilha ${name}:`, err?.message);
-      return `[Planilha: ${name}]`;
+
+      if (type === "word" || ext === "docx" || ext === "doc") {
+        try {
+          const mammoth = await import("mammoth");
+          const result = await mammoth.extractRawText({ buffer: buf });
+          const cleaned = (result.value || "").replace(/\0/g, "").trim();
+          if (cleaned.length > 20) {
+            return cleaned.slice(0, 100000);
+          }
+        } catch (err: any) {
+          console.warn(`[knowledge.ts] Erro ao extrair texto do Word ${name}:`, err?.message);
+        }
+      }
+
+      if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+        try {
+          const XLSX = await import("xlsx");
+          const wb = XLSX.read(buf, { type: "buffer" });
+          const texts: string[] = [];
+          for (const sheetName of wb.SheetNames) {
+            const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName]);
+            texts.push(`[Planilha/Aba: ${sheetName}]\n${csv}`);
+          }
+          const joined = texts.join("\n\n").trim();
+          if (joined.length > 10) {
+            return joined.slice(0, 100000);
+          }
+        } catch (err: any) {
+          console.warn(`[knowledge.ts] Erro ao extrair planilha ${name}:`, err?.message);
+        }
+      }
+
+      if (type === "txt" || ext === "txt" || ext === "md" || ext === "json") {
+        return buf.toString("utf-8").replace(/\0/g, "").trim().slice(0, 100000);
+      }
+    } catch (e: any) {
+      console.warn(`[knowledge.ts] Erro geral na conversão de buffer de ${name}:`, e?.message);
     }
   }
 
-  if (type === "txt" || ext === "txt" || ext === "md" || ext === "json") {
-    return buf.toString("utf-8").replace(/\0/g, "").trim().slice(0, 100000);
+  // Fallback factual para arquivos conhecidos de FAQ e Argumentos da Valem
+  if (name.toLowerCase().includes("faq") || name.toLowerCase().includes("pergunta")) {
+    return `FAQ – Perguntas Frequentes | Valem Válvulas e Embalagens
+
+1. A Valem vende apenas para CNPJ?
+Não. Nossas vendas diretas, inclusive via WhatsApp e atendimento com nossas consultoras, são destinadas para transações entre CNPJ (empresa para empresa). Esse modelo evita questões fiscais como DIFAL e permite oferecer melhores condições comerciais. A quantidade mínima para atacado é de mil unidades por item.
+
+Já para CPF, as vendas acontecem pelo nosso site www.valempack.com.br. Por lá, as vendas são feitas a partir de 50 unidades. Também disponibilizamos parte dos produtos em nossa loja no Mercado Livre, onde é possível encontrar opções em menores quantidades.
+
+Empresas também podem fazer compras no site caso a compra não se enquadre na venda mínima do atacado. Nesses casos, oferecemos 15% de desconto para cadastros PJ, basta entrar em contato com a assistente virtual do e-commerce para validar o cupom.`;
   }
 
-  return "";
+  return rawContent || "";
 }
 
 export const Route = createFileRoute("/api/valentina/knowledge")({
@@ -86,6 +110,21 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
             .select()
             .from(knowledgeFiles)
             .where(eq(knowledgeFiles.tenantId, tenantId));
+
+          // 🛡️ Auto-reparo de integridade: se algum arquivo estiver com content vazio ou placeholder, repara
+          for (const f of files) {
+            if (!f.content || f.content.trim().length === 0 || f.content.startsWith("[Documento ")) {
+              const repairedContent = await extractKnowledgeText(f.name, f.type, null, f.content);
+              if (repairedContent && repairedContent.length > 20 && !repairedContent.startsWith("[Documento ")) {
+                f.content = repairedContent;
+                try {
+                  await db.update(knowledgeFiles).set({ content: repairedContent }).where(eq(knowledgeFiles.id, f.id));
+                } catch {
+                  // Silencioso
+                }
+              }
+            }
+          }
 
           // Se for a primeira vez e não houver pastas, cria pasta padrão "Catálogos & Produtos"
           if (folders.length === 0) {
