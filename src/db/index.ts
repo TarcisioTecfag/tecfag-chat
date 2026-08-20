@@ -276,12 +276,105 @@ setupClient.unsafe(`
     operator_id TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
+
+  -- ── 25. Tabelas do Módulo de Voz & Telefonia (Valentina) ──
+  CREATE TABLE IF NOT EXISTS voice_calls (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    call_sid TEXT NOT NULL UNIQUE,
+    contact_id TEXT,
+    from_number TEXT NOT NULL,
+    to_number TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'inbound',
+    status TEXT NOT NULL DEFAULT 'active',
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    ended_at TIMESTAMP,
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    sentiment TEXT DEFAULT 'neutral',
+    summary TEXT,
+    extracted_info JSONB NOT NULL DEFAULT '{}',
+    campaign_id TEXT,
+    transcript_done BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS voice_call_messages (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    call_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS voice_campaigns (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    total_leads INTEGER NOT NULL DEFAULT 0,
+    called_leads INTEGER NOT NULL DEFAULT 0,
+    qualified_leads INTEGER NOT NULL DEFAULT 0,
+    interval_seconds INTEGER NOT NULL DEFAULT 30,
+    max_attempts INTEGER NOT NULL DEFAULT 2,
+    objective_id TEXT,
+    started_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS voice_objectives (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    emoji TEXT DEFAULT '🎯',
+    prompt TEXT NOT NULL,
+    collect_fields JSONB NOT NULL DEFAULT '[]',
+    actions JSONB NOT NULL DEFAULT '[]',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_template BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS voice_campaign_leads (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    campaign_id TEXT NOT NULL,
+    name TEXT,
+    phone TEXT NOT NULL,
+    company TEXT,
+    product_interest TEXT,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    call_id TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS voice_agenda (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    client_phone TEXT NOT NULL,
+    company TEXT,
+    scheduled_at TIMESTAMP NOT NULL,
+    type TEXT NOT NULL DEFAULT 'follow_up',
+    status TEXT NOT NULL DEFAULT 'pending',
+    priority TEXT NOT NULL DEFAULT 'normal',
+    notes TEXT,
+    campaign_name TEXT,
+    assigned_agent TEXT NOT NULL DEFAULT 'Valentina',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
 `)
   .then(() => {
-    console.log("[db] ✓ Tabelas de gestão e agentes verificadas/criadas com sucesso.");
+    console.log("[db] ✓ Tabelas de gestão, agentes e voz verificadas/criadas com sucesso.");
     setupClient.end();
   })
   .catch((e) => {
     console.warn("[db] Aviso ao criar tabelas de gestão:", e?.message ?? e);
     setupClient.end();
   });
+

@@ -367,20 +367,60 @@ export const Route = createFileRoute("/api/twilio-voice-webhook")({
     handlers: {
       GET: async ({ request }: { request: Request }) => {
         const host = request.headers.get("host") || "tecfagchat.up.railway.app";
+        const url = new URL(request.url);
+        const from = url.searchParams.get("From") || url.searchParams.get("from") || "+551423980186";
+        const to = url.searchParams.get("To") || url.searchParams.get("to") || "14998364338";
+        const callSid = url.searchParams.get("CallSid") || url.searchParams.get("callSid") || "";
+        const direction = url.searchParams.get("Direction") || "outbound";
+
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${host}/api/voice-stream" />
+    <Stream url="wss://${host}/api/voice-stream">
+      <Parameter name="from" value="${escapeXml(from)}" />
+      <Parameter name="to" value="${escapeXml(to)}" />
+      <Parameter name="callSid" value="${escapeXml(callSid)}" />
+      <Parameter name="direction" value="${escapeXml(direction)}" />
+    </Stream>
   </Connect>
 </Response>`;
         return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
       },
       POST: async ({ request }: { request: Request }) => {
         const host = request.headers.get("host") || "tecfagchat.up.railway.app";
+        let from = "+551423980186";
+        let to = "14998364338";
+        let callSid = "";
+        let direction = "outbound";
+
+        try {
+          const cloned = request.clone();
+          const formData = await cloned.formData().catch(() => null);
+          if (formData) {
+            from = (formData.get("From") as string) || from;
+            to = (formData.get("To") as string) || to;
+            callSid = (formData.get("CallSid") as string) || callSid;
+            direction = (formData.get("Direction") as string) || direction;
+          } else {
+            const url = new URL(request.url);
+            from = url.searchParams.get("From") || url.searchParams.get("from") || from;
+            to = url.searchParams.get("To") || url.searchParams.get("to") || to;
+            callSid = url.searchParams.get("CallSid") || url.searchParams.get("callSid") || callSid;
+            direction = url.searchParams.get("Direction") || direction;
+          }
+        } catch {
+          // fallback padrão
+        }
+
         const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${host}/api/voice-stream" />
+    <Stream url="wss://${host}/api/voice-stream">
+      <Parameter name="from" value="${escapeXml(from)}" />
+      <Parameter name="to" value="${escapeXml(to)}" />
+      <Parameter name="callSid" value="${escapeXml(callSid)}" />
+      <Parameter name="direction" value="${escapeXml(direction)}" />
+    </Stream>
   </Connect>
 </Response>`;
         return new Response(body, { headers: { "Content-Type": "text/xml; charset=utf-8" } });
@@ -388,3 +428,4 @@ export const Route = createFileRoute("/api/twilio-voice-webhook")({
     },
   },
 });
+

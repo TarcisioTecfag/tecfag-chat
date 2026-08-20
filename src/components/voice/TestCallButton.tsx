@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { PhoneCall, Sparkles, X, Loader2, CheckCircle2, AlertCircle, Key } from "lucide-react";
 
-export function TestCallButton() {
+export function TestCallButton({ tenantId = "valem" }: { tenantId?: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const [phone, setPhone] = useState("14998364338");
   const [fromPhone, setFromPhone] = useState("551423980186");
@@ -34,6 +34,7 @@ export function TestCallButton() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          tenantId,
           phone: targetPhone,
           accountSid: accountSid.trim() || undefined,
           authToken: authToken.trim() || undefined,

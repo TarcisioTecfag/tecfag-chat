@@ -22,6 +22,13 @@ interface ElevenLabsConversation {
   status: string
   termination_reason: string | null
   call_summary_title: string | null
+  display_title?: string | null
+  client_name?: string | null
+  client_phone?: string | null
+  client_avatar?: string | null
+  client_contact_id?: string | null
+  rd_crm_deal_link?: string | null
+  is_system_contact?: boolean
   direction: 'outbound' | 'inbound' | null
   sentiment_analysis: {
     overall_label: 'positive' | 'neutral' | 'negative'
@@ -150,7 +157,12 @@ export function HistoricoTab({ tenantId = 'valem' }: { tenantId?: string }) {
   const filtered = conversations.filter((c) => {
     if (!searchTerm) return true
     const term = searchTerm.toLowerCase()
-    return (c.call_summary_title ?? '').toLowerCase().includes(term)
+    return (
+      (c.client_name ?? '').toLowerCase().includes(term) ||
+      (c.display_title ?? '').toLowerCase().includes(term) ||
+      (c.client_phone ?? '').includes(term) ||
+      (c.call_summary_title ?? '').toLowerCase().includes(term)
+    )
   })
 
   // ── Helpers de render ────────────────────────────────────────
@@ -201,7 +213,7 @@ export function HistoricoTab({ tenantId = 'valem' }: { tenantId?: string }) {
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Buscar por resumo da ligação..."
+            placeholder="Buscar por nome, telefone ou resumo..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-muted/40 border border-border rounded-xl pl-9 pr-4 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
@@ -248,8 +260,9 @@ export function HistoricoTab({ tenantId = 'valem' }: { tenantId?: string }) {
             const isExpanded = expandedId === conv.conversation_id
             const detail = expandedDetail[conv.conversation_id]
             const isLoadingDetail = loadingDetail === conv.conversation_id
-            const currentAudioTime = audioTimes[conv.conversation_id] ?? 0
             const sentLabel = conv.sentiment_analysis?.overall_label
+            const currentAudioTime = audioTimes[conv.conversation_id] ?? 0
+            const title = conv.client_name || conv.display_title || conv.call_summary_title || 'Ligação Valentina'
 
             return (
               <div
@@ -262,23 +275,39 @@ export function HistoricoTab({ tenantId = 'valem' }: { tenantId?: string }) {
                   className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer hover:bg-muted/30 transition-colors"
                 >
                   <div className="flex items-center gap-3.5">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-primary/10 text-primary border border-primary/20"
-                    >
-                      {conv.direction === 'inbound' ? (
-                        <PhoneIncoming className="w-5 h-5" />
-                      ) : (
-                        <PhoneOutgoing className="w-5 h-5" />
-                      )}
-                    </div>
+                    {conv.client_avatar ? (
+                      <img
+                        src={conv.client_avatar}
+                        alt={title}
+                        className="w-10 h-10 rounded-full object-cover border border-border flex-shrink-0"
+                      />
+                    ) : (
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-primary/10 text-primary border border-primary/20"
+                      >
+                        {conv.direction === 'inbound' ? (
+                          <PhoneIncoming className="w-5 h-5" />
+                        ) : (
+                          <PhoneOutgoing className="w-5 h-5" />
+                        )}
+                      </div>
+                    )}
 
                     <div className="min-w-0">
-                      <h4 className="text-sm font-bold text-foreground truncate">
-                        {conv.call_summary_title ?? `Ligação ${conv.conversation_id.slice(-6)}`}
-                      </h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-bold text-foreground truncate">
+                          {title}
+                        </h4>
+                        {conv.is_system_contact && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            WhatsApp
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {formatDateTime(conv.start_time_unix_secs)} •{' '}
                         {formatDuration(conv.call_duration_secs)}
+                        {conv.client_phone && conv.client_name !== conv.client_phone && ` • ${conv.client_phone}`}
                       </p>
                     </div>
                   </div>

@@ -1,8 +1,8 @@
 import WebSocket from "ws";
 import type { VoiceMessage } from "../valentina/voice-types";
 import { db } from "../../db";
-import { voiceCalls, voiceCallMessages, messages } from "../../db/schema";
-import { eq, asc } from "drizzle-orm";
+import { voiceCalls, voiceCallMessages, messages, contacts } from "../../db/schema";
+import { eq, asc, and, sql } from "drizzle-orm";
 import { getKnowledgeBaseContext } from "../valentina/knowledge-service";
 
 export class MediaStreamHandler {
@@ -11,6 +11,8 @@ export class MediaStreamHandler {
   private streamSid: string = "";
   private callSid: string = "";
   private dbCallId: string = "";
+  private elevenLabsConvId: string = "";
+  private contactId: string | null = null;
   private history: VoiceMessage[] = [];
   private startTime: Date = new Date();
 
@@ -137,20 +139,47 @@ export class MediaStreamHandler {
         switch (msg.event) {
           case "start":
             this.callSid = msg.start.callSid;
-            this.fromNumber = msg.start.customParameters?.from || msg.start.from || msg.start.customParameters?.To || msg.start.to || "14998364338";
-            this.toNumber = msg.start.customParameters?.to || msg.start.to || "";
+            this.fromNumber = msg.start.customParameters?.from || msg.start.from || "+551423980186";
+            this.toNumber = msg.start.customParameters?.to || msg.start.to || msg.start.customParameters?.phone || "14998364338";
             this.startTime = new Date();
             this.dbCallId = `call_${Date.now()}`;
             // Usa setStreamSid para disparar flush de áudio buffered (resolve ligação muda)
             this.setStreamSid(msg.start.streamSid);
 
-            console.log(`[MediaStream] ✅ Sessão Twilio iniciada. StreamSid=${this.streamSid} | CallSid=${this.callSid} | TargetPhone=${this.fromNumber}`);
+            const targetClientPhone = (this.toNumber && this.toNumber !== "Valem Line") ? this.toNumber : this.fromNumber;
+            const cleanDigits = targetClientPhone.replace(/\D/g, "").replace(/^55/, "");
+            const suffixDigits = cleanDigits.slice(-8);
+
+            console.log(`[MediaStream] ✅ Sessão Twilio iniciada. StreamSid=${this.streamSid} | CallSid=${this.callSid} | TargetPhone=${targetClientPhone} (suffix: ${suffixDigits})`);
+
+            // Busca contato no banco de dados para vincular a chamada
+            try {
+              if (suffixDigits) {
+                const [matchedContact] = await db
+                  .select()
+                  .from(contacts)
+                  .where(
+                    and(
+                      eq(contacts.tenantId, "valem"),
+                      sql`${contacts.phone} LIKE ${"%" + suffixDigits} OR ${contacts.whatsappJid} LIKE ${"%" + suffixDigits + "%"}`
+                    )
+                  )
+                  .limit(1);
+                if (matchedContact) {
+                  this.contactId = matchedContact.id;
+                  console.log(`[MediaStream] 👤 Contato vinculado à chamada: ${matchedContact.name} (${matchedContact.id})`);
+                }
+              }
+            } catch (err: any) {
+              console.warn("[MediaStream] Falha ao buscar contato por telefone:", err?.message || err);
+            }
 
             // Salva registro inicial da chamada no banco (Fire & Forget)
             void db.insert(voiceCalls).values({
               id: this.dbCallId,
               tenantId: "valem",
               callSid: this.callSid,
+              contactId: this.contactId,
               fromNumber: this.fromNumber || "Desconhecido",
               toNumber: this.toNumber || "Valem Line",
               direction: "outbound",
@@ -162,6 +191,7 @@ export class MediaStreamHandler {
             // Conecta ao Agente Nativo ElevenLabs
             this.connectElevenLabsAgent();
             break;
+
 
           case "media":
             // Encaminha chunks de áudio (8kHz mu-law) do cliente diretamente ao ElevenLabs
@@ -259,6 +289,17 @@ DIRETRIZES DA LIGAÇÃO:
         const msgType = msg.type || "unknown";
         if (msgType !== "audio") {
           console.log(`[MediaStream] 📨 ElevenLabs msg: type=${msgType}`, msgType === "ping" ? "" : JSON.stringify(msg).slice(0, 200));
+        }
+
+        // 0. Captura conversation_id do ElevenLabs para link direto com o histórico
+        if (msg.type === "conversation_initiation_metadata" && msg.conversation_initiation_metadata_event?.conversation_id) {
+          this.elevenLabsConvId = msg.conversation_initiation_metadata_event.conversation_id;
+          console.log(`[MediaStream] 🔗 ElevenLabs conversation_id associado: ${this.elevenLabsConvId}`);
+          if (this.dbCallId) {
+            void db.update(voiceCalls).set({
+              campaignId: this.elevenLabsConvId,
+            }).where(eq(voiceCalls.id, this.dbCallId)).catch(() => {});
+          }
         }
 
         // 1. Áudio gerado pela Valentina (8kHz mu-law -> repassado ao Twilio)
