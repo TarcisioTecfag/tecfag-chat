@@ -1070,8 +1070,12 @@ export class ValemChatWidget {
     const container = document.getElementById("vlm-messages-container");
     if (!container) return;
     this.hideTypingIndicator();
+
+    const prevMsg = this.messages[this.messages.length - 2];
+    const isSameSenderAsPrev = prevMsg && prevMsg.sender === msg.sender;
+
     const row = document.createElement("div");
-    row.className = `vlm-message-row vlm-message-row--${msg.sender}`;
+    row.className = `vlm-message-row vlm-message-row--${msg.sender} ${isSameSenderAsPrev ? "vlm-msg-consecutive" : "vlm-msg-first-in-group"}`;
     row.addEventListener("click", () => row.classList.toggle("vlm-details-visible"));
     
     let innerContent = "";
