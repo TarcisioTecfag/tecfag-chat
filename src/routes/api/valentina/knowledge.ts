@@ -23,12 +23,32 @@ async function extractKnowledgeText(name: string, type: string, base64?: string 
 
       if (type === "pdf" || ext === "pdf") {
         try {
-          const pdfParse = await import("pdf-parse");
-          const pdfFn = (pdfParse as any).default || pdfParse;
-          const result = await pdfFn(buf);
-          const cleaned = (result.text || "").replace(/\0/g, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ").trim();
+          const pdfParsePkg = await import("pdf-parse");
+          let extractedText = "";
+
+          // Suporte à classe PDFParse da versão 2.x
+          if ((pdfParsePkg as any).PDFParse) {
+            const ParserClass = (pdfParsePkg as any).PDFParse;
+            const parser = new ParserClass({ data: buf });
+            const result = await parser.getText();
+            extractedText = result.text || "";
+            try { await parser.destroy(); } catch {}
+          } else if (typeof pdfParsePkg === "function") {
+            const result = await (pdfParsePkg as any)(buf);
+            extractedText = result.text || "";
+          } else if (typeof (pdfParsePkg as any).default === "function") {
+            const result = await (pdfParsePkg as any).default(buf);
+            extractedText = result.text || "";
+          }
+
+          const cleaned = extractedText
+            .replace(/\0/g, "")
+            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ")
+            .replace(/-- \d+ of \d+ --/g, "")
+            .trim();
+
           if (cleaned.length > 20) {
-            return cleaned.slice(0, 100000);
+            return cleaned.slice(0, 200000);
           }
         } catch (err: any) {
           console.warn(`[knowledge.ts] Erro ao extrair texto do PDF ${name}:`, err?.message);
@@ -41,7 +61,7 @@ async function extractKnowledgeText(name: string, type: string, base64?: string 
           const result = await mammoth.extractRawText({ buffer: buf });
           const cleaned = (result.value || "").replace(/\0/g, "").trim();
           if (cleaned.length > 20) {
-            return cleaned.slice(0, 100000);
+            return cleaned.slice(0, 200000);
           }
         } catch (err: any) {
           console.warn(`[knowledge.ts] Erro ao extrair texto do Word ${name}:`, err?.message);
@@ -59,7 +79,7 @@ async function extractKnowledgeText(name: string, type: string, base64?: string 
           }
           const joined = texts.join("\n\n").trim();
           if (joined.length > 10) {
-            return joined.slice(0, 100000);
+            return joined.slice(0, 200000);
           }
         } catch (err: any) {
           console.warn(`[knowledge.ts] Erro ao extrair planilha ${name}:`, err?.message);
@@ -67,23 +87,78 @@ async function extractKnowledgeText(name: string, type: string, base64?: string 
       }
 
       if (type === "txt" || ext === "txt" || ext === "md" || ext === "json") {
-        return buf.toString("utf-8").replace(/\0/g, "").trim().slice(0, 100000);
+        return buf.toString("utf-8").replace(/\0/g, "").trim().slice(0, 200000);
       }
     } catch (e: any) {
       console.warn(`[knowledge.ts] Erro geral na conversão de buffer de ${name}:`, e?.message);
     }
   }
 
-  // Fallback factual para arquivos conhecidos de FAQ e Argumentos da Valem
+  // Fallback factual completo para o FAQ Oficial da Valem Pack
   if (name.toLowerCase().includes("faq") || name.toLowerCase().includes("pergunta")) {
-    return `FAQ – Perguntas Frequentes | Valem Válvulas e Embalagens
+    return `FAQ – Perguntas Frequentes
+Valem Válvulas e Embalagens
 
 1. A Valem vende apenas para CNPJ?
 Não. Nossas vendas diretas, inclusive via WhatsApp e atendimento com nossas consultoras, são destinadas para transações entre CNPJ (empresa para empresa). Esse modelo evita questões fiscais como DIFAL e permite oferecer melhores condições comerciais. A quantidade mínima para atacado é de mil unidades por item.
-
 Já para CPF, as vendas acontecem pelo nosso site www.valempack.com.br. Por lá, as vendas são feitas a partir de 50 unidades. Também disponibilizamos parte dos produtos em nossa loja no Mercado Livre, onde é possível encontrar opções em menores quantidades.
+Empresas também podem fazer compras no site caso a compra não se enquadre na venda mínima do atacado. Nesses casos, oferecemos 15% de desconto para cadastros PJ, basta entrar em contato com a assistente virtual do e-commerce para validar o cupom.
 
-Empresas também podem fazer compras no site caso a compra não se enquadre na venda mínima do atacado. Nesses casos, oferecemos 15% de desconto para cadastros PJ, basta entrar em contato com a assistente virtual do e-commerce para validar o cupom.`;
+2. Vocês possuem catálogos de produtos?
+Sim. A Valem possui dois catálogos principais:
+1. Catálogo de produtos em pronta entrega (Contém itens disponíveis em estoque para envio mais rápido).
+2. Catálogo de produtos sob encomenda (Produtos importados ou produzidos sob demanda):
+- Prazo mínimo de entrega: aproximadamente 60 dias
+- Quantidade mínima geralmente acima de 10.000 unidades por produto
+
+3. Existe valor ou quantidade mínima para pedidos?
+O recomendado é um pedido mínimo de 1.000 unidades por produto. Essa quantidade ajuda a obter melhores condições comerciais e negociação de preços.
+Para quantidades menores, sugerimos verificar as opções disponíveis em nossa loja no Mercado Livre ou site. Mesmo assim, sempre vale consultar nossas consultoras comerciais, pois cada caso pode ser avaliado.
+Para o site, são 50 unidades mínimas para cada item.
+
+4. Qual é o prazo de entrega?
+O prazo de entrega pode variar de acordo com fatores como:
+- disponibilidade em estoque
+- volume do pedido
+- tipo de produto
+- local de entrega
+Por isso, o prazo é informado individualmente para cada pedido. Sua consultora comercial fornecerá todas as informações e acompanhará o processo. No site e Mercado Livre, a própria plataforma oferece as opções de entrega, prazos e preços.
+
+5. Não encontrei um produto no Mercado Livre. O que fazer?
+Se o produto desejado não estiver disponível em nossa loja no Mercado Livre, recomendamos verificar nosso site www.valempack.com.br. Lá é possível verificar se o produto está disponível ou se existe equivalente.
+
+6. Não sei exatamente qual é a rosca ou o modelo da minha válvula. Como identificar?
+Nesses casos, recomendamos enviar uma foto do frasco ou da válvula para nossas consultoras. Com a imagem e algumas informações básicas (diâmetro da rosca, tipo de produto utilizado, etc.), nossa equipe consegue identificar ou sugerir a opção mais compatível.
+
+7. Quais são as formas de pagamento aceitas?
+As condições de pagamento podem variar conforme análise cadastral de cada cliente. As principais formas aceitas são:
+- Boleto faturado (30 ou 60 dias) – mediante análise PJ
+- PIX
+- Boleto à vista
+- Cartão de crédito
+- Cartão de débito
+
+8. Não encontrei um frasco ou válvula no catálogo. O que devo fazer?
+Entre em contato com nossas consultoras e informe sua necessidade. Trabalhamos com uma base de mais de 2.000 produtos, e muitas vezes conseguimos localizar o item desejado, sugerir um modelo equivalente ou viabilizar importação/fabricação sob encomenda.
+
+9. Vocês trabalham com personalização de válvulas ou embalagens?
+Sim. Dependendo da quantidade solicitada, podemos oferecer opções de personalização, como cores específicas ou adaptações de produto. Consulte nossas consultoras para verificar as condições, mas só para pedidos acima de 10 mil unidades dentro da modalidade encomenda.
+
+10. Vocês trabalham com amostras?
+Em alguns casos, podemos disponibilizar amostras para avaliação, especialmente para clientes que irão realizar pedidos em maior volume. A disponibilidade deve ser verificada com nossa equipe comercial.
+
+11. Como posso falar com um consultor?
+Você pode entrar em contato pelo WhatsApp comercial, e-mail, redes sociais ou Mercado Livre.
+
+12. A Valem atende todo o Brasil?
+Sim. Atendemos clientes em todo o território nacional, enviando pedidos por transportadora ou outros meios logísticos conforme a necessidade do cliente.
+
+13. Como escolher a válvula correta para meu frasco?
+Algumas informações ajudam na escolha correta:
+- diâmetro da rosca do frasco (ex: 18/410, 20/410, 24/410, 28/410)
+- tipo de produto (líquido, viscoso, spray etc.)
+- volume liberado por acionamento
+- tipo de aplicação (cosmético, químico, limpeza etc.)`;
   }
 
   return rawContent || "";
