@@ -350,6 +350,12 @@ export function SdrTab() {
   };
 
   const filteredSessions = sessions.filter((session) => {
+    // Filtro por canal
+    if (channelFilter !== "all") {
+      const sessionChannel = (session as any).channel || "whatsapp";
+      if (sessionChannel !== channelFilter) return false;
+    }
+
     if (statusFilter === "active") {
       if (session.status !== "active") return false;
     } else if (statusFilter === "completed") {

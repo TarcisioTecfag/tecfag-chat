@@ -3,11 +3,12 @@ import { useChat } from "@/hooks/useChatState";
 import { 
   Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save, Mail, 
   FileText, Link, ExternalLink, CheckCircle2, Loader2, PhoneCall, Clock, 
-  MessageSquare, ShieldAlert, Calendar, Sparkles, Send, Bell
+  MessageSquare, ShieldAlert, Calendar, Sparkles, Send, Bell, Globe
 } from "lucide-react";
 import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/ConfiguracaoTab";
+import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
 
-type SettingsTab = "whatsapp" | "voz" | "rd" | "email";
+type SettingsTab = "whatsapp" | "voz" | "rd" | "email" | "livechat";
 
 export function SettingsView() {
   const {
@@ -234,6 +235,7 @@ export function SettingsView() {
     { id: "voz", label: "Voz & Telefonia (Valentina)", icon: PhoneCall },
     { id: "rd", label: "RD Station CRM", icon: Link },
     { id: "email", label: "E-mail & Automações", icon: Mail },
+    { id: "livechat", label: "Live Chat (Site)", icon: Globe },
   ];
 
   return (
@@ -939,6 +941,9 @@ export function SettingsView() {
             </form>
           </div>
         )}
+
+        {/* ABA 5: LIVE CHAT */}
+        {activeTab === "livechat" && <LiveChatSettingsTab />}
       </div>
     </section>
   );

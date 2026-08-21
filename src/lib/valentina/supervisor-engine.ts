@@ -88,7 +88,11 @@ export class SupervisorEngine {
       .where(
         and(
           ne(conversations.queueState, "finalizados"),
-          inArray(conversations.tenantId, SUPERVISOR_ACTIVE_TENANTS as unknown as string[])
+          inArray(conversations.tenantId, SUPERVISOR_ACTIVE_TENANTS as unknown as string[]),
+          // Bug fix (AGENTS.md): Excluir sessões do Live Chat do site.
+          // O Supervisor monitora apenas conversas WhatsApp — o Live Chat
+          // tem seu próprio mecanismo de follow-up (livechatWs.ts).
+          ne(conversations.channel as any, "livechat")
         )
       );
 

@@ -608,5 +608,124 @@ export type VoiceAgenda = typeof voiceAgenda.$inferSelect;
 export type VoiceObjective = typeof voiceObjectives.$inferSelect;
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 🌐 LIVE CHAT DO SITE (valem-widget) — Módulo Web Chat
+// Todas as tabelas têm tenantId NOT NULL — isolamento multi-tenant obrigatório.
+// ═══════════════════════════════════════════════════════════════════════════
 
+// ─── LC-1. VISITANTES ───────────────────────────────────────────────────────
+// Um visitante é criado por cookie (cookieId) ao abrir o widget no site.
+export const lcVisitors = pgTable("lc_visitors", {
+  id:           text("id").primaryKey(),
+  tenantId:     text("tenant_id").notNull(),              // sempre "valem" por enquanto
+  cookieId:     text("cookie_id").notNull(),              // fingerprint do browser (localStorage)
+  sessionStart: timestamp("session_start").defaultNow().notNull(),
+  lastSeenAt:   timestamp("last_seen_at").defaultNow().notNull(),
 
+  // Dados coletados pela Valentina durante o atendimento
+  name:         text("name"),
+  company:      text("company"),
+  cnpj:         text("cnpj"),
+  phone:        text("phone"),
+  email:        text("email"),
+  productInterest: text("product_interest"),
+  quantityInterest: text("quantity_interest"),
+
+  // Classificação
+  intentScore:    integer("intent_score").default(0).notNull(),       // 0–100
+  pipelineStage:  text("pipeline_stage").default("novo").notNull(),   // novo | qualificando | atacado_qualificado | varejo_checkout | bridge_enviado | finalizado
+  temperature:    text("temperature").default("frio").notNull(),      // frio | morno | quente
+
+  // URL atual no site
+  currentUrl:   text("current_url"),
+  currentTitle: text("current_title"),
+
+  // Metadados de origem
+  referrer:     text("referrer"),
+  userAgent:    text("user_agent"),
+  ipAddress:    text("ip_address"),
+});
+
+// ─── LC-2. CHATS (sessões de atendimento) ───────────────────────────────────
+// Um visitante pode ter vários chats (um por visita ao site).
+export const lcChats = pgTable("lc_chats", {
+  id:          text("id").primaryKey(),
+  tenantId:    text("tenant_id").notNull(),
+  visitorId:   text("visitor_id").notNull(),              // FK → lcVisitors.id
+  channel:     text("channel").default("livechat").notNull(), // sempre 'livechat'
+  status:      text("status").default("active").notNull(), // active | operator_took_over | bridge_sent | closed
+  operatorId:  text("operator_id"),                        // null = Valentina atendendo; preenchido = operador assumiu
+  startedAt:   timestamp("started_at").defaultNow().notNull(),
+  closedAt:    timestamp("closed_at"),
+  outcome:     text("outcome"),                            // null | bridge_whatsapp | checkout | abandoned | resolved
+  // Bridge WhatsApp: quando a Valentina inicia conversa no WhatsApp
+  waConversationId: text("wa_conversation_id"),            // ID da conversa no sistema WhatsApp (se bridge feito)
+});
+
+// ─── LC-3. MENSAGENS ────────────────────────────────────────────────────────
+export const lcMessages = pgTable("lc_messages", {
+  id:          text("id").primaryKey(),
+  tenantId:    text("tenant_id").notNull(),
+  chatId:      text("chat_id").notNull(),                  // FK → lcChats.id
+  sender:      text("sender").notNull(),                   // 'visitor' | 'ai' | 'operator' | 'system'
+  content:     text("content").notNull(),
+  contentType: text("content_type").default("text").notNull(), // text | audio | image | document | tray_product | bridge_card | system
+  // Para mídias
+  mediaUrl:    text("media_url"),
+  mediaType:   text("media_type"),
+  fileName:    text("file_name"),
+  // Para card de produto Tray (embed na mensagem)
+  trayProductData: jsonb("tray_product_data"),             // { id, name, price, imageUrl, productUrl }
+  sentAt:      timestamp("sent_at").defaultNow().notNull(),
+});
+
+// ─── LC-4. PAGEVIEWS (trilha de navegação do visitante) ─────────────────────
+export const lcPageviews = pgTable("lc_pageviews", {
+  id:          text("id").primaryKey(),
+  tenantId:    text("tenant_id").notNull(),
+  visitorId:   text("visitor_id").notNull(),
+  url:         text("url").notNull(),
+  title:       text("title"),
+  timeOnPage:  integer("time_on_page_sec").default(0),     // segundos na página
+  scrollDepth: integer("scroll_depth_pct").default(0),     // 0–100%
+  visitedAt:   timestamp("visited_at").defaultNow().notNull(),
+});
+
+// ─── LC-5. CLICK EVENTS ─────────────────────────────────────────────────────
+export const lcClickEvents = pgTable("lc_click_events", {
+  id:          text("id").primaryKey(),
+  tenantId:    text("tenant_id").notNull(),
+  visitorId:   text("visitor_id").notNull(),
+  eventType:   text("event_type").notNull(),               // widget_open | whatsapp_click | add_to_cart | product_view | chat_sent
+  eventData:   jsonb("event_data"),                        // dados extras do evento
+  occurredAt:  timestamp("occurred_at").defaultNow().notNull(),
+});
+
+// ─── LC-6. TRAY CONFIG (tokens OAuth por tenant) ────────────────────────────
+// Guarda as credenciais de autenticação Tray Commerce por tenant.
+// Nunca expor consumer_secret no frontend — somente via API com autenticação.
+export const lcTrayConfig = pgTable("lc_tray_config", {
+  id:               text("id").primaryKey(),
+  tenantId:         text("tenant_id").notNull().unique(),  // 1 config por tenant
+  apiAddress:       text("api_address").notNull(),         // ex: https://valemvalvulas.corpsuite.com.br/web_api
+  consumerKey:      text("consumer_key"),
+  consumerSecret:   text("consumer_secret"),
+  accessToken:      text("access_token"),
+  refreshToken:     text("refresh_token"),
+  accessTokenExpiresAt:  timestamp("access_token_expires_at"),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+  // Configurações de comportamento do widget
+  proactiveMessage: text("proactive_message").default("Olá! Posso te ajudar com informações sobre nossos produtos?"),
+  proactiveDelaySec: integer("proactive_delay_sec").default(60),
+  sessionTtlHours:  integer("session_ttl_hours").default(4),
+  attackQualifyScore: integer("attack_qualify_score").default(70), // score mínimo p/ oferecer bridge WhatsApp
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ── Tipos LC ──
+export type LcVisitor      = typeof lcVisitors.$inferSelect;
+export type LcChat         = typeof lcChats.$inferSelect;
+export type LcMessage      = typeof lcMessages.$inferSelect;
+export type LcPageview     = typeof lcPageviews.$inferSelect;
+export type LcClickEvent   = typeof lcClickEvents.$inferSelect;
+export type LcTrayConfig   = typeof lcTrayConfig.$inferSelect;

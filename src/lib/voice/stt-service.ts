@@ -1,8 +1,10 @@
 import { mulawToWavBuffer } from "./audio-utils";
+import { vertexAi } from "../vertex-ai";
 
 /**
- * Serviço de STT (Speech-to-Text) usando Groq Whisper (whisper-large-v3-turbo)
- * Transcreve áudio de telefonia em tempo ultrarrápido (~40ms) com altíssima precisão em Português
+ * Serviço de STT (Speech-to-Text) via Google Vertex AI (Gemini Flash multimodal)
+ * Transcreve áudio de telefonia em Português sem depender de provedores externos.
+ * Substitui Groq Whisper — conforme regra AGENTS.md: provedor único = Vertex AI.
  */
 export class SttService {
   private static instance: SttService;
@@ -17,50 +19,54 @@ export class SttService {
   }
 
   /**
-   * Transcreve áudio Mu-law 8kHz codificado em base64 via Groq Whisper API
+   * Transcreve áudio Mu-law 8kHz codificado em base64 via Vertex AI Gemini Flash
    */
-  public async transcribeAudioBuffer(base64MulawAudio: string): Promise<string> {
+  public async transcribeAudioBuffer(
+    base64MulawAudio: string,
+    tenantId = "valem"
+  ): Promise<string> {
     try {
-      const apiKey = process.env.GROQ_API_KEY || "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";
-
       // 1. Converte o áudio Mu-law 8kHz em arquivo WAV RIFF 16-bit 8kHz
       const rawMulawBuffer = Buffer.from(base64MulawAudio, "base64");
       const wavBuffer = mulawToWavBuffer(rawMulawBuffer);
+      const base64Wav = wavBuffer.toString("base64");
 
-      // 2. Prepara multipart/form-data para a API do Groq Whisper
-      const formData = new FormData();
-      const blob = new Blob([new Uint8Array(wavBuffer)], { type: "audio/wav" });
-      formData.append("file", blob, "speech.wav");
-      formData.append("model", "whisper-large-v3-turbo");
-      formData.append("language", "pt");
-      formData.append("response_format", "json");
+      // 2. Monta prompt multimodal para o Gemini Flash
+      const parts = [
+        {
+          inlineData: {
+            mimeType: "audio/wav",
+            data: base64Wav,
+          },
+        },
+        {
+          text: [
+            "Transcreva o áudio a seguir para texto em Português Brasileiro.",
+            "Retorne APENAS o texto transcrito, sem comentários, sem formatação adicional.",
+            "Se o áudio estiver em silêncio, vazio ou inaudível, retorne exatamente: [SILENCIO]",
+          ].join(" "),
+        },
+      ];
 
       const startTime = Date.now();
-      const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: formData,
-      });
-
+      const rawText = await vertexAi.generateText(
+        parts,
+        "gemini-2.5-flash",
+        undefined,
+        {
+          feature: "call_transcription",
+          tenantId,
+        }
+      );
       const elapsed = Date.now() - startTime;
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        console.error(`[SttService Groq] Erro HTTP ${res.status}: ${errText}`);
-        return "";
-      }
-
-      const data: any = await res.json();
-      const rawText = data?.text || "";
       const cleanedText = rawText.trim();
 
-      console.log(`[SttService Groq] Transcrito em ${elapsed}ms: "${cleanedText}"`);
+      console.log(`[SttService Vertex] Transcrito em ${elapsed}ms: "${cleanedText}"`);
 
-      // Descarte transcrições de ruído típico do Whisper (ex: "[Música]", "(silêncio)", "Legendas")
+      // 3. Descarte transcrições de ruído / silêncio
       if (
         !cleanedText ||
+        cleanedText === "[SILENCIO]" ||
         cleanedText.startsWith("[") ||
         cleanedText.startsWith("(") ||
         cleanedText.toLowerCase().includes("legendas") ||
@@ -72,7 +78,7 @@ export class SttService {
 
       return cleanedText;
     } catch (err: any) {
-      console.error("[SttService Groq] Erro na transcrição de áudio:", err?.message || err);
+      console.error("[SttService Vertex] Erro na transcrição de áudio:", err?.message || err);
       return "";
     }
   }

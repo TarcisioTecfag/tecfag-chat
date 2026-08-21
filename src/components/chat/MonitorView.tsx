@@ -15,12 +15,13 @@ import {
   Activity, Search, ClipboardCheck, ChevronLeft, Phone,
   Mail, Calendar, CheckCircle2, Circle, ExternalLink,
   Loader2, X, Filter, Coins, DollarSign, Cpu, Layers, Bot, Sparkles, ShieldCheck,
-  Play, Volume2, FileText, Radio, ChevronDown
+  Play, Volume2, FileText, Radio, ChevronDown, Globe
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getAiPersona } from "@/lib/ai-persona";
 import { MOCK_LIVE, MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
 import { OperatorsRankingTab } from "./OperatorsRankingTab";
+import { SiteVisitorsTab } from "./SiteVisitorsTab";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -41,7 +42,7 @@ import {
 const DEMO_MODE = false;
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
-type MonitorTab = "live" | "alerts" | "operators" | "audits" | "tasks";
+type MonitorTab = "live" | "alerts" | "operators" | "audits" | "tasks" | "site";
 
 type OverviewData = {
   today: string;
@@ -3525,6 +3526,7 @@ export function MonitorView() {
     { id: "operators", label: "Operadores",      icon: Users },
     { id: "audits",    label: "Auditorias IA",   icon: Zap },
     { id: "tasks",     label: "Tarefas Globais", icon: ClipboardCheck },
+    { id: "site",      label: "Visitantes",      icon: Globe },
   ];
 
   const today = new Date().toLocaleDateString("pt-BR", {
@@ -3633,6 +3635,7 @@ export function MonitorView() {
             {activeTab === "tasks" && (
               <GlobalTasksTab />
             )}
+            {activeTab === "site" && <SiteVisitorsTab tenantId={tenant} />}
 
 
           </motion.div>
