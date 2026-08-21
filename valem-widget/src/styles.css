@@ -40,14 +40,6 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   1. BOTÃO FLUTUANTE & PILL LOOP (SEM BORDA CINZA)
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-#vlm-fab-wrapper {
-  position: fixed !important;
-  bottom: 24px !important;
-  right: 24px !important;
-/* ══════════════════════════════════════════════════════════════════════════════
    1. BOTÃO FLUTUANTE LAUNCHER / PILL ULTRA-FLUIDO (COM BADGE DOURADO 1+)
    ══════════════════════════════════════════════════════════════════════════════ */
 
@@ -229,13 +221,6 @@
   box-shadow: 0 0 8px var(--vlm-online) !important;
   animation: vlm-pulse 2s infinite !important;
   flex-shrink: 0 !important;
-}
-  display: none !important;
-  align-items: center !important;
-  justify-content: center !important;
-  box-shadow: 0 0 0 2px white !important;
-  animation: vlm-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-  z-index: 10 !important;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════

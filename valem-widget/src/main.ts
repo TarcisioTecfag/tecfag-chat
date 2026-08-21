@@ -30,15 +30,22 @@ import { ValemChatWidget } from "./widget";
 
   function init() {
     if ((window as any).__valemChatWidget) return;
-    const widget = new ValemChatWidget({
-      tenant,
-      wsUrl,
-      avatarUrl,
-      whatsappNumber,
-      mock,
-    });
-    widget.mount();
-    (window as any).__valemChatWidget = widget;
+    try {
+      const widget = new ValemChatWidget({
+        tenant,
+        wsUrl,
+        avatarUrl,
+        whatsappNumber,
+        mock,
+      });
+      if (typeof (widget as any).mount === "function") {
+        (widget as any).mount();
+      }
+      (window as any).__valemChatWidget = widget;
+      console.log("[ValemChatWidget] Inicializado com sucesso!");
+    } catch (e) {
+      console.error("[ValemChatWidget] Erro ao inicializar:", e);
+    }
   }
 
   if (document.readyState === "loading") {

@@ -250,6 +250,10 @@ export class ValemChatWidget {
     this.init();
   }
 
+  public mount() {
+    // Inicialização automática já realizada
+  }
+
   private loadSavedVisitorData() {
     try {
       this.visitorName = localStorage.getItem("valem_visitor_name") || "";
