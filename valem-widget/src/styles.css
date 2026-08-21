@@ -697,7 +697,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   6. ÁREA DE MENSAGENS COM BALÕES AGRUPADOS COMPACTOS
+   6. ÁREA DE MENSAGENS COM BALÕES AGRUPADOS ULTRA-COMPACTOS (ESTILO WHATSAPP)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-messages-container {
@@ -706,7 +706,7 @@
   padding: 12px 14px !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 2px !important; /* Espaçamento super compacto entre mensagens consecutivas */
+  gap: 0 !important; /* Zero gap no flex container para controle absoluto */
   background: var(--vlm-bg) !important;
   scroll-behavior: smooth !important;
   
@@ -726,14 +726,15 @@
   flex-direction: column !important;
   width: 100% !important;
   box-sizing: border-box !important;
-  animation: vlm-slide-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  animation: vlm-slide-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
   cursor: pointer !important;
   margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* Mensagem inicial de um novo remetente ganha respiro superior */
 .vlm-message-row.vlm-msg-first-in-group {
-  margin-top: 8px !important;
+  margin-top: 10px !important;
 }
 
 /* Mensagem consecutiva do mesmo remetente fica coladinha */
@@ -749,13 +750,13 @@
 .vlm-message-row--visitor .vlm-bubble-box {
   background: linear-gradient(135deg, #063940 0%, #0a4b56 100%) !important;
   color: #ffffff !important;
-  padding: 7px 13px !important;
-  min-width: 36px !important;
-  min-height: 32px !important;
+  padding: 6px 12px !important;
+  min-width: 24px !important;
+  min-height: auto !important;
   max-width: 82% !important;
   width: fit-content !important;
-  border-radius: 16px 16px 4px 16px !important;
-  box-shadow: 0 1px 3px rgba(6, 57, 64, 0.16) !important;
+  border-radius: 14px 14px 3px 14px !important;
+  box-shadow: 0 1px 2px rgba(6, 57, 64, 0.14) !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: flex-start !important;
@@ -763,12 +764,12 @@
   overflow-wrap: anywhere !important;
   white-space: pre-wrap !important;
   font-size: 13.5px !important;
-  line-height: 1.4 !important;
+  line-height: 1.35 !important;
   box-sizing: border-box !important;
 }
 
 .vlm-message-row--visitor.vlm-msg-consecutive .vlm-bubble-box {
-  border-radius: 16px 5px 5px 16px !important;
+  border-radius: 14px 3px 3px 14px !important;
 }
 
 /* Mensagem da Valentina (IA) (Esquerda) */
@@ -780,24 +781,24 @@
   background: #ffffff !important;
   color: var(--vlm-text-main) !important;
   border: 1px solid var(--vlm-border) !important;
-  padding: 8px 13px !important;
-  min-width: 36px !important;
-  min-height: 32px !important;
+  padding: 7px 12px !important;
+  min-width: 24px !important;
+  min-height: auto !important;
   max-width: 84% !important;
   width: fit-content !important;
-  border-radius: 16px 16px 16px 4px !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  border-radius: 14px 14px 14px 3px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
   display: inline-block !important;
   word-break: break-word !important;
   overflow-wrap: anywhere !important;
   white-space: pre-wrap !important;
   font-size: 13.5px !important;
-  line-height: 1.4 !important;
+  line-height: 1.35 !important;
   box-sizing: border-box !important;
 }
 
 .vlm-message-row--ai.vlm-msg-consecutive .vlm-bubble-box {
-  border-radius: 5px 16px 16px 5px !important;
+  border-radius: 3px 14px 14px 3px !important;
 }
 
 /* Mensagem do Operador (Esquerda) */
@@ -809,39 +810,39 @@
   background: #f0fdf4 !important;
   color: #065f46 !important;
   border: 1px solid #bbf7d0 !important;
-  padding: 8px 13px !important;
-  min-width: 36px !important;
-  min-height: 32px !important;
+  padding: 7px 12px !important;
+  min-width: 24px !important;
+  min-height: auto !important;
   max-width: 84% !important;
   width: fit-content !important;
-  border-radius: 16px 16px 16px 4px !important;
-  box-shadow: 0 1px 3px rgba(5, 150, 105, 0.06) !important;
+  border-radius: 14px 14px 14px 3px !important;
+  box-shadow: 0 1px 2px rgba(5, 150, 105, 0.06) !important;
   display: inline-block !important;
   word-break: break-word !important;
   overflow-wrap: anywhere !important;
   white-space: pre-wrap !important;
   font-size: 13.5px !important;
-  line-height: 1.4 !important;
+  line-height: 1.35 !important;
   box-sizing: border-box !important;
 }
 
 .vlm-message-row--operator.vlm-msg-consecutive .vlm-bubble-box {
-  border-radius: 5px 16px 16px 5px !important;
+  border-radius: 3px 14px 14px 3px !important;
 }
 
 /* Card do Sistema (Centro) */
 .vlm-message-row--system {
   align-items: center !important;
-  margin: 4px 0 !important;
+  margin: 6px 0 !important;
 }
 
 .vlm-message-row--system .vlm-bubble-box {
   background: #ecfdf5 !important;
   color: #065f46 !important;
   border: 1px solid #a7f3d0 !important;
-  border-radius: 12px !important;
-  padding: 6px 12px !important;
-  font-size: 12px !important;
+  border-radius: 10px !important;
+  padding: 5px 10px !important;
+  font-size: 11.5px !important;
   font-weight: 500 !important;
   text-align: center !important;
   max-width: 90% !important;
