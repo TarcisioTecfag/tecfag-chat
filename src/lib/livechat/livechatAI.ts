@@ -1,4 +1,4 @@
-﻿// ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // 🤖 LIVE CHAT AI — Motor de IA da Valentina para o Site (Vertex AI exclusivo)
 // Tenant: valem | Feature: sdr_agent (triagem) ou valentina_chat (chat direto)
 // Histórico: lido do banco antes de cada chamada (anti-amnésia pós-restart)
@@ -6,9 +6,9 @@
 
 import { vertexAi } from "../vertex-ai";
 import { getChatHistory, saveMessage } from "./livechatStorage";
-import { searchProducts, extractSearchTermFromUrl } from "./trayCatalogService";
+import { searchProducts, extractSearchTermFromUrl, type TrayProduct } from "./trayCatalogService";
 import { buildCheckoutUrl, buildCheckoutMessage } from "./trayCheckoutService";
-import type { LcVisitor, LcChat, LcMessage, TrayProduct } from "../../db/schema";
+import type { LcVisitor, LcChat, LcMessage } from "../../db/schema";
 
 // ── Padrões de intenção — Domínio Valem ──────────────────────────────────────
 
@@ -141,10 +141,11 @@ export async function processVisitorMessage(
   );
 
   // 4. Extrai tags silenciosas
-  const stageMatch = rawResponse.match(STAGE_PATTERN);
-  const scoreMatch = rawResponse.match(SCORE_PATTERN);
-  const productMatch = rawResponse.match(PRODUCT_PATTERN);
-  const cnpjMatch = rawResponse.match(CNPJ_PATTERN);
+  const safeResponse = rawResponse || "";
+  const stageMatch = safeResponse.match(STAGE_PATTERN);
+  const scoreMatch = safeResponse.match(SCORE_PATTERN);
+  const productMatch = safeResponse.match(PRODUCT_PATTERN);
+  const cnpjMatch = safeResponse.match(CNPJ_PATTERN);
 
   const stage = stageMatch?.[1];
   const score = scoreMatch ? parseInt(scoreMatch[1], 10) : undefined;
@@ -152,7 +153,7 @@ export async function processVisitorMessage(
   const cnpjToCheck = cnpjMatch?.[1];
 
   // 5. Remove tags do texto antes de enviar ao visitante
-  const cleanText = rawResponse
+  const cleanText = safeResponse
     .replace(/\[STAGE:[\w_]+\]/gi, "")
     .replace(/\[SCORE:\d+\]/gi, "")
     .replace(/\[TRAY_PRODUCT:\d+\]/gi, "")
@@ -201,7 +202,7 @@ Seja natural e convidativa. Não mencione que é uma IA.`;
       signal,
       { feature: "sdr_agent", tenantId }
     );
-    return greeting.trim() || "Olá! 😊 Posso te ajudar com informações sobre nossos produtos?";
+    return (greeting || "").trim() || "Olá! 😊 Posso te ajudar com informações sobre nossos produtos?";
   } catch {
     return "Olá! 😊 Posso te ajudar com informações sobre nossos produtos?";
   }

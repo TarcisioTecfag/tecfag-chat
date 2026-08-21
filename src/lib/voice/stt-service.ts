@@ -59,7 +59,7 @@ export class SttService {
         }
       );
       const elapsed = Date.now() - startTime;
-      const cleanedText = rawText.trim();
+      const cleanedText = (rawText || "").trim();
 
       console.log(`[SttService Vertex] Transcrito em ${elapsed}ms: "${cleanedText}"`);
 

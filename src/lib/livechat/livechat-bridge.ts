@@ -1,4 +1,4 @@
-﻿// ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // 🌉 LIVE CHAT BRIDGE — Ponte Live Chat Site → WhatsApp Baileys
 // Acionado pela Valentina quando detecta atacado qualificado:
 //   CNPJ valido + quantidade >= 1.000 unidades
@@ -63,34 +63,55 @@ export async function bridgeLiveChatToWhatsApp(
     ].join("\n");
 
     // 2. Envia mensagem no WhatsApp via Baileys
-    const phoneJid = phone.replace(/\D/g, "") + "@s.whatsapp.net";
+    const cleanPhone = phone.replace(/\D/g, "");
+    const phoneJid = cleanPhone.includes("@") ? cleanPhone : `${cleanPhone}@s.whatsapp.net`;
     
     let waConversationId: string | undefined;
 
     try {
-      await SessionManager.sendTextMessage(tenantId, phoneJid, waMessage);
+      const sessionManager = SessionManager.getInstance();
+      const sock = sessionManager.getSession(tenantId);
+      if (!sock || sessionManager.getStatus(tenantId) !== "connected") {
+        console.warn(`[LC Bridge] Sessão Baileys não conectada para tenant ${tenantId}`);
+        return { success: false, error: "WhatsApp não está conectado no momento" };
+      }
+
+      await sock.sendMessage(phoneJid, { text: waMessage });
       console.log(`[LC Bridge] ✅ Mensagem WA enviada para ${phone} (tenant: ${tenantId})`);
     } catch (sendErr: any) {
       console.error("[LC Bridge] Erro ao enviar WA:", sendErr?.message);
       return { success: false, error: `Falha ao enviar WhatsApp: ${sendErr?.message}` };
     }
 
-    // 3. Verifica/cria a conversa no sistema WhatsApp para vincular
+    // 3. Verifica se já existe conversa/contato com este número para vincular
     try {
-      const existing = await db
+      const [existingContact] = await db
         .select()
-        .from(conversations)
+        .from(contacts)
         .where(
           and(
-            eq(conversations.tenantId, tenantId),
-            eq(conversations.whatsappId, phoneJid)
+            eq(contacts.tenantId, tenantId),
+            eq(contacts.phone, cleanPhone)
           )
         )
         .limit(1);
 
-      waConversationId = existing[0]?.id;
+      if (existingContact) {
+        const [existingConv] = await db
+          .select()
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.tenantId, tenantId),
+              eq(conversations.contactId, existingContact.id)
+            )
+          )
+          .limit(1);
+
+        waConversationId = existingConv?.id;
+      }
     } catch {
-      // Não crítico — o vinculo é opcional para o bridge funcionar
+      // Não crítico — o vínculo é opcional para o bridge funcionar
     }
 
     // 4. Atualiza status do chat do site para bridge_sent

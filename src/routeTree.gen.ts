@@ -45,6 +45,9 @@ import { Route as ApiValentinaConfigRouteImport } from './routes/api/valentina/c
 import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/agents'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
+import { Route as ApiLivechatVisitorsRouteImport } from './routes/api/livechat/visitors'
+import { Route as ApiLivechatTrayConfigRouteImport } from './routes/api/livechat/tray-config'
+import { Route as ApiLivechatMetricsRouteImport } from './routes/api/livechat/metrics'
 import { Route as ApiGestaoTasksRouteImport } from './routes/api/gestao/tasks'
 import { Route as ApiGestaoSlaRouteImport } from './routes/api/gestao/sla'
 import { Route as ApiGestaoReportsV2RouteImport } from './routes/api/gestao/reports-v2'
@@ -78,6 +81,7 @@ import { Route as ApiAdminResetRouteImport } from './routes/api/admin/reset'
 import { Route as ApiValentinaVoiceChatCompletionsRouteImport } from './routes/api/valentina-voice/chat/completions'
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
+import { Route as ApiLivechatVisitorVisitorIdRouteImport } from './routes/api/livechat/visitor/$visitorId'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
 import { Route as ApiValentinaVoiceV1ChatCompletionsRouteImport } from './routes/api/valentina-voice/v1/chat/completions'
 
@@ -262,6 +266,21 @@ const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
   path: '/api/settings/rd-crm',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLivechatVisitorsRoute = ApiLivechatVisitorsRouteImport.update({
+  id: '/api/livechat/visitors',
+  path: '/api/livechat/visitors',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiLivechatTrayConfigRoute = ApiLivechatTrayConfigRouteImport.update({
+  id: '/api/livechat/tray-config',
+  path: '/api/livechat/tray-config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiLivechatMetricsRoute = ApiLivechatMetricsRouteImport.update({
+  id: '/api/livechat/metrics',
+  path: '/api/livechat/metrics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGestaoTasksRoute = ApiGestaoTasksRouteImport.update({
   id: '/api/gestao/tasks',
   path: '/api/gestao/tasks',
@@ -432,6 +451,12 @@ const ApiSettingsRdCrmCallbackRoute =
     path: '/callback',
     getParentRoute: () => ApiSettingsRdCrmRoute,
   } as any)
+const ApiLivechatVisitorVisitorIdRoute =
+  ApiLivechatVisitorVisitorIdRouteImport.update({
+    id: '/api/livechat/visitor/$visitorId',
+    path: '/api/livechat/visitor/$visitorId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiContactsContactIdRdDealRoute =
   ApiContactsContactIdRdDealRouteImport.update({
     id: '/rd-deal',
@@ -503,6 +528,9 @@ export interface FileRoutesByFullPath {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
+  '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
+  '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
@@ -513,6 +541,7 @@ export interface FileRoutesByFullPath {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
@@ -576,6 +605,9 @@ export interface FileRoutesByTo {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
+  '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
+  '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
@@ -586,6 +618,7 @@ export interface FileRoutesByTo {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
@@ -650,6 +683,9 @@ export interface FileRoutesById {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
+  '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
+  '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
@@ -660,6 +696,7 @@ export interface FileRoutesById {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
@@ -725,6 +762,9 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/livechat/metrics'
+    | '/api/livechat/tray-config'
+    | '/api/livechat/visitors'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/valentina/agents'
@@ -735,6 +775,7 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/valentina-voice/chat/completions'
@@ -798,6 +839,9 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/livechat/metrics'
+    | '/api/livechat/tray-config'
+    | '/api/livechat/visitors'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/valentina/agents'
@@ -808,6 +852,7 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/valentina-voice/chat/completions'
@@ -871,6 +916,9 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/livechat/metrics'
+    | '/api/livechat/tray-config'
+    | '/api/livechat/visitors'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/valentina/agents'
@@ -881,6 +929,7 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/valentina-voice/chat/completions'
@@ -941,6 +990,9 @@ export interface RootRouteChildren {
   ApiGestaoReportsV2Route: typeof ApiGestaoReportsV2Route
   ApiGestaoSlaRoute: typeof ApiGestaoSlaRoute
   ApiGestaoTasksRoute: typeof ApiGestaoTasksRoute
+  ApiLivechatMetricsRoute: typeof ApiLivechatMetricsRoute
+  ApiLivechatTrayConfigRoute: typeof ApiLivechatTrayConfigRoute
+  ApiLivechatVisitorsRoute: typeof ApiLivechatVisitorsRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
   ApiValentinaAgentsRoute: typeof ApiValentinaAgentsRoute
@@ -950,6 +1002,7 @@ export interface RootRouteChildren {
   ApiValentinaRodizioRoute: typeof ApiValentinaRodizioRoute
   ApiValentinaSdrRoute: typeof ApiValentinaSdrRoute
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
+  ApiLivechatVisitorVisitorIdRoute: typeof ApiLivechatVisitorVisitorIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1206,6 +1259,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSettingsRdCrmRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/livechat/visitors': {
+      id: '/api/livechat/visitors'
+      path: '/api/livechat/visitors'
+      fullPath: '/api/livechat/visitors'
+      preLoaderRoute: typeof ApiLivechatVisitorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/livechat/tray-config': {
+      id: '/api/livechat/tray-config'
+      path: '/api/livechat/tray-config'
+      fullPath: '/api/livechat/tray-config'
+      preLoaderRoute: typeof ApiLivechatTrayConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/livechat/metrics': {
+      id: '/api/livechat/metrics'
+      path: '/api/livechat/metrics'
+      fullPath: '/api/livechat/metrics'
+      preLoaderRoute: typeof ApiLivechatMetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/gestao/tasks': {
       id: '/api/gestao/tasks'
       path: '/api/gestao/tasks'
@@ -1437,6 +1511,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSettingsRdCrmCallbackRouteImport
       parentRoute: typeof ApiSettingsRdCrmRoute
     }
+    '/api/livechat/visitor/$visitorId': {
+      id: '/api/livechat/visitor/$visitorId'
+      path: '/api/livechat/visitor/$visitorId'
+      fullPath: '/api/livechat/visitor/$visitorId'
+      preLoaderRoute: typeof ApiLivechatVisitorVisitorIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/contacts/$contactId/rd-deal': {
       id: '/api/contacts/$contactId/rd-deal'
       path: '/rd-deal'
@@ -1574,6 +1655,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoReportsV2Route: ApiGestaoReportsV2Route,
   ApiGestaoSlaRoute: ApiGestaoSlaRoute,
   ApiGestaoTasksRoute: ApiGestaoTasksRoute,
+  ApiLivechatMetricsRoute: ApiLivechatMetricsRoute,
+  ApiLivechatTrayConfigRoute: ApiLivechatTrayConfigRoute,
+  ApiLivechatVisitorsRoute: ApiLivechatVisitorsRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
   ApiValentinaAgentsRoute: ApiValentinaAgentsRoute,
@@ -1583,6 +1667,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaRodizioRoute: ApiValentinaRodizioRoute,
   ApiValentinaSdrRoute: ApiValentinaSdrRoute,
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
+  ApiLivechatVisitorVisitorIdRoute: ApiLivechatVisitorVisitorIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
