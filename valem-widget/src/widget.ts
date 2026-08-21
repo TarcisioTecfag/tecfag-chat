@@ -211,6 +211,7 @@ export class ValemChatWidget {
   private visitorDoc = ""; // CPF ou CNPJ
   private hasCompletedPrechat = false;
   private hasSentWelcomeSequence = false;
+  private hasTriggeredAttentionToast = false;
 
   // Gravação de áudio & Waveform
   private mediaRecorder: MediaRecorder | null = null;
@@ -274,6 +275,13 @@ export class ValemChatWidget {
     this.connectWebSocket();
     this.startPageviewTracking();
     this.startPillAnimationLoop();
+
+    // 🛎️ Agenda Som Toast e Badge Dourado +1 após 4.5 segundos
+    setTimeout(() => {
+      if (!this.isOpen && !this.hasTriggeredAttentionToast) {
+        this.triggerAttentionToast();
+      }
+    }, 4500);
   }
 
   private injectDOM() {
@@ -291,20 +299,15 @@ export class ValemChatWidget {
     <!-- BOTÃO FLUTUANTE PILL -->
     <div id="vlm-fab-wrapper">
       <button id="vlm-fab-button" class="vlm-pill-expanded" aria-label="Falar com Valentina">
-        <div class="vlm-pill-content">
-          <div class="vlm-fab-avatar-wrap">
-            <img src="${avatar}" alt="Valentina" class="vlm-fab-avatar-img" />
-          </div>
-          <div class="vlm-fab-text-block">
-            <span class="vlm-fab-title">Falar com atendente</span>
-            <span class="vlm-fab-subtitle"><span class="vlm-online-dot"></span>Valentina • Online agora</span>
-          </div>
+        <div class="vlm-fab-avatar-wrap">
+          <img src="${avatar}" alt="Valentina" class="vlm-fab-avatar-img" />
+          <span class="vlm-fab-avatar-badge" id="vlm-fab-gold-badge">+1</span>
         </div>
-        <div class="vlm-icon-content">
-          <svg class="vlm-icon-bubble-svg" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <div class="vlm-fab-text-block">
+          <span class="vlm-fab-title">Falar com atendente</span>
+          <span class="vlm-fab-subtitle"><span class="vlm-online-dot"></span>Valentina • Online agora</span>
         </div>
       </button>
-      <div id="vlm-fab-badge">0</div>
     </div>
 
     <!-- LIGHTBOX FOTO EM TELA CHEIA -->
@@ -664,20 +667,85 @@ export class ValemChatWidget {
   }
 
   private startPillAnimationLoop() {
-    let phase = 0;
-    this.pillLoopTimer = setInterval(() => {
-      if (this.isOpen || this.isHoveringFab) return;
-      phase = (phase + 1) % 2;
-      this.setPillState(phase === 0);
-    }, 6000);
+    let isExpanded = true;
+    const runCycle = () => {
+      if (this.isOpen || this.isHoveringFab) {
+        this.pillLoopTimer = setTimeout(runCycle, 3000);
+        return;
+      }
+      isExpanded = !isExpanded;
+      this.setPillState(isExpanded);
+      // Fica expandido por 6.5s e recolhido por 4.5s
+      const nextDelay = isExpanded ? 6500 : 4500;
+      this.pillLoopTimer = setTimeout(runCycle, nextDelay);
+    };
+    this.pillLoopTimer = setTimeout(runCycle, 6500);
   }
 
   private setPillState(expand: boolean) {
     this.isPillExpanded = expand;
     const btn = document.getElementById("vlm-fab-button");
     if (!btn) return;
-    if (expand) { btn.classList.remove("vlm-pill-collapsed"); btn.classList.add("vlm-pill-expanded"); }
-    else { btn.classList.remove("vlm-pill-expanded"); btn.classList.add("vlm-pill-collapsed"); }
+    if (expand) {
+      btn.classList.remove("vlm-pill-collapsed");
+      btn.classList.add("vlm-pill-expanded");
+    } else {
+      btn.classList.remove("vlm-pill-expanded");
+      btn.classList.add("vlm-pill-collapsed");
+    }
+  }
+
+  private triggerAttentionToast() {
+    this.hasTriggeredAttentionToast = true;
+    const badge = document.getElementById("vlm-fab-gold-badge");
+    const fabBtn = document.getElementById("vlm-fab-button");
+    if (badge) {
+      badge.classList.add("vlm-badge-visible");
+    }
+    if (fabBtn) {
+      fabBtn.classList.add("vlm-fab-attention");
+    }
+    this.playNotificationToastSound();
+  }
+
+  private playNotificationToastSound() {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+      const now = ctx.currentTime;
+
+      // 1º Tom Cristalino Doce (D5 - 587Hz)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = "sine";
+      osc1.frequency.setValueAtTime(587.33, now);
+      gain1.gain.setValueAtTime(0, now);
+      gain1.gain.linearRampToValueAtTime(0.18, now + 0.02);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.36);
+
+      // 2º Tom Dourado Chime/Toast (A5 - 880Hz)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = "sine";
+      osc2.frequency.setValueAtTime(880, now + 0.08);
+      gain2.gain.setValueAtTime(0, now + 0.08);
+      gain2.gain.linearRampToValueAtTime(0.22, now + 0.10);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.08);
+      osc2.stop(now + 0.56);
+    } catch (e) {
+      console.warn("[Toast Sound] Áudio toast desativado:", e);
+    }
   }
 
   private togglePanel() { this.isOpen ? this.closePanel() : this.openPanel(); }
@@ -686,13 +754,16 @@ export class ValemChatWidget {
     this.isOpen = true;
     const panel = document.getElementById("vlm-panel");
     const fabWrapper = document.getElementById("vlm-fab-wrapper");
-    const badge = document.getElementById("vlm-fab-badge");
+    const goldBadge = document.getElementById("vlm-fab-gold-badge");
+    const fabBtn = document.getElementById("vlm-fab-button");
+
     if (panel) {
       panel.style.display = "flex";
       setTimeout(() => { panel.classList.add("vlm-panel-open"); panel.removeAttribute("aria-hidden"); }, 10);
     }
     if (fabWrapper) fabWrapper.style.display = "none";
-    if (badge) { badge.style.display = "none"; this.unreadCount = 0; }
+    if (goldBadge) goldBadge.classList.remove("vlm-badge-visible");
+    if (fabBtn) fabBtn.classList.remove("vlm-fab-attention");
     
     if (this.hasCompletedPrechat) {
       document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden");
