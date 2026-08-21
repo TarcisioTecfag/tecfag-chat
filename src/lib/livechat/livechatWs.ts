@@ -230,12 +230,17 @@ async function handleVisitorMessage(
     const isCpf = cleanDoc.length === 11;
     const isCnpj = cleanDoc.length === 14;
 
-    await updateVisitorData(tenantId, visitor.id, {
+    const updatedFields = {
       name: name || visitor.name,
-      cpf: isCpf ? doc : visitor.cpf,
-      cnpj: isCnpj ? doc : visitor.cnpj,
+      cpf: isCpf ? doc : null,
+      cnpj: isCnpj ? doc : null,
       ...(url ? { currentUrl: url, currentTitle: title } : {}),
-    });
+    };
+
+    await updateVisitorData(tenantId, visitor.id, updatedFields);
+    visitor.name = updatedFields.name;
+    visitor.cpf = updatedFields.cpf;
+    visitor.cnpj = updatedFields.cnpj;
 
     broadcastToOperators(tenantId, {
       type: "visitor_updated",
