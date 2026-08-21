@@ -371,11 +371,12 @@ async function handleVisitorMessage(
     let transcribedText = "";
     try {
       const { vertexAi } = await import("../vertex-ai");
-      const cleanBase64 = audioBase64.replace(/^data:audio\/[^;]+;base64,/, "");
+      const cleanMimeType = (mimeType || "audio/webm").split(";")[0].trim() || "audio/webm";
+      const cleanBase64 = audioBase64.replace(/^data:[^;]+;base64,/, "");
       const rawTranscription = await vertexAi.generateText(
         [
-          { inlineData: { mimeType, data: cleanBase64 } },
-          { text: "Transcreva este áudio em português brasileiro com precisão. Retorne apenas o texto falado." },
+          { inlineData: { mimeType: cleanMimeType, data: cleanBase64 } },
+          { text: "Você é um transcritor de áudio em português brasileiro. Transcreva fielmente o que a pessoa falou. Se o áudio for inaudível, vazio ou puro ruído, responda apenas: [INAUDIVEL]" },
         ],
         "gemini-2.5-flash",
         undefined,
@@ -385,19 +386,26 @@ async function handleVisitorMessage(
           metadata: { chatId: chat.id, visitorId: visitor.id },
         }
       );
-      transcribedText = (rawTranscription || "").trim();
+      const cleaned = (rawTranscription || "").trim();
+      if (cleaned && !cleaned.includes("[INAUDIVEL]")) {
+        transcribedText = cleaned;
+      }
     } catch (err: any) {
       console.error("[LC WS] Erro ao transcrever áudio do visitante:", err?.message);
     }
 
-    const promptToProcess = transcribedText || "O cliente enviou um áudio, mas não foi possível transcrever. Peça educadamente para repetir ou escrever em texto se necessário.";
+    const promptToProcess = transcribedText 
+      ? `O visitante enviou uma mensagem de áudio dizendo: "${transcribedText}". Responda de forma natural como Valentina, ajudando o cliente.`
+      : "O visitante enviou um áudio curto que não pôde ser compreendido. Peça educadamente e com simpatia para ele repetir ou escrever em texto se preferir.";
+
     const aiResponse = await processVisitorMessage(tenantId, visitor, chat, promptToProcess);
+    const cleanAiText = (aiResponse.text || "").replace(/\\"/g, '"').replace(/\\\\/g, "");
 
     send(conn.ws, {
       type: "message",
       chatId: chat.id,
       sender: "ai",
-      content: aiResponse.text,
+      content: cleanAiText,
     });
 
     broadcastToOperators(tenantId, {
@@ -405,7 +413,7 @@ async function handleVisitorMessage(
       chatId: chat.id,
       visitorId: visitor.id,
       sender: "ai",
-      content: aiResponse.text,
+      content: cleanAiText,
     });
     return;
   }
@@ -441,18 +449,21 @@ async function handleVisitorMessage(
 
     if (chat.status === "operator_took_over") return;
 
+    const safeFileName = fileName.replace(/["'\\]/g, "");
     const aiResponse = await processVisitorMessage(
       tenantId,
       visitor,
       chat,
-      `O visitante enviou o arquivo: "${fileName}" (${contentType}). Confirme o recebimento cordialmente e pergunte em que pode orientar sobre esse documento ou produto.`
+      `O visitante enviou o arquivo ${safeFileName} (${contentType}). Confirme o recebimento cordialmente e pergunte em que pode orientar sobre esse documento ou produto.`
     );
+
+    const cleanAiText = (aiResponse.text || "").replace(/\\"/g, '"').replace(/\\\\/g, "");
 
     send(conn.ws, {
       type: "message",
       chatId: chat.id,
       sender: "ai",
-      content: aiResponse.text,
+      content: cleanAiText,
     });
 
     broadcastToOperators(tenantId, {
@@ -460,7 +471,7 @@ async function handleVisitorMessage(
       chatId: chat.id,
       visitorId: visitor.id,
       sender: "ai",
-      content: aiResponse.text,
+      content: cleanAiText,
     });
     return;
   }

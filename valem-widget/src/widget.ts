@@ -407,6 +407,16 @@ export class ValemChatWidget {
     }
   }
 
+  private getFileIcon(name: string): string {
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    if (["xlsx", "xls", "csv"].includes(ext)) return "📊";
+    if (["pdf"].includes(ext)) return "📄";
+    if (["doc", "docx", "txt", "rtf"].includes(ext)) return "📝";
+    if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "📦";
+    if (["mp3", "wav", "ogg", "m4a"].includes(ext)) return "🎵";
+    return "📁";
+  }
+
   private renderSingleMessage(msg: ChatMessage) {
     const container = document.getElementById("vlm-messages-container");
     if (!container) return;
@@ -414,11 +424,36 @@ export class ValemChatWidget {
     const row = document.createElement("div");
     row.className = `vlm-message-row vlm-message-row--${msg.sender}`;
     row.addEventListener("click", () => row.classList.toggle("vlm-details-visible"));
+    
     let innerContent = "";
-    if (msg.contentType === "audio" && msg.mediaUrl) innerContent = this.renderAudioPlayer(msg.mediaUrl, msg.durationSec || 0);
-    else if (msg.contentType === "image" && msg.mediaUrl) innerContent = `<img src="${msg.mediaUrl}" alt="${msg.fileName || "Foto"}" class="vlm-media-image" />${msg.text ? `<div style="margin-top:6px">${this.escapeAndFormat(msg.text)}</div>` : ""}`;
-    else if (msg.contentType === "document" && msg.mediaUrl) innerContent = `<a href="${msg.mediaUrl}" download="${msg.fileName || "arquivo"}" class="vlm-media-file-card" target="_blank"><div class="vlm-media-file-icon">📁</div><div class="vlm-media-file-info"><span class="vlm-media-file-name">${this.escapeHtml(msg.fileName || "Download")}</span><span class="vlm-media-file-size">${formatFileSize(msg.fileSize)} • Baixar</span></div></a>`;
-    else innerContent = this.escapeAndFormat(msg.text);
+    if (msg.contentType === "audio" && msg.mediaUrl) {
+      innerContent = this.renderAudioPlayer(msg.mediaUrl, msg.durationSec || 0);
+    } else if (msg.contentType === "image" && msg.mediaUrl) {
+      innerContent = `
+        <img src="${msg.mediaUrl}" alt="${this.escapeHtml(msg.fileName || "Foto")}" class="vlm-media-image" onclick="window.open('${msg.mediaUrl}', '_blank')" />
+        ${msg.text ? `<div style="margin-top:6px">${this.escapeAndFormat(msg.text)}</div>` : ""}
+      `;
+    } else if (msg.contentType === "video" && msg.mediaUrl) {
+      innerContent = `
+        <video src="${msg.mediaUrl}" controls playsinline class="vlm-media-video"></video>
+        ${msg.text ? `<div style="margin-top:6px">${this.escapeAndFormat(msg.text)}</div>` : ""}
+      `;
+    } else if (msg.contentType === "document" && msg.mediaUrl) {
+      const icon = this.getFileIcon(msg.fileName || "");
+      innerContent = `
+        <a href="${msg.mediaUrl}" download="${this.escapeHtml(msg.fileName || "arquivo")}" class="vlm-media-file-card" target="_blank">
+          <span class="vlm-media-file-icon">${icon}</span>
+          <div class="vlm-media-file-info">
+            <span class="vlm-media-file-name" title="${this.escapeHtml(msg.fileName || "Download")}">${this.escapeHtml(msg.fileName || "Download")}</span>
+            <span class="vlm-media-file-size">${formatFileSize(msg.fileSize)} • Baixar</span>
+          </div>
+        </a>
+        ${msg.text ? `<div style="margin-top:6px">${this.escapeAndFormat(msg.text)}</div>` : ""}
+      `;
+    } else {
+      innerContent = this.escapeAndFormat(msg.text);
+    }
+
     row.innerHTML = `<div class="vlm-bubble-box">${innerContent}</div><span class="vlm-msg-details">Enviado em ${msg.fullDateStr}</span>`;
     container.appendChild(row);
     if (msg.contentType === "audio") this.attachAudioPlayerEvents(row);
@@ -426,8 +461,27 @@ export class ValemChatWidget {
   }
 
   private renderAudioPlayer(src: string, durationSec: number): string {
-    const durStr = formatDuration(durationSec);
-    return `<div class="vlm-audio-player" data-audio-src="${src}"><button class="vlm-audio-btn-play" aria-label="Tocar áudio"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg></button><div class="vlm-audio-track"><div class="vlm-audio-progressbar-bg"><div class="vlm-audio-progressbar-fill"></div></div><div class="vlm-audio-time-row"><span class="vlm-audio-time-curr">0:00</span><span class="vlm-audio-time-total">${durStr}</span></div></div><button class="vlm-audio-speed-btn">1x</button><audio src="${src}" preload="metadata" style="display:none"></audio></div>`;
+    const durStr = durationSec > 0 ? formatDuration(durationSec) : "0:05";
+    return `
+      <div class="vlm-audio-player" data-audio-src="${src}" data-fallback-sec="${durationSec || 5}">
+        <button class="vlm-audio-btn-play" aria-label="Tocar áudio">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+        </button>
+        <div class="vlm-audio-track">
+          <div class="vlm-audio-progressbar-bg">
+            <div class="vlm-audio-progressbar-fill"></div>
+          </div>
+          <div class="vlm-audio-time-row">
+            <span class="vlm-audio-time-curr">0:00</span>
+            <span class="vlm-audio-time-total">${durStr}</span>
+          </div>
+        </div>
+        <button class="vlm-audio-speed-btn">1x</button>
+        <audio src="${src}" preload="metadata" style="display:none"></audio>
+      </div>
+    `;
   }
 
   private attachAudioPlayerEvents(row: HTMLElement) {
@@ -440,17 +494,68 @@ export class ValemChatWidget {
     const totalTime = player.querySelector(".vlm-audio-time-total") as HTMLElement;
     const speedBtn = player.querySelector(".vlm-audio-speed-btn") as HTMLButtonElement;
     const progressBg = player.querySelector(".vlm-audio-progressbar-bg") as HTMLElement;
-    audio.addEventListener("loadedmetadata", () => { if (audio.duration && !isNaN(audio.duration)) totalTime.textContent = formatDuration(audio.duration); });
+    const fallbackSec = parseFloat(player.getAttribute("data-fallback-sec") || "5");
+
+    const getRealDuration = () => {
+      if (audio.duration && isFinite(audio.duration) && !isNaN(audio.duration) && audio.duration > 0) {
+        return audio.duration;
+      }
+      return fallbackSec > 0 ? fallbackSec : 5;
+    };
+
+    audio.addEventListener("loadedmetadata", () => {
+      const dur = getRealDuration();
+      totalTime.textContent = formatDuration(dur);
+    });
+
+    audio.addEventListener("durationchange", () => {
+      const dur = getRealDuration();
+      totalTime.textContent = formatDuration(dur);
+    });
+
     playBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (audio.paused) { document.querySelectorAll("audio").forEach(a => { if (a !== audio) a.pause(); }); audio.play(); playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`; }
-      else { audio.pause(); playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`; }
+      if (audio.paused) {
+        document.querySelectorAll("audio").forEach(a => { if (a !== audio) a.pause(); });
+        audio.play().then(() => {
+          playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
+        }).catch(() => {});
+      } else {
+        audio.pause();
+        playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+      }
     });
-    audio.addEventListener("timeupdate", () => { const pct = (audio.currentTime / (audio.duration || 1)) * 100; fill.style.width = `${pct}%`; currTime.textContent = formatDuration(audio.currentTime); });
-    audio.addEventListener("ended", () => { playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`; fill.style.width = "0%"; currTime.textContent = "0:00"; });
-    progressBg.addEventListener("click", (e) => { e.stopPropagation(); const rect = progressBg.getBoundingClientRect(); const pct = (e.clientX - rect.left) / rect.width; audio.currentTime = pct * (audio.duration || 1); });
+
+    audio.addEventListener("timeupdate", () => {
+      const dur = getRealDuration();
+      const pct = Math.min((audio.currentTime / dur) * 100, 100);
+      fill.style.width = `${pct}%`;
+      currTime.textContent = formatDuration(audio.currentTime);
+    });
+
+    audio.addEventListener("ended", () => {
+      playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+      fill.style.width = "0%";
+      currTime.textContent = "0:00";
+    });
+
+    progressBg.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const rect = progressBg.getBoundingClientRect();
+      const pct = (e.clientX - rect.left) / rect.width;
+      const dur = getRealDuration();
+      audio.currentTime = pct * dur;
+    });
+
     let currentSpeed = 1;
-    speedBtn.addEventListener("click", (e) => { e.stopPropagation(); if (currentSpeed === 1) currentSpeed = 1.5; else if (currentSpeed === 1.5) currentSpeed = 2; else currentSpeed = 1; audio.playbackRate = currentSpeed; speedBtn.textContent = `${currentSpeed}x`; });
+    speedBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (currentSpeed === 1) currentSpeed = 1.5;
+      else if (currentSpeed === 1.5) currentSpeed = 2;
+      else currentSpeed = 1;
+      audio.playbackRate = currentSpeed;
+      speedBtn.textContent = `${currentSpeed}x`;
+    });
   }
 
   private showTypingIndicator() {
@@ -458,28 +563,63 @@ export class ValemChatWidget {
     this.isTyping = true;
     const container = document.getElementById("vlm-messages-container");
     if (!container) return;
-    const row = document.createElement("div"); row.id = "vlm-typing-indicator"; row.className = "vlm-typing-row";
-    row.innerHTML = `<img src="${this.opts.avatarUrl}" alt="Valentina" class="vlm-typing-avatar" /><div class="vlm-typing-bubble"><span class="vlm-typing-dot"></span><span class="vlm-typing-dot"></span><span class="vlm-typing-dot"></span></div>`;
-    container.appendChild(row); this.scrollToBottom();
+    const row = document.createElement("div");
+    row.id = "vlm-typing-indicator";
+    row.className = "vlm-typing-row";
+    row.innerHTML = `
+      <img src="${this.opts.avatarUrl}" alt="Valentina" class="vlm-typing-avatar" />
+      <div class="vlm-typing-bubble">
+        <span class="vlm-typing-dot"></span>
+        <span class="vlm-typing-dot"></span>
+        <span class="vlm-typing-dot"></span>
+      </div>
+    `;
+    container.appendChild(row);
+    this.scrollToBottom();
   }
 
-  private hideTypingIndicator() { this.isTyping = false; document.getElementById("vlm-typing-indicator")?.remove(); }
+  private hideTypingIndicator() {
+    this.isTyping = false;
+    document.getElementById("vlm-typing-indicator")?.remove();
+  }
 
   private scrollToBottom() {
     const container = document.getElementById("vlm-messages-container");
-    if (container) setTimeout(() => { container.scrollTop = container.scrollHeight; }, 30);
+    if (container) {
+      setTimeout(() => { container.scrollTop = container.scrollHeight; }, 30);
+    }
   }
 
-  private escapeHtml(str: string): string { return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  private escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
 
-  private escapeAndFormat(text: string): string { return this.escapeHtml(text).replace(/\n/g, "<br>").replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>"); }
+  private escapeAndFormat(text: string): string {
+    if (!text) return "";
+    const cleanText = text
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "")
+      .trim();
+    return this.escapeHtml(cleanText)
+      .replace(/\n/g, "<br>")
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  }
 
   private handleSendMessage() {
     const textarea = document.getElementById("vlm-chat-textarea") as HTMLTextAreaElement;
     const text = textarea ? textarea.value.trim() : "";
     const file = this.pendingFile;
+
     if (!text && !file) return;
-    if (textarea) { textarea.value = ""; textarea.style.height = "22px"; }
+
+    if (textarea) {
+      textarea.value = "";
+      textarea.style.height = "22px";
+    }
+
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -488,24 +628,73 @@ export class ValemChatWidget {
         const isVid = file.type.startsWith("video/");
         const contentType = isImg ? "image" : isVid ? "video" : "document";
         const msgId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-        this.addMessage({ id: msgId, sender: "visitor", text, contentType, mediaUrl: base64Data, fileName: file.name, fileSize: file.size, timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
+
+        this.addMessage({
+          id: msgId,
+          sender: "visitor",
+          text,
+          contentType,
+          mediaUrl: base64Data,
+          fileName: file.name,
+          fileSize: file.size,
+          timestamp: new Date().toISOString(),
+          timeStr: formatTime(),
+          fullDateStr: formatFullDate(),
+        });
+
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.showTypingIndicator();
-          this.ws.send(JSON.stringify({ type: "visitor_media", fileBase64: base64Data, fileName: file.name, fileType: file.type, fileSize: file.size, text, url: location.href, title: document.title }));
+          this.ws.send(JSON.stringify({
+            type: "visitor_media",
+            fileBase64: base64Data,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            text,
+            url: location.href,
+            title: document.title,
+          }));
         }
-        this.clearPendingFile(); this.updateButtonsState();
+
+        this.clearPendingFile();
+        this.updateButtonsState();
       };
-      reader.readAsDataURL(file); return;
+      reader.readAsDataURL(file);
+      return;
     }
+
     const msgId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-    this.addMessage({ id: msgId, sender: "visitor", text, contentType: "text", timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
+    this.addMessage({
+      id: msgId,
+      sender: "visitor",
+      text,
+      contentType: "text",
+      timestamp: new Date().toISOString(),
+      timeStr: formatTime(),
+      fullDateStr: formatFullDate(),
+    });
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.showTypingIndicator();
-      this.ws.send(JSON.stringify({ type: "visitor_message", text, messageId: msgId, url: location.href, title: document.title }));
+      this.ws.send(JSON.stringify({
+        type: "visitor_message",
+        text,
+        messageId: msgId,
+        url: location.href,
+        title: document.title,
+      }));
     } else {
-      this.addMessage({ id: `err-${Date.now()}`, sender: "system", text: "Conexão perdida. Tentando restabelecer...", timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
+      this.addMessage({
+        id: `err-${Date.now()}`,
+        sender: "system",
+        text: "Conexão perdida. Tentando restabelecer...",
+        timestamp: new Date().toISOString(),
+        timeStr: formatTime(),
+        fullDateStr: formatFullDate(),
+      });
       this.connectWebSocket();
     }
+
     this.updateButtonsState();
   }
 
@@ -514,10 +703,17 @@ export class ValemChatWidget {
     const btnMic = document.getElementById("vlm-btn-mic");
     const btnSend = document.getElementById("vlm-btn-send");
     if (!btnMic || !btnSend) return;
+
     const hasText = textarea ? textarea.value.trim().length > 0 : false;
     const hasFile = this.pendingFile !== null;
-    if (hasText || hasFile) { btnMic.style.display = "none"; btnSend.style.display = "flex"; }
-    else { btnMic.style.display = "flex"; btnSend.style.display = "none"; }
+
+    if (hasText || hasFile) {
+      btnMic.style.display = "none";
+      btnSend.style.display = "flex";
+    } else {
+      btnMic.style.display = "flex";
+      btnSend.style.display = "none";
+    }
   }
 
   private connectWebSocket() {
