@@ -3,6 +3,7 @@
 // Endpoint: /ws/livechat
 // Auth: ?tenantId=valem&cookieId=XXXXXXXX (identificador do visitante)
 //       ?tenantId=valem&operatorToken=JWT (para painel de operador)
+// Integração: LiveChatDebouncer (Acúmulo + Stop & Restart + Fragmentação)
 // ══════════════════════════════════════════════════════════════════════════════
 
 import { WebSocketServer, WebSocket } from "ws";
@@ -19,10 +20,11 @@ import {
   getActiveVisitors,
   getVisitorPageviews,
 } from "./livechatStorage";
-import { processVisitorMessage, generateProactiveGreeting, isNoise } from "./livechatAI";
+import { generateProactiveGreeting, isNoise } from "./livechatAI";
 import { bridgeLiveChatToWhatsApp } from "./livechat-bridge";
 import { calculateIntentScore, scoreToTemperature, isAtacadoQualificado } from "./livechatScoring";
 import { searchProducts, extractSearchTermFromUrl } from "./trayCatalogService";
+import { LiveChatDebouncer } from "./livechatDebouncer";
 
 const uuid = () => crypto.randomUUID();
 
@@ -39,23 +41,19 @@ interface LcConnection {
   operatorId?: string;  // para operators
 }
 
-// ── Registro de conexões ativas ───────────────────────────────────────────────
-
-// visitorId → LcConnection
-const visitorConnections = new Map<string, LcConnection>();
-
-// operatorId → LcConnection
-const operatorConnections = new Map<string, LcConnection>();
+// Mapas de conexões ativas
+const visitorConnections = new Map<string, LcConnection>();  // key: visitorId
+const operatorConnections = new Map<string, LcConnection>(); // key: operatorId
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function send(ws: WebSocket, event: object) {
+function send(ws: WebSocket, payload: unknown) {
   if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(event));
+    ws.send(JSON.stringify(payload));
   }
 }
 
-function broadcastToOperators(tenantId: string, event: object) {
+function broadcastToOperators(tenantId: string, event: unknown) {
   for (const conn of operatorConnections.values()) {
     if (conn.tenantId === tenantId) {
       send(conn.ws, event);
@@ -83,7 +81,6 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
 
     // ── Conexão de OPERADOR ────────────────────────────────────────────────
     if (operatorToken) {
-      // TODO: validar JWT do operador
       const operatorId = `op_${operatorToken.slice(0, 8)}`;
       const conn: LcConnection = { ws, type: "operator", tenantId, operatorId };
       operatorConnections.set(operatorId, conn);
@@ -112,8 +109,8 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       return;
     }
 
-    let visitor;
-    let chat;
+    let visitor: any;
+    let chat: any;
 
     try {
       // Cria/atualiza visitante
@@ -164,11 +161,10 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       chatId: chat.id,
     });
 
-    // Saudação proativa (após pequeno delay, não bloquear conexão)
+    // Saudação proativa
     if (!chat.status || chat.status === "active") {
       const historyCount = (await getChatHistory(tenantId, chat.id, 1)).length;
       if (historyCount === 0) {
-        // Primeira mensagem da sessão — envia proativo após 1s
         setTimeout(async () => {
           try {
             const greeting = await generateProactiveGreeting(
@@ -203,6 +199,7 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
     });
 
     ws.on("close", async () => {
+      LiveChatDebouncer.getInstance().clearSession(visitor.id);
       visitorConnections.delete(visitor.id);
       console.log(`[LC WS] Visitante ${visitor.id} desconectado`);
       broadcastToOperators(tenantId, {
@@ -267,7 +264,7 @@ async function handleVisitorMessage(
     return;
   }
 
-  // ── Mensagem de texto (ou payload de visitante) ──
+  // ── Mensagem de texto (com Debounce, Stop & Restart e Fragmentação) ──
   const userText = content || payload.text;
   if ((type === "message" || type === "visitor_message") && userText) {
     if (isNoise(userText)) {
@@ -275,91 +272,37 @@ async function handleVisitorMessage(
       return;
     }
 
-    await saveMessage(tenantId, chat.id, "visitor", userText);
+    // Salva imediatamente no banco para o histórico
+    const savedMsg = await saveMessage(tenantId, chat.id, "visitor", userText);
 
+    // Notifica operadores em tempo real
     broadcastToOperators(tenantId, {
       type: "new_message",
       chatId: chat.id,
       visitorId: visitor.id,
+      messageId: savedMsg.id,
       sender: "visitor",
       content: userText,
     });
 
+    // Se operador já assumiu, não acionar IA
     if (chat.status === "operator_took_over") {
       return;
     }
 
-    const aiResponse = await processVisitorMessage(tenantId, visitor, chat, userText);
-
-    if (aiResponse.score !== undefined) {
-      const temp = scoreToTemperature(aiResponse.score);
-      await updateVisitorData(tenantId, visitor.id, {
-        intentScore: aiResponse.score,
-        temperature: temp,
-        ...(aiResponse.stage ? { pipelineStage: aiResponse.stage } : {}),
-      });
-    }
-
-    if (aiResponse.cnpjToCheck) {
-      await updateVisitorData(tenantId, visitor.id, { cnpj: aiResponse.cnpjToCheck });
-    }
-
-    send(conn.ws, {
-      type: "message",
-      chatId: chat.id,
-      sender: "ai",
-      content: aiResponse.text,
-    });
-
-    broadcastToOperators(tenantId, {
-      type: "new_message",
-      chatId: chat.id,
-      visitorId: visitor.id,
-      sender: "ai",
-      content: aiResponse.text,
-    });
-
-    if (aiResponse.trayProductId || visitor.currentUrl) {
-      try {
-        const searchTerm = visitor.currentUrl
-          ? extractSearchTermFromUrl(visitor.currentUrl)
-          : userText;
-        const products = await searchProducts(tenantId, searchTerm, 1);
-        if (products[0]) {
-          const productCard = {
-            type: "tray_product_card",
-            chatId: chat.id,
-            product: products[0],
-          };
-          send(conn.ws, productCard);
-          broadcastToOperators(tenantId, { ...productCard, visitorId: visitor.id });
-        }
-      } catch (e) {
-        console.error("[LC WS] Erro ao buscar produto Tray:", e);
-      }
-    }
-
-    // Bridge para WhatsApp
-    if (aiResponse.shouldBridgeToWhatsApp && visitor.phone) {
-      const bridgeResult = await bridgeLiveChatToWhatsApp(
-        tenantId,
-        chat.id,
-        visitor.id,
-        visitor.phone
-      );
-
-      const bridgeEvent = {
-        type: "bridge_initiated",
-        chatId: chat.id,
-        visitorId: visitor.id,
-        phone: visitor.phone,
-        success: bridgeResult.success,
-        waConversationId: bridgeResult.waConversationId,
-      };
-
-      send(conn.ws, bridgeEvent);
-      broadcastToOperators(tenantId, bridgeEvent);
-    }
+    // Encaminha para o motor de Debounce & Stop-and-Restart da Valentina
+    LiveChatDebouncer.getInstance().pushIncomingMessage(
+      tenantId,
+      visitor,
+      chat,
+      {
+        type: "text",
+        content: userText,
+        receivedAt: new Date(),
+      },
+      (p) => send(conn.ws, p),
+      (p) => broadcastToOperators(tenantId, p)
+    );
     return;
   }
 
@@ -419,26 +362,23 @@ async function handleVisitorMessage(
     }
 
     const promptToProcess = transcribedText 
-      ? `O visitante enviou uma mensagem de áudio dizendo: "${transcribedText}". Responda de forma natural como Valentina, ajudando o cliente.`
-      : "O visitante enviou um áudio curto que não pôde ser compreendido. Peça educadamente e com simpatia para ele repetir ou escrever em texto se preferir.";
+      ? `[Áudio transcrito do visitante]: "${transcribedText}"`
+      : "[O visitante enviou uma mensagem de áudio curta]";
 
-    const aiResponse = await processVisitorMessage(tenantId, visitor, chat, promptToProcess);
-    const cleanAiText = (aiResponse.text || "").replace(/\\"/g, '"').replace(/\\\\/g, "");
-
-    send(conn.ws, {
-      type: "message",
-      chatId: chat.id,
-      sender: "ai",
-      content: cleanAiText,
-    });
-
-    broadcastToOperators(tenantId, {
-      type: "new_message",
-      chatId: chat.id,
-      visitorId: visitor.id,
-      sender: "ai",
-      content: cleanAiText,
-    });
+    LiveChatDebouncer.getInstance().pushIncomingMessage(
+      tenantId,
+      visitor,
+      chat,
+      {
+        type: "audio",
+        content: promptToProcess,
+        mediaUrl: mediaDataUrl,
+        durationSec,
+        receivedAt: new Date(),
+      },
+      (p) => send(conn.ws, p),
+      (p) => broadcastToOperators(tenantId, p)
+    );
     return;
   }
 
@@ -450,13 +390,13 @@ async function handleVisitorMessage(
     const isImg = fileType.startsWith("image/");
     const isVid = fileType.startsWith("video/");
     const contentType = isImg ? "image" : isVid ? "video" : "document";
-    const mediaDataUrl = fileBase64.startsWith("data:") ? fileBase64 : `data:${fileType};base64,${fileBase64}`;
 
-    await saveMessage(tenantId, chat.id, "visitor", `[Arquivo: ${fileName}]`, {
+    await saveMessage(tenantId, chat.id, "visitor", payload.text || `[Arquivo: ${fileName}]`, {
       contentType,
-      mediaUrl: mediaDataUrl,
-      mediaType: fileType,
+      mediaUrl: fileBase64,
       fileName,
+      fileSize,
+      mediaType: fileType,
     });
 
     broadcastToOperators(tenantId, {
@@ -464,61 +404,62 @@ async function handleVisitorMessage(
       chatId: chat.id,
       visitorId: visitor.id,
       sender: "visitor",
-      content: `[Arquivo: ${fileName}]`,
+      content: payload.text || `[Arquivo: ${fileName}]`,
       contentType,
-      mediaUrl: mediaDataUrl,
+      mediaUrl: fileBase64,
       fileName,
       fileSize,
     });
 
     if (chat.status === "operator_took_over") return;
 
-    const safeFileName = fileName.replace(/["'\\]/g, "");
-    const aiResponse = await processVisitorMessage(
+    const mediaPrompt = `[O visitante enviou um anexo: "${fileName}"] ${payload.text ? `com a mensagem: "${payload.text}"` : ""}`;
+
+    LiveChatDebouncer.getInstance().pushIncomingMessage(
       tenantId,
       visitor,
       chat,
-      `O visitante enviou o arquivo ${safeFileName} (${contentType}). Confirme o recebimento cordialmente e pergunte em que pode orientar sobre esse documento ou produto.`
+      {
+        type: "media",
+        content: mediaPrompt,
+        mediaUrl: fileBase64,
+        fileName,
+        fileSize,
+        receivedAt: new Date(),
+      },
+      (p) => send(conn.ws, p),
+      (p) => broadcastToOperators(tenantId, p)
     );
-
-    const cleanAiText = (aiResponse.text || "").replace(/\\"/g, '"').replace(/\\\\/g, "");
-
-    send(conn.ws, {
-      type: "message",
-      chatId: chat.id,
-      sender: "ai",
-      content: cleanAiText,
-    });
-
-    broadcastToOperators(tenantId, {
-      type: "new_message",
-      chatId: chat.id,
-      visitorId: visitor.id,
-      sender: "ai",
-      content: cleanAiText,
-    });
     return;
   }
 }
 
-// ── Handler de mensagens do OPERADOR ──────────────────────────────────────────
+// ── Handler de mensagens do OPERADOR ─────────────────────────────────────────
 
-async function handleOperatorMessage(conn: LcConnection, data: string) {
+async function handleOperatorMessage(conn: LcConnection, rawData: string) {
   try {
-    const payload = JSON.parse(data);
-    const { type, chatId, visitorId, content, operatorId } = payload;
-    const tenantId = conn.tenantId;
+    const payload = JSON.parse(rawData);
+    const { type, chatId, visitorId, content, messageId } = payload;
+    const { tenantId } = conn;
 
-    // Operador enviando mensagem
+    // Operador enviando mensagem ao visitante
     if (type === "operator_message" && chatId && content) {
-      await saveMessage(tenantId, chatId, "operator", content);
+      const savedMsg = await saveMessage(tenantId, chatId, "operator", content, {
+        operatorId: conn.operatorId,
+      });
 
-      // Envia para o visitante
+      // Envia ao visitante
       const visitorConn = [...visitorConnections.values()].find(
         (c) => c.chatId === chatId && c.tenantId === tenantId
       );
       if (visitorConn) {
-        send(visitorConn.ws, { type: "message", chatId, sender: "operator", content });
+        send(visitorConn.ws, {
+          type: "message",
+          chatId,
+          messageId: savedMsg.id,
+          sender: "operator",
+          content,
+        });
       }
 
       // Broadcast para outros operadores
@@ -534,6 +475,10 @@ async function handleOperatorMessage(conn: LcConnection, data: string) {
 
     // Operador assumindo conversa
     if (type === "take_over" && chatId && conn.operatorId) {
+      if (visitorId) {
+        LiveChatDebouncer.getInstance().clearSession(visitorId);
+      }
+
       await updateChatStatus(tenantId, chatId, "operator_took_over", {
         operatorId: conn.operatorId,
       });
@@ -566,26 +511,23 @@ async function handleOperatorMessage(conn: LcConnection, data: string) {
 
     // Operador encerrando chat
     if (type === "close_chat" && chatId) {
+      if (visitorId) {
+        LiveChatDebouncer.getInstance().clearSession(visitorId);
+      }
+
       await updateChatStatus(tenantId, chatId, "closed", { outcome: "resolved" });
       const visitorConn = [...visitorConnections.values()].find(
         (c) => c.chatId === chatId && c.tenantId === tenantId
       );
       if (visitorConn) {
-        send(visitorConn.ws, { type: "chat_closed", chatId });
+        send(visitorConn.ws, {
+          type: "chat_closed",
+          message: "Atendimento encerrado pelo operador. Obrigado!",
+        });
       }
       broadcastToOperators(tenantId, { type: "chat_closed", chatId, visitorId });
       return;
     }
-
-    // Operador pedindo detalhes do visitante
-    if (type === "get_visitor_details" && visitorId) {
-      const { getVisitorById } = await import("./livechatStorage");
-      const visitor = await getVisitorById(tenantId, visitorId);
-      const pageviews = await getVisitorPageviews(tenantId, visitorId);
-      send(conn.ws, { type: "visitor_details", visitor, pageviews });
-      return;
-    }
-
   } catch (e: any) {
     console.error("[LC WS] Erro ao processar mensagem do operador:", e?.message);
   }
