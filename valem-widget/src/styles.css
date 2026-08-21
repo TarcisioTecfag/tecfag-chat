@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════════
-   VALEM CHAT WIDGET — Design System Valempack Oficial (v2.3 Enquadramento Total)
+   VALEM CHAT WIDGET — Design System Valempack Oficial (v3.0 - Pre-chat & Mídia)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-chat-root {
@@ -39,7 +39,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   1. BOTÃO FLUTUANTE & PILL LOOP (ENQUADRAMENTO BLINDADO)
+   1. BOTÃO FLUTUANTE & PILL LOOP (SEM BORDA CINZA)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-fab-wrapper {
@@ -107,6 +107,7 @@
   display: none !important;
 }
 
+/* AVATAR SEM NENHUMA BORDA CINZA */
 .vlm-fab-avatar-wrap {
   width: 42px !important;
   height: 42px !important;
@@ -118,8 +119,9 @@
   flex-shrink: 0 !important;
   margin: 0 !important;
   padding: 0 !important;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7), 0 2px 6px rgba(0,0,0,0.3) !important;
-  background: #022329 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
 }
 
 .vlm-fab-avatar-img {
@@ -225,7 +227,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   2. PAINEL DO CHAT
+   2. PAINEL PRINCIPAL DO CHAT
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-panel {
@@ -256,7 +258,179 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   3. HEADER VALEMPACK (FECHAR X, WHATSAPP, COPIAR)
+   3. TELA DE BOAS-VINDAS / ONBOARDING (NOME + CPF/CNPJ)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+#vlm-prechat-view {
+  position: absolute !important;
+  inset: 0 !important;
+  background: linear-gradient(145deg, #022329 0%, #063940 55%, #084c56 100%) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 32px 24px 24px !important;
+  z-index: 50 !important;
+  color: #ffffff !important;
+  box-sizing: border-box !important;
+  animation: vlm-slide-fade-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+#vlm-prechat-view.vlm-prechat-hidden {
+  display: none !important;
+}
+
+.vlm-prechat-header-close {
+  position: absolute !important;
+  top: 16px !important;
+  right: 16px !important;
+  background: none !important;
+  border: none !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  cursor: pointer !important;
+  padding: 6px !important;
+  border-radius: 8px !important;
+  transition: color 0.15s, background-color 0.15s !important;
+}
+
+.vlm-prechat-header-close:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.vlm-prechat-body {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+  width: 100% !important;
+  max-width: 320px !important;
+  margin-top: 10px !important;
+}
+
+.vlm-prechat-icon-circle {
+  width: 68px !important;
+  height: 68px !important;
+  border-radius: 50% !important;
+  background: rgba(245, 158, 11, 0.15) !important;
+  border: 2px solid rgba(245, 158, 11, 0.4) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-bottom: 20px !important;
+  color: var(--vlm-gold-light) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2) !important;
+}
+
+.vlm-prechat-title {
+  font-size: 22px !important;
+  font-weight: 800 !important;
+  color: #ffffff !important;
+  letter-spacing: -0.02em !important;
+  margin-bottom: 8px !important;
+}
+
+.vlm-prechat-subtitle {
+  font-size: 13px !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  line-height: 1.45 !important;
+  margin-bottom: 24px !important;
+}
+
+.vlm-prechat-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+  width: 100% !important;
+  text-align: left !important;
+}
+
+.vlm-prechat-field {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 5px !important;
+}
+
+.vlm-prechat-label {
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  color: var(--vlm-gold-light) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+}
+
+.vlm-prechat-input {
+  width: 100% !important;
+  height: 44px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.22) !important;
+  border-radius: 12px !important;
+  padding: 0 14px !important;
+  color: #ffffff !important;
+  font-size: 14px !important;
+  font-family: inherit !important;
+  outline: none !important;
+  transition: border-color 0.2s, background 0.2s !important;
+  box-sizing: border-box !important;
+}
+
+.vlm-prechat-input::placeholder {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+.vlm-prechat-input:focus {
+  border-color: var(--vlm-gold) !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+}
+
+.vlm-prechat-input.vlm-input-error {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+}
+
+.vlm-prechat-error-msg {
+  font-size: 11px !important;
+  color: #fca5a5 !important;
+  font-weight: 600 !important;
+  display: none !important;
+}
+
+.vlm-prechat-error-msg.vlm-show-error {
+  display: block !important;
+}
+
+.vlm-prechat-submit-btn {
+  width: 100% !important;
+  height: 46px !important;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+  color: #022329 !important;
+  font-size: 14.5px !important;
+  font-weight: 800 !important;
+  border: none !important;
+  border-radius: 12px !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.35) !important;
+  transition: transform 0.15s, opacity 0.2, box-shadow 0.2 !important;
+  margin-top: 6px !important;
+}
+
+.vlm-prechat-submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.5) !important;
+}
+
+.vlm-prechat-submit-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   4. HEADER VALEMPACK COM FOTO CLICÁVEL (SEM BORDA CINZA)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-header {
@@ -285,8 +459,10 @@
   min-height: 44px !important;
   border-radius: 50% !important;
   flex-shrink: 0 !important;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5) !important;
-  background: #022329 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  cursor: pointer !important;
 }
 
 .vlm-header-avatar-img {
@@ -297,6 +473,11 @@
   object-position: center !important;
   image-rendering: -webkit-optimize-contrast !important;
   display: block !important;
+  transition: transform 0.2s ease !important;
+}
+
+.vlm-header-avatar-wrap:hover .vlm-header-avatar-img {
+  transform: scale(1.06) !important;
 }
 
 .vlm-header-status-badge {
@@ -306,7 +487,7 @@
   width: 12px !important;
   height: 12px !important;
   background: var(--vlm-online) !important;
-  border: 2.5px solid #063940 !important;
+  border: 2px solid #063940 !important;
   border-radius: 50% !important;
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.8) !important;
 }
@@ -420,7 +601,86 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   4. ÁREA DE MENSAGENS COM BALÕES ENQUADRADOS DEFINITIVOS
+   5. LIGHTBOX DE FOTO EM TELA CHEIA
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+#vlm-avatar-lightbox {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  background: rgba(2, 35, 41, 0.9) !important;
+  backdrop-filter: blur(8px) !important;
+  display: none;
+  align-items: center !important;
+  justify-content: center !important;
+  opacity: 0;
+  transition: opacity 0.25s ease !important;
+  cursor: pointer !important;
+}
+
+#vlm-avatar-lightbox.vlm-lightbox-open {
+  display: flex !important;
+  opacity: 1 !important;
+}
+
+.vlm-lightbox-content {
+  position: relative !important;
+  max-width: 90vw !important;
+  max-height: 85vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  animation: vlm-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+  cursor: default !important;
+}
+
+.vlm-lightbox-img {
+  width: 320px !important;
+  height: 320px !important;
+  max-width: 80vw !important;
+  max-height: 80vw !important;
+  border-radius: 24px !important;
+  object-fit: cover !important;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6) !important;
+  border: 3px solid var(--vlm-gold) !important;
+}
+
+.vlm-lightbox-name {
+  margin-top: 14px !important;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  color: #ffffff !important;
+}
+
+.vlm-lightbox-role {
+  font-size: 13px !important;
+  color: var(--vlm-gold-light) !important;
+  font-weight: 600 !important;
+}
+
+.vlm-lightbox-close-btn {
+  position: absolute !important;
+  top: -45px !important;
+  right: 0 !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+  border: none !important;
+  color: white !important;
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50% !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background 0.15s !important;
+}
+
+.vlm-lightbox-close-btn:hover {
+  background: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   6. ÁREA DE MENSAGENS COM BALÕES ENQUADRADOS DEFINITIVOS
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-messages-container {
@@ -574,7 +834,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   5. AUDIO PLAYER CUSTOMIZADO
+   7. AUDIO PLAYER CUSTOMIZADO NO CHAT
    ══════════════════════════════════════════════════════════════════════════════ */
 
 .vlm-audio-player {
@@ -673,7 +933,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   6. CARDS DE MÍDIA, IMAGENS, VÍDEOS E ANEXOS
+   8. CARDS DE MÍDIA, IMAGENS, VÍDEOS E ANEXOS
    ══════════════════════════════════════════════════════════════════════════════ */
 
 .vlm-media-image {
@@ -749,7 +1009,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   7. INDICADOR DE DIGITAÇÃO
+   9. INDICADOR DE DIGITAÇÃO (SEM BORDA CINZA)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 .vlm-typing-row {
@@ -769,9 +1029,11 @@
   border-radius: 50% !important;
   object-fit: cover !important;
   object-position: center !important;
-  border: 1.5px solid var(--vlm-petrol) !important;
+  border: none !important;
+  box-shadow: none !important;
   flex-shrink: 0 !important;
   margin-bottom: 2px !important;
+  cursor: pointer !important;
 }
 
 .vlm-typing-bubble {
@@ -801,7 +1063,7 @@
 .vlm-typing-dot:nth-child(3) { animation-delay: 0s !important; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   8. INPUT ZONE (CORREÇÃO DE VAZAMENTO DE TEXTO)
+   10. INPUT ZONE COM BOTÃO UNIFICADO & ÁUDIO PREVIEW
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-input-zone {
@@ -928,6 +1190,7 @@
   color: var(--vlm-text-muted) !important;
 }
 
+/* BOTÃO DE AÇÃO CIRCULAR UNIFICADO (MIC / ENVIAR) */
 .vlm-btn-action-circle {
   width: 40px !important;
   height: 40px !important;
@@ -956,13 +1219,17 @@
   transform: scale(0.92) !important;
 }
 
-/* Modo de Gravação de Áudio */
+/* 1) Modo de Gravação de Áudio Ativa */
 .vlm-audio-record-zone {
   display: none;
   align-items: center !important;
   justify-content: space-between !important;
   width: 100% !important;
-  padding: 4px 2px !important;
+  background: #fff1f2 !important;
+  border: 1.5px solid #fecdd3 !important;
+  border-radius: 22px !important;
+  padding: 6px 14px !important;
+  box-sizing: border-box !important;
 }
 
 .vlm-audio-record-zone.vlm-recording-active {
@@ -975,13 +1242,13 @@
   gap: 8px !important;
   font-weight: 700 !important;
   font-size: 13px !important;
-  color: #ef4444 !important;
+  color: #e11d48 !important;
 }
 
 .vlm-rec-dot {
   width: 10px !important;
   height: 10px !important;
-  background: #ef4444 !important;
+  background: #e11d48 !important;
   border-radius: 50% !important;
   animation: vlm-pulse 1s infinite !important;
 }
@@ -997,29 +1264,146 @@
   color: #dc2626 !important;
   border: none !important;
   border-radius: 50% !important;
-  width: 36px !important;
-  height: 36px !important;
+  width: 34px !important;
+  height: 34px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   cursor: pointer !important;
+  transition: transform 0.15s !important;
 }
 
-.vlm-btn-rec-send {
+.vlm-btn-rec-cancel:hover { transform: scale(1.1) !important; }
+
+.vlm-btn-rec-stop {
   background: #063940 !important;
   color: white !important;
   border: none !important;
   border-radius: 50% !important;
-  width: 36px !important;
-  height: 36px !important;
+  width: 34px !important;
+  height: 34px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   cursor: pointer !important;
+  transition: transform 0.15s !important;
 }
 
+.vlm-btn-rec-stop:hover { transform: scale(1.1) !important; }
+
+/* 2) Modo de Pré-Escuta do Áudio Gravado (Preview) */
+.vlm-audio-preview-zone {
+  display: none;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  background: #f0fdfa !important;
+  border: 1.5px solid #99f6e4 !important;
+  border-radius: 22px !important;
+  padding: 4px 8px 4px 12px !important;
+  box-sizing: border-box !important;
+  gap: 10px !important;
+}
+
+.vlm-audio-preview-zone.vlm-preview-active {
+  display: flex !important;
+}
+
+.vlm-preview-player-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  flex: 1 !important;
+}
+
+.vlm-btn-preview-play {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  border-radius: 50% !important;
+  border: none !important;
+  background: var(--vlm-petrol) !important;
+  color: white !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: transform 0.15s !important;
+}
+
+.vlm-btn-preview-play:hover { transform: scale(1.1) !important; }
+
+.vlm-preview-track {
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+}
+
+.vlm-preview-progressbar-bg {
+  width: 100% !important;
+  height: 5px !important;
+  background: #ccfbf1 !important;
+  border-radius: 4px !important;
+  overflow: hidden !important;
+  cursor: pointer !important;
+}
+
+.vlm-preview-progressbar-fill {
+  height: 100% !important;
+  width: 0% !important;
+  background: var(--vlm-petrol) !important;
+  border-radius: 4px !important;
+  transition: width 0.1s linear !important;
+}
+
+.vlm-preview-time {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--vlm-petrol) !important;
+}
+
+.vlm-preview-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.vlm-btn-preview-trash {
+  background: #fee2e2 !important;
+  color: #dc2626 !important;
+  border: none !important;
+  border-radius: 50% !important;
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: transform 0.15s !important;
+}
+
+.vlm-btn-preview-trash:hover { transform: scale(1.1) !important; }
+
+.vlm-btn-preview-send {
+  background: linear-gradient(135deg, #042e34 0%, #063940 100%) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 50% !important;
+  width: 34px !important;
+  height: 34px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  box-shadow: 0 2px 8px rgba(6, 57, 64, 0.3) !important;
+  transition: transform 0.15s !important;
+}
+
+.vlm-btn-preview-send:hover { transform: scale(1.1) !important; }
+
 /* ══════════════════════════════════════════════════════════════════════════════
-   9. RODAPÉ LIMPO ("Valem Pack")
+   11. RODAPÉ LIMPO ("Valem Pack")
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-footer {
@@ -1035,7 +1419,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   10. KEYFRAMES
+   12. KEYFRAMES
    ══════════════════════════════════════════════════════════════════════════════ */
 
 @keyframes vlm-slide-fade-in {
@@ -1045,7 +1429,7 @@
 
 @keyframes vlm-pop-in {
   0% { transform: scale(0); opacity: 0; }
-  70% { transform: scale(1.15); }
+  70% { transform: scale(1.1); }
   100% { transform: scale(1); opacity: 1; }
 }
 

@@ -225,6 +225,30 @@ async function handleVisitorMessage(
 ) {
   const { type, content, url, title } = payload;
 
+  // Identificação do visitante (Onboarding Pré-Chat com Nome + CPF/CNPJ)
+  if (type === "visitor_identify") {
+    const { name, doc } = payload;
+    const cleanDoc = (doc || "").replace(/\D/g, "");
+    const isCpf = cleanDoc.length === 11;
+    const isCnpj = cleanDoc.length === 14;
+
+    await updateVisitorData(tenantId, visitor.id, {
+      name: name || visitor.name,
+      cpf: isCpf ? doc : visitor.cpf,
+      cnpj: isCnpj ? doc : visitor.cnpj,
+      ...(url ? { currentUrl: url, currentTitle: title } : {}),
+    });
+
+    broadcastToOperators(tenantId, {
+      type: "visitor_updated",
+      visitorId: visitor.id,
+      name,
+      cpf: isCpf ? doc : undefined,
+      cnpj: isCnpj ? doc : undefined,
+    });
+    return;
+  }
+
   // Pageview update
   if (type === "pageview") {
     if (url) {

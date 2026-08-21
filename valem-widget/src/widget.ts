@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 💬 VALEM CHAT WIDGET — Valentina Live Chat (Valempack Store Engine)
-// Áudio · Anexos · Player Custom · Timestamps ao Clicar · Paleta Oficial
+// 💬 VALEM CHAT WIDGET — Valentina Live Chat Engine (v3.0)
+// Pre-Chat Onboarding · Validação CPF/CNPJ · 3 Mensagens · Audio Preview · Lightbox
 // ══════════════════════════════════════════════════════════════════════════════
 
 export interface WidgetOptions {
@@ -25,6 +25,8 @@ interface ChatMessage {
   fullDateStr: string;
 }
 
+// ── Helpers de Formatação e Validação ──────────────────────────────────────────
+
 function formatTime(d = new Date()): string {
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
@@ -45,6 +47,75 @@ function formatDuration(sec = 0): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${s < 10 ? "0" : ""}${s}`;
+}
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "Bom dia";
+  if (hour >= 12 && hour < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
+// ── Validação e Máscara Adaptativa CPF / CNPJ ──────────────────────────────────
+
+function isValidCPF(cpf: string): boolean {
+  const clean = cpf.replace(/\D/g, "");
+  if (clean.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(clean)) return false;
+  let sum = 0, rest = 0;
+  for (let i = 1; i <= 9; i++) sum += parseInt(clean[i - 1]) * (11 - i);
+  rest = (sum * 10) % 11;
+  if (rest === 10 || rest === 11) rest = 0;
+  if (rest !== parseInt(clean[9])) return false;
+  sum = 0;
+  for (let i = 1; i <= 10; i++) sum += parseInt(clean[i - 1]) * (12 - i);
+  rest = (sum * 10) % 11;
+  if (rest === 10 || rest === 11) rest = 0;
+  if (rest !== parseInt(clean[10])) return false;
+  return true;
+}
+
+function isValidCNPJ(cnpj: string): boolean {
+  const clean = cnpj.replace(/\D/g, "");
+  if (clean.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(clean)) return false;
+  let length = clean.length - 2;
+  let numbers = clean.substring(0, length);
+  const digits = clean.substring(length);
+  let sum = 0;
+  let pos = length - 7;
+  for (let i = length; i >= 1; i--) {
+    sum += parseInt(numbers.charAt(length - i)) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+  if (result !== parseInt(digits.charAt(0))) return false;
+  length += 1;
+  numbers = clean.substring(0, length);
+  sum = 0;
+  pos = length - 7;
+  for (let i = length; i >= 1; i--) {
+    sum += parseInt(numbers.charAt(length - i)) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+  if (result !== parseInt(digits.charAt(1))) return false;
+  return true;
+}
+
+function formatCpfCnpj(val: string): string {
+  const clean = val.replace(/\D/g, "").slice(0, 14);
+  if (clean.length <= 11) {
+    return clean
+      .replace(/^(\d{3})(\d)/, "$1.$2")
+      .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+  }
+  return clean
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4")
+    .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
 }
 
 function getOrCreateCookieId(): string {
@@ -68,34 +139,73 @@ export class ValemChatWidget {
   private messages: ChatMessage[] = [];
   private isOpen = false;
   private isPillExpanded = true;
-  private isTyping = false;
   private unreadCount = 0;
-  
-  // Mídia & Áudio
+  private isTyping = false;
+  private reconnectAttempts = 0;
+  private reconnectTimer: any = null;
+  private pageviewInterval: any = null;
+  private pillLoopTimer: any = null;
+  private isHoveringFab = false;
   private pendingFile: File | null = null;
+  
+  // Visitante Onboarding
+  private visitorName = "";
+  private visitorDoc = ""; // CPF ou CNPJ
+  private hasCompletedPrechat = false;
+  private hasSentWelcomeSequence = false;
+
+  // Gravação de áudio
   private mediaRecorder: MediaRecorder | null = null;
   private audioChunks: Blob[] = [];
   private recordStartTime = 0;
-  private recordTimer: ReturnType<typeof setInterval> | null = null;
+  private recordTimer: any = null;
   private recordingDurationSec = 0;
+  private recordedAudioBlob: Blob | null = null;
+  private recordedAudioDataUrl = "";
+  private previewAudioElem: HTMLAudioElement | null = null;
 
-  // Timers
-  private pillLoopTimer: ReturnType<typeof setInterval> | null = null;
-  private isHoveringFab = false;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectAttempts = 0;
-  private pageviewInterval: ReturnType<typeof setInterval> | null = null;
+  constructor(options: Partial<WidgetOptions> = {}) {
+    const scriptTag = document.currentScript as HTMLScriptElement | null;
+    const dataset = scriptTag ? scriptTag.dataset : {};
 
-  constructor(opts: WidgetOptions) {
-    this.opts = opts;
+    this.opts = {
+      tenant: options.tenant || dataset.tenant || "valem",
+      wsUrl: options.wsUrl || dataset.ws || `ws://${location.host}/ws/livechat`,
+      avatarUrl: options.avatarUrl || dataset.avatar || "/valentina-avatar.png",
+      whatsappNumber: options.whatsappNumber || dataset.whatsapp || "5514981468232",
+      mock: options.mock !== undefined ? options.mock : dataset.mock === "true",
+    };
+
     this.cookieId = getOrCreateCookieId();
+    this.loadSavedVisitorData();
+    this.init();
   }
 
-  mount() {
+  private loadSavedVisitorData() {
+    try {
+      this.visitorName = localStorage.getItem("valem_visitor_name") || "";
+      this.visitorDoc = localStorage.getItem("valem_visitor_doc") || "";
+      if (this.visitorName && this.visitorDoc) {
+        this.hasCompletedPrechat = true;
+      }
+    } catch {}
+  }
+
+  private saveVisitorData(name: string, doc: string) {
+    this.visitorName = name.trim();
+    this.visitorDoc = doc.trim();
+    this.hasCompletedPrechat = true;
+    try {
+      localStorage.setItem("valem_visitor_name", this.visitorName);
+      localStorage.setItem("valem_visitor_doc", this.visitorDoc);
+    } catch {}
+  }
+
+  private init() {
     this.injectDOM();
-    this.startPillAnimationLoop();
     this.connectWebSocket();
     this.startPageviewTracking();
+    this.startPillAnimationLoop();
   }
 
   private injectDOM() {
@@ -109,6 +219,7 @@ export class ValemChatWidget {
   private renderHTML(): string {
     const avatar = this.opts.avatarUrl;
     return `
+    <!-- BOTÃO FLUTUANTE PILL -->
     <div id="vlm-fab-wrapper">
       <button id="vlm-fab-button" class="vlm-pill-expanded" aria-label="Falar com Valentina">
         <div class="vlm-pill-content">
@@ -127,10 +238,60 @@ export class ValemChatWidget {
       <div id="vlm-fab-badge">0</div>
     </div>
 
+    <!-- LIGHTBOX FOTO EM TELA CHEIA -->
+    <div id="vlm-avatar-lightbox">
+      <div class="vlm-lightbox-content">
+        <button id="vlm-btn-close-lightbox" class="vlm-lightbox-close-btn" title="Fechar">✕</button>
+        <img src="${avatar}" alt="Valentina" class="vlm-lightbox-img" />
+        <span class="vlm-lightbox-name">Valentina</span>
+        <span class="vlm-lightbox-role">Consultora Comercial • Valem Pack</span>
+      </div>
+    </div>
+
+    <!-- PAINEL PRINCIPAL DO CHAT -->
     <div id="vlm-panel" aria-hidden="true">
+
+      <!-- TELA 1: PRE-CHAT ONBOARDING (NOME + CPF/CNPJ) -->
+      <div id="vlm-prechat-view" class="${this.hasCompletedPrechat ? "vlm-prechat-hidden" : ""}">
+        <button id="vlm-btn-prechat-close" class="vlm-prechat-header-close" title="Fechar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+
+        <div class="vlm-prechat-body">
+          <div class="vlm-prechat-icon-circle">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+          </div>
+          <h2 class="vlm-prechat-title">Bem-vindo à Valem!</h2>
+          <p class="vlm-prechat-subtitle">Valentina está pronta para te atender. Como podemos te chamar?</p>
+
+          <form id="vlm-prechat-form" class="vlm-prechat-form">
+            <div class="vlm-prechat-field">
+              <label class="vlm-prechat-label">Seu Nome</label>
+              <input type="text" id="vlm-input-name" class="vlm-prechat-input" placeholder="Digite seu nome..." autocomplete="name" required />
+            </div>
+
+            <div class="vlm-prechat-field">
+              <label class="vlm-prechat-label">CPF ou CNPJ</label>
+              <input type="text" id="vlm-input-doc" class="vlm-prechat-input" placeholder="Digite seu CPF ou CNPJ..." maxlength="18" autocomplete="off" required />
+              <span id="vlm-doc-error" class="vlm-prechat-error-msg">Informe um CPF ou CNPJ válido</span>
+            </div>
+
+            <button type="submit" id="vlm-btn-start-chat" class="vlm-prechat-submit-btn" disabled>
+              <span>Iniciar Atendimento</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </form>
+        </div>
+
+        <div style="font-size:11px; opacity:0.65; text-align:center; padding-top:12px;">
+          Valem Válvulas e Embalagens • Loja Oficial
+        </div>
+      </div>
+
+      <!-- TELA 2: INTERFACE DE CONVERSA COM VALENTINA -->
       <div id="vlm-header">
         <div id="vlm-header-left">
-          <div class="vlm-header-avatar-wrap">
+          <div class="vlm-header-avatar-wrap" id="vlm-header-avatar-btn" title="Ver foto em tela cheia">
             <img src="${avatar}" alt="Valentina" class="vlm-header-avatar-img" />
             <span class="vlm-header-status-badge"></span>
           </div>
@@ -160,8 +321,12 @@ export class ValemChatWidget {
           Conversa copiada!
         </div>
       </div>
+
       <div id="vlm-messages-container"></div>
+
+      <!-- INPUT ZONE -->
       <div id="vlm-input-zone">
+        <!-- Barra de Prévia de Arquivo -->
         <div id="vlm-attachment-preview-bar">
           <div class="vlm-preview-chip">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -169,6 +334,8 @@ export class ValemChatWidget {
           </div>
           <button id="vlm-btn-remove-attachment" class="vlm-preview-remove-btn" title="Remover anexo">✕</button>
         </div>
+
+        <!-- 1) Linha Padrão de Input (Clipe + Textarea + Botão Unificado Mic/Enviar) -->
         <div id="vlm-standard-input-row" class="vlm-input-row">
           <input type="file" id="vlm-file-input" style="display:none" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.csv,.txt" />
           <button id="vlm-btn-attach" class="vlm-btn-clip" title="Anexar foto, vídeo, documento ou planilha" aria-label="Anexar arquivo">
@@ -177,24 +344,54 @@ export class ValemChatWidget {
           <div class="vlm-textarea-wrap">
             <textarea id="vlm-chat-textarea" rows="1" placeholder="Digite sua mensagem..." autocomplete="off" maxlength="1500"></textarea>
           </div>
-          <button id="vlm-btn-mic" class="vlm-btn-action-circle" title="Gravar áudio" aria-label="Gravar áudio">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-          </button>
-          <button id="vlm-btn-send" class="vlm-btn-action-circle" style="display:none" title="Enviar mensagem" aria-label="Enviar mensagem">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          <!-- Botão Unificado: Mic quando vazio, Enviar quando preenchido -->
+          <button id="vlm-btn-action-main" class="vlm-btn-action-circle" title="Gravar áudio" aria-label="Ação">
+            <svg id="vlm-icon-mic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            <svg id="vlm-icon-send" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
+
+        <!-- 2) Linha de Gravação de Áudio Ativa -->
         <div id="vlm-audio-record-row" class="vlm-audio-record-zone">
           <div class="vlm-rec-indicator">
             <span class="vlm-rec-dot"></span>
             <span id="vlm-rec-timer">00:00</span>
           </div>
           <div class="vlm-rec-actions">
-            <button id="vlm-btn-rec-cancel" class="vlm-btn-rec-cancel" title="Cancelar gravação"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
-            <button id="vlm-btn-rec-send" class="vlm-btn-rec-send" title="Enviar áudio"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></button>
+            <button id="vlm-btn-rec-cancel" class="vlm-btn-rec-cancel" title="Cancelar gravação">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+            <button id="vlm-btn-rec-finish" class="vlm-btn-rec-stop" title="Concluir gravação para pré-escuta">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
           </div>
         </div>
+
+        <!-- 3) Linha de Pré-Escuta do Áudio Gravado (Preview) -->
+        <div id="vlm-audio-preview-row" class="vlm-audio-preview-zone">
+          <div class="vlm-preview-player-left">
+            <button id="vlm-btn-preview-play" class="vlm-btn-preview-play" title="Tocar prévia">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+            <div class="vlm-preview-track">
+              <div id="vlm-preview-progressbar-bg" class="vlm-preview-progressbar-bg">
+                <div id="vlm-preview-progressbar-fill" class="vlm-preview-progressbar-fill"></div>
+              </div>
+              <span id="vlm-preview-duration" class="vlm-preview-time">0:00</span>
+            </div>
+          </div>
+          <div class="vlm-preview-actions">
+            <button id="vlm-btn-preview-trash" class="vlm-btn-preview-trash" title="Descartar áudio">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+            <button id="vlm-btn-preview-send" class="vlm-btn-preview-send" title="Enviar áudio gravado">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+
       </div>
+
       <div id="vlm-footer">Valem Pack</div>
     </div>
     `;
@@ -204,21 +401,101 @@ export class ValemChatWidget {
     const fabButton = document.getElementById("vlm-fab-button")!;
     const btnClose = document.getElementById("vlm-btn-close")!;
     const btnCopy = document.getElementById("vlm-btn-copy-dialog")!;
-    const btnSend = document.getElementById("vlm-btn-send")!;
-    const btnMic = document.getElementById("vlm-btn-mic")!;
+    const btnActionMain = document.getElementById("vlm-btn-action-main")!;
     const btnAttach = document.getElementById("vlm-btn-attach")!;
     const fileInput = document.getElementById("vlm-file-input") as HTMLInputElement;
     const btnRemoveAtt = document.getElementById("vlm-btn-remove-attachment")!;
     const btnRecCancel = document.getElementById("vlm-btn-rec-cancel")!;
-    const btnRecSend = document.getElementById("vlm-btn-rec-send")!;
+    const btnRecFinish = document.getElementById("vlm-btn-rec-finish")!;
     const textarea = document.getElementById("vlm-chat-textarea") as HTMLTextAreaElement;
 
+    // Pre-chat form events
+    const prechatForm = document.getElementById("vlm-prechat-form") as HTMLFormElement;
+    const inputName = document.getElementById("vlm-input-name") as HTMLInputElement;
+    const inputDoc = document.getElementById("vlm-input-doc") as HTMLInputElement;
+    const docError = document.getElementById("vlm-doc-error")!;
+    const btnStartChat = document.getElementById("vlm-btn-start-chat") as HTMLButtonElement;
+    const btnPrechatClose = document.getElementById("vlm-btn-prechat-close")!;
+
+    // Lightbox events
+    const headerAvatarBtn = document.getElementById("vlm-header-avatar-btn")!;
+    const lightbox = document.getElementById("vlm-avatar-lightbox")!;
+    const btnCloseLightbox = document.getElementById("vlm-btn-close-lightbox")!;
+
+    // Audio Preview events
+    const btnPrevPlay = document.getElementById("vlm-btn-preview-play")!;
+    const btnPrevTrash = document.getElementById("vlm-btn-preview-trash")!;
+    const btnPrevSend = document.getElementById("vlm-btn-preview-send")!;
+
+    // ── Pre-Chat Input Validation & Masking ──────────────────────────────────
+    const checkPrechatValidity = () => {
+      const nameVal = inputName.value.trim();
+      const rawDoc = inputDoc.value.replace(/\D/g, "");
+      const isDocValid = rawDoc.length === 11 ? isValidCPF(rawDoc) : rawDoc.length === 14 ? isValidCNPJ(rawDoc) : false;
+
+      if (rawDoc.length > 0 && !isDocValid && (rawDoc.length === 11 || rawDoc.length === 14)) {
+        inputDoc.classList.add("vlm-input-error");
+        docError.classList.add("vlm-show-error");
+      } else {
+        inputDoc.classList.remove("vlm-input-error");
+        docError.classList.remove("vlm-show-error");
+      }
+
+      if (nameVal.length >= 2 && isDocValid) {
+        btnStartChat.removeAttribute("disabled");
+      } else {
+        btnStartChat.setAttribute("disabled", "true");
+      }
+    };
+
+    inputName.addEventListener("input", checkPrechatValidity);
+    inputDoc.addEventListener("input", () => {
+      inputDoc.value = formatCpfCnpj(inputDoc.value);
+      checkPrechatValidity();
+    });
+
+    prechatForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = inputName.value.trim();
+      const doc = inputDoc.value.trim();
+      if (!name || !doc) return;
+      this.saveVisitorData(name, doc);
+      document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden");
+      this.notifyVisitorDataToBackend();
+      this.triggerWelcomeSequence();
+    });
+
+    btnPrechatClose.addEventListener("click", () => this.closePanel());
+
+    // ── Lightbox Valentina ──────────────────────────────────────────────────
+    const openLightbox = () => {
+      lightbox.classList.add("vlm-lightbox-open");
+    };
+    const closeLightbox = () => {
+      lightbox.classList.remove("vlm-lightbox-open");
+    };
+
+    headerAvatarBtn.addEventListener("click", openLightbox);
+    btnCloseLightbox.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
+    lightbox.addEventListener("click", (e) => { if (e.target === lightbox) closeLightbox(); });
+
+    // ── Fab & Chat Panel Events ─────────────────────────────────────────────
     fabButton.addEventListener("mouseenter", () => { this.isHoveringFab = true; this.setPillState(true); });
     fabButton.addEventListener("mouseleave", () => { this.isHoveringFab = false; });
     fabButton.addEventListener("click", () => this.togglePanel());
     btnClose.addEventListener("click", () => this.closePanel());
     btnCopy.addEventListener("click", () => this.copyConversation());
-    btnSend.addEventListener("click", () => this.handleSendMessage());
+
+    // Botão de Ação Unificado (Mic quando vazio, Send quando preenchido)
+    btnActionMain.addEventListener("click", () => {
+      const hasText = textarea.value.trim().length > 0;
+      const hasFile = this.pendingFile !== null;
+      if (hasText || hasFile) {
+        this.handleSendMessage();
+      } else {
+        this.startAudioRecording();
+      }
+    });
 
     textarea.addEventListener("input", () => {
       textarea.style.height = "20px";
@@ -231,9 +508,16 @@ export class ValemChatWidget {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.handleSendMessage(); }
     });
 
-    btnMic.addEventListener("click", () => this.startAudioRecording());
+    // Gravação de Áudio
     btnRecCancel.addEventListener("click", () => this.cancelAudioRecording());
-    btnRecSend.addEventListener("click", () => this.stopAndSendAudioRecording());
+    btnRecFinish.addEventListener("click", () => this.finishRecordingForPreview());
+
+    // Preview do Áudio
+    btnPrevPlay.addEventListener("click", () => this.togglePreviewAudioPlay());
+    btnPrevTrash.addEventListener("click", () => this.discardAudioPreview());
+    btnPrevSend.addEventListener("click", () => this.sendRecordedAudioFromPreview());
+
+    // Anexos
     btnAttach.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", () => { if (fileInput.files && fileInput.files[0]) this.handleFileSelected(fileInput.files[0]); });
     btnRemoveAtt.addEventListener("click", () => this.clearPendingFile());
@@ -269,8 +553,17 @@ export class ValemChatWidget {
     }
     if (fabWrapper) fabWrapper.style.display = "none";
     if (badge) { badge.style.display = "none"; this.unreadCount = 0; }
+    
+    // Se o pre-chat já foi feito ou se tem dados, foca no chat e dispara boas-vindas se necessário
+    if (this.hasCompletedPrechat) {
+      document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden");
+      this.triggerWelcomeSequence();
+      setTimeout(() => { (document.getElementById("vlm-chat-textarea") as HTMLTextAreaElement)?.focus(); }, 200);
+    } else {
+      document.getElementById("vlm-prechat-view")?.classList.remove("vlm-prechat-hidden");
+      setTimeout(() => { (document.getElementById("vlm-input-name") as HTMLInputElement)?.focus(); }, 200);
+    }
     this.scrollToBottom();
-    setTimeout(() => { (document.getElementById("vlm-chat-textarea") as HTMLTextAreaElement)?.focus(); }, 200);
   }
 
   private closePanel() {
@@ -285,14 +578,87 @@ export class ValemChatWidget {
     if (fabWrapper) { fabWrapper.style.display = "block"; this.setPillState(true); }
   }
 
+  // ── 3 Mensagens Fragmentadas da Valentina ─────────────────────────────────
+  private triggerWelcomeSequence() {
+    if (this.hasSentWelcomeSequence || this.messages.length > 0) return;
+    this.hasSentWelcomeSequence = true;
+
+    const name = this.visitorName ? this.visitorName.split(" ")[0] : "";
+    const greeting = getGreeting();
+    const msg1Text = name ? `${greeting}, ${name}!` : `${greeting}!`;
+    const msg2Text = "Eu sou a Valentina, da Valem Válvulas e Embalagens 😊";
+    const msg3Text = "Como posso te ajudar hoje?";
+
+    // Mensagem 1
+    setTimeout(() => {
+      this.addMessage({
+        id: `welcome-1-${Date.now()}`,
+        sender: "ai",
+        text: msg1Text,
+        contentType: "text",
+        timestamp: new Date().toISOString(),
+        timeStr: formatTime(),
+        fullDateStr: formatFullDate(),
+      });
+
+      // Mensagem 2 (com digitação simulada)
+      setTimeout(() => {
+        this.showTypingIndicator();
+        setTimeout(() => {
+          this.hideTypingIndicator();
+          this.addMessage({
+            id: `welcome-2-${Date.now()}`,
+            sender: "ai",
+            text: msg2Text,
+            contentType: "text",
+            timestamp: new Date().toISOString(),
+            timeStr: formatTime(),
+            fullDateStr: formatFullDate(),
+          });
+
+          // Mensagem 3 (com digitação simulada)
+          setTimeout(() => {
+            this.showTypingIndicator();
+            setTimeout(() => {
+              this.hideTypingIndicator();
+              this.addMessage({
+                id: `welcome-3-${Date.now()}`,
+                sender: "ai",
+                text: msg3Text,
+                contentType: "text",
+                timestamp: new Date().toISOString(),
+                timeStr: formatTime(),
+                fullDateStr: formatFullDate(),
+              });
+            }, 800);
+          }, 400);
+
+        }, 800);
+      }, 400);
+
+    }, 300);
+  }
+
+  private notifyVisitorDataToBackend() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: "visitor_identify",
+        name: this.visitorName,
+        doc: this.visitorDoc,
+        url: location.href,
+        title: document.title,
+      }));
+    }
+  }
+
   private copyConversation() {
     if (this.messages.length === 0) return;
     const transcript = this.messages.map(m => {
-      const sender = m.sender === "visitor" ? "Você" : m.sender === "ai" ? "Valentina (Valem)" : "Operador";
+      const sender = m.sender === "visitor" ? (this.visitorName || "Você") : m.sender === "ai" ? "Valentina (Valem)" : "Operador";
       const content = m.text || (m.fileName ? `[Arquivo: ${m.fileName}]` : "[Áudio]");
       return `[${m.timeStr}] ${sender}:\n${content}\n`;
     }).join("\n");
-    const header = `--- Atendimento Valem Pack ---\nData: ${new Date().toLocaleDateString("pt-BR")}\n\n`;
+    const header = `--- Atendimento Valem Pack ---\nData: ${new Date().toLocaleDateString("pt-BR")}\nCliente: ${this.visitorName || "Visitante"} (${this.visitorDoc || "Não informado"})\n\n`;
     const fullText = header + transcript;
     const showToast = () => {
       const toast = document.getElementById("vlm-copy-toast");
@@ -310,6 +676,8 @@ export class ValemChatWidget {
     cb();
   }
 
+  // ── Gravação de Áudio com Preview ─────────────────────────────────────────
+
   private async startAudioRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -324,9 +692,12 @@ export class ValemChatWidget {
       this.mediaRecorder.start(200);
       this.recordStartTime = Date.now();
       this.recordingDurationSec = 0;
+
       document.getElementById("vlm-standard-input-row")!.style.display = "none";
+      document.getElementById("vlm-audio-preview-row")!.classList.remove("vlm-preview-active");
       const recZone = document.getElementById("vlm-audio-record-row")!;
       recZone.classList.add("vlm-recording-active");
+
       const timerElem = document.getElementById("vlm-rec-timer")!;
       timerElem.textContent = "00:00";
       this.recordTimer = setInterval(() => {
@@ -335,7 +706,7 @@ export class ValemChatWidget {
         const s = this.recordingDurationSec % 60;
         timerElem.textContent = `${m < 10 ? "0" : ""}${m}:${s < 10 ? "0" : ""}${s}`;
       }, 1000);
-    } catch (err) { alert("Permissão de microfone negada ou indisponível."); }
+    } catch (err) { alert("Permissão de microfone negada ou microfone indisponível."); }
   }
 
   private cancelAudioRecording() {
@@ -345,39 +716,140 @@ export class ValemChatWidget {
       this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
     }
     this.audioChunks = [];
-    this.resetAudioRecordUI();
+    this.resetAudioUI();
   }
 
-  private stopAndSendAudioRecording() {
+  private finishRecordingForPreview() {
     if (this.recordTimer) clearInterval(this.recordTimer);
     if (!this.mediaRecorder) return;
-    this.mediaRecorder.onstop = async () => {
+
+    this.mediaRecorder.onstop = () => {
       this.mediaRecorder?.stream.getTracks().forEach(t => t.stop());
       const mimeType = this.mediaRecorder?.mimeType || "audio/webm";
-      const audioBlob = new Blob(this.audioChunks, { type: mimeType });
-      if (audioBlob.size < 1000) { this.resetAudioRecordUI(); return; }
+      this.recordedAudioBlob = new Blob(this.audioChunks, { type: mimeType });
+      if (this.recordedAudioBlob.size < 500) {
+        this.resetAudioUI();
+        return;
+      }
+
       const reader = new FileReader();
-      reader.onloadend = () => { this.sendAudioMessage((reader.result as string) || "", mimeType, this.recordingDurationSec); };
-      reader.readAsDataURL(audioBlob);
-      this.resetAudioRecordUI();
+      reader.onloadend = () => {
+        this.recordedAudioDataUrl = (reader.result as string) || "";
+        this.showAudioPreviewUI(this.recordedAudioDataUrl, this.recordingDurationSec);
+      };
+      reader.readAsDataURL(this.recordedAudioBlob);
     };
+
     if (this.mediaRecorder.state !== "inactive") this.mediaRecorder.stop();
   }
 
-  private resetAudioRecordUI() {
+  private showAudioPreviewUI(dataUrl: string, durationSec: number) {
+    document.getElementById("vlm-standard-input-row")!.style.display = "none";
+    document.getElementById("vlm-audio-record-row")!.classList.remove("vlm-recording-active");
+    const previewZone = document.getElementById("vlm-audio-preview-row")!;
+    previewZone.classList.add("vlm-preview-active");
+
+    const durElem = document.getElementById("vlm-preview-duration")!;
+    durElem.textContent = formatDuration(durationSec);
+
+    if (this.previewAudioElem) {
+      this.previewAudioElem.pause();
+    }
+    this.previewAudioElem = new Audio(dataUrl);
+    const fill = document.getElementById("vlm-preview-progressbar-fill")!;
+    const playBtn = document.getElementById("vlm-btn-preview-play")!;
+
+    fill.style.width = "0%";
+    playBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+
+    this.previewAudioElem.addEventListener("timeupdate", () => {
+      const dur = durationSec > 0 ? durationSec : (this.previewAudioElem?.duration || 1);
+      const pct = Math.min(((this.previewAudioElem?.currentTime || 0) / dur) * 100, 100);
+      fill.style.width = `${pct}%`;
+    });
+
+    this.previewAudioElem.addEventListener("ended", () => {
+      playBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+      fill.style.width = "0%";
+    });
+  }
+
+  private togglePreviewAudioPlay() {
+    if (!this.previewAudioElem) return;
+    const playBtn = document.getElementById("vlm-btn-preview-play")!;
+    if (this.previewAudioElem.paused) {
+      this.previewAudioElem.play();
+      playBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
+    } else {
+      this.previewAudioElem.pause();
+      playBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+    }
+  }
+
+  private discardAudioPreview() {
+    if (this.previewAudioElem) {
+      this.previewAudioElem.pause();
+      this.previewAudioElem = null;
+    }
+    this.recordedAudioBlob = null;
+    this.recordedAudioDataUrl = "";
+    this.resetAudioUI();
+  }
+
+  private sendRecordedAudioFromPreview() {
+    if (!this.recordedAudioDataUrl) {
+      this.resetAudioUI();
+      return;
+    }
+    if (this.previewAudioElem) {
+      this.previewAudioElem.pause();
+      this.previewAudioElem = null;
+    }
+    const mimeType = this.recordedAudioBlob?.type || "audio/webm";
+    const duration = this.recordingDurationSec;
+    const dataUrl = this.recordedAudioDataUrl;
+
+    this.resetAudioUI();
+    this.sendAudioMessage(dataUrl, mimeType, duration);
+  }
+
+  private resetAudioUI() {
     document.getElementById("vlm-standard-input-row")!.style.display = "flex";
-    const recZone = document.getElementById("vlm-audio-record-row")!;
-    recZone.classList.remove("vlm-recording-active");
+    document.getElementById("vlm-audio-record-row")!.classList.remove("vlm-recording-active");
+    document.getElementById("vlm-audio-preview-row")!.classList.remove("vlm-preview-active");
+    this.updateButtonsState();
   }
 
   private sendAudioMessage(dataUrl: string, mimeType: string, durationSec: number) {
     const msgId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-    this.addMessage({ id: msgId, sender: "visitor", text: "", contentType: "audio", mediaUrl: dataUrl, durationSec, timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
+    this.addMessage({
+      id: msgId,
+      sender: "visitor",
+      text: "",
+      contentType: "audio",
+      mediaUrl: dataUrl,
+      durationSec,
+      timestamp: new Date().toISOString(),
+      timeStr: formatTime(),
+      fullDateStr: formatFullDate(),
+    });
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.showTypingIndicator();
-      this.ws.send(JSON.stringify({ type: "visitor_audio", audioBase64: dataUrl, mimeType, durationSec, url: location.href, title: document.title }));
+      this.ws.send(JSON.stringify({
+        type: "visitor_audio",
+        audioBase64: dataUrl,
+        mimeType,
+        durationSec,
+        visitorName: this.visitorName,
+        visitorDoc: this.visitorDoc,
+        url: location.href,
+        title: document.title,
+      }));
     }
   }
+
+  // ── Mídia & Anexos ────────────────────────────────────────────────────────
 
   private handleFileSelected(file: File) {
     if (file.size > 20 * 1024 * 1024) { alert("Arquivo muito grande. Limite máximo: 20MB."); return; }
@@ -567,7 +1039,7 @@ export class ValemChatWidget {
     row.id = "vlm-typing-indicator";
     row.className = "vlm-typing-row";
     row.innerHTML = `
-      <img src="${this.opts.avatarUrl}" alt="Valentina" class="vlm-typing-avatar" />
+      <img src="${this.opts.avatarUrl}" alt="Valentina" class="vlm-typing-avatar" id="vlm-typing-avatar-btn" />
       <div class="vlm-typing-bubble">
         <span class="vlm-typing-dot"></span>
         <span class="vlm-typing-dot"></span>
@@ -575,6 +1047,9 @@ export class ValemChatWidget {
       </div>
     `;
     container.appendChild(row);
+    row.querySelector("#vlm-typing-avatar-btn")?.addEventListener("click", () => {
+      document.getElementById("vlm-avatar-lightbox")?.classList.add("vlm-lightbox-open");
+    });
     this.scrollToBottom();
   }
 
@@ -651,6 +1126,8 @@ export class ValemChatWidget {
             fileType: file.type,
             fileSize: file.size,
             text,
+            visitorName: this.visitorName,
+            visitorDoc: this.visitorDoc,
             url: location.href,
             title: document.title,
           }));
@@ -680,6 +1157,8 @@ export class ValemChatWidget {
         type: "visitor_message",
         text,
         messageId: msgId,
+        visitorName: this.visitorName,
+        visitorDoc: this.visitorDoc,
         url: location.href,
         title: document.title,
       }));
@@ -700,28 +1179,34 @@ export class ValemChatWidget {
 
   private updateButtonsState() {
     const textarea = document.getElementById("vlm-chat-textarea") as HTMLTextAreaElement;
-    const btnMic = document.getElementById("vlm-btn-mic");
-    const btnSend = document.getElementById("vlm-btn-send");
-    if (!btnMic || !btnSend) return;
+    const iconMic = document.getElementById("vlm-icon-mic");
+    const iconSend = document.getElementById("vlm-icon-send");
+    const btnAction = document.getElementById("vlm-btn-action-main");
+    if (!iconMic || !iconSend || !btnAction) return;
 
     const hasText = textarea ? textarea.value.trim().length > 0 : false;
     const hasFile = this.pendingFile !== null;
 
     if (hasText || hasFile) {
-      btnMic.style.display = "none";
-      btnSend.style.display = "flex";
+      iconMic.style.display = "none";
+      iconSend.style.display = "block";
+      btnAction.setAttribute("title", "Enviar mensagem");
     } else {
-      btnMic.style.display = "flex";
-      btnSend.style.display = "none";
+      iconMic.style.display = "block";
+      iconSend.style.display = "none";
+      btnAction.setAttribute("title", "Gravar áudio");
     }
   }
 
   private connectWebSocket() {
     if (this.opts.mock) return;
-    const url = `${this.opts.wsUrl}?tenantId=${this.opts.tenant}&cookieId=${this.cookieId}&currentUrl=${encodeURIComponent(location.href)}&currentTitle=${encodeURIComponent(document.title)}`;
+    const url = `${this.opts.wsUrl}?tenantId=${this.opts.tenant}&cookieId=${this.cookieId}&name=${encodeURIComponent(this.visitorName)}&doc=${encodeURIComponent(this.visitorDoc)}&currentUrl=${encodeURIComponent(location.href)}&currentTitle=${encodeURIComponent(document.title)}`;
     try {
       this.ws = new WebSocket(url);
-      this.ws.onopen = () => { this.reconnectAttempts = 0; };
+      this.ws.onopen = () => {
+        this.reconnectAttempts = 0;
+        if (this.hasCompletedPrechat) this.notifyVisitorDataToBackend();
+      };
       this.ws.onmessage = (event) => { try { this.handleIncomingPayload(JSON.parse(event.data)); } catch (e) {} };
       this.ws.onclose = () => this.scheduleReconnect();
     } catch (e) { this.scheduleReconnect(); }
@@ -756,6 +1241,7 @@ export class ValemChatWidget {
         text: "Atendimento finalizado. Agradecemos o contato com a Valem Pack!",
         timestamp: new Date().toISOString(),
         timeStr: formatTime(),
+        fullDateStr: formatFullDate(),
       });
     }
   }
