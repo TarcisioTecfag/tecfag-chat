@@ -4,6 +4,7 @@ import type { Server } from "http";
 // O import é feito de forma lazy dentro do handler do upgrade.
 
 let wss: WebSocketServer | null = null;
+let lcWss: WebSocketServer | null = null;
 let serverListenerAttached = false;
 
 function attachWebSocketServer(server: Server, label: string) {
@@ -28,13 +29,26 @@ function attachWebSocketServer(server: Server, label: string) {
           ws.close(1011, "Handler load failed");
         }
       });
+    } else if (url.startsWith("/ws/livechat")) {
+      if (!lcWss) {
+        lcWss = new WebSocketServer({ noServer: true });
+        try {
+          const { setupLiveChatWebSocket } = await import("../../src/lib/livechat/livechatWs.js");
+          setupLiveChatWebSocket(lcWss);
+        } catch (err: any) {
+          console.error(`[${label}] ❌ Falha ao carregar LiveChat WS:`, err?.message || err);
+        }
+      }
+      lcWss.handleUpgrade(request, socket, head, (ws) => {
+        lcWss!.emit("connection", ws, request);
+      });
     } else {
       console.log(`[Nitro WS] URL não mapeada, destruindo socket: ${url}`);
       socket.destroy();
     }
   });
 
-  console.log(`[${label}] ✅ Servidor WebSocket ativo em /api/voice-stream`);
+  console.log(`[${label}] ✅ Servidores WebSocket ativos em /api/voice-stream e /ws/livechat`);
 }
 
 // Nitro chama plugin(nitroApp) diretamente — exportamos a função pura.

@@ -1,0 +1,32 @@
+(function(){"use strict";function d(){const i="_vlm_vid",e=document.cookie.split("; ").find(n=>n.startsWith(i+"="));if(e)return e.split("=")[1];const t=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2);return document.cookie=`${i}=${t};max-age=${60*60*24*365};path=/;SameSite=Lax`,t}class r{constructor(e){this.ws=null,this.messages=[],this.state="idle",this.container=null,this.reconnectTimer=null,this.reconnectAttempts=0,this.pageviewTimer=null,this.opts=e,this.cookieId=d()}mount(){this.injectDOM(),this.opts.mock?this.addMessage({id:"mock-1",sender:"ai",text:"Olá! 😊 Sou a Valentina da Valem Válvulas e Embalagens. Posso te ajudar?",ts:Date.now()}):(this.connectWS(),this.trackPageview())}injectDOM(){this.container=document.createElement("div"),this.container.id="vlm-chat-root",this.container.innerHTML=this.buildHTML(),document.body.appendChild(this.container),this.bindEvents(),this.renderMessages()}buildHTML(){return`
+    <div id="vlm-bubble" aria-label="Abrir chat com Valentina" role="button" tabindex="0">
+      <div id="vlm-avatar">💬</div>
+      <div id="vlm-badge" style="display:none">1</div>
+    </div>
+
+    <div id="vlm-panel" aria-hidden="true">
+      <div id="vlm-header">
+        <div id="vlm-header-info">
+          <div id="vlm-header-avatar">V</div>
+          <div>
+            <div id="vlm-header-name">Valentina</div>
+            <div id="vlm-header-status">Online • Valem Válvulas</div>
+          </div>
+        </div>
+        <button id="vlm-close" aria-label="Fechar chat">✕</button>
+      </div>
+
+      <div id="vlm-messages" role="log" aria-live="polite"></div>
+
+      <div id="vlm-input-area">
+        <input id="vlm-input" type="text" placeholder="Digite sua mensagem..." autocomplete="off" maxlength="500" />
+        <button id="vlm-send" aria-label="Enviar">➤</button>
+      </div>
+
+      <div id="vlm-footer">Atendimento via IA • Valem Pack</div>
+    </div>
+    `}bindEvents(){const e=document.getElementById("vlm-bubble"),t=document.getElementById("vlm-close"),n=document.getElementById("vlm-send"),a=document.getElementById("vlm-input");e.addEventListener("click",()=>this.toggle()),e.addEventListener("keydown",s=>{s.key==="Enter"&&this.toggle()}),t.addEventListener("click",()=>this.close()),n.addEventListener("click",()=>this.send()),a.addEventListener("keydown",s=>{s.key==="Enter"&&!s.shiftKey&&this.send()})}renderMessages(){const e=document.getElementById("vlm-messages");e&&(e.innerHTML=this.messages.map(t=>`
+      <div class="vlm-msg vlm-msg--${t.sender}">
+        <div class="vlm-msg-bubble">${this.escapeHtml(t.text)}</div>
+      </div>
+    `).join(""),e.scrollTop=e.scrollHeight)}escapeHtml(e){return e.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>")}addMessage(e){if(this.messages.push(e),this.renderMessages(),this.state!=="open"&&e.sender!=="visitor"){const t=document.getElementById("vlm-badge");if(t){const n=parseInt(t.textContent||"0")+1;t.textContent=String(n),t.style.display="flex"}}}toggle(){this.state==="open"?this.close():this.open()}open(){this.state="open";const e=document.getElementById("vlm-panel");e&&(e.style.display="flex",e.removeAttribute("aria-hidden"));const t=document.getElementById("vlm-badge");t&&(t.style.display="none"),setTimeout(()=>document.getElementById("vlm-input")?.focus(),100)}close(){this.state="minimized";const e=document.getElementById("vlm-panel");e&&(e.style.display="none",e.setAttribute("aria-hidden","true"))}connectWS(){const e=`${this.opts.wsUrl}?tenantId=${this.opts.tenant}&cookieId=${this.cookieId}&currentUrl=${encodeURIComponent(location.href)}&currentTitle=${encodeURIComponent(document.title)}`;console.log(`[Valentina Widget] Conectando ao WS: ${e}`),this.ws=new WebSocket(e),this.ws.addEventListener("open",()=>{console.log("[Valentina Widget] ✅ WS conectado"),this.reconnectAttempts=0}),this.ws.addEventListener("message",t=>{try{const n=JSON.parse(t.data);this.handleServerEvent(n)}catch(n){console.error("[Valentina Widget] Erro ao parsear evento WS:",n)}}),this.ws.addEventListener("close",()=>{console.log("[Valentina Widget] WS fechado — tentando reconectar..."),this.scheduleReconnect()}),this.ws.addEventListener("error",t=>{console.error("[Valentina Widget] Erro WS:",t)})}handleServerEvent(e){const{type:t}=e;(t==="ai_message"||t==="operator_message")&&this.addMessage({id:e.messageId||crypto.randomUUID?.()||String(Date.now()),sender:t==="ai_message"?"ai":"operator",text:e.text,ts:Date.now()}),t==="bridge_sent"&&this.addMessage({id:"bridge-"+Date.now(),sender:"system",text:"✅ Perfeito! Vou te contactar agora pelo WhatsApp para continuar o atendimento. Fique de olho nas mensagens! 📱",ts:Date.now()}),t==="chat_closed"&&this.addMessage({id:"closed-"+Date.now(),sender:"system",text:"Atendimento encerrado. Obrigado! 😊",ts:Date.now()})}scheduleReconnect(){if(this.reconnectTimer)return;const e=Math.min(1e3*Math.pow(2,this.reconnectAttempts),3e4);this.reconnectAttempts++,console.log(`[Valentina Widget] Reconectando em ${e}ms...`),this.reconnectTimer=setTimeout(()=>{this.reconnectTimer=null,this.connectWS()},e)}send(){const e=document.getElementById("vlm-input"),t=e.value.trim();if(!t)return;e.value="";const n=crypto.randomUUID?.()||String(Date.now());if(this.addMessage({id:n,sender:"visitor",text:t,ts:Date.now()}),this.opts.mock){setTimeout(()=>{this.addMessage({id:"mock-reply-"+Date.now(),sender:"ai",text:"Entendi! Qual a quantidade que você precisa? Para atacado (CNPJ) fazemos a partir de 1.000 unidades. 😊",ts:Date.now()})},800);return}this.ws?.readyState===WebSocket.OPEN?this.ws.send(JSON.stringify({type:"visitor_message",text:t,messageId:n})):this.addMessage({id:"err-"+Date.now(),sender:"system",text:"Você está offline. Reconectando...",ts:Date.now()})}trackPageview(){let e=location.href;const t=()=>{this.ws?.readyState===WebSocket.OPEN&&this.ws.send(JSON.stringify({type:"pageview",url:location.href,title:document.title,referrer:document.referrer}))};this.pageviewTimer=setInterval(()=>{location.href!==e&&(e=location.href,t())},2e3),this.ws&&this.ws.addEventListener("open",t)}}(function(){const i=document.currentScript,e=i?.dataset.tenant||"valem",t=i?.dataset.mock==="true",n=i?.dataset.ws||a();function a(){return`${location.protocol==="https:"?"wss:":"ws:"}//${location.host}/ws/livechat`}function s(){if(window.__valemChatWidget)return;const o=new r({tenant:e,wsUrl:n,mock:t});o.mount(),window.__valemChatWidget=o}document.readyState==="loading"?document.addEventListener("DOMContentLoaded",s):s()})()})();

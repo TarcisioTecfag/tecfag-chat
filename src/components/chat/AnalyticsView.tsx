@@ -4,7 +4,7 @@ import {
   BarChart2, Clock, Users, ArrowUpRight, ArrowDownRight,
   MessageSquare, RefreshCw, Percent, FileText, CheckCircle2,
   AlertTriangle, Info, Shield, HelpCircle, Activity, Star,
-  TrendingUp, TrendingDown, Eye, Coins
+  TrendingUp, TrendingDown, Eye, Coins, Globe, Phone, Zap
 } from "lucide-react";
 // Componentes migrados do Monitoramento
 import { OverviewTab, CostsTab } from "@/components/chat/MonitorView";
@@ -603,6 +603,14 @@ export function AnalyticsView() {
 
   const [reports, setReports] = useState<AiReportData[]>([]);
 
+  const [lcMetrics, setLcMetrics] = useState<{
+    totalChats: number;
+    activeSessions: number;
+    bridgesWhatsapp: number;
+    avgScore: number;
+    conversionRate: number;
+  } | null>(null);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -666,6 +674,17 @@ export function AnalyticsView() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+        const res = await fetch(`${BACKEND_URL}/api/livechat/metrics?tenantId=${tenant}&hours=24`);
+        if (res.ok) setLcMetrics(await res.json());
+      } catch {}
+    };
+    load();
+  }, [tenant]);
+
   const tabs: { id: AnalyticsTab; label: string; icon: React.ElementType }[] = [
     { id: "overview",     label: "Visão Geral",   icon: Eye },
     { id: "performance",  label: "Desempenho",     icon: BarChart2 },
@@ -724,13 +743,48 @@ export function AnalyticsView() {
       ) : (
         <div className="flex-1 overflow-hidden px-5 py-4 flex flex-col">
           {activeTab === "overview" && (
-            <OverviewTab
-              overview={overview}
-              alerts={alerts}
-              audits={audits}
-              onSwitchTab={() => {}}
-            />
+            <>
+              <OverviewTab
+                overview={overview}
+                alerts={alerts}
+                audits={audits}
+                onSwitchTab={() => {}}
+              />
+
+              {/* ─── SEÇÃO LIVE CHAT ────────────────────────────────────────────────── */}
+              {lcMetrics !== null && (
+                <div className="rounded-2xl bg-card border border-border p-6 shadow-soft mt-5">
+                  <div className="flex items-center gap-3 mb-5">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary grid place-items-center">
+                      <Globe className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-extrabold text-foreground">Live Chat (Site)</h3>
+                      <p className="text-xs text-muted-foreground">Atendimentos via widget — últimas 24h</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    {([
+                      { label: "Sessões",        value: lcMetrics.totalChats,      icon: MessageSquare },
+                      { label: "Ativas agora",   value: lcMetrics.activeSessions,  icon: Activity },
+                      { label: "Bridges WA",     value: lcMetrics.bridgesWhatsapp, icon: Phone },
+                      { label: "Score médio",    value: lcMetrics.avgScore,        icon: TrendingUp },
+                      { label: "Conversão",      value: `${lcMetrics.conversionRate}%`, icon: Zap },
+                    ] as const).map(({ label, value, icon: Icon }) => (
+                      <div key={label} className="rounded-xl bg-muted/40 p-4 border border-border/50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Icon className="h-3.5 w-3.5 text-primary" />
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{label}</span>
+                        </div>
+                        <p className="text-2xl font-extrabold text-foreground">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
+
           {activeTab === "performance" && (
             <PerformanceTab
               volumes={performanceData.volumes}
