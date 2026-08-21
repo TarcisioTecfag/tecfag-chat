@@ -8,50 +8,43 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, sans-serif; background: #f4f4f5; color: #18181b; }
 
-    .store-header { background: #1e293b; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
-    .store-header img { height: 32px; }
-    .store-header h1 { font-size: 18px; font-weight: 700; }
-    .store-header span { font-size: 12px; opacity: 0.6; }
-
+    .store-header { background: #022329; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #f59e0b; }
+    .store-brand { display: flex; align-items: center; gap: 12px; }
+    .store-brand h1 { font-size: 18px; font-weight: 800; color: #ffffff; }
+    .store-brand span { font-size: 12px; color: #fbbf24; font-weight: 600; }
     .breadcrumb { background: white; border-bottom: 1px solid #e4e4e7; padding: 10px 24px; font-size: 12px; color: #71717a; }
-    .breadcrumb a { color: #2dc4a0; text-decoration: none; }
-
+    .breadcrumb a { color: #063940; font-weight: 600; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; }
     .container { max-width: 1200px; margin: 32px auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 400px; gap: 32px; }
-
-    .product-images { background: white; border-radius: 12px; padding: 24px; border: 1px solid #e4e4e7; }
-    .product-images .main-img { width: 100%; aspect-ratio: 1; background: linear-gradient(135deg, #e0f2fe, #bfdbfe); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 80px; margin-bottom: 16px; }
+    .product-images { background: white; border-radius: 16px; padding: 24px; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+    .product-images .main-img { width: 100%; aspect-ratio: 1; background: linear-gradient(135deg, #f0fdfa, #ccfbf1); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 80px; margin-bottom: 16px; border: 1px solid #99f6e4; }
     .product-images .thumbs { display: flex; gap: 8px; }
-    .product-images .thumb { width: 60px; height: 60px; background: #f1f5f9; border-radius: 6px; border: 2px solid #e2e8f0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 24px; }
-    .product-images .thumb.active { border-color: #2dc4a0; }
-
+    .product-images .thumb { width: 60px; height: 60px; background: #f8fafc; border-radius: 8px; border: 2px solid #e2e8f0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+    .product-images .thumb.active { border-color: #063940; }
     .product-info { display: flex; flex-direction: column; gap: 20px; }
-
-    .product-card { background: white; border-radius: 12px; padding: 24px; border: 1px solid #e4e4e7; }
-    .product-card .badge { display: inline-block; background: #d1fae5; color: #065f46; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; margin-bottom: 12px; }
-    .product-card h1 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
-    .product-card .sku { font-size: 12px; color: #71717a; margin-bottom: 16px; }
-    .product-card .price-block { border-top: 1px solid #f4f4f5; padding-top: 16px; margin-top: 8px; }
-    .product-card .price-label { font-size: 11px; color: #71717a; margin-bottom: 4px; }
-    .product-card .price { font-size: 32px; font-weight: 900; color: #2dc4a0; }
-    .product-card .price-unit { font-size: 14px; color: #71717a; }
-    .product-card .price-min { font-size: 12px; color: #64748b; margin-top: 4px; }
-    .product-card .stock { margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #059669; }
-    .product-card .stock::before { content: ''; display: block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; }
-
+    .product-card { background: white; border-radius: 16px; padding: 24px; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+    .product-card .badge { display: inline-block; background: #dcfce7; color: #166534; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; margin-bottom: 12px; }
+    .product-card h1 { font-size: 22px; font-weight: 800; margin-bottom: 8px; color: #0f172a; }
+    .product-card .sku { font-size: 12px; color: #64748b; margin-bottom: 16px; }
+    .product-card .price-block { border-top: 1px solid #f1f5f9; padding-top: 16px; margin-top: 8px; }
+    .product-card .price-label { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+    .product-card .price { font-size: 32px; font-weight: 900; color: #063940; }
+    .product-card .price-unit { font-size: 14px; color: #64748b; font-weight: 500; }
+    .product-card .price-min { font-size: 12px; color: #b45309; font-weight: 600; margin-top: 4px; }
+    .product-card .stock { margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #166534; }
+    .product-card .stock::before { content: ''; display: block; width: 8px; height: 8px; background: #22c55e; border-radius: 50%; }
     .qty-block { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
-    .qty-block input { width: 80px; height: 44px; border: 2px solid #e4e4e7; border-radius: 8px; text-align: center; font-size: 16px; font-weight: 700; }
-    .qty-block .btn-cart { flex: 1; height: 44px; background: #2dc4a0; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: background 0.2s; }
-    .qty-block .btn-cart:hover { background: #20a98a; }
-
-    .specs-card { background: white; border-radius: 12px; padding: 24px; border: 1px solid #e4e4e7; }
-    .specs-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 16px; }
+    .qty-block input { width: 80px; height: 44px; border: 2px solid #e2e8f0; border-radius: 8px; text-align: center; font-size: 16px; font-weight: 700; color: #0f172a; }
+    .qty-block .btn-cart { flex: 1; height: 44px; background: #063940; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: background 0.2s; }
+    .qty-block .btn-cart:hover { background: #084c56; }
+    .specs-card { background: white; border-radius: 16px; padding: 24px; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+    .specs-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 16px; color: #0f172a; }
     .specs-card table { width: 100%; font-size: 13px; }
-    .specs-card tr { border-bottom: 1px solid #f4f4f5; }
+    .specs-card tr { border-bottom: 1px solid #f8fafc; }
     .specs-card td { padding: 8px 0; }
-    .specs-card td:first-child { color: #71717a; width: 40%; }
-    .specs-card td:last-child { font-weight: 600; }
-
-    .test-notice { background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #92400e; display: flex; align-items: center; gap: 8px; }
+    .specs-card td:first-child { color: #64748b; width: 40%; }
+    .specs-card td:last-child { font-weight: 600; color: #0f172a; }
+    .test-notice { background: #fef3c7; border: 1px solid #fbbf24; border-radius: 10px; padding: 12px 16px; font-size: 12px; color: #92400e; display: flex; align-items: center; gap: 8px; }
     .test-notice strong { font-weight: 700; }
   </style>
 </head>
@@ -59,10 +52,12 @@
 
   <!-- Header da loja simulada -->
   <div class="store-header">
-    <div style="width:32px;height:32px;background:#2dc4a0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;">V</div>
-    <div>
-      <h1>Valem Válvulas e Embalagens</h1>
-      <span>Distribuição B2B e Varejo</span>
+    <div class="store-brand">
+      <div style="width:36px;height:36px;background:#f59e0b;color:#022329;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;">V</div>
+      <div>
+        <h1>Valem Válvulas e Embalagens</h1>
+        <span>Loja Oficial Tray Commerce</span>
+      </div>
     </div>
   </div>
 

@@ -1,4 +1,4 @@
-﻿// ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // 🔌 LIVECHAT WEBSOCKET — Servidor de mensageria em tempo real
 // Endpoint: /ws/livechat
 // Auth: ?tenantId=valem&cookieId=XXXXXXXX (identificador do visitante)
@@ -223,7 +223,7 @@ async function handleVisitorMessage(
   payload: any,
   tenantId: string
 ) {
-  const { type, content, url, title, pageviewData } = payload;
+  const { type, content, url, title } = payload;
 
   // Pageview update
   if (type === "pageview") {
@@ -243,39 +243,30 @@ async function handleVisitorMessage(
     return;
   }
 
-  // Mensagem de texto
-  if (type === "message" && content) {
-    if (isNoise(content)) {
+  // ── Mensagem de texto (ou payload de visitante) ──
+  const userText = content || payload.text;
+  if ((type === "message" || type === "visitor_message") && userText) {
+    if (isNoise(userText)) {
       send(conn.ws, { type: "pong" });
       return;
     }
 
-    // Salva mensagem do visitante
-    await saveMessage(tenantId, chat.id, "visitor", content);
+    await saveMessage(tenantId, chat.id, "visitor", userText);
 
-    // Notifica operadores
     broadcastToOperators(tenantId, {
       type: "new_message",
       chatId: chat.id,
       visitorId: visitor.id,
       sender: "visitor",
-      content,
+      content: userText,
     });
 
-    // Se operador assumiu, não passa pela IA
     if (chat.status === "operator_took_over") {
       return;
     }
 
-    // Passa pela IA
-    const aiResponse = await processVisitorMessage(
-      tenantId,
-      visitor,
-      chat,
-      content
-    );
+    const aiResponse = await processVisitorMessage(tenantId, visitor, chat, userText);
 
-    // Atualiza score do visitante
     if (aiResponse.score !== undefined) {
       const temp = scoreToTemperature(aiResponse.score);
       await updateVisitorData(tenantId, visitor.id, {
@@ -285,12 +276,10 @@ async function handleVisitorMessage(
       });
     }
 
-    // Atualiza dados coletados se CNPJ encontrado
     if (aiResponse.cnpjToCheck) {
       await updateVisitorData(tenantId, visitor.id, { cnpj: aiResponse.cnpjToCheck });
     }
 
-    // Envia resposta da IA ao visitante
     send(conn.ws, {
       type: "message",
       chatId: chat.id,
@@ -298,7 +287,6 @@ async function handleVisitorMessage(
       content: aiResponse.text,
     });
 
-    // Notifica operadores
     broadcastToOperators(tenantId, {
       type: "new_message",
       chatId: chat.id,
@@ -307,12 +295,11 @@ async function handleVisitorMessage(
       content: aiResponse.text,
     });
 
-    // Se produto identificado, busca na Tray e envia card
     if (aiResponse.trayProductId || visitor.currentUrl) {
       try {
         const searchTerm = visitor.currentUrl
           ? extractSearchTermFromUrl(visitor.currentUrl)
-          : content;
+          : userText;
         const products = await searchProducts(tenantId, searchTerm, 1);
         if (products[0]) {
           const productCard = {
@@ -349,6 +336,133 @@ async function handleVisitorMessage(
       send(conn.ws, bridgeEvent);
       broadcastToOperators(tenantId, bridgeEvent);
     }
+    return;
+  }
+
+  // ── Mensagem de Áudio ──────────────────────────────
+  if (type === "visitor_audio" || type === "audio") {
+    const { audioBase64, mimeType = "audio/webm", durationSec = 0 } = payload;
+    if (!audioBase64) return;
+
+    const mediaDataUrl = audioBase64.startsWith("data:")
+      ? audioBase64
+      : `data:${mimeType};base64,${audioBase64}`;
+
+    await saveMessage(tenantId, chat.id, "visitor", "[Áudio do visitante]", {
+      contentType: "audio",
+      mediaUrl: mediaDataUrl,
+      mediaType: mimeType,
+    });
+
+    broadcastToOperators(tenantId, {
+      type: "new_message",
+      chatId: chat.id,
+      visitorId: visitor.id,
+      sender: "visitor",
+      content: "[Áudio do visitante]",
+      contentType: "audio",
+      mediaUrl: mediaDataUrl,
+      durationSec,
+    });
+
+    if (chat.status === "operator_took_over") return;
+
+    // Transcreve áudio com Vertex AI Gemini Flash
+    let transcribedText = "";
+    try {
+      const { vertexAi } = await import("../vertex-ai");
+      const cleanBase64 = audioBase64.replace(/^data:audio\/[^;]+;base64,/, "");
+      const rawTranscription = await vertexAi.generateText(
+        [
+          { inlineData: { mimeType, data: cleanBase64 } },
+          { text: "Transcreva este áudio em português brasileiro com precisão. Retorne apenas o texto falado." },
+        ],
+        "gemini-2.5-flash",
+        undefined,
+        {
+          feature: "call_transcription",
+          tenantId,
+          metadata: { chatId: chat.id, visitorId: visitor.id },
+        }
+      );
+      transcribedText = (rawTranscription || "").trim();
+    } catch (err: any) {
+      console.error("[LC WS] Erro ao transcrever áudio do visitante:", err?.message);
+    }
+
+    const promptToProcess = transcribedText || "O cliente enviou um áudio, mas não foi possível transcrever. Peça educadamente para repetir ou escrever em texto se necessário.";
+    const aiResponse = await processVisitorMessage(tenantId, visitor, chat, promptToProcess);
+
+    send(conn.ws, {
+      type: "message",
+      chatId: chat.id,
+      sender: "ai",
+      content: aiResponse.text,
+    });
+
+    broadcastToOperators(tenantId, {
+      type: "new_message",
+      chatId: chat.id,
+      visitorId: visitor.id,
+      sender: "ai",
+      content: aiResponse.text,
+    });
+    return;
+  }
+
+  // ── Mensagem com Anexo / Mídia (Foto, Vídeo, PDF, Planilha, RAR) ──
+  if (type === "visitor_media" || type === "media") {
+    const { fileBase64, fileName = "arquivo", fileType = "application/octet-stream", fileSize = 0 } = payload;
+    if (!fileBase64) return;
+
+    const isImg = fileType.startsWith("image/");
+    const isVid = fileType.startsWith("video/");
+    const contentType = isImg ? "image" : isVid ? "video" : "document";
+    const mediaDataUrl = fileBase64.startsWith("data:") ? fileBase64 : `data:${fileType};base64,${fileBase64}`;
+
+    await saveMessage(tenantId, chat.id, "visitor", `[Arquivo: ${fileName}]`, {
+      contentType,
+      mediaUrl: mediaDataUrl,
+      mediaType: fileType,
+      fileName,
+    });
+
+    broadcastToOperators(tenantId, {
+      type: "new_message",
+      chatId: chat.id,
+      visitorId: visitor.id,
+      sender: "visitor",
+      content: `[Arquivo: ${fileName}]`,
+      contentType,
+      mediaUrl: mediaDataUrl,
+      fileName,
+      fileSize,
+    });
+
+    if (chat.status === "operator_took_over") return;
+
+    const aiResponse = await processVisitorMessage(
+      tenantId,
+      visitor,
+      chat,
+      `O visitante enviou o arquivo: "${fileName}" (${contentType}). Confirme o recebimento cordialmente e pergunte em que pode orientar sobre esse documento ou produto.`
+    );
+
+    send(conn.ws, {
+      type: "message",
+      chatId: chat.id,
+      sender: "ai",
+      content: aiResponse.text,
+    });
+
+    broadcastToOperators(tenantId, {
+      type: "new_message",
+      chatId: chat.id,
+      visitorId: visitor.id,
+      sender: "ai",
+      content: aiResponse.text,
+    });
+    return;
   }
 }
 

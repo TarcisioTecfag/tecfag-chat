@@ -1,28 +1,29 @@
 /* ══════════════════════════════════════════════════════════════════════════════
-   VALEM CHAT WIDGET — Design System & Animações (Valentina)
-   Paleta: Verde Esmeralda & Floresta (Valem)
-   #022c22 (Darkest) · #064e3b (Forest) · #059669 (Emerald) · #10b981 (Light)
+   VALEM CHAT WIDGET — Design System Valempack Oficial
+   Cores: Petrol/Teal (#063940) · Dourado (#f59e0b) · Branco (#ffffff)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-chat-root {
-  --vlm-primary: #059669;
-  --vlm-primary-hover: #047857;
-  --vlm-primary-dark: #064e3b;
-  --vlm-primary-darkest: #022c22;
-  --vlm-primary-light: #10b981;
-  --vlm-primary-soft: rgba(16, 185, 129, 0.12);
-  --vlm-online-green: #22c55e;
+  --vlm-petrol-darkest: #022329;
+  --vlm-petrol-dark: #042e34;
+  --vlm-petrol: #063940;
+  --vlm-petrol-mid: #084c56;
+  --vlm-petrol-light: #0d5e6a;
+  --vlm-teal-accent: #0d9488;
+  --vlm-gold: #f59e0b;
+  --vlm-gold-light: #fbbf24;
+  --vlm-online: #22c55e;
   
   --vlm-bg: #f8fafc;
-  --vlm-card-bg: #ffffff;
+  --vlm-card: #ffffff;
   --vlm-text-main: #0f172a;
   --vlm-text-muted: #64748b;
   --vlm-border: #e2e8f0;
   --vlm-border-soft: rgba(226, 232, 240, 0.8);
   
-  --vlm-shadow-fab: 0 10px 30px -4px rgba(6, 78, 59, 0.45), 0 4px 12px -2px rgba(0, 0, 0, 0.12);
-  --vlm-shadow-panel: 0 20px 50px -10px rgba(2, 44, 34, 0.35), 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-  --vlm-radius-panel: 20px;
+  --vlm-shadow-fab: 0 10px 30px -4px rgba(6, 57, 64, 0.45), 0 4px 12px -2px rgba(0, 0, 0, 0.12);
+  --vlm-shadow-panel: 0 24px 60px -10px rgba(2, 35, 41, 0.4), 0 12px 28px -5px rgba(0, 0, 0, 0.15);
+  --vlm-radius-panel: 22px;
   --vlm-z: 2147483647;
 
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -30,7 +31,6 @@
   line-height: 1.5;
   box-sizing: border-box;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 #vlm-chat-root *, 
@@ -42,7 +42,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   1. BOTÃO FLUTUANTE & PILL LOOP ANIMADO
+   1. BOTÃO FLUTUANTE & PILL LOOP ANIMADO (VALEMPACK)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-fab-wrapper {
@@ -58,11 +58,12 @@
   display: flex;
   align-items: center;
   height: 56px;
+  min-height: 56px;
   border-radius: 9999px;
   border: none;
   outline: none;
   cursor: pointer;
-  background: linear-gradient(135deg, #064e3b 0%, #059669 60%, #10b981 100%);
+  background: linear-gradient(135deg, #042e34 0%, #063940 50%, #0a4b56 100%);
   box-shadow: var(--vlm-shadow-fab);
   overflow: hidden;
   color: white;
@@ -72,24 +73,21 @@
 
 #vlm-fab-button:hover {
   transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 14px 36px -4px rgba(6, 78, 59, 0.55), 0 6px 16px -2px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 14px 38px -4px rgba(6, 57, 64, 0.6), 0 6px 16px -2px rgba(0, 0, 0, 0.18);
 }
 
 #vlm-fab-button:active {
   transform: translateY(0) scale(0.96);
 }
 
-/* Estado Pill (Expandido) */
 #vlm-fab-button.vlm-pill-expanded {
-  width: 224px;
+  width: 232px;
 }
 
-/* Estado Ícone (Encolhido) */
 #vlm-fab-button.vlm-pill-collapsed {
   width: 56px;
 }
 
-/* Conteúdo interno da Pill */
 .vlm-pill-content {
   display: flex;
   align-items: center;
@@ -99,32 +97,35 @@
   white-space: nowrap;
   opacity: 1;
   transform: translateX(0);
-  transition: opacity 0.25s ease 0.1s, transform 0.25s ease 0.1s;
+  transition: opacity 0.22s ease 0.08s, transform 0.22s ease 0.08s;
+  overflow: hidden;
 }
 
 #vlm-fab-button.vlm-pill-collapsed .vlm-pill-content {
   opacity: 0;
-  transform: translateX(-12px);
+  transform: translateX(-14px);
   pointer-events: none;
 }
 
 .vlm-fab-avatar-wrap {
-  position: relative;
   width: 40px;
   height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border-radius: 50%;
   overflow: hidden;
   flex-shrink: 0;
   margin-right: 10px;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.45);
-  background: #022c22;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), 0 2px 6px rgba(0,0,0,0.2);
+  background: #022329;
 }
 
 .vlm-fab-avatar-img {
   width: 100%;
   height: 100%;
+  border-radius: 50%;
   object-fit: cover;
-  object-position: top center;
+  object-position: center;
   image-rendering: -webkit-optimize-contrast;
   display: block;
 }
@@ -134,10 +135,13 @@
   flex-direction: column;
   line-height: 1.25;
   text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .vlm-fab-title {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #ffffff;
   letter-spacing: -0.01em;
@@ -157,12 +161,11 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--vlm-online-green);
-  box-shadow: 0 0 8px var(--vlm-online-green);
+  background: var(--vlm-online);
+  box-shadow: 0 0 8px var(--vlm-online);
   animation: vlm-pulse 2s infinite;
 }
 
-/* Conteúdo do Ícone Central (quando colapsado) */
 .vlm-icon-content {
   position: absolute;
   inset: 0;
@@ -171,7 +174,7 @@
   justify-content: center;
   opacity: 0;
   transform: scale(0.75);
-  transition: opacity 0.25s ease 0.1s, transform 0.25s ease 0.1s;
+  transition: opacity 0.22s ease 0.08s, transform 0.22s ease 0.08s;
   pointer-events: none;
 }
 
@@ -191,7 +194,6 @@
   stroke-linejoin: round;
 }
 
-/* Badge de Notificação */
 #vlm-fab-badge {
   position: absolute;
   top: -4px;
@@ -213,7 +215,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   2. PAINEL DO CHAT & JANELA FLUTUANTE
+   2. PAINEL DO CHAT
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-panel {
@@ -223,17 +225,17 @@
   bottom: 92px;
   right: 24px;
   z-index: var(--vlm-z);
-  width: 380px;
+  width: 384px;
   max-width: calc(100vw - 32px);
-  height: 540px;
+  height: 550px;
   max-height: calc(100vh - 120px);
-  background: var(--vlm-card-bg);
+  background: var(--vlm-card);
   border-radius: var(--vlm-radius-panel);
   box-shadow: var(--vlm-shadow-panel);
   overflow: hidden;
   border: 1px solid var(--vlm-border);
   opacity: 0;
-  transform: translateY(20px) scale(0.95);
+  transform: translateY(20px) scale(0.96);
   transition: opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -244,18 +246,19 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   3. HEADER ESTILO FAGNER COM ÍCONES WHATSAPP E COPIAR
+   3. HEADER VALEMPACK (Apenas Fechar X, Avatar HD, WhatsApp e Copiar)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-header {
-  background: linear-gradient(135deg, #022c22 0%, #064e3b 60%, #065f46 100%);
+  background: linear-gradient(135deg, #022329 0%, #063940 60%, #0a4b56 100%);
   padding: 14px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
   position: relative;
-  box-shadow: 0 4px 16px rgba(2, 44, 34, 0.2);
+  box-shadow: 0 4px 16px rgba(2, 35, 41, 0.25);
+  border-bottom: 2px solid var(--vlm-gold);
 }
 
 #vlm-header-left {
@@ -268,10 +271,12 @@
   position: relative;
   width: 44px;
   height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
-  background: #022c22;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4);
+  background: #022329;
 }
 
 .vlm-header-avatar-img {
@@ -279,7 +284,7 @@
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
-  object-position: top center;
+  object-position: center;
   image-rendering: -webkit-optimize-contrast;
   display: block;
 }
@@ -290,8 +295,8 @@
   right: 0;
   width: 12px;
   height: 12px;
-  background: var(--vlm-online-green);
-  border: 2.5px solid #064e3b;
+  background: var(--vlm-online);
+  border: 2.5px solid #063940;
   border-radius: 50%;
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.8);
 }
@@ -317,9 +322,10 @@
 }
 
 .vlm-header-role {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--vlm-gold-light);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .vlm-header-sep {
@@ -336,7 +342,7 @@
 .vlm-header-btn-action {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.7);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -348,7 +354,7 @@
 }
 
 .vlm-header-btn-action:hover {
-  color: #34d399;
+  color: var(--vlm-gold-light);
   background: rgba(255, 255, 255, 0.1);
   transform: scale(1.1);
 }
@@ -356,13 +362,12 @@
 .vlm-header-right {
   display: flex;
   align-items: center;
-  gap: 4px;
 }
 
 .vlm-header-ctrl-btn {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
   padding: 6px;
   border-radius: 8px;
@@ -373,19 +378,18 @@
 }
 
 .vlm-header-ctrl-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.2);
   color: #ffffff;
 }
 
-/* Toast de Cópia */
 #vlm-copy-toast {
   position: absolute;
   top: 64px;
   left: 50%;
   transform: translateX(-50%) translateY(-8px);
-  background: #022c22;
-  color: #34d399;
-  border: 1px solid #059669;
+  background: #022329;
+  color: var(--vlm-gold-light);
+  border: 1px solid var(--vlm-petrol-mid);
   padding: 6px 14px;
   border-radius: 20px;
   font-size: 11px;
@@ -393,7 +397,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
@@ -406,7 +410,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   4. ÁREA DE MENSAGENS COM ANIMAÇÕES SUAVES
+   4. ÁREA DE MENSAGENS COM SCROLLBAR INVISÍVEL
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-messages-container {
@@ -418,27 +422,25 @@
   gap: 12px;
   background: var(--vlm-bg);
   scroll-behavior: smooth;
+  
+  /* Scrollbar 100% invisível em todos os navegadores */
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
 #vlm-messages-container::-webkit-scrollbar {
-  width: 5px;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
 }
 
-#vlm-messages-container::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-#vlm-messages-container::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 10px;
-}
-
-/* Bolhas de Mensagem com Animação de Entrada */
 .vlm-message-row {
   display: flex;
   flex-direction: column;
-  max-width: 85%;
+  max-width: 86%;
   animation: vlm-slide-fade-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  cursor: pointer;
 }
 
 .vlm-message-row--visitor {
@@ -458,14 +460,19 @@
   line-height: 1.5;
   word-break: break-word;
   position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.vlm-bubble-box:active {
+  transform: scale(0.98);
 }
 
 /* Visitante */
 .vlm-message-row--visitor .vlm-bubble-box {
-  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  background: linear-gradient(135deg, #063940 0%, #0d5e6a 100%);
   color: #ffffff;
   border-bottom-right-radius: 4px;
-  box-shadow: 0 3px 10px rgba(5, 150, 105, 0.25);
+  box-shadow: 0 3px 10px rgba(6, 57, 64, 0.25);
 }
 
 /* Valentina (IA) */
@@ -479,14 +486,14 @@
 
 /* Operador Humano */
 .vlm-message-row--operator .vlm-bubble-box {
-  background: #eff6ff;
-  color: #1e40af;
-  border: 1px solid #bfdbfe;
+  background: #f0fdf4;
+  color: #065f46;
+  border: 1px solid #bbf7d0;
   border-bottom-left-radius: 4px;
-  box-shadow: 0 2px 8px rgba(30, 64, 175, 0.08);
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.08);
 }
 
-/* Card de Sistema / WhatsApp Bridge */
+/* Card de Sistema */
 .vlm-message-row--system {
   align-self: center;
   max-width: 95%;
@@ -503,16 +510,170 @@
   box-shadow: 0 2px 6px rgba(5, 150, 105, 0.1);
 }
 
-/* Timestamp */
-.vlm-msg-time {
+/* Data & Hora ao Clicar */
+.vlm-msg-details {
+  display: none;
   font-size: 10px;
-  opacity: 0.65;
+  color: var(--vlm-text-muted);
   margin-top: 3px;
+  animation: vlm-slide-fade-in 0.2s ease forwards;
+}
+
+.vlm-message-row--visitor .vlm-msg-details {
+  text-align: right;
   align-self: flex-end;
 }
 
+.vlm-message-row.vlm-details-visible .vlm-msg-details {
+  display: block;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════════
-   5. INDICADOR DE DIGITAÇÃO COM 3 PONTOS ANIMADOS
+   5. AUDIO PLAYER CUSTOMIZADO NO CHAT
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.vlm-audio-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+  min-width: 220px;
+}
+
+.vlm-audio-btn-play {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--vlm-petrol);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.vlm-message-row--visitor .vlm-audio-btn-play {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.vlm-audio-btn-play:hover {
+  transform: scale(1.08);
+}
+
+.vlm-audio-track {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vlm-audio-progressbar-bg {
+  width: 100%;
+  height: 5px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.vlm-message-row--visitor .vlm-audio-progressbar-bg {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.vlm-audio-progressbar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--vlm-gold);
+  border-radius: 4px;
+  transition: width 0.1s linear;
+}
+
+.vlm-audio-time-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  opacity: 0.8;
+}
+
+.vlm-audio-speed-btn {
+  background: rgba(0, 0, 0, 0.08);
+  border: none;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.vlm-message-row--visitor .vlm-audio-speed-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   6. CARDS DE MÍDIA & ANEXOS
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.vlm-media-image {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 10px;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.vlm-media-image:hover {
+  transform: scale(1.02);
+}
+
+.vlm-media-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 2px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.vlm-media-file-icon {
+  width: 34px;
+  height: 34px;
+  background: var(--vlm-gold-light);
+  color: #78350f;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.vlm-media-file-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vlm-media-file-name {
+  font-weight: 600;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vlm-media-file-size {
+  font-size: 10.5px;
+  opacity: 0.7;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   7. INDICADOR DE DIGITAÇÃO
    ══════════════════════════════════════════════════════════════════════════════ */
 
 .vlm-typing-row {
@@ -529,7 +690,7 @@
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
-  border: 1.5px solid #059669;
+  border: 1.5px solid var(--vlm-petrol);
 }
 
 .vlm-typing-bubble {
@@ -547,7 +708,7 @@
 .vlm-typing-dot {
   width: 6px;
   height: 6px;
-  background: #059669;
+  background: var(--vlm-petrol);
   border-radius: 50%;
   display: inline-block;
   animation: vlm-bounce 1.4s infinite ease-in-out both;
@@ -558,7 +719,7 @@
 .vlm-typing-dot:nth-child(3) { animation-delay: 0s; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   6. CAMPO DE TEXTO EXPANSIVO ESTILO WHATSAPP (AUTO-RESIZE)
+   8. INPUT ZONE CENTRALIZADO + AUTO-RESIZE + ÁUDIO & MÍDIA
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-input-zone {
@@ -566,33 +727,99 @@
   border-top: 1px solid var(--vlm-border);
   padding: 10px 14px;
   display: flex;
-  align-items: flex-end;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
   flex-shrink: 0;
+}
+
+/* Barra de Prévia de Anexo */
+#vlm-attachment-preview-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--vlm-bg);
+  border: 1px solid var(--vlm-border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+#vlm-attachment-preview-bar.vlm-preview-active {
+  display: flex;
+}
+
+.vlm-preview-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vlm-preview-remove-btn {
+  background: none;
+  border: none;
+  color: var(--vlm-text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+}
+
+.vlm-preview-remove-btn:hover {
+  color: #ef4444;
+}
+
+/* Linha de Controles de Entrada */
+.vlm-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.vlm-btn-clip {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--vlm-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.vlm-btn-clip:hover {
+  color: var(--vlm-petrol);
+  background: var(--vlm-bg);
 }
 
 .vlm-textarea-wrap {
   flex: 1;
-  position: relative;
   display: flex;
   align-items: center;
   background: var(--vlm-bg);
   border: 1.5px solid var(--vlm-border);
-  border-radius: 20px;
-  padding: 8px 14px;
+  border-radius: 22px;
+  padding: 6px 14px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  min-height: 40px;
 }
 
 .vlm-textarea-wrap:focus-within {
-  border-color: var(--vlm-primary);
+  border-color: var(--vlm-petrol);
   background: #ffffff;
-  box-shadow: 0 0 0 3px var(--vlm-primary-soft);
+  box-shadow: 0 0 0 3px rgba(6, 57, 64, 0.12);
 }
 
 #vlm-chat-textarea {
   width: 100%;
   min-height: 22px;
-  max-height: 120px;
+  max-height: 110px;
   border: none;
   outline: none;
   background: transparent;
@@ -602,46 +829,105 @@
   resize: none;
   line-height: 1.4;
   overflow-y: auto;
+  align-self: center;
 }
 
 #vlm-chat-textarea::placeholder {
   color: var(--vlm-text-muted);
 }
 
-#vlm-btn-send {
+/* Botão de Envio & Botão Mic */
+.vlm-btn-action-circle {
   width: 38px;
   height: 38px;
+  min-width: 38px;
+  min-height: 38px;
   border-radius: 50%;
   border: none;
   outline: none;
-  background: linear-gradient(135deg, #064e3b 0%, #059669 100%);
+  background: linear-gradient(135deg, #042e34 0%, #063940 100%);
   color: #ffffff;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.35);
-  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s ease, opacity 0.15s ease;
+  box-shadow: 0 4px 12px rgba(6, 57, 64, 0.35);
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s ease;
 }
 
-#vlm-btn-send:hover {
+.vlm-btn-action-circle:hover {
   transform: scale(1.08);
-  background: linear-gradient(135deg, #047857 0%, #10b981 100%);
+  background: linear-gradient(135deg, #063940 0%, #0a4b56 100%);
 }
 
-#vlm-btn-send:active {
+.vlm-btn-action-circle:active {
   transform: scale(0.92);
 }
 
-#vlm-btn-send:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
+/* Modo de Gravação de Áudio */
+.vlm-audio-record-zone {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 2px;
+}
+
+.vlm-audio-record-zone.vlm-recording-active {
+  display: flex;
+}
+
+.vlm-rec-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #ef4444;
+}
+
+.vlm-rec-dot {
+  width: 10px;
+  height: 10px;
+  background: #ef4444;
+  border-radius: 50%;
+  animation: vlm-pulse 1s infinite;
+}
+
+.vlm-rec-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vlm-btn-rec-cancel {
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.vlm-btn-rec-send {
+  background: #063940;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   7. RODAPÉ LIMPO ("Valem Pack")
+   9. RODAPÉ LIMPO ("Valem Pack")
    ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-footer {
@@ -657,18 +943,12 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   8. KEYFRAMES & ANIMAÇÕES
+   10. KEYFRAMES
    ══════════════════════════════════════════════════════════════════════════════ */
 
 @keyframes vlm-slide-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes vlm-pop-in {
@@ -678,26 +958,14 @@
 }
 
 @keyframes vlm-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
-  }
-  50% {
-    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0);
-  }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6); }
+  50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
 }
 
 @keyframes vlm-bounce {
-  0%, 80%, 100% {
-    transform: scale(0);
-  }
-  40% {
-    transform: scale(1);
-  }
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
 }
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   9. RESPONSIVIDADE MOBILE
-   ══════════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 480px) {
   #vlm-panel {
