@@ -1,309 +1,717 @@
-﻿/* ═══════════════════════════════════════════════════════════════
-   VALEM CHAT WIDGET — Estilos (injetados via valem-chat.css)
-   Design: Verde esmeralda #2dc4a0 · Branco · Sombras suaves
-   ═══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════════
+   VALEM CHAT WIDGET — Design System & Animações (Valentina)
+   Paleta: Verde Esmeralda & Floresta (Valem)
+   #022c22 (Darkest) · #064e3b (Forest) · #059669 (Emerald) · #10b981 (Light)
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-chat-root {
-  --vlm-primary: #2dc4a0;
-  --vlm-primary-dark: #22a98a;
-  --vlm-white: #ffffff;
+  --vlm-primary: #059669;
+  --vlm-primary-hover: #047857;
+  --vlm-primary-dark: #064e3b;
+  --vlm-primary-darkest: #022c22;
+  --vlm-primary-light: #10b981;
+  --vlm-primary-soft: rgba(16, 185, 129, 0.12);
+  --vlm-online-green: #22c55e;
+  
   --vlm-bg: #f8fafc;
-  --vlm-text: #0f172a;
-  --vlm-muted: #64748b;
+  --vlm-card-bg: #ffffff;
+  --vlm-text-main: #0f172a;
+  --vlm-text-muted: #64748b;
   --vlm-border: #e2e8f0;
-  --vlm-bubble-visitor: #2dc4a0;
-  --vlm-bubble-ai: #f1f5f9;
-  --vlm-shadow: 0 8px 32px rgba(0,0,0,0.16);
-  --vlm-radius: 16px;
+  --vlm-border-soft: rgba(226, 232, 240, 0.8);
+  
+  --vlm-shadow-fab: 0 10px 30px -4px rgba(6, 78, 59, 0.45), 0 4px 12px -2px rgba(0, 0, 0, 0.12);
+  --vlm-shadow-panel: 0 20px 50px -10px rgba(2, 44, 34, 0.35), 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  --vlm-radius-panel: 20px;
   --vlm-z: 2147483647;
 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-#vlm-chat-root *, #vlm-chat-root *::before, #vlm-chat-root *::after {
+#vlm-chat-root *, 
+#vlm-chat-root *::before, 
+#vlm-chat-root *::after {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-/* ── Bolha flutuante ────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════════
+   1. BOTÃO FLUTUANTE & PILL LOOP ANIMADO
+   ══════════════════════════════════════════════════════════════════════════════ */
 
-#vlm-bubble {
+#vlm-fab-wrapper {
   position: fixed;
   bottom: 24px;
   right: 24px;
   z-index: var(--vlm-z);
-  width: 60px;
-  height: 60px;
-  background: var(--vlm-primary);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: var(--vlm-shadow);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
   user-select: none;
 }
 
-#vlm-bubble:hover {
-  transform: scale(1.1);
-  box-shadow: 0 12px 40px rgba(45,196,160,0.4);
+#vlm-fab-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 56px;
+  border-radius: 9999px;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, #064e3b 0%, #059669 60%, #10b981 100%);
+  box-shadow: var(--vlm-shadow-fab);
+  overflow: hidden;
+  color: white;
+  padding: 0;
+  transition: width 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-#vlm-avatar {
-  font-size: 26px;
-  line-height: 1;
+#vlm-fab-button:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 14px 36px -4px rgba(6, 78, 59, 0.55), 0 6px 16px -2px rgba(0, 0, 0, 0.16);
 }
 
-#vlm-badge {
+#vlm-fab-button:active {
+  transform: translateY(0) scale(0.96);
+}
+
+/* Estado Pill (Expandido) */
+#vlm-fab-button.vlm-pill-expanded {
+  width: 224px;
+}
+
+/* Estado Ícone (Encolhido) */
+#vlm-fab-button.vlm-pill-collapsed {
+  width: 56px;
+}
+
+/* Conteúdo interno da Pill */
+.vlm-pill-content {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 16px 0 8px;
+  white-space: nowrap;
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.25s ease 0.1s, transform 0.25s ease 0.1s;
+}
+
+#vlm-fab-button.vlm-pill-collapsed .vlm-pill-content {
+  opacity: 0;
+  transform: translateX(-12px);
+  pointer-events: none;
+}
+
+.vlm-fab-avatar-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-right: 10px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.45);
+  background: #022c22;
+}
+
+.vlm-fab-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  image-rendering: -webkit-optimize-contrast;
+  display: block;
+}
+
+.vlm-fab-text-block {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.vlm-fab-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.vlm-fab-subtitle {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vlm-online-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--vlm-online-green);
+  box-shadow: 0 0 8px var(--vlm-online-green);
+  animation: vlm-pulse 2s infinite;
+}
+
+/* Conteúdo do Ícone Central (quando colapsado) */
+.vlm-icon-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.75);
+  transition: opacity 0.25s ease 0.1s, transform 0.25s ease 0.1s;
+  pointer-events: none;
+}
+
+#vlm-fab-button.vlm-pill-collapsed .vlm-icon-content {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.vlm-icon-bubble-svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Badge de Notificação */
+#vlm-fab-badge {
   position: absolute;
   top: -4px;
   right: -4px;
-  width: 20px;
+  min-width: 20px;
   height: 20px;
+  padding: 0 5px;
   background: #ef4444;
   color: white;
-  border-radius: 50%;
+  border-radius: 10px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
+  display: none;
   align-items: center;
   justify-content: center;
-  border: 2px solid white;
+  box-shadow: 0 0 0 2px white;
+  animation: vlm-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  z-index: 10;
 }
 
-/* ── Painel de chat ─────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════════
+   2. PAINEL DO CHAT & JANELA FLUTUANTE
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-panel {
   display: none;
   flex-direction: column;
   position: fixed;
-  bottom: 96px;
+  bottom: 92px;
   right: 24px;
   z-index: var(--vlm-z);
-  width: 360px;
+  width: 380px;
   max-width: calc(100vw - 32px);
-  height: 520px;
+  height: 540px;
   max-height: calc(100vh - 120px);
-  background: var(--vlm-white);
-  border-radius: var(--vlm-radius);
-  box-shadow: var(--vlm-shadow);
+  background: var(--vlm-card-bg);
+  border-radius: var(--vlm-radius-panel);
+  box-shadow: var(--vlm-shadow-panel);
   overflow: hidden;
   border: 1px solid var(--vlm-border);
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
+  transition: opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* ── Header ─────────────────────────────────────────────────── */
+#vlm-panel.vlm-panel-open {
+  display: flex;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   3. HEADER ESTILO FAGNER COM ÍCONES WHATSAPP E COPIAR
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-header {
-  background: var(--vlm-primary);
-  padding: 14px 16px;
+  background: linear-gradient(135deg, #022c22 0%, #064e3b 60%, #065f46 100%);
+  padding: 14px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(2, 44, 34, 0.2);
 }
 
-#vlm-header-info {
+#vlm-header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
-#vlm-header-avatar {
-  width: 36px;
-  height: 36px;
-  background: rgba(255,255,255,0.25);
+.vlm-header-avatar-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 15px;
-  color: white;
   flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+  background: #022c22;
 }
 
-#vlm-header-name {
-  color: white;
+.vlm-header-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top center;
+  image-rendering: -webkit-optimize-contrast;
+  display: block;
+}
+
+.vlm-header-status-badge {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  background: var(--vlm-online-green);
+  border: 2.5px solid #064e3b;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.8);
+}
+
+.vlm-header-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.vlm-header-name {
+  color: #ffffff;
   font-weight: 700;
   font-size: 15px;
+  letter-spacing: -0.01em;
   line-height: 1.2;
 }
 
-#vlm-header-status {
-  color: rgba(255,255,255,0.8);
-  font-size: 11px;
+.vlm-header-subrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
 }
 
-#vlm-close {
+.vlm-header-role {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.vlm-header-sep {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+}
+
+.vlm-header-actions-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vlm-header-btn-action {
   background: none;
   border: none;
-  color: rgba(255,255,255,0.8);
-  font-size: 18px;
+  color: rgba(255, 255, 255, 0.65);
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: background 0.15s;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border-radius: 4px;
+  transition: color 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
+  text-decoration: none;
 }
 
-#vlm-close:hover {
-  background: rgba(255,255,255,0.15);
-  color: white;
+.vlm-header-btn-action:hover {
+  color: #34d399;
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
 }
 
-/* ── Mensagens ──────────────────────────────────────────────── */
+.vlm-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 
-#vlm-messages {
+.vlm-header-ctrl-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.vlm-header-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+/* Toast de Cópia */
+#vlm-copy-toast {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  background: #022c22;
+  color: #34d399;
+  border: 1px solid #059669;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 100;
+}
+
+#vlm-copy-toast.vlm-toast-active {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   4. ÁREA DE MENSAGENS COM ANIMAÇÕES SUAVES
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+#vlm-messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 16px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   background: var(--vlm-bg);
   scroll-behavior: smooth;
 }
 
-#vlm-messages::-webkit-scrollbar { width: 4px; }
-#vlm-messages::-webkit-scrollbar-track { background: transparent; }
-#vlm-messages::-webkit-scrollbar-thumb { background: var(--vlm-border); border-radius: 4px; }
-
-.vlm-msg {
-  display: flex;
-  max-width: 85%;
+#vlm-messages-container::-webkit-scrollbar {
+  width: 5px;
 }
 
-.vlm-msg--visitor {
+#vlm-messages-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#vlm-messages-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+/* Bolhas de Mensagem com Animação de Entrada */
+.vlm-message-row {
+  display: flex;
+  flex-direction: column;
+  max-width: 85%;
+  animation: vlm-slide-fade-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.vlm-message-row--visitor {
   align-self: flex-end;
 }
 
-.vlm-msg--ai,
-.vlm-msg--operator,
-.vlm-msg--system {
+.vlm-message-row--ai,
+.vlm-message-row--operator,
+.vlm-message-row--system {
   align-self: flex-start;
 }
 
-.vlm-msg-bubble {
-  padding: 10px 13px;
-  border-radius: 14px;
+.vlm-bubble-box {
+  padding: 10px 14px;
+  border-radius: 16px;
   font-size: 13.5px;
   line-height: 1.5;
   word-break: break-word;
+  position: relative;
 }
 
-.vlm-msg--visitor .vlm-msg-bubble {
-  background: var(--vlm-primary);
-  color: white;
+/* Visitante */
+.vlm-message-row--visitor .vlm-bubble-box {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff;
   border-bottom-right-radius: 4px;
+  box-shadow: 0 3px 10px rgba(5, 150, 105, 0.25);
 }
 
-.vlm-msg--ai .vlm-msg-bubble {
-  background: white;
-  color: var(--vlm-text);
+/* Valentina (IA) */
+.vlm-message-row--ai .vlm-bubble-box {
+  background: #ffffff;
+  color: var(--vlm-text-main);
   border: 1px solid var(--vlm-border);
   border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.vlm-msg--operator .vlm-msg-bubble {
+/* Operador Humano */
+.vlm-message-row--operator .vlm-bubble-box {
   background: #eff6ff;
   color: #1e40af;
   border: 1px solid #bfdbfe;
   border-bottom-left-radius: 4px;
+  box-shadow: 0 2px 8px rgba(30, 64, 175, 0.08);
 }
 
-.vlm-msg--system .vlm-msg-bubble {
-  background: #f0fdf4;
-  color: #166534;
-  border: 1px solid #bbf7d0;
-  border-radius: 10px;
-  font-size: 12px;
+/* Card de Sistema / WhatsApp Bridge */
+.vlm-message-row--system {
   align-self: center;
+  max-width: 95%;
 }
 
-/* ── Input area ─────────────────────────────────────────────── */
+.vlm-message-row--system .vlm-bubble-box {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(5, 150, 105, 0.1);
+}
 
-#vlm-input-area {
+/* Timestamp */
+.vlm-msg-time {
+  font-size: 10px;
+  opacity: 0.65;
+  margin-top: 3px;
+  align-self: flex-end;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   5. INDICADOR DE DIGITAÇÃO COM 3 PONTOS ANIMADOS
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.vlm-typing-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  align-self: flex-start;
+  animation: vlm-slide-fade-in 0.25s ease forwards;
+}
+
+.vlm-typing-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1.5px solid #059669;
+}
+
+.vlm-typing-bubble {
+  background: #ffffff;
+  border: 1px solid var(--vlm-border);
+  padding: 10px 14px;
+  border-radius: 16px;
+  border-bottom-left-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.vlm-typing-dot {
+  width: 6px;
+  height: 6px;
+  background: #059669;
+  border-radius: 50%;
+  display: inline-block;
+  animation: vlm-bounce 1.4s infinite ease-in-out both;
+}
+
+.vlm-typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.vlm-typing-dot:nth-child(2) { animation-delay: -0.16s; }
+.vlm-typing-dot:nth-child(3) { animation-delay: 0s; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   6. CAMPO DE TEXTO EXPANSIVO ESTILO WHATSAPP (AUTO-RESIZE)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+#vlm-input-zone {
+  background: #ffffff;
   border-top: 1px solid var(--vlm-border);
-  background: white;
+  padding: 10px 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
   flex-shrink: 0;
 }
 
-#vlm-input {
+.vlm-textarea-wrap {
   flex: 1;
-  border: 1px solid var(--vlm-border);
-  border-radius: 22px;
-  padding: 9px 14px;
-  font-size: 13.5px;
-  color: var(--vlm-text);
+  position: relative;
+  display: flex;
+  align-items: center;
   background: var(--vlm-bg);
-  outline: none;
-  transition: border-color 0.15s;
-  font-family: inherit;
+  border: 1.5px solid var(--vlm-border);
+  border-radius: 20px;
+  padding: 8px 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
-#vlm-input:focus {
+.vlm-textarea-wrap:focus-within {
   border-color: var(--vlm-primary);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px var(--vlm-primary-soft);
 }
 
-#vlm-input::placeholder {
-  color: var(--vlm-muted);
-}
-
-#vlm-send {
-  width: 36px;
-  height: 36px;
-  background: var(--vlm-primary);
-  color: white;
+#vlm-chat-textarea {
+  width: 100%;
+  min-height: 22px;
+  max-height: 120px;
   border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--vlm-text-main);
+  resize: none;
+  line-height: 1.4;
+  overflow-y: auto;
+}
+
+#vlm-chat-textarea::placeholder {
+  color: var(--vlm-text-muted);
+}
+
+#vlm-btn-send {
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  font-size: 15px;
+  border: none;
+  outline: none;
+  background: linear-gradient(135deg, #064e3b 0%, #059669 100%);
+  color: #ffffff;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: background 0.15s, transform 0.1s;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.35);
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s ease, opacity 0.15s ease;
 }
 
-#vlm-send:hover {
-  background: var(--vlm-primary-dark);
-  transform: scale(1.05);
+#vlm-btn-send:hover {
+  transform: scale(1.08);
+  background: linear-gradient(135deg, #047857 0%, #10b981 100%);
 }
 
-/* ── Footer ─────────────────────────────────────────────────── */
+#vlm-btn-send:active {
+  transform: scale(0.92);
+}
+
+#vlm-btn-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   7. RODAPÉ LIMPO ("Valem Pack")
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 #vlm-footer {
   text-align: center;
-  font-size: 10px;
-  color: var(--vlm-muted);
-  padding: 5px 12px 7px;
-  background: white;
-  border-top: 1px solid var(--vlm-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vlm-text-muted);
+  padding: 6px 14px 8px;
+  background: #ffffff;
+  border-top: 1px solid #f1f5f9;
+  letter-spacing: 0.02em;
   flex-shrink: 0;
 }
 
-/* ── Mobile ─────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════════
+   8. KEYFRAMES & ANIMAÇÕES
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes vlm-slide-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vlm-pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes vlm-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes vlm-bounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   9. RESPONSIVIDADE MOBILE
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 480px) {
   #vlm-panel {
-    bottom: 0;
-    right: 0;
-    width: 100%;
-    max-width: 100%;
-    height: 100dvh;
-    max-height: 100dvh;
-    border-radius: 0;
-    border: none;
+    bottom: 0 !important;
+    right: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    border: none !important;
   }
 
-  #vlm-bubble {
+  #vlm-fab-wrapper {
     bottom: 16px;
     right: 16px;
   }
