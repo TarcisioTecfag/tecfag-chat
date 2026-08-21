@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 💬 VALEM CHAT WIDGET — Valentina Live Chat Engine (v3.0)
-// Pre-Chat Onboarding · Validação CPF/CNPJ · 3 Mensagens · Audio Preview · Lightbox
+// 💬 VALEM CHAT WIDGET — Valentina Live Chat Engine (v3.2)
+// Waveform Real-Time · Draggable · Ícones Vetoriais SVG (Sem Emojis) · Player Dourado
 // ══════════════════════════════════════════════════════════════════════════════
 
 export interface WidgetOptions {
@@ -132,6 +132,64 @@ function getOrCreateCookieId(): string {
   }
 }
 
+// ── Ícones Vetoriais SVG (Substituindo Emojis) ──────────────────────────────────
+
+function getFileSvgIcon(name: string): string {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  
+  // Planilhas (Excel, CSV)
+  if (["xlsx", "xls", "csv"].includes(ext)) {
+    return `
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="8" y1="13" x2="16" y2="13"/>
+        <line x1="8" y1="17" x2="16" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+    `;
+  }
+  // PDF
+  if (["pdf"].includes(ext)) {
+    return `
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <path d="M9 15h6"/>
+        <path d="M9 11h6"/>
+      </svg>
+    `;
+  }
+  // Documentos de Texto (Word, TXT)
+  if (["doc", "docx", "txt", "rtf"].includes(ext)) {
+    return `
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+    `;
+  }
+  // Arquivos compactados (Zip, Rar)
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
+    return `
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        <line x1="12" y1="11" x2="12" y2="17"/>
+        <line x1="9" y1="14" x2="15" y2="14"/>
+      </svg>
+    `;
+  }
+  // Padrão
+  return `
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg>
+  `;
+}
+
 export class ValemChatWidget {
   private opts: WidgetOptions;
   private cookieId: string;
@@ -154,7 +212,7 @@ export class ValemChatWidget {
   private hasCompletedPrechat = false;
   private hasSentWelcomeSequence = false;
 
-  // Gravação de áudio
+  // Gravação de áudio & Waveform
   private mediaRecorder: MediaRecorder | null = null;
   private audioChunks: Blob[] = [];
   private recordStartTime = 0;
@@ -163,6 +221,16 @@ export class ValemChatWidget {
   private recordedAudioBlob: Blob | null = null;
   private recordedAudioDataUrl = "";
   private previewAudioElem: HTMLAudioElement | null = null;
+  private audioContext: AudioContext | null = null;
+  private analyserNode: AnalyserNode | null = null;
+  private waveformAnimFrame: number | null = null;
+
+  // Draggable State
+  private isDragging = false;
+  private dragStartX = 0;
+  private dragStartY = 0;
+  private panelInitialLeft = 0;
+  private panelInitialTop = 0;
 
   constructor(options: Partial<WidgetOptions> = {}) {
     const scriptTag = document.currentScript as HTMLScriptElement | null;
@@ -214,6 +282,7 @@ export class ValemChatWidget {
     root.innerHTML = this.renderHTML();
     document.body.appendChild(root);
     this.bindEvents();
+    this.initDraggable();
   }
 
   private renderHTML(): string {
@@ -248,7 +317,7 @@ export class ValemChatWidget {
       </div>
     </div>
 
-    <!-- PAINEL PRINCIPAL DO CHAT -->
+    <!-- PAINEL PRINCIPAL DO CHAT (DRAGGABLE) -->
     <div id="vlm-panel" aria-hidden="true">
 
       <!-- TELA 1: PRE-CHAT ONBOARDING (NOME + CPF/CNPJ) -->
@@ -289,7 +358,7 @@ export class ValemChatWidget {
       </div>
 
       <!-- TELA 2: INTERFACE DE CONVERSA COM VALENTINA -->
-      <div id="vlm-header">
+      <div id="vlm-header" title="Clique e arraste para reposicionar">
         <div id="vlm-header-left">
           <div class="vlm-header-avatar-wrap" id="vlm-header-avatar-btn" title="Ver foto em tela cheia">
             <img src="${avatar}" alt="Valentina" class="vlm-header-avatar-img" />
@@ -351,12 +420,18 @@ export class ValemChatWidget {
           </button>
         </div>
 
-        <!-- 2) Linha de Gravação de Áudio Ativa -->
+        <!-- 2) Linha de Gravação de Áudio Ativa com Waveform Dourado -->
         <div id="vlm-audio-record-row" class="vlm-audio-record-zone">
           <div class="vlm-rec-indicator">
             <span class="vlm-rec-dot"></span>
             <span id="vlm-rec-timer">00:00</span>
           </div>
+
+          <!-- Waveform Visualizer -->
+          <div class="vlm-rec-waveform" id="vlm-rec-waveform">
+            ${Array.from({ length: 18 }).map(() => `<span class="vlm-wave-bar"></span>`).join("")}
+          </div>
+
           <div class="vlm-rec-actions">
             <button id="vlm-btn-rec-cancel" class="vlm-btn-rec-cancel" title="Cancelar gravação">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -367,7 +442,7 @@ export class ValemChatWidget {
           </div>
         </div>
 
-        <!-- 3) Linha de Pré-Escuta do Áudio Gravado (Preview) -->
+        <!-- 3) Linha de Pré-Escuta do Áudio Gravado (Preview Dourado) -->
         <div id="vlm-audio-preview-row" class="vlm-audio-preview-zone">
           <div class="vlm-preview-player-left">
             <button id="vlm-btn-preview-play" class="vlm-btn-preview-play" title="Tocar prévia">
@@ -468,14 +543,10 @@ export class ValemChatWidget {
     btnPrechatClose.addEventListener("click", () => this.closePanel());
 
     // ── Lightbox Valentina ──────────────────────────────────────────────────
-    const openLightbox = () => {
-      lightbox.classList.add("vlm-lightbox-open");
-    };
-    const closeLightbox = () => {
-      lightbox.classList.remove("vlm-lightbox-open");
-    };
+    const openLightbox = () => { lightbox.classList.add("vlm-lightbox-open"); };
+    const closeLightbox = () => { lightbox.classList.remove("vlm-lightbox-open"); };
 
-    headerAvatarBtn.addEventListener("click", openLightbox);
+    headerAvatarBtn.addEventListener("click", (e) => { e.stopPropagation(); openLightbox(); });
     btnCloseLightbox.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
     lightbox.addEventListener("click", (e) => { if (e.target === lightbox) closeLightbox(); });
 
@@ -483,8 +554,8 @@ export class ValemChatWidget {
     fabButton.addEventListener("mouseenter", () => { this.isHoveringFab = true; this.setPillState(true); });
     fabButton.addEventListener("mouseleave", () => { this.isHoveringFab = false; });
     fabButton.addEventListener("click", () => this.togglePanel());
-    btnClose.addEventListener("click", () => this.closePanel());
-    btnCopy.addEventListener("click", () => this.copyConversation());
+    btnClose.addEventListener("click", (e) => { e.stopPropagation(); this.closePanel(); });
+    btnCopy.addEventListener("click", (e) => { e.stopPropagation(); this.copyConversation(); });
 
     // Botão de Ação Unificado (Mic quando vazio, Send quando preenchido)
     btnActionMain.addEventListener("click", () => {
@@ -523,6 +594,75 @@ export class ValemChatWidget {
     btnRemoveAtt.addEventListener("click", () => this.clearPendingFile());
   }
 
+  // ── Drag and Drop do Widget ───────────────────────────────────────────────
+  private initDraggable() {
+    const header = document.getElementById("vlm-header");
+    const panel = document.getElementById("vlm-panel");
+    if (!header || !panel) return;
+
+    const startDrag = (clientX: number, clientY: number, target: EventTarget | null) => {
+      // Ignorar cliques em botões, links ou avatares dentro do header
+      if ((target as HTMLElement)?.closest("button, a, input, textarea, .vlm-header-avatar-wrap")) {
+        return;
+      }
+      this.isDragging = true;
+      this.dragStartX = clientX;
+      this.dragStartY = clientY;
+
+      const rect = panel.getBoundingClientRect();
+      this.panelInitialLeft = rect.left;
+      this.panelInitialTop = rect.top;
+
+      panel.style.bottom = "auto";
+      panel.style.right = "auto";
+      panel.style.left = `${this.panelInitialLeft}px`;
+      panel.style.top = `${this.panelInitialTop}px`;
+      panel.classList.add("vlm-is-dragging");
+    };
+
+    const doDrag = (clientX: number, clientY: number) => {
+      if (!this.isDragging) return;
+      const deltaX = clientX - this.dragStartX;
+      const deltaY = clientY - this.dragStartY;
+
+      let newLeft = this.panelInitialLeft + deltaX;
+      let newTop = this.panelInitialTop + deltaY;
+
+      const minLeft = 10;
+      const maxLeft = window.innerWidth - panel.offsetWidth - 10;
+      const minTop = 10;
+      const maxTop = window.innerHeight - panel.offsetHeight - 10;
+
+      newLeft = Math.max(minLeft, Math.min(maxLeft, newLeft));
+      newTop = Math.max(minTop, Math.min(maxTop, newTop));
+
+      panel.style.left = `${newLeft}px`;
+      panel.style.top = `${newTop}px`;
+    };
+
+    const stopDrag = () => {
+      if (!this.isDragging) return;
+      this.isDragging = false;
+      panel.classList.remove("vlm-is-dragging");
+    };
+
+    // Mouse Events
+    header.addEventListener("mousedown", (e) => startDrag(e.clientX, e.clientY, e.target));
+    window.addEventListener("mousemove", (e) => doDrag(e.clientX, e.clientY));
+    window.addEventListener("mouseup", stopDrag);
+
+    // Touch Events
+    header.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 1) startDrag(e.touches[0].clientX, e.touches[0].clientY, e.target);
+    }, { passive: true });
+
+    window.addEventListener("touchmove", (e) => {
+      if (this.isDragging && e.touches.length === 1) doDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    window.addEventListener("touchend", stopDrag);
+  }
+
   private startPillAnimationLoop() {
     let phase = 0;
     this.pillLoopTimer = setInterval(() => {
@@ -554,7 +694,6 @@ export class ValemChatWidget {
     if (fabWrapper) fabWrapper.style.display = "none";
     if (badge) { badge.style.display = "none"; this.unreadCount = 0; }
     
-    // Se o pre-chat já foi feito ou se tem dados, foca no chat e dispara boas-vindas se necessário
     if (this.hasCompletedPrechat) {
       document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden");
       this.triggerWelcomeSequence();
@@ -586,10 +725,9 @@ export class ValemChatWidget {
     const name = this.visitorName ? this.visitorName.split(" ")[0] : "";
     const greeting = getGreeting();
     const msg1Text = name ? `${greeting}, ${name}!` : `${greeting}!`;
-    const msg2Text = "Eu sou a Valentina, da Valem Válvulas e Embalagens 😊";
+    const msg2Text = "Eu sou a Valentina, da Valem Válvulas e Embalagens.";
     const msg3Text = "Como posso te ajudar hoje?";
 
-    // Mensagem 1
     setTimeout(() => {
       this.addMessage({
         id: `welcome-1-${Date.now()}`,
@@ -601,7 +739,6 @@ export class ValemChatWidget {
         fullDateStr: formatFullDate(),
       });
 
-      // Mensagem 2 (com digitação simulada)
       setTimeout(() => {
         this.showTypingIndicator();
         setTimeout(() => {
@@ -616,7 +753,6 @@ export class ValemChatWidget {
             fullDateStr: formatFullDate(),
           });
 
-          // Mensagem 3 (com digitação simulada)
           setTimeout(() => {
             this.showTypingIndicator();
             setTimeout(() => {
@@ -676,7 +812,7 @@ export class ValemChatWidget {
     cb();
   }
 
-  // ── Gravação de Áudio com Preview ─────────────────────────────────────────
+  // ── Gravação de Áudio com Waveform em Tempo Real ──────────────────────────
 
   private async startAudioRecording() {
     try {
@@ -692,6 +828,9 @@ export class ValemChatWidget {
       this.mediaRecorder.start(200);
       this.recordStartTime = Date.now();
       this.recordingDurationSec = 0;
+
+      // Iniciar Web Audio API Analyser para o Waveform em tempo real
+      this.initWaveformVisualizer(stream);
 
       document.getElementById("vlm-standard-input-row")!.style.display = "none";
       document.getElementById("vlm-audio-preview-row")!.classList.remove("vlm-preview-active");
@@ -709,8 +848,55 @@ export class ValemChatWidget {
     } catch (err) { alert("Permissão de microfone negada ou microfone indisponível."); }
   }
 
+  private initWaveformVisualizer(stream: MediaStream) {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      this.audioContext = new AudioCtx();
+      const source = this.audioContext.createMediaStreamSource(stream);
+      this.analyserNode = this.audioContext.createAnalyser();
+      this.analyserNode.fftSize = 64;
+      source.connect(this.analyserNode);
+
+      const bufferLength = this.analyserNode.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      const bars = document.querySelectorAll(".vlm-wave-bar");
+
+      const updateWave = () => {
+        if (!this.analyserNode) return;
+        this.analyserNode.getByteFrequencyData(dataArray);
+
+        bars.forEach((bar, index) => {
+          const sampleIdx = Math.floor((index / bars.length) * (bufferLength / 2));
+          const val = dataArray[sampleIdx] || 0;
+          // Escala de altura de 4px a 24px com sensibilidade natural
+          const h = Math.max(4, Math.min(24, Math.floor((val / 255) * 24 * 1.5)));
+          (bar as HTMLElement).style.height = `${h}px`;
+        });
+
+        this.waveformAnimFrame = requestAnimationFrame(updateWave);
+      };
+
+      updateWave();
+    } catch (e) {
+      console.warn("Waveform visualizer não inicializado:", e);
+    }
+  }
+
+  private stopWaveformVisualizer() {
+    if (this.waveformAnimFrame) {
+      cancelAnimationFrame(this.waveformAnimFrame);
+      this.waveformAnimFrame = null;
+    }
+    if (this.audioContext && this.audioContext.state !== "closed") {
+      this.audioContext.close().catch(() => {});
+      this.audioContext = null;
+    }
+    this.analyserNode = null;
+  }
+
   private cancelAudioRecording() {
     if (this.recordTimer) clearInterval(this.recordTimer);
+    this.stopWaveformVisualizer();
     if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
       this.mediaRecorder.stop();
       this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
@@ -721,6 +907,7 @@ export class ValemChatWidget {
 
   private finishRecordingForPreview() {
     if (this.recordTimer) clearInterval(this.recordTimer);
+    this.stopWaveformVisualizer();
     if (!this.mediaRecorder) return;
 
     this.mediaRecorder.onstop = () => {
@@ -879,16 +1066,6 @@ export class ValemChatWidget {
     }
   }
 
-  private getFileIcon(name: string): string {
-    const ext = (name.split(".").pop() || "").toLowerCase();
-    if (["xlsx", "xls", "csv"].includes(ext)) return "📊";
-    if (["pdf"].includes(ext)) return "📄";
-    if (["doc", "docx", "txt", "rtf"].includes(ext)) return "📝";
-    if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "📦";
-    if (["mp3", "wav", "ogg", "m4a"].includes(ext)) return "🎵";
-    return "📁";
-  }
-
   private renderSingleMessage(msg: ChatMessage) {
     const container = document.getElementById("vlm-messages-container");
     if (!container) return;
@@ -911,7 +1088,7 @@ export class ValemChatWidget {
         ${msg.text ? `<div style="margin-top:6px">${this.escapeAndFormat(msg.text)}</div>` : ""}
       `;
     } else if (msg.contentType === "document" && msg.mediaUrl) {
-      const icon = this.getFileIcon(msg.fileName || "");
+      const icon = getFileSvgIcon(msg.fileName || "");
       innerContent = `
         <a href="${msg.mediaUrl}" download="${this.escapeHtml(msg.fileName || "arquivo")}" class="vlm-media-file-card" target="_blank">
           <span class="vlm-media-file-icon">${icon}</span>
@@ -1047,7 +1224,8 @@ export class ValemChatWidget {
       </div>
     `;
     container.appendChild(row);
-    row.querySelector("#vlm-typing-avatar-btn")?.addEventListener("click", () => {
+    row.querySelector("#vlm-typing-avatar-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
       document.getElementById("vlm-avatar-lightbox")?.classList.add("vlm-lightbox-open");
     });
     this.scrollToBottom();
@@ -1231,7 +1409,7 @@ export class ValemChatWidget {
     if (type === "typing") payload.isTyping ? this.showTypingIndicator() : this.hideTypingIndicator();
     if (type === "bridge_initiated" || type === "bridge_sent") {
       this.hideTypingIndicator();
-      this.addMessage({ id: `bridge-${Date.now()}`, sender: "system", text: "📱 **Atendimento transferido para o WhatsApp!** Nossa equipe comercial já recebeu suas informações e responderá por lá. Fique de olho no seu app! 😊", timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
+      this.addMessage({ id: `bridge-${Date.now()}`, sender: "system", text: "📱 **Atendimento transferido para o WhatsApp!** Nossa equipe comercial já recebeu suas informações e responderá por lá. Fique de olho no seu app!", timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
     }
     if (type === "chat_closed") {
       this.hideTypingIndicator();
