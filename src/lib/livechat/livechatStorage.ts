@@ -1,4 +1,4 @@
-﻿// ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // 💾 LIVECHAT STORAGE — Camada de persistência do Live Chat
 // Todas as queries filtram por tenantId — isolamento multi-tenant obrigatório.
 // ══════════════════════════════════════════════════════════════════════════════
@@ -173,6 +173,32 @@ export async function getChatHistory(
     .select()
     .from(lcMessages)
     .where(and(eq(lcMessages.tenantId, tenantId), eq(lcMessages.chatId, chatId)))
+    .orderBy(asc(lcMessages.sentAt))
+    .limit(limit);
+}
+
+export async function getVisitorAllMessages(
+  tenantId: string,
+  visitorId: string,
+  limit = 100
+): Promise<LcMessage[]> {
+  return db
+    .select({
+      id: lcMessages.id,
+      tenantId: lcMessages.tenantId,
+      chatId: lcMessages.chatId,
+      sender: lcMessages.sender,
+      content: lcMessages.content,
+      contentType: lcMessages.contentType,
+      mediaUrl: lcMessages.mediaUrl,
+      fileName: lcMessages.fileName,
+      fileSize: lcMessages.fileSize,
+      durationSec: lcMessages.durationSec,
+      sentAt: lcMessages.sentAt,
+    })
+    .from(lcMessages)
+    .innerJoin(lcChats, eq(lcMessages.chatId, lcChats.id))
+    .where(and(eq(lcMessages.tenantId, tenantId), eq(lcChats.visitorId, visitorId)))
     .orderBy(asc(lcMessages.sentAt))
     .limit(limit);
 }

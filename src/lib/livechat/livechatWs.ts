@@ -16,6 +16,7 @@ import {
   updateChatStatus,
   saveMessage,
   getChatHistory,
+  getVisitorAllMessages,
   recordPageview,
   getActiveVisitors,
   getVisitorPageviews,
@@ -147,12 +148,12 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
 
     console.log(`[LC WS] Visitante ${visitor.id} conectado (tenant: ${tenantId})`);
 
-    // Envia histórico do chat atual
+    // Envia histórico unificado de todas as conversas/sessões anteriores do visitante
     try {
-      const history = await getChatHistory(tenantId, chat.id, 30);
+      const history = await getVisitorAllMessages(tenantId, visitor.id, 80);
       send(ws, { type: "chat_history", chatId: chat.id, messages: history });
     } catch (e) {
-      console.error("[LC WS] Erro ao carregar histórico:", e);
+      console.error("[LC WS] Erro ao carregar histórico persistente:", e);
     }
 
     // Notifica operadores do novo visitante

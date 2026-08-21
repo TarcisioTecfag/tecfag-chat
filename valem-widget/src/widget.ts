@@ -27,14 +27,42 @@ interface ChatMessage {
 
 // ── Helpers de Formatação e Validação ──────────────────────────────────────────
 
-function formatTime(d = new Date()): string {
-  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+function formatTime(d: Date | string = new Date()): string {
+  const dateObj = typeof d === "string" ? new Date(d) : d;
+  if (isNaN(dateObj.getTime())) return "00:00";
+  return dateObj.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function formatFullDate(d = new Date()): string {
-  const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function formatFullDate(d: Date | string = new Date()): string {
+  const dateObj = typeof d === "string" ? new Date(d) : d;
+  if (isNaN(dateObj.getTime())) return "";
+  const date = dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const time = dateObj.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   return `${date} às ${time}`;
+}
+
+function getCalendarDateKey(d: Date | string = new Date()): string {
+  const dateObj = typeof d === "string" ? new Date(d) : d;
+  if (isNaN(dateObj.getTime())) return "";
+  return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, "0")}-${String(dateObj.getDate()).padStart(2, "0")}`;
+}
+
+function formatDividerDate(d: Date | string = new Date()): string {
+  const dateObj = typeof d === "string" ? new Date(d) : d;
+  if (isNaN(dateObj.getTime())) return "Hoje";
+
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const keyDate = getCalendarDateKey(dateObj);
+  const keyToday = getCalendarDateKey(today);
+  const keyYesterday = getCalendarDateKey(yesterday);
+
+  if (keyDate === keyToday) return "Hoje";
+  if (keyDate === keyYesterday) return "Ontem";
+
+  return dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 }
 
 function formatFileSize(bytes = 0): string {
@@ -212,6 +240,7 @@ export class ValemChatWidget {
   private hasCompletedPrechat = false;
   private hasSentWelcomeSequence = false;
   private hasTriggeredAttentionToast = false;
+  private lastRenderedDateKey = "";
 
   // Gravação de áudio & Waveform
   private mediaRecorder: MediaRecorder | null = null;
@@ -794,7 +823,18 @@ export class ValemChatWidget {
 
   // ── 3 Mensagens Fragmentadas da Valentina ─────────────────────────────────
   private triggerWelcomeSequence() {
-    if (this.hasSentWelcomeSequence || this.messages.length > 0) return;
+    if (this.hasSentWelcomeSequence) return;
+
+    // Se já temos mensagens enviadas HOJE na conversa, não precisa reenviar as saudações
+    const todayKey = getCalendarDateKey(new Date());
+    const lastMsg = this.messages[this.messages.length - 1];
+    const lastMsgDateKey = lastMsg?.timestamp ? getCalendarDateKey(lastMsg.timestamp) : "";
+
+    if (lastMsg && lastMsgDateKey === todayKey) {
+      this.hasSentWelcomeSequence = true;
+      return;
+    }
+
     this.hasSentWelcomeSequence = true;
 
     const name = this.visitorName ? this.visitorName.split(" ")[0] : "";
@@ -1146,6 +1186,17 @@ export class ValemChatWidget {
     if (!container) return;
     this.hideTypingIndicator();
 
+    // ── Inserção de Separador de Data (Chips de Data) ──
+    const msgDate = msg.timestamp ? new Date(msg.timestamp) : new Date();
+    const msgDateKey = getCalendarDateKey(msgDate);
+    if (msgDateKey && this.lastRenderedDateKey !== msgDateKey) {
+      this.lastRenderedDateKey = msgDateKey;
+      const dateDivider = document.createElement("div");
+      dateDivider.className = "vlm-date-divider";
+      dateDivider.innerHTML = `<span>${formatDividerDate(msgDate)}</span>`;
+      container.appendChild(dateDivider);
+    }
+
     const prevMsg = this.messages[this.messages.length - 2];
     const isSameSenderAsPrev = prevMsg && prevMsg.sender === msg.sender;
 
@@ -1189,6 +1240,37 @@ export class ValemChatWidget {
     row.innerHTML = `<div class="vlm-bubble-box">${innerContent}</div><span class="vlm-msg-details">Enviado em ${msg.fullDateStr}</span>`;
     container.appendChild(row);
     if (msg.contentType === "audio") this.attachAudioPlayerEvents(row);
+    this.scrollToBottom();
+  }
+
+  private loadHistoryMessages(rawHistory: any[]) {
+    if (!Array.isArray(rawHistory) || rawHistory.length === 0) return;
+    const container = document.getElementById("vlm-messages-container");
+    if (!container) return;
+
+    const existingIds = new Set(this.messages.map((m) => m.id));
+    const newItems = rawHistory.filter((m) => m && m.id && !existingIds.has(m.id));
+    if (newItems.length === 0) return;
+
+    for (const item of newItems) {
+      const sentDate = item.sentAt ? new Date(item.sentAt) : new Date();
+      const msgObj: ChatMessage = {
+        id: item.id,
+        sender: item.sender || "visitor",
+        text: item.content || item.text || "",
+        contentType: item.contentType || "text",
+        mediaUrl: item.mediaUrl,
+        fileName: item.fileName,
+        fileSize: item.fileSize,
+        durationSec: item.durationSec,
+        timestamp: sentDate.toISOString(),
+        timeStr: formatTime(sentDate),
+        fullDateStr: formatFullDate(sentDate),
+      };
+      this.messages.push(msgObj);
+      this.renderSingleMessage(msgObj);
+    }
+
     this.scrollToBottom();
   }
 
@@ -1475,6 +1557,10 @@ export class ValemChatWidget {
 
   private handleIncomingPayload(payload: any) {
     const { type } = payload;
+    if (type === "chat_history") {
+      this.loadHistoryMessages(payload.messages || []);
+      return;
+    }
     if (type === "message" || type === "ai_message" || type === "operator_message") {
       this.hideTypingIndicator();
       this.addMessage({
