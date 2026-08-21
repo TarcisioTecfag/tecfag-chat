@@ -25,6 +25,7 @@ import { bridgeLiveChatToWhatsApp } from "./livechat-bridge";
 import { calculateIntentScore, scoreToTemperature, isAtacadoQualificado } from "./livechatScoring";
 import { searchProducts, extractSearchTermFromUrl } from "./trayCatalogService";
 import { LiveChatDebouncer } from "./livechatDebouncer";
+import { extractMediaContent } from "./livechatDocumentReader";
 
 const uuid = () => crypto.randomUUID();
 
@@ -413,7 +414,9 @@ async function handleVisitorMessage(
 
     if (chat.status === "operator_took_over") return;
 
-    const mediaPrompt = `[O visitante enviou um anexo: "${fileName}"] ${payload.text ? `com a mensagem: "${payload.text}"` : ""}`;
+    // Extrai conteúdo real do anexo (leitura de imagem, tabela de planilha, texto de PDF/DOCX)
+    const mediaContent = await extractMediaContent(fileBase64, fileName, fileType);
+    const mediaPrompt = `${mediaContent.extractedSummary || `[O cliente enviou o anexo "${fileName}"]`} ${payload.text ? `com a mensagem: "${payload.text}"` : ""}`;
 
     LiveChatDebouncer.getInstance().pushIncomingMessage(
       tenantId,
@@ -425,6 +428,7 @@ async function handleVisitorMessage(
         mediaUrl: fileBase64,
         fileName,
         fileSize,
+        inlineAttachment: mediaContent.inlineData,
         receivedAt: new Date(),
       },
       (p) => send(conn.ws, p),

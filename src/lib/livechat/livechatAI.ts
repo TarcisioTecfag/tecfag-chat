@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 // 🤖 LIVE CHAT AI — Motor de IA da Valentina para o Site (Vertex AI exclusivo)
 // Tenant: valem | Feature: sdr_agent (triagem) ou valentina_chat (chat direto)
-// Fluxo Direto por Documento: CPF (Varejo Imediato) vs CNPJ (Atacado B2B)
+// Tom Ultra-Humano, Multimodalidade Real e Respostas Ágeis
 // ══════════════════════════════════════════════════════════════════════════════
 
 import { vertexAi } from "../vertex-ai";
@@ -10,17 +10,7 @@ import { searchProducts, extractSearchTermFromUrl, type TrayProduct } from "./tr
 import { buildCheckoutUrl, buildCheckoutMessage } from "./trayCheckoutService";
 import type { LcVisitor, LcChat, LcMessage } from "../../db/schema";
 
-// ── Padrões de intenção — Domínio Valem ──────────────────────────────────────
-
-const PRODUTO_PATTERNS = [
-  /v[aá]lvula[s]?\s*(spray|pump|gatilho|aerossol|dispens)/i,
-  /frasco[s]?\s*(pet|vidro|pl[aá]stico)/i,
-  /pote[s]?\s*(pl[aá]stico|vidro|herm[eé]tico)/i,
-  /rosca[s]?\s*(\d+\/\d+)/i,
-  /seladora[s]?/i,
-  /embalag[e][mn]s?/i,
-  /\b(\d[\d.]+)\s*(mil|m)?\s*(un|unid|pe[cç]as?)/i,
-];
+// ── Padrões de ruído ──────────────────────────────────────────────────────────
 
 const NOISE_PATTERNS = [
   /^(oi|ol[aá]|e a[ií]|boa\s*(tarde|noite|dia)|tudo\s*bem|tchou?|tchau|fl[wW])$/i,
@@ -45,80 +35,59 @@ export interface AiResponse {
   checkoutUrl?: string;                 // Link de checkout para varejo
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 export function isNoise(text: string): boolean {
   const t = text.trim();
   return t.length < 2 || NOISE_PATTERNS.some((p) => p.test(t));
 }
 
-export function detectProductIntent(text: string): boolean {
-  return PRODUTO_PATTERNS.some((p) => p.test(text));
-}
-
-function buildSystemPrompt(visitor: LcVisitor): string {
+function buildSystemPrompt(visitor: LcVisitor, hasHistory: boolean): string {
   const isCpf = Boolean(visitor.cpf && !visitor.cnpj);
   const isCnpj = Boolean(visitor.cnpj);
 
   const documentContext = isCpf
-    ? `CLIENTE IDENTIFICADO COMO PESSOA FÍSICA (CPF: ${visitor.cpf}).
-FLUXO MANDATÓRIO: VAREJO / LOJA ONLINE.
-- NÃO pergunte quantidade para tentar adivinhar se é atacado ou varejo!
-- Você já sabe que o cliente é CPF e vai comprar no site (a partir de 50 unidades).
-- Concentre-se imediatamente em ajudar o cliente a encontrar o produto certo (tipo de válvula, rosca 20/410, 24/410 ou 28/410, cores disponível, tamanho do pescante ou frasco) e oriente como comprar aqui no site com facilidade.`
+    ? `TIPO DE CLIENTE: PESSOA FÍSICA (CPF informado).
+- Canal: Compra no site / Loja Virtual (a partir de 50 unidades).
+- REGRA: Não pergunte quantidade para adivinhar canal! Ajude a encontrar o produto/medida e oriente a comprar no site.`
     : isCnpj
-    ? `CLIENTE IDENTIFICADO COMO PESSOA JURÍDICA / EMPRESA (CNPJ: ${visitor.cnpj}${visitor.company ? ` - ${visitor.company}` : ""}).
-FLUXO MANDATÓRIO: ATACADO B2B INDUSTRIAL.
-- Trate como comprador empresarial/B2B.
-- Apresente as opções técnicas e consulte se precisa de lote industrial para entrega programada ou cotação direta.`
-    : `DOCUMENTO NÃO INFORMADO AINDA.
-- Ajude com as dúvidas gerais sobre produtos e modelos do catálogo.`;
+    ? `TIPO DE CLIENTE: PESSOA JURÍDICA / EMPRESA (CNPJ informado: ${visitor.cnpj}${visitor.company ? ` - ${visitor.company}` : ""}).
+- Canal: Atacado B2B Industrial ou Loja Online com faturamento PJ.
+- REGRA: Trate como cliente corporativo/industrial de forma direta e consultiva.`
+    : `TIPO DE CLIENTE: Visitante Geral.`;
 
-  const collectedData = [
-    visitor.name ? `Nome do visitante: ${visitor.name}` : null,
-    visitor.company ? `Empresa: ${visitor.company}` : null,
-    visitor.cnpj ? `CNPJ: ${visitor.cnpj}` : null,
-    visitor.cpf ? `CPF: ${visitor.cpf}` : null,
-    visitor.phone ? `Telefone: ${visitor.phone}` : null,
-    visitor.productInterest ? `Produto de interesse: ${visitor.productInterest}` : null,
-    visitor.quantityInterest ? `Quantidade: ${visitor.quantityInterest}` : null,
-    visitor.currentUrl ? `Página atual: ${visitor.currentUrl}` : null,
-    visitor.currentTitle ? `Título da página: ${visitor.currentTitle}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const historyInstruction = hasHistory
+    ? `ATENÇÃO: A conversa com este cliente JÁ ESTÁ EM ANDAMENTO.
+- É TERMINANTEMENTE PROIBIDO começar a mensagem com saudações repetitivas como "Oi, Fulano!" ou "Que bom falar com você de novo!".
+- Vá DIRETO ao assunto da mensagem atual, como uma pessoa normal faria no WhatsApp.`
+    : `ATENÇÃO: Primeiro contato da conversa. Faça uma saudação inicial curta e natural.`;
 
   return `Você é a Valentina, consultora comercial da Valem Válvulas e Embalagens.
 
 ${documentContext}
 
-PERSONALIDADE: profissional, calorosa, humana, prestativa e direta.
-NÃO use emojis em excesso (máximo 1 sutil). NUNCA seja repetitiva nem use frases burocráticas ("anotei seu dado"). Use o dado do cliente com extrema naturalidade.
+${historyInstruction}
 
-DADOS JÁ CONHECIDOS DO VISITANTE:
-${collectedData || "Nenhum dado coletado ainda."}
+TOM DE VOZ & PERSONALIDADE HUMANA (MANDATÓRIO):
+- Você fala como uma atendente humana real, ágil, direta, inteligente e acolhedora no WhatsApp.
+- USE VÍCIOS DE LINGUAGEM HUMANOS NATURAIS: "certo", "entendi", "beleza", "olha só", "tipo assim", "perfeito", "show".
+- NUNCA use frases robóticas burocráticas como: "Obrigada por enviar o arquivo X", "Recebi sua imagem", "Anotei seu pedido", "Como posso auxiliá-lo com este documento".
+- NUNCA encha o texto de pontos de interrogação (? ? ? ?). Faça perguntas no máximo 1 por turno e de forma natural.
+- Se o cliente mandou uma foto, print, planilha ou anexo, COMENTE DIRETAMENTE SOBRE O CONTEÚDO que você viu/leu! Seja específica sobre o que está na imagem ou planilha.
+- Se o cliente mudou de assunto ou enviou um novo arquivo, ESQUEÇA assuntos antigos e foque 100% no que ele acabou de mandar.
 
-REGRAS MANDATÓRIAS DE CONVERSA E FRAGMENTAÇÃO:
-1. FRAGMENTAÇÃO EM BALÕES: Você DEVE SEMPRE dividir sua fala em 2 a 3 balões curtos e objetivos.
-   Separe cada balão com duas quebras de linha (\\n\\n).
-   Cada balão deve ter NO MÁXIMO 2 linhas de texto. NUNCA mande um parágrafo longo!
-   Exemplo para cliente CPF:
-   Oi, Tarcísio! Para válvulas spray, temos as opções com rosca 20/410, 24/410 e 28/410.
+REGRAS MANDATÓRIAS DE FRAGMENTAÇÃO EM BALÕES:
+- Você DEVE SEMPRE quebrar sua fala em 2 a 4 balões curtos e ágeis.
+- Separe cada balão com duas quebras de linha (\\n\\n).
+- Cada balão deve ter NO MÁXIMO 1 a 2 linhas.
+- Se uma frase tiver vírgulas longas, fragmenta em balões separados para parecer mensagens rápidas digitadas no celular.
 
-   Você já sabe a medida da rosca do seu frasco ou a cor que prefere (preta, branca ou transparente)?
+Exemplo de tom e fragmentação:
+Certo, dei uma olhada aqui na imagem!
 
-   Aqui no site você consegue comprar a partir de 50 unidades com envio rápido!
+Essa é a nossa válvula spray rosca 24/410 na cor preta.
 
-2. REGRAS DE CANAL:
-   - Se cliente for CPF: Direcione para a compra no site ou tire dúvidas técnicas do produto. [STAGE:varejo_checkout]
-   - Se cliente for CNPJ e buscar lote industrial (≥ 1.000 un): [STAGE:atacado_qualificado]
-   - Se identificar um produto do catálogo: [TRAY_PRODUCT:ID_DO_PRODUTO]
-   - Avalie o interesse comercial de 0 a 100: [SCORE:XX]
+Temos ela a pronta entrega no site sim.
 
-3. NUNCA mencione que é uma IA ou robô a não ser que perguntado.
-4. NUNCA ofereça cupom de desconto.
-
-As tags [STAGE:...] [SCORE:...] [TRAY_PRODUCT:...] [CNPJ_CHECK:...] são invisíveis e serão removidas antes de exibir.`;
+As tags [STAGE:...] [SCORE:...] [TRAY_PRODUCT:...] [CNPJ_CHECK:...] são silenciosas e invisíveis ao visitante.`;
 }
 
 // ── Função principal ──────────────────────────────────────────────────────────
@@ -128,42 +97,44 @@ export async function processVisitorMessage(
   visitor: LcVisitor,
   chat: LcChat,
   userMessage: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  inlineAttachment?: { mimeType: string; data: string }
 ): Promise<AiResponse> {
-  if (isNoise(userMessage)) {
-    return {
-      messagesToSend: ["Olá! Como posso te ajudar hoje?"],
-      text: "Olá! Como posso te ajudar hoje?",
-      shouldBridgeToWhatsApp: false,
-    };
-  }
-
   // 1. Busca histórico do banco (anti-amnésia)
-  const history = await getChatHistory(tenantId, chat.id, 30);
+  const history = await getChatHistory(tenantId, chat.id, 20);
+  const hasHistory = history.length > 0;
 
   // 2. Monta o array de partes para o Vertex AI
-  const conversationParts: Array<{ role: string; parts: Array<{ text: string }> }> = [
-    {
-      role: "user",
-      parts: [{ text: buildSystemPrompt(visitor) }],
-    },
+  const promptParts: any[] = [
+    { text: buildSystemPrompt(visitor, hasHistory) },
   ];
 
-  // Adiciona histórico de mensagens anteriores
-  for (const msg of history) {
+  // Adiciona histórico recente
+  for (const msg of history.slice(-10)) {
     if (msg.sender === "visitor") {
-      conversationParts.push({ role: "user", parts: [{ text: msg.content }] });
+      promptParts.push({ text: `[Cliente]: ${msg.content}` });
     } else if (msg.sender === "ai") {
-      conversationParts.push({ role: "model", parts: [{ text: msg.content }] });
+      promptParts.push({ text: `[Valentina]: ${msg.content}` });
     }
   }
 
-  // Mensagem atual do visitante
-  conversationParts.push({ role: "user", parts: [{ text: userMessage }] });
+  // Mensagem e anexo atuais
+  if (inlineAttachment) {
+    promptParts.push({
+      inlineData: {
+        mimeType: inlineAttachment.mimeType,
+        data: inlineAttachment.data,
+      },
+    });
+  }
 
-  // 3. Chama Vertex AI
+  promptParts.push({
+    text: `[Mensagem atual do cliente]: ${userMessage}\n(Responda como Valentina de forma humana, ágil e fragmentada em balões curtos):`,
+  });
+
+  // 3. Chama Vertex AI Gemini Flash com suporte Multimodal
   const rawResponse = await vertexAi.generateText(
-    [{ text: JSON.stringify(conversationParts) }],
+    promptParts,
     "gemini-2.5-flash",
     signal,
     {
@@ -185,27 +156,39 @@ export async function processVisitorMessage(
   const trayProductId = productMatch ? parseInt(productMatch[1], 10) : undefined;
   const cnpjToCheck = cnpjMatch?.[1];
 
-  // 5. Remove tags do texto
-  const cleanText = safeResponse
+  // 5. Remove tags do texto e limpa saudações repetitivas se já em conversa
+  let cleanText = safeResponse
     .replace(/\[STAGE:[\w_]+\]/gi, "")
     .replace(/\[SCORE:\d+\]/gi, "")
     .replace(/\[TRAY_PRODUCT:\d+\]/gi, "")
     .replace(/\[CNPJ_CHECK:[\d.\/\-]+\]/gi, "")
     .trim();
 
-  // 6. Fragmentar em balões individuais
+  // 6. Fragmentar em balões individuais por quebras de linha ou pontuação
   const rawFragments = cleanText
     .split(/\n\s*\n/)
     .map(f => f.trim())
     .filter(Boolean);
 
-  const messagesToSend = rawFragments.length > 0 ? rawFragments : [cleanText];
+  const messagesToSend: string[] = [];
+  for (const frag of rawFragments) {
+    if (frag.length > 120 && frag.includes(". ")) {
+      const subParts = frag.split(/(?<=[.!?])\s+/);
+      for (const sp of subParts) {
+        if (sp.trim()) messagesToSend.push(sp.trim());
+      }
+    } else {
+      messagesToSend.push(frag);
+    }
+  }
+
+  const finalMessages = messagesToSend.length > 0 ? messagesToSend : [cleanText];
 
   // 7. Decide se deve fazer bridge para WhatsApp
   const shouldBridgeToWhatsApp = stage === "atacado_qualificado" && !!visitor.phone;
 
   return {
-    messagesToSend,
+    messagesToSend: finalMessages,
     text: cleanText,
     stage,
     score,
@@ -217,7 +200,6 @@ export async function processVisitorMessage(
 
 /**
  * Gera mensagem proativa de abertura quando o visitante abre o widget.
- * Leva em conta a URL atual para contextualizar a abordagem.
  */
 export async function generateProactiveGreeting(
   tenantId: string,
@@ -228,11 +210,11 @@ export async function generateProactiveGreeting(
   const searchTerm = extractSearchTermFromUrl(currentUrl);
   const productContext = searchTerm
     ? `O visitante está na página: "${currentTitle || searchTerm}"`
-    : "O visitante está no site mas não em uma página de produto específica.";
+    : "O visitante está navegando na página inicial do site.";
 
   const prompt = `Você é a Valentina da Valem Válvulas e Embalagens. ${productContext}
-Gere uma saudação proativa curta (máximo 2 linhas) para iniciar a conversa, contextualizada com o produto/página se relevante.
-Seja natural e convidativa. Não mencione que é uma IA.`;
+Gere uma saudação proativa muito curta (1 ou 2 linhas), simpática, natural e humana no estilo WhatsApp.
+Não pareça um robô.`;
 
   try {
     const greeting = await vertexAi.generateText(
@@ -241,8 +223,8 @@ Seja natural e convidativa. Não mencione que é uma IA.`;
       signal,
       { feature: "sdr_agent", tenantId }
     );
-    return (greeting || "").trim() || "Olá! Posso te ajudar com informações sobre nossos produtos?";
+    return (greeting || "").trim() || "Oi! Posso te ajudar a encontrar o modelo ideal de válvula ou frasco hoje?";
   } catch {
-    return "Olá! Posso te ajudar com informações sobre nossos produtos?";
+    return "Oi! Posso te ajudar a encontrar o modelo ideal de válvula ou frasco hoje?";
   }
 }
