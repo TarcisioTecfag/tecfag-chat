@@ -37,7 +37,7 @@ interface VisitorDebounceSession {
 export class LiveChatDebouncer {
   private static instance: LiveChatDebouncer;
   private sessions: Map<string, VisitorDebounceSession> = new Map();
-  private readonly DEBOUNCE_DELAY_MS = 3800; // 3.8s de silêncio para resposta ágil no chat web
+  private readonly DEBOUNCE_DELAY_MS = 15000; // 15s de silêncio para acúmulo de mensagens picadas
 
   private constructor() {}
 

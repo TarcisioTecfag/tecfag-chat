@@ -1158,13 +1158,17 @@ export class ValemChatWidget {
       innerContent = this.renderAudioPlayer(msg.mediaUrl, msg.durationSec || 0);
     } else if (msg.contentType === "image" && msg.mediaUrl) {
       innerContent = `
-        <img src="${msg.mediaUrl}" alt="${this.escapeHtml(msg.fileName || "Foto")}" class="vlm-media-image" onclick="window.open('${msg.mediaUrl}', '_blank')" />
-        ${msg.text ? `<div style="margin-top:6px">${this.escapeAndFormat(msg.text)}</div>` : ""}
+        <div class="vlm-media-image-wrap">
+          <img src="${msg.mediaUrl}" alt="${this.escapeHtml(msg.fileName || "Foto")}" class="vlm-media-image" onclick="window.open('${msg.mediaUrl}', '_blank')" />
+        </div>
+        ${msg.text ? `<div class="vlm-media-caption">${this.escapeAndFormat(msg.text)}</div>` : ""}
       `;
     } else if (msg.contentType === "video" && msg.mediaUrl) {
       innerContent = `
-        <video src="${msg.mediaUrl}" controls playsinline class="vlm-media-video"></video>
-        ${msg.text ? `<div style="margin-top:6px">${this.escapeAndFormat(msg.text)}</div>` : ""}
+        <div class="vlm-media-video-wrap">
+          <video src="${msg.mediaUrl}" controls playsinline class="vlm-media-video"></video>
+        </div>
+        ${msg.text ? `<div class="vlm-media-caption">${this.escapeAndFormat(msg.text)}</div>` : ""}
       `;
     } else if (msg.contentType === "document" && msg.mediaUrl) {
       const icon = getFileSvgIcon(msg.fileName || "");
@@ -1176,7 +1180,7 @@ export class ValemChatWidget {
             <span class="vlm-media-file-size">${formatFileSize(msg.fileSize)} • Baixar</span>
           </div>
         </a>
-        ${msg.text ? `<div style="margin-top:6px">${this.escapeAndFormat(msg.text)}</div>` : ""}
+        ${msg.text ? `<div class="vlm-media-caption">${this.escapeAndFormat(msg.text)}</div>` : ""}
       `;
     } else {
       innerContent = this.escapeAndFormat(msg.text);

@@ -6,6 +6,7 @@
 
 import { vertexAi } from "../vertex-ai";
 import { getChatHistory } from "./livechatStorage";
+import { getKnowledgeBaseContext } from "../valentina/knowledge-service";
 import { searchProducts, extractSearchTermFromUrl, type TrayProduct } from "./trayCatalogService";
 import { buildCheckoutUrl, buildCheckoutMessage } from "./trayCheckoutService";
 import type { LcVisitor, LcChat, LcMessage } from "../../db/schema";
@@ -40,7 +41,7 @@ export function isNoise(text: string): boolean {
   return t.length < 2 || NOISE_PATTERNS.some((p) => p.test(t));
 }
 
-function buildSystemPrompt(visitor: LcVisitor, hasHistory: boolean): string {
+function buildSystemPrompt(visitor: LcVisitor, hasHistory: boolean, knowledgeContext: string): string {
   const isCpf = Boolean(visitor.cpf && !visitor.cnpj);
   const isCnpj = Boolean(visitor.cnpj);
 
@@ -72,18 +73,21 @@ ${documentContext}
 
 ${historyInstruction}
 
+${knowledgeContext}
+
 REGRAS DE CONDUTA & PROIBIÇÕES ABSOLUTAS:
-1. NUNCA mencione "você tinha falado CPF antes" nem questione o documento do cliente. Confie cegamente no DOCUMENTO ATIVO DO CLIENTE acima.
+1. NUNCA mencione "você tinha falado CPF antes" nem questione o documento do cliente. Confie no DOCUMENTO ATIVO DO CLIENTE acima.
 2. NUNCA diga que a Valem Pack "só atende empresas". Atendemos tanto CPF (varejo no site) quanto CNPJ (faturamento PJ e atacado).
-3. Se o cliente perguntar "pix?", responda com naturalidade que aceita PIX sim, além de cartão e faturamento/boleto.
-4. Se o cliente pedir "válvula trigger" (gatilho), responda com agilidade sobre as opções de válvula gatilho/trigger (ex: 28/410 spray/stream) e ajude com medidas e cores.
+3. TRATAMENTO DE CORREÇÃO / MUDANÇA DE PRODUTO: Se o cliente disser "não pedi isso", "esquece isso", "que pr é essa" ou enviar a foto de um produto diferente, PEÇA DESCULPA RÁPIDA E ESQUEÇA COMPLETAMENTE o produto anterior! Foque 100% no item atual que o cliente quer.
+4. Se o cliente pedir quantidade < 50 unidades de um item no site (ex: 10 unidades do Pote Âmbar 10ml), explique com simpatia que o pedido mínimo no site é 50 unidades por item (ou indique o Mercado Livre para 10 unidades).
+5. Se o cliente perguntar "pix?", responda com naturalidade que aceita PIX sim, além de cartão e boleto/faturamento PJ.
 
 TOM DE VOZ & PERSONALIDADE HUMANA (MANDATÓRIO):
 - Você fala como uma atendente humana real, ágil, direta, inteligente e acolhedora no WhatsApp.
 - USE VÍCIOS DE LINGUAGEM HUMANOS NATURAIS: "certo", "entendi", "beleza", "olha só", "tipo assim", "perfeito", "show".
 - NUNCA use frases robóticas burocráticas como: "Obrigada por enviar o arquivo X", "Recebi sua imagem", "Anotei seu pedido", "Como posso auxiliá-lo com este documento".
 - NUNCA encha o texto de pontos de interrogação (? ? ? ?). No máximo 1 pergunta natural por turno.
-- Se o cliente mandou foto, print ou anexo, comente diretamente sobre o que você viu/leu.
+- Se o cliente mandou foto, print ou anexo, comente diretamente sobre o que você viu/leu na imagem.
 
 REGRAS MANDATÓRIAS DE FRAGMENTAÇÃO EM BALÕES:
 - Você DEVE SEMPRE quebrar sua fala em 2 a 4 balões curtos e ágeis.
@@ -103,13 +107,16 @@ export async function processVisitorMessage(
   signal?: AbortSignal,
   inlineAttachment?: { mimeType: string; data: string }
 ): Promise<AiResponse> {
-  // 1. Busca histórico do banco (anti-amnésia)
-  const history = await getChatHistory(tenantId, chat.id, 20);
+  // 1. Busca histórico do banco e contexto consolidado da Base de Conhecimento RAG
+  const [history, knowledgeContext] = await Promise.all([
+    getChatHistory(tenantId, chat.id, 20),
+    getKnowledgeBaseContext(tenantId),
+  ]);
   const hasHistory = history.length > 0;
 
   // 2. Monta o array de partes para o Vertex AI
   const promptParts: any[] = [
-    { text: buildSystemPrompt(visitor, hasHistory) },
+    { text: buildSystemPrompt(visitor, hasHistory, knowledgeContext) },
   ];
 
   // Adiciona histórico recente
