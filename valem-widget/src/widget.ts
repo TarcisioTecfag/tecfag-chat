@@ -221,9 +221,9 @@ export class ValemChatWidget {
     btnSend.addEventListener("click", () => this.handleSendMessage());
 
     textarea.addEventListener("input", () => {
-      textarea.style.height = "auto";
-      const nextH = Math.min(textarea.scrollHeight, 110);
-      textarea.style.height = `${Math.max(nextH, 22)}px`;
+      textarea.style.height = "20px";
+      const nextH = Math.min(Math.max(textarea.scrollHeight, 20), 100);
+      textarea.style.height = `${nextH}px`;
       this.updateButtonsState();
     });
 
@@ -617,7 +617,7 @@ export class ValemChatWidget {
 
     if (textarea) {
       textarea.value = "";
-      textarea.style.height = "22px";
+      textarea.style.height = "20px";
     }
 
     if (file) {
