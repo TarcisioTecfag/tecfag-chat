@@ -135,11 +135,16 @@ export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promi
         // Separa o prefixo "[FORMATO_REAL:url]" do resto (que pode conter base64 enorme)
         const contentPrefix = (f.content || "").split("[BASE64:")[0];
         const match = contentPrefix.match(REAL_MEDIA_PATTERN);
-        if (!match) return null;
+        if (!match) {
+          console.log(`[KnowledgeService] ⚠️ REAL_MEDIA_PATTERN não encontrou match no arquivo: name="${f.name}" | contentPrefix="${contentPrefix.substring(0, 100)}"`);
+          return null;
+        }
         return `  - "${f.name}" → URL: ${match[1]}`;
       })
       .filter(Boolean);
 
+    // 🔍 Diagnóstico: logar catálogo construído
+    console.log(`[KnowledgeService] 📸 Catálogo Formato Real: ${realMediaFiles.length} foto(s) no prompt | Entradas: ${JSON.stringify(realMediaFiles)}`);
 
     let additionalDocs = "";
     if (activeFiles.length > 0) {
