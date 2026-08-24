@@ -88,9 +88,9 @@ export const Route = createFileRoute("/api/chats")({
 
                 if (!contact?.rdCrmDealId) return;
 
-                // Endpoint de anotações do RD CRM v2
-                await rdRequest(tenantId, "POST", `/deals/${contact.rdCrmDealId}/annotations`, {
-                  text: `[Nota Interna] ${senderName}: ${content}`,
+                // Endpoint correto: /deals/{id}/notes com campo description (igual ao SDR)
+                await rdRequest(tenantId, "POST", `/deals/${contact.rdCrmDealId}/notes`, {
+                  description: `[Nota Interna — ${senderName}]\n\n${content}`,
                 });
                 console.log(`[chats POST] Nota interna enviada ao CRM para deal ${contact.rdCrmDealId}`);
               } catch (crmErr: any) {

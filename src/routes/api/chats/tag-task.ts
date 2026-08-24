@@ -2,7 +2,7 @@
 import { db } from "../../../db";
 import { conversations, contacts, messages } from "../../../db/schema";
 import { eq } from "drizzle-orm";
-import { rdRequest } from "../../../lib/rdCrmService";
+import { rdRequest, getCachedUsers } from "../../../lib/rdCrmService";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,9 +31,9 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             tagName: string;
             tenantId: string;
             operatorName?: string;
-            taskType?: string;   // "task" | "call" | "meeting" | "email" | "lunch"
-            dueDate?: string;    // "YYYY-MM-DD"
-            dueTime?: string;    // "HH:MM"
+            taskType?: string;
+            dueDate?: string;  // "YYYY-MM-DD"
+            dueTime?: string;  // "HH:MM"
           };
 
           const {
@@ -75,44 +75,49 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             );
           }
 
-          // 2. Montar data/hora de vencimento
+          // 2. Montar data/hora de vencimento (formato ISO 8601)
           let dueDateISO = dueDate;
           if (!dueDateISO) {
             const d = new Date();
             d.setDate(d.getDate() + 1);
             dueDateISO = d.toISOString().split("T")[0];
           }
-
-          // Se tiver hora, combinar em datetime ISO 8601 com fuso BR (-03:00)
-          let dueDateTimeFull = dueDateISO;
-          if (dueTime) {
-            dueDateTimeFull = `${dueDateISO}T${dueTime}:00-03:00`;
-          }
+          const dueDateTimeFull = dueTime
+            ? `${dueDateISO}T${dueTime}:00-03:00`
+            : `${dueDateISO}T09:00:00-03:00`;
 
           const typeLabel = TASK_TYPE_LABELS[taskType] || "Tarefa";
 
-          // 3. Criar Activity no RD CRM
-          let activityCreated = false;
+          // 3. Buscar usuario responsavel (primeiro usuario disponivel como fallback)
+          let userId: string | undefined;
           try {
-            await rdRequest(tenantId, "POST", "/activities", {
-              subject: tagName,
+            const users = await getCachedUsers(tenantId);
+            if (Array.isArray(users) && users.length > 0) {
+              userId = users[0].id;
+            }
+          } catch {/* ignora — task vai sem user_id */}
+
+          // 4. Criar Task no RD CRM via endpoint correto /tasks
+          let taskCreated = false;
+          try {
+            await rdRequest(tenantId, "POST", "/tasks", {
+              name: tagName,
               type: taskType,
               deal_id: contact.rdCrmDealId,
               due_date: dueDateTimeFull,
-              notes: `Tarefa criada via Valem Chat${operatorName ? ` por ${operatorName}` : ""}. Tipo: ${typeLabel}.`,
+              notes: `Tarefa criada via Valem Chat${operatorName ? " por " + operatorName : ""}. Tipo: ${typeLabel}.`,
+              ...(userId ? { user_id: userId } : {}),
             });
-            activityCreated = true;
+            taskCreated = true;
           } catch (crmErr: any) {
-            console.warn(`[TagTask] Falha ao criar activity no CRM (nao bloqueante):`, crmErr.message);
+            console.warn(`[TagTask] Falha ao criar task no CRM:`, crmErr.message);
           }
 
-          // 4. Salvar mensagem de sistema no chat
-          if (activityCreated) {
+          // 5. Salvar mensagem de sistema no chat (so se criou com sucesso)
+          if (taskCreated) {
             try {
-              const dueParts = dueDateISO.split("-");
-              const dueFmt = dueParts.length === 3
-                ? `${dueParts[2]}/${dueParts[1]}/${dueParts[0]}${dueTime ? " as " + dueTime : ""}`
-                : dueDateISO;
+              const [d, m, y] = dueDateISO.split("-");
+              const dueFmt = `${y}/${m}/${d}${dueTime ? " as " + dueTime : ""}`;
 
               await db.insert(messages).values({
                 id: `sys-task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -130,7 +135,7 @@ export const Route = createFileRoute("/api/chats/tag-task")({
           }
 
           return new Response(
-            JSON.stringify({ success: true, activityCreated }),
+            JSON.stringify({ success: true, taskCreated }),
             { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         } catch (e: any) {
