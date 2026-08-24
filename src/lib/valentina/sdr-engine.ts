@@ -6,7 +6,7 @@ import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
 import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
-import { getKnowledgeBaseContext, KNOWLEDGE_MEDIA_DIR } from "./knowledge-service";
+import { getKnowledgeBaseContext, getRealMediaFiles, KNOWLEDGE_MEDIA_DIR } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { getAiPersona } from "../ai-persona";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
