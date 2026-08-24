@@ -231,6 +231,7 @@ export class SdrEngine {
         .limit(80);
 
       let hasPreviousEmoji = false;
+      let hasPreviousAudio = false;
       const conversationHistoryText = historyMsgs
         .map((m: any) => {
           if (m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)) {
@@ -240,6 +241,7 @@ export class SdrEngine {
           
           let contentText = m.content || "";
           if (typeof contentText === "string" && contentText.startsWith("[MEDIA:audio]")) {
+            hasPreviousAudio = true; // Valentina já enviou áudio nessa conversa
             contentText = m.mediaInterpretation
               ? `🎤 [ÁUDIO DE VOZ ENVIADO PELA VALENTINA]: "${m.mediaInterpretation}"`
               : "🎤 [ÁUDIO DE VOZ]";
@@ -557,15 +559,27 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
 
 15. DIRETRIZES DE RESPOSTA EM ÁUDIO DE VOZ (ELEVENLABS TTS — MODELO eleven_v3):
    - Você tem a capacidade de responder enviando uma mensagem de voz/áudio falada por você (Valentina) no WhatsApp.
-   - Quando usar o campo "audioMessage":
-     a) Se o cliente enviou um áudio no lote atual (espelhamento de canal de comunicação com rapport imediato).
-     b) Se você estiver explicando detalhes técnicos ou comerciais (diferenças entre válvulas spray/dosadoras, compatibilidade de frascos, acabamentos ou tiragens mínimas) onde uma explicação falada soa muito mais atenciosa e humana que um texto longo.
-     c) Se você quiser fazer uma pergunta de qualificação com tom empático e consultivo.
+
+   🎯 QUANDO USAR ÁUDIO (REGRA OBRIGATÓRIA):
+      a) Se o cliente enviou um áudio no lote atual → SEMPRE responda com áudio (espelhamento de canal).
+      b) Quando uma explicação comercial ou técnica geraria MUITOS balões de texto (3 ou mais) — especialmente:
+         - Explicar as diferenças de canal de venda (site vs Mercado Livre vs WhatsApp/consultora).
+         - Explicar política de quantidade mínima ou condições comerciais.
+         - Responder dúvidas técnicas sobre produtos (tipos de válvula, compatibilidade, acabamento).
+         - Qualquer assunto que, em texto, viraria textão ou mais de 3 balões.
+      c) Se quiser fazer uma pergunta de qualificação com tom especialmente empático ou consultivo.
+
+   ⚠️ REGRA DE PERMISSÃO — PRIMEIRA VEZ QUE FOR ENVIAR ÁUDIO:
+      - ${hasPreviousAudio
+        ? "✅ Você JÁ enviou áudio nessa conversa. Pode enviar áudio diretamente, SEM pedir permissão novamente."
+        : "🛑 É A PRIMEIRA VEZ que você vai enviar áudio nessa conversa. VOCÊ DEVE OBRIGATORIAMENTE pedir permissão antes! Use um balão de texto curto ANTES do áudio, como: \"Posso te mandar um áudio rápido explicando?\" ou \"Te mando um áudio rapidinho, pode ser?\" — e só envie o audioMessage se o contexto indicar que o cliente vai aceitar (ou já aceitou implicitamente pelo contexto). Se não tiver certeza, pergunte no messagesToSend e retorne audioMessage: null agora, enviando o áudio na próxima rodada."}
+
    - Se for enviar áudio, preencha:
      "audioMessage": {
        "text": "texto exato a ser falado, com máximo 200 caracteres (~15s de fala). Use emotion tags do eleven_v3 para soar mais humana e natural.",
        "position": "after_text"
      }
+
    - EMOTION TAGS disponíveis (insira inline no texto onde fizer sentido natural):
      [warmly] → tom caloroso, acolhedor (use para saudações e encerramento)
      [enthusiastic] → animada, empolgada (use para boas notícias ou oportunidades)
