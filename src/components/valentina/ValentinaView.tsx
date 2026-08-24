@@ -3,7 +3,7 @@
 // Segue exatamente o padrão do MonitorView.tsx (shell, tabs, content)
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Bot, MessageCircle, UserPlus, Eye, ShoppingBag, Database, Shuffle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaTab } from "./valentina-mock-data";
@@ -13,10 +13,11 @@ import { RodizioTab } from "./RodizioTab";
 import { SupervisorTab } from "./SupervisorTab";
 import { VendedorTab } from "./VendedorTab";
 import { KnowledgeTab } from "./KnowledgeTab";
+import { usePermissions } from "@/hooks/usePermissions";
 
 // ── Definição das tabs ──────────────────────────────────────────────────────
 
-const tabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = [
+const allTabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = [
   { id: "chat", label: "Chat", icon: MessageCircle },
   { id: "sdr", label: "SDR", icon: UserPlus },
   { id: "rodizio", label: "Rodízio", icon: Shuffle },
@@ -28,7 +29,17 @@ const tabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = [
 // ── Componente principal ────────────────────────────────────────────────────
 
 export function ValentinaView() {
-  const [activeTab, setActiveTab] = useState<ValentinaTab>("chat");
+  const { canAccessValentinaTab } = usePermissions();
+  const allowedTabs = allTabs.filter(tab => canAccessValentinaTab(tab.id));
+  const [activeTab, setActiveTab] = useState<ValentinaTab>(() => allowedTabs[0]?.id || "chat");
+
+  useEffect(() => {
+    if (!allowedTabs.some(t => t.id === activeTab)) {
+      if (allowedTabs.length > 0) {
+        setActiveTab(allowedTabs[0].id);
+      }
+    }
+  }, [allowedTabs, activeTab]);
 
   const today = new Date().toLocaleDateString("pt-BR", {
     weekday: "long",
@@ -57,7 +68,7 @@ export function ValentinaView() {
 
       {/* Internal Tab Bar */}
       <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0">
-        {tabs.map((tab) => {
+        {allowedTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (

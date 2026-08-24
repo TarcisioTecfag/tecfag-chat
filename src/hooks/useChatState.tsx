@@ -9,6 +9,7 @@ import {
   QuickResponse,
   OperatorTemplate,
 } from "@/lib/mockData";
+import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
 
 export type MetaConfig = {
   businessAccountId: string;
@@ -35,17 +36,19 @@ export type AccessGroup = {
   id: string;
   name: string;
   allowedTenants: ("tecfag" | "valem")[];
-  allowedChannels: ("whatsapp" | "instagram" | "messenger")[];
-  // Administração do painel
+  allowedChannels: ("whatsapp" | "instagram" | "messenger" | "livechat")[];
+  // Administração do painel (legado)
   canCreateUser: boolean;
   canResetPassword: boolean;
   canEditProfile: boolean;
-  // ── Permissões de Atendimento (RBAC) ──────────────────────────────────────
+  // ── Permissões de Atendimento (RBAC legado) ──────────────────────────────
   canCaptureChat: boolean;   // Pode puxar chats da fila para si
   canTransferChat: boolean;  // Pode transferir chats para outro operador
   canFinishChat: boolean;    // Pode encerrar conversas
   canViewAllChats: boolean;  // Vê chats de todos os operadores (somente leitura)
   canOverrideChat: boolean;  // Pode assumir chat de outro operador sem transferência prévia
+  // ── Matriz Granular de 10 Blocos ──────────────────────────────────────────
+  permissions?: GroupPermissions;
   tenantId?: "tecfag" | "valem";
 };
 
@@ -415,7 +418,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     id: "group-admin",
     name: "Administradores",
     allowedTenants: ["tecfag", "valem"],
-    allowedChannels: ["whatsapp", "instagram", "messenger"],
+    allowedChannels: ["whatsapp", "instagram", "messenger", "livechat"],
     canCreateUser: true,
     canResetPassword: true,
     canEditProfile: true,
@@ -424,6 +427,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     canFinishChat: true,
     canViewAllChats: true,
     canOverrideChat: true,
+    permissions: DEFAULT_ADMIN_PERMISSIONS,
   };
 
   const defaultOperator: Operator = {
@@ -439,7 +443,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const currentOperator = operators.find((op) => op.id === currentOperatorId)
     || (operators.length > 0 ? operators[0] : defaultOperator);
 
-  const currentGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || defaultAdminGroup;
+  const rawGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || defaultAdminGroup;
+  const currentGroup: AccessGroup = {
+    ...rawGroup,
+    permissions: normalizeGroupPermissions(rawGroup),
+  };
 
   const operatorProfile: OperatorProfile = {
     name: currentOperator.name,

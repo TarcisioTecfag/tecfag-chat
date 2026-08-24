@@ -9,6 +9,7 @@ import {
 // Componentes migrados do Monitoramento
 import { OverviewTab, CostsTab } from "@/components/chat/MonitorView";
 import { ReportsIATab } from "@/components/reports/ReportsIATab";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, BarChart, Bar, Cell, PieChart, Pie, RadialBarChart, RadialBar
@@ -560,7 +561,7 @@ function ReportsTab({ reports, loading }: { reports: AiReportData[]; loading: bo
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function AnalyticsView() {
   const { tenant } = useChat();
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>("overview");
+  const { canAccessAnalyticsTab } = usePermissions();
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
@@ -685,7 +686,7 @@ export function AnalyticsView() {
     load();
   }, [tenant]);
 
-  const tabs: { id: AnalyticsTab; label: string; icon: React.ElementType }[] = [
+  const allTabs: { id: AnalyticsTab; label: string; icon: React.ElementType }[] = [
     { id: "overview",     label: "Visão Geral",   icon: Eye },
     { id: "performance",  label: "Desempenho",     icon: BarChart2 },
     { id: "sla",          label: "SLA & Tempos",   icon: Clock },
@@ -693,6 +694,17 @@ export function AnalyticsView() {
     { id: "reports",      label: "Relatórios IA",  icon: FileText },
     { id: "costs",        label: "Custos",         icon: Coins },
   ];
+
+  const allowedTabs = allTabs.filter(t => canAccessAnalyticsTab(t.id));
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>(() => allowedTabs[0]?.id || "overview");
+
+  useEffect(() => {
+    if (!allowedTabs.some(t => t.id === activeTab)) {
+      if (allowedTabs.length > 0) {
+        setActiveTab(allowedTabs[0].id);
+      }
+    }
+  }, [allowedTabs, activeTab]);
 
   return (
     <div className="flex flex-col h-full bg-card rounded-3xl border border-border shadow-soft overflow-hidden">
@@ -717,7 +729,7 @@ export function AnalyticsView() {
 
       {/* Interna Tab Bar */}
       <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0">
-        {tabs.map((tab) => {
+        {allowedTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (

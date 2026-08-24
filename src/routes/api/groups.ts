@@ -61,6 +61,7 @@ export const Route = createFileRoute("/api/groups")({
             id, tenantId, name, allowedTenants, allowedChannels,
             canCreateUser, canResetPassword, canEditProfile,
             canCaptureChat, canTransferChat, canFinishChat, canViewAllChats, canOverrideChat,
+            permissions,
           } = body;
 
           if (!id || !tenantId || !name) {
@@ -91,6 +92,7 @@ export const Route = createFileRoute("/api/groups")({
                 canFinishChat: canFinishChat !== undefined ? canFinishChat : existing.canFinishChat,
                 canViewAllChats: canViewAllChats !== undefined ? canViewAllChats : existing.canViewAllChats,
                 canOverrideChat: canOverrideChat !== undefined ? canOverrideChat : existing.canOverrideChat,
+                permissions: permissions !== undefined ? permissions : existing.permissions,
               })
               .where(eq(accessGroups.id, id));
           } else {
@@ -108,6 +110,7 @@ export const Route = createFileRoute("/api/groups")({
               canFinishChat: canFinishChat !== undefined ? canFinishChat : false,
               canViewAllChats: canViewAllChats !== undefined ? canViewAllChats : false,
               canOverrideChat: canOverrideChat !== undefined ? canOverrideChat : false,
+              permissions: permissions || {},
             });
           }
 

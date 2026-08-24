@@ -22,6 +22,7 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { MOCK_LIVE, MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
 import { OperatorsRankingTab } from "./OperatorsRankingTab";
 import { SiteVisitorsTab } from "./SiteVisitorsTab";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -3474,7 +3475,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function MonitorView() {
   const { tenant } = useChat();
-  const [activeTab, setActiveTab] = useState<MonitorTab>("live");
+  const { canAccessMonitorTab } = usePermissions();
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [audits, setAudits] = useState<AuditItem[]>([]);
@@ -3483,6 +3484,26 @@ export function MonitorView() {
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
   const [historyModalOperator, setHistoryModalOperator] = useState<{ id: string; name: string } | null>(null);
+
+  const allTabs: { id: MonitorTab; label: string; icon: React.ElementType; badge?: number }[] = [
+    { id: "live",      label: "Ao Vivo",        icon: Activity, badge: DEMO_MODE ? 4 : undefined },
+    { id: "alerts",    label: "Alertas",         icon: Bell, badge: alerts.filter((a: AlertItem) => a.isOverdue).length },
+    { id: "operators", label: "Operadores",      icon: Users },
+    { id: "audits",    label: "Auditorias IA",   icon: Zap },
+    { id: "tasks",     label: "Tarefas Globais", icon: ClipboardCheck },
+    { id: "site",      label: "Visitantes",      icon: Globe },
+  ];
+
+  const allowedTabs = allTabs.filter(t => canAccessMonitorTab(t.id));
+  const [activeTab, setActiveTab] = useState<MonitorTab>(() => allowedTabs[0]?.id || "live");
+
+  useEffect(() => {
+    if (!allowedTabs.some(t => t.id === activeTab)) {
+      if (allowedTabs.length > 0) {
+        setActiveTab(allowedTabs[0].id);
+      }
+    }
+  }, [allowedTabs, activeTab]);
 
   const fetchData = useCallback(async () => {
     // ── DEMO MODE: usa dados simulados sem chamar a API ────────────────────────
@@ -3519,15 +3540,6 @@ export function MonitorView() {
     const interval = setInterval(fetchData, 30_000); // Auto-refresh 30s
     return () => clearInterval(interval);
   }, [fetchData]);
-
-  const tabs: { id: MonitorTab; label: string; icon: React.ElementType; badge?: number }[] = [
-    { id: "live",      label: "Ao Vivo",        icon: Activity, badge: DEMO_MODE ? 4 : undefined },
-    { id: "alerts",    label: "Alertas",         icon: Bell, badge: alerts.filter((a: AlertItem) => a.isOverdue).length },
-    { id: "operators", label: "Operadores",      icon: Users },
-    { id: "audits",    label: "Auditorias IA",   icon: Zap },
-    { id: "tasks",     label: "Tarefas Globais", icon: ClipboardCheck },
-    { id: "site",      label: "Visitantes",      icon: Globe },
-  ];
 
   const today = new Date().toLocaleDateString("pt-BR", {
     weekday: "long",
@@ -3568,7 +3580,7 @@ export function MonitorView() {
 
       {/* Internal Tab Bar */}
       <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0">
-        {tabs.map((tab) => {
+        {allowedTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (

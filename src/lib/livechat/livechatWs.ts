@@ -402,7 +402,6 @@ async function handleVisitorMessage(
       contentType,
       mediaUrl: fileBase64,
       fileName,
-      fileSize,
       mediaType: fileType,
     });
 
@@ -454,9 +453,7 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
 
     // Operador enviando mensagem ao visitante
     if (type === "operator_message" && chatId && content) {
-      const savedMsg = await saveMessage(tenantId, chatId, "operator", content, {
-        operatorId: conn.operatorId,
-      });
+      const savedMsg = await saveMessage(tenantId, chatId, "operator", content, {});
 
       // Envia ao visitante
       const visitorConn = [...visitorConnections.values()].find(

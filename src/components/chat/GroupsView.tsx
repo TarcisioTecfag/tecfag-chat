@@ -345,10 +345,32 @@ import {
   X,
   Search,
   MessageSquare,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Bot,
+  PhoneCall,
+  BarChart2,
+  Settings,
+  ClipboardCheck,
+  Tag,
+  FileText,
+  Coins,
+  ShieldCheck,
+  CheckCircle2,
+  Sparkles,
+  Zap,
+  Filter,
+  Globe,
+  Sliders,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  GroupPermissions,
+  ROLE_PRESETS,
+  DEFAULT_ADMIN_PERMISSIONS,
+  normalizeGroupPermissions,
+} from "@/lib/rbac";
 
 export function GroupsView() {
   const {
@@ -692,6 +714,106 @@ export function GroupsView() {
         : [...prev.allowedChannels, channel];
       return { ...prev, allowedChannels };
     });
+  };
+
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    tenants: true,
+    channels: true,
+    views: true,
+    chat: true,
+    contacts: true,
+    valentina: true,
+    ligacoes: true,
+    monitor: true,
+    analytics: true,
+    security: true,
+    settings: true,
+  });
+
+  const toggleSection = (section: string) => {
+    setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const updateGroupGranular = (groupId: string, category: keyof GroupPermissions, key: string, value: any) => {
+    const targetGroup = accessGroups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    const currentPerms = normalizeGroupPermissions(targetGroup);
+    const updatedPerms: GroupPermissions = {
+      ...currentPerms,
+      [category]: {
+        ...(currentPerms[category] as any),
+        [key]: value,
+      },
+    };
+
+    const legacyUpdates: Partial<AccessGroup> = {
+      permissions: updatedPerms,
+      canCreateUser: updatedPerms.security.canManageUsers,
+      canResetPassword: updatedPerms.security.canResetUserPasswords,
+      canEditProfile: updatedPerms.chat.canEditClientInfo,
+      canCaptureChat: updatedPerms.chat.canCaptureChat,
+      canTransferChat: updatedPerms.chat.canTransferChat,
+      canFinishChat: updatedPerms.chat.canFinishChat,
+      canViewAllChats: updatedPerms.chat.canViewAllChats,
+      canOverrideChat: updatedPerms.chat.canOverrideChat,
+    };
+
+    updateAccessGroup(groupId, legacyUpdates);
+  };
+
+  const applyRolePreset = (groupId: string, presetKey: string) => {
+    const preset = ROLE_PRESETS[presetKey];
+    if (!preset) return;
+
+    const legacyUpdates: Partial<AccessGroup> = {
+      permissions: preset.permissions,
+      canCreateUser: preset.permissions.security.canManageUsers,
+      canResetPassword: preset.permissions.security.canResetUserPasswords,
+      canEditProfile: preset.permissions.chat.canEditClientInfo,
+      canCaptureChat: preset.permissions.chat.canCaptureChat,
+      canTransferChat: preset.permissions.chat.canTransferChat,
+      canFinishChat: preset.permissions.chat.canFinishChat,
+      canViewAllChats: preset.permissions.chat.canViewAllChats,
+      canOverrideChat: preset.permissions.chat.canOverrideChat,
+    };
+
+    updateAccessGroup(groupId, legacyUpdates);
+    toast.success(`Perfil "${preset.name}" aplicado!`);
+  };
+
+  const toggleCategoryAll = (groupId: string, category: keyof GroupPermissions, value: boolean) => {
+    const targetGroup = accessGroups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    const currentPerms = normalizeGroupPermissions(targetGroup);
+    const catObj = { ...(currentPerms[category] as any) };
+    for (const k of Object.keys(catObj)) {
+      if (typeof catObj[k] === "boolean") {
+        catObj[k] = value;
+      }
+    }
+
+    const updatedPerms: GroupPermissions = {
+      ...currentPerms,
+      [category]: catObj,
+    };
+
+    const legacyUpdates: Partial<AccessGroup> = {
+      permissions: updatedPerms,
+      canCreateUser: updatedPerms.security.canManageUsers,
+      canResetPassword: updatedPerms.security.canResetUserPasswords,
+      canEditProfile: updatedPerms.chat.canEditClientInfo,
+      canCaptureChat: updatedPerms.chat.canCaptureChat,
+      canTransferChat: updatedPerms.chat.canTransferChat,
+      canFinishChat: updatedPerms.chat.canFinishChat,
+      canViewAllChats: updatedPerms.chat.canViewAllChats,
+      canOverrideChat: updatedPerms.chat.canOverrideChat,
+    };
+
+    updateAccessGroup(groupId, legacyUpdates);
+    toast.success(`Categoria atualizada.`);
   };
 
   const updateGroupPermission = (groupId: string, field: keyof AccessGroup, value: any) => {
@@ -1189,298 +1311,867 @@ export function GroupsView() {
             </div>
           </div>
 
-          {/* Right Column: Permissions Settings Panel for Selected Group */}
-          <div className="lg:col-span-2 rounded-2xl bg-card border border-border shadow-soft p-6 space-y-6">
-            <header className="border-b border-line pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <h4 className="text-sm font-extrabold text-foreground flex items-center gap-1.5">
-                  <Shield className="h-4.5 w-4.5 text-primary" /> Permissões de Acesso: <span className="text-primary font-black">{selectedGroupObj.name}</span>
-                </h4>
-                <p className="text-xs text-muted-foreground mt-0.5">Edite em tempo real as autorizações concedidas a este grupo.</p>
-              </div>
-            </header>
+          {/* Right Column: Comprehensive RBAC Permissions Manager for Selected Group */}
+          {(() => {
+            const perms = normalizeGroupPermissions(selectedGroupObj);
+            const searchLower = permissionSearch.toLowerCase().trim();
 
-            <div className="space-y-6">
-              
-              {/* Allowed Tenants boundary settings */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-1.5">
-                  <Building2 className="h-4 w-4 text-primary" />
-                  <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Boundary de Tenants (Empresas)</h5>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Determine quais Tenants as contas deste grupo estão autorizadas a acessar e monitorar.
-                </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div 
-                    onClick={() => {
-                      const alreadySelected = selectedGroupObj.allowedTenants.includes("tecfag");
-                      const allowedTenants = alreadySelected
-                        ? selectedGroupObj.allowedTenants.filter(t => t !== "tecfag")
-                        : [...selectedGroupObj.allowedTenants, "tecfag"];
-                      updateGroupPermission(selectedGroupId, "allowedTenants", allowedTenants);
-                    }}
-                    className={`rounded-2xl p-4 border-2 transition cursor-pointer hover:bg-muted/10 ${
-                      selectedGroupObj.allowedTenants.includes("tecfag")
-                        ? "border-primary bg-primary-soft/5"
-                        : "border-border bg-card"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <img src="/logo_tecfag.png" alt="Tecfag logo" className="h-8 w-8 rounded-lg object-cover bg-white" />
-                      <div>
-                        <span className="font-extrabold text-xs block text-foreground">Tecfag Chat</span>
-                        <span className="text-[10px] text-muted-foreground">Acesso ao Meta Cloud API</span>
+            const matchesSearch = (text: string, desc?: string) => {
+              if (!searchLower) return true;
+              return text.toLowerCase().includes(searchLower) || (desc && desc.toLowerCase().includes(searchLower));
+            };
+
+            return (
+              <div className="lg:col-span-2 rounded-3xl bg-card border border-border shadow-soft p-6 space-y-6 flex flex-col">
+                {/* Header do Grupo e Ações Rápidas */}
+                <header className="border-b border-line pb-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary px-2.5 py-0.5 rounded-md">
+                          Controle de Acesso RBAC
+                        </span>
+                        <span className="text-xs text-muted-foreground">ID: {selectedGroupObj.id}</span>
                       </div>
+                      <h4 className="text-lg font-black text-foreground flex items-center gap-2 mt-1">
+                        <ShieldCheck className="h-5 w-5 text-primary" /> {selectedGroupObj.name}
+                      </h4>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Defina com precisão cirúrgica os limites de visualização, operação e governança de cada perfil.
+                      </p>
+                    </div>
+
+                    {/* Busca Rápida de Permissões */}
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Buscar permissão (ex: sdr, custos)..."
+                        value={permissionSearch}
+                        onChange={(e) => setPermissionSearch(e.target.value)}
+                        className="w-full h-9 pl-8 pr-8 rounded-xl bg-muted text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                      />
+                      {permissionSearch && (
+                        <button
+                          onClick={() => setPermissionSearch("")}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  <div 
-                    onClick={() => {
-                      const alreadySelected = selectedGroupObj.allowedTenants.includes("valem");
-                      const allowedTenants = alreadySelected
-                        ? selectedGroupObj.allowedTenants.filter(t => t !== "valem")
-                        : [...selectedGroupObj.allowedTenants, "valem"];
-                      updateGroupPermission(selectedGroupId, "allowedTenants", allowedTenants);
-                    }}
-                    className={`rounded-2xl p-4 border-2 transition cursor-pointer hover:bg-muted/10 ${
-                      selectedGroupObj.allowedTenants.includes("valem")
-                        ? "border-primary bg-primary-soft/5"
-                        : "border-border bg-card"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <img src="/logo_valem.jpg" alt="Valem logo" className="h-8 w-8 rounded-lg object-cover bg-white" />
-                      <div>
-                        <span className="font-extrabold text-xs block text-foreground">Valem Chat</span>
-                        <span className="text-[10px] text-muted-foreground">Acesso ao Baileys API</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Allowed Channels settings */}
-              <div className="space-y-3 pt-4 border-t border-line">
-                <div className="flex items-center gap-1.5">
-                  <Smartphone className="h-4 w-4 text-primary" />
-                  <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Boundary de Canais (Atendimento)</h5>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Habilite ou desabilite canais de entrada. Usuários sem acesso a um canal não visualizam as mensagens e filtros do mesmo.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* WhatsApp */}
-                  <div 
-                    onClick={() => {
-                      const alreadySelected = selectedGroupObj.allowedChannels.includes("whatsapp");
-                      const allowedChannels = alreadySelected
-                        ? selectedGroupObj.allowedChannels.filter(c => c !== "whatsapp")
-                        : [...selectedGroupObj.allowedChannels, "whatsapp"];
-                      updateGroupPermission(selectedGroupId, "allowedChannels", allowedChannels);
-                    }}
-                    className={`rounded-xl p-3 border transition cursor-pointer hover:bg-muted/10 flex items-center gap-3 ${
-                      selectedGroupObj.allowedChannels.includes("whatsapp")
-                        ? "border-emerald-500 bg-emerald-50/10 text-emerald-600 font-bold"
-                        : "border-border bg-card text-muted-foreground"
-                    }`}
-                  >
-                    <Smartphone className="h-5 w-5 shrink-0" />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">WhatsApp</span>
-                      <span className="text-[9px] text-muted-foreground block font-normal">Envio e recepção</span>
-                    </div>
-                  </div>
-
-                  {/* Instagram */}
-                  <div 
-                    onClick={() => {
-                      const alreadySelected = selectedGroupObj.allowedChannels.includes("instagram");
-                      const allowedChannels = alreadySelected
-                        ? selectedGroupObj.allowedChannels.filter(c => c !== "instagram")
-                        : [...selectedGroupObj.allowedChannels, "instagram"];
-                      updateGroupPermission(selectedGroupId, "allowedChannels", allowedChannels);
-                    }}
-                    className={`rounded-xl p-3 border transition cursor-pointer hover:bg-muted/10 flex items-center gap-3 ${
-                      selectedGroupObj.allowedChannels.includes("instagram")
-                        ? "border-purple-500 bg-purple-50/10 text-purple-600 font-bold"
-                        : "border-border bg-card text-muted-foreground"
-                    }`}
-                  >
-                    <Instagram className="h-5 w-5 shrink-0" />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Instagram</span>
-                      <span className="text-[9px] text-muted-foreground block font-normal">DMs e Comentários</span>
-                    </div>
-                  </div>
-
-                  {/* Messenger */}
-                  <div 
-                    onClick={() => {
-                      const alreadySelected = selectedGroupObj.allowedChannels.includes("messenger");
-                      const allowedChannels = alreadySelected
-                        ? selectedGroupObj.allowedChannels.filter(c => c !== "messenger")
-                        : [...selectedGroupObj.allowedChannels, "messenger"];
-                      updateGroupPermission(selectedGroupId, "allowedChannels", allowedChannels);
-                    }}
-                    className={`rounded-xl p-3 border transition cursor-pointer hover:bg-muted/10 flex items-center gap-3 ${
-                      selectedGroupObj.allowedChannels.includes("messenger")
-                        ? "border-blue-500 bg-blue-50/10 text-blue-600 font-bold"
-                        : "border-border bg-card text-muted-foreground"
-                    }`}
-                  >
-                    <Send className="h-5 w-5 shrink-0" />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Messenger</span>
-                      <span className="text-[9px] text-muted-foreground block font-normal">Facebook inbox</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Functional permissions checkboxes */}
-              <div className="space-y-3 pt-4 border-t border-line">
-                <div className="flex items-center gap-1.5">
-                  <Lock className="h-4 w-4 text-primary" />
-                  <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Ações & Operações no Sistema</h5>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Defina os limites de controle e administração para membros deste grupo de acesso.
-                </p>
-                <div className="space-y-2">
-                  {/* Create Users */}
-                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupObj.canCreateUser}
-                      onChange={(e) => updateGroupPermission(selectedGroupId, "canCreateUser", e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
-                    />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Criar e Gerenciar Atendentes</span>
-                      <span className="text-[10px] text-muted-foreground block">Autoriza criar novos perfis de operadores e definir senhas.</span>
-                    </div>
-                  </label>
-
-                  {/* Reset Password */}
-                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupObj.canResetPassword}
-                      onChange={(e) => updateGroupPermission(selectedGroupId, "canResetPassword", e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
-                    />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Redefinição de Senha de Terceiros</span>
-                      <span className="text-[10px] text-muted-foreground block">Autoriza redefinir senhas de outros atendentes do painel.</span>
-                    </div>
-                  </label>
-
-                  {/* Edit Profile */}
-                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupObj.canEditProfile}
-                      onChange={(e) => updateGroupPermission(selectedGroupId, "canEditProfile", e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
-                    />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Edição de Perfis Ativos</span>
-                      <span className="text-[10px] text-muted-foreground block">Permite aos atendentes editarem suas próprias fotos e dados cadastrais.</span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* ── Permissões de Atendimento (Chat RBAC) ──────────────────── */}
-              <div className="space-y-3 pt-4 border-t border-line">
-                <div className="flex items-center gap-1.5">
-                  <MessageSquare className="h-4 w-4 text-primary" />
-                  <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Controle de Atendimentos</h5>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Define o que os membros deste grupo podem fazer dentro do fluxo de atendimento ao cliente.
-                </p>
-                <div className="space-y-2">
-
-                  {/* canCaptureChat */}
-                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupObj.canCaptureChat ?? false}
-                      onChange={(e) => updateGroupPermission(selectedGroupId, "canCaptureChat", e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
-                    />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Capturar Atendimentos</span>
-                      <span className="text-[10px] text-muted-foreground block">Permite puxar conversas da fila de espera ou automação para si mesmo.</span>
-                    </div>
-                  </label>
-
-                  {/* canTransferChat */}
-                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupObj.canTransferChat ?? false}
-                      onChange={(e) => updateGroupPermission(selectedGroupId, "canTransferChat", e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
-                    />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Transferir Atendimentos</span>
-                      <span className="text-[10px] text-muted-foreground block">Permite redirecionar uma conversa ativa para outro operador ou setor.</span>
-                    </div>
-                  </label>
-
-                  {/* canFinishChat */}
-                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupObj.canFinishChat ?? false}
-                      onChange={(e) => updateGroupPermission(selectedGroupId, "canFinishChat", e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
-                    />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Encerrar Atendimentos</span>
-                      <span className="text-[10px] text-muted-foreground block">Permite finalizar conversas ativas e movê-las para "Finalizados".</span>
-                    </div>
-                  </label>
-
-                  {/* canViewAllChats */}
-                  <label className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupObj.canViewAllChats ?? false}
-                      onChange={(e) => updateGroupPermission(selectedGroupId, "canViewAllChats", e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
-                    />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground">Visualizar Todos os Chats</span>
-                      <span className="text-[10px] text-muted-foreground block">Permite ver conversas atribuídas a outros operadores (modo leitura — não inclui captura ou transferência).</span>
-                    </div>
-                  </label>
-
-                  {/* canOverrideChat */}
-                  <label className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50/30 p-3 hover:bg-red-50/50 transition cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupObj.canOverrideChat ?? false}
-                      onChange={(e) => updateGroupPermission(selectedGroupId, "canOverrideChat", e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-red-500 focus:ring-red-400 shrink-0 cursor-pointer"
-                    />
-                    <div>
-                      <span className="text-xs font-extrabold block text-foreground flex items-center gap-1.5">
-                        Assumir Atendimento Alheio
-                        <span className="text-[9px] font-bold text-red-500 bg-red-100 px-1.5 py-0.5 rounded">Admin</span>
+                  {/* Barra de Perfis Pré-configurados (Presets Rápidos) */}
+                  <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                        Modelos de Papéis Recomendados (1-Click Presets)
                       </span>
-                      <span className="text-[10px] text-muted-foreground block">Permite forçar a tomada de controle de uma conversa de outro operador sem transferência formal.</span>
+                      <span className="text-[10px] text-muted-foreground">Substitui as permissões do grupo instantaneamente</span>
                     </div>
-                  </label>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {Object.entries(ROLE_PRESETS).map(([key, preset]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => applyRolePreset(selectedGroupId, key)}
+                          className="px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-primary hover:text-primary-foreground hover:border-primary text-xs font-semibold text-foreground transition-all cursor-pointer shadow-soft flex items-center gap-1.5"
+                          title={preset.description}
+                        >
+                          <span>{preset.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </header>
+
+                {/* Blocos Granulares de Permissões */}
+                <div className="space-y-4 max-h-[calc(100vh-320px)] overflow-y-auto pr-1 scrollbar-thin">
+
+                  {/* ── Bloco 1: Boundary de Tenants ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => toggleSection("tenants")}
+                      className="w-full px-4 py-3 bg-muted/20 hover:bg-muted/40 flex items-center justify-between text-left transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">Boundary de Tenants (Empresas)</span>
+                      </div>
+                      <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${openSections.tenants ? "rotate-180" : ""}`} />
+                    </button>
+
+                    {openSections.tenants && (
+                      <div className="p-4 space-y-3">
+                        <p className="text-[11px] text-muted-foreground">
+                          Determine quais empresas este grupo pode visualizar e alternar no topo do painel.
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div 
+                            onClick={() => {
+                              const alreadySelected = selectedGroupObj.allowedTenants.includes("tecfag");
+                              const allowedTenants = alreadySelected
+                                ? selectedGroupObj.allowedTenants.filter(t => t !== "tecfag")
+                                : [...selectedGroupObj.allowedTenants, "tecfag"];
+                              updateGroupPermission(selectedGroupId, "allowedTenants", allowedTenants);
+                            }}
+                            className={`rounded-xl p-3 border-2 transition cursor-pointer hover:bg-muted/10 flex items-center gap-3 ${
+                              selectedGroupObj.allowedTenants.includes("tecfag")
+                                ? "border-primary bg-primary-soft/5"
+                                : "border-border bg-card opacity-60"
+                            }`}
+                          >
+                            <img src="/logo_tecfag.png" alt="Tecfag" className="h-7 w-7 rounded-lg object-cover bg-white shrink-0" />
+                            <div>
+                              <span className="font-bold text-xs block text-foreground">Tecfag Chat</span>
+                              <span className="text-[10px] text-muted-foreground">Meta Cloud API (WhatsApp Oficial)</span>
+                            </div>
+                          </div>
+
+                          <div 
+                            onClick={() => {
+                              const alreadySelected = selectedGroupObj.allowedTenants.includes("valem");
+                              const allowedTenants = alreadySelected
+                                ? selectedGroupObj.allowedTenants.filter(t => t !== "valem")
+                                : [...selectedGroupObj.allowedTenants, "valem"];
+                              updateGroupPermission(selectedGroupId, "allowedTenants", allowedTenants);
+                            }}
+                            className={`rounded-xl p-3 border-2 transition cursor-pointer hover:bg-muted/10 flex items-center gap-3 ${
+                              selectedGroupObj.allowedTenants.includes("valem")
+                                ? "border-primary bg-primary-soft/5"
+                                : "border-border bg-card opacity-60"
+                            }`}
+                          >
+                            <img src="/logo_valem.jpg" alt="Valem" className="h-7 w-7 rounded-lg object-cover bg-white shrink-0" />
+                            <div>
+                              <span className="font-bold text-xs block text-foreground">Valem Chat</span>
+                              <span className="text-[10px] text-muted-foreground">Baileys API (WhatsApp Web)</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 2: Boundary de Canais ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => toggleSection("channels")}
+                      className="w-full px-4 py-3 bg-muted/20 hover:bg-muted/40 flex items-center justify-between text-left transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Smartphone className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">Boundary de Canais de Entrada</span>
+                      </div>
+                      <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${openSections.channels ? "rotate-180" : ""}`} />
+                    </button>
+
+                    {openSections.channels && (
+                      <div className="p-4 space-y-3">
+                        <p className="text-[11px] text-muted-foreground">
+                          Habilite ou desabilite canais de atendimento. O operador não verá chats dos canais não autorizados.
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {/* WhatsApp */}
+                          <div 
+                            onClick={() => {
+                              const alreadySelected = selectedGroupObj.allowedChannels.includes("whatsapp");
+                              const allowedChannels = alreadySelected
+                                ? selectedGroupObj.allowedChannels.filter(c => c !== "whatsapp")
+                                : [...selectedGroupObj.allowedChannels, "whatsapp"];
+                              updateGroupPermission(selectedGroupId, "allowedChannels", allowedChannels);
+                            }}
+                            className={`rounded-xl p-3 border transition cursor-pointer flex items-center gap-3 ${
+                              selectedGroupObj.allowedChannels.includes("whatsapp")
+                                ? "border-emerald-500 bg-emerald-50/10 text-emerald-600 font-bold"
+                                : "border-border bg-card text-muted-foreground opacity-60"
+                            }`}
+                          >
+                            <Smartphone className="h-4 w-4 shrink-0" />
+                            <div>
+                              <span className="text-xs font-bold block text-foreground">WhatsApp</span>
+                              <span className="text-[9px] text-muted-foreground block font-normal">Mensagens e Áudios</span>
+                            </div>
+                          </div>
+
+                          {/* Instagram */}
+                          <div 
+                            onClick={() => {
+                              const alreadySelected = selectedGroupObj.allowedChannels.includes("instagram");
+                              const allowedChannels = alreadySelected
+                                ? selectedGroupObj.allowedChannels.filter(c => c !== "instagram")
+                                : [...selectedGroupObj.allowedChannels, "instagram"];
+                              updateGroupPermission(selectedGroupId, "allowedChannels", allowedChannels);
+                            }}
+                            className={`rounded-xl p-3 border transition cursor-pointer flex items-center gap-3 ${
+                              selectedGroupObj.allowedChannels.includes("instagram")
+                                ? "border-purple-500 bg-purple-50/10 text-purple-600 font-bold"
+                                : "border-border bg-card text-muted-foreground opacity-60"
+                            }`}
+                          >
+                            <Instagram className="h-4 w-4 shrink-0" />
+                            <div>
+                              <span className="text-xs font-bold block text-foreground">Instagram</span>
+                              <span className="text-[9px] text-muted-foreground block font-normal">Directs e Stories</span>
+                            </div>
+                          </div>
+
+                          {/* Messenger */}
+                          <div 
+                            onClick={() => {
+                              const alreadySelected = selectedGroupObj.allowedChannels.includes("messenger");
+                              const allowedChannels = alreadySelected
+                                ? selectedGroupObj.allowedChannels.filter(c => c !== "messenger")
+                                : [...selectedGroupObj.allowedChannels, "messenger"];
+                              updateGroupPermission(selectedGroupId, "allowedChannels", allowedChannels);
+                            }}
+                            className={`rounded-xl p-3 border transition cursor-pointer flex items-center gap-3 ${
+                              selectedGroupObj.allowedChannels.includes("messenger")
+                                ? "border-blue-500 bg-blue-50/10 text-blue-600 font-bold"
+                                : "border-border bg-card text-muted-foreground opacity-60"
+                            }`}
+                          >
+                            <Send className="h-4 w-4 shrink-0" />
+                            <div>
+                              <span className="text-xs font-bold block text-foreground">Messenger</span>
+                              <span className="text-[9px] text-muted-foreground block font-normal">Facebook Mensagens</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 3: Visibilidade de Módulos (Sidebar) ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("views")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <Eye className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">1. Módulos Visíveis no Menu Lateral</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "views", true)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Marcar Todos
+                        </button>
+                        <span className="text-muted-foreground text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "views", false)}
+                          className="text-[10px] font-bold text-muted-foreground hover:underline"
+                        >
+                          Desmarcar
+                        </button>
+                        <ChevronDown
+                          onClick={() => toggleSection("views")}
+                          className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.views ? "rotate-180" : ""}`}
+                        />
+                      </div>
+                    </div>
+
+                    {openSections.views && (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { key: "chat",      label: "Conversas / Atendimento", desc: "Acesso à fila e tela de mensagens" },
+                          { key: "tasks",     label: "Tarefas & Compromissos", desc: "Acesso ao kanban de tarefas do operador" },
+                          { key: "contacts",  label: "Base de Contatos", desc: "Acesso à lista e fichas de clientes" },
+                          { key: "wallets",   label: "Carteiras Globais", desc: "Acesso à gestão de carteiras comerciais" },
+                          { key: "valentina", label: "Valentina IA Hub", desc: "Acesso ao SDR, Rodízio e Base de Conhecimento" },
+                          { key: "ligacoes",  label: "Ligações & Telefonia", desc: "Acesso ao módulo de voz Twilio IA" },
+                          { key: "monitor",   label: "Monitoramento & QA", desc: "Acesso ao espião, alertas e auditorias" },
+                          { key: "analytics", label: "Estatísticas & BI", desc: "Acesso às métricas, SLA e relatórios" },
+                          { key: "groups",    label: "Grupos & Equipe", desc: "Acesso à gestão de usuários e permissões" },
+                          { key: "settings",  label: "Ajustes & Conexões", desc: "Acesso às configurações de integração" },
+                        ].map(({ key, label, desc }) => {
+                          if (!matchesSearch(label, desc)) return null;
+                          const isChecked = perms.views[key as keyof typeof perms.views] ?? true;
+                          return (
+                            <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => updateGroupGranular(selectedGroupId, "views", key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                              />
+                              <div>
+                                <span className="text-xs font-bold block text-foreground">{label}</span>
+                                <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 4: Operações de Atendimento (Chat) ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("chat")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <MessageSquare className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">2. Operações de Atendimento (Chat)</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "chat", true)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Marcar Todos
+                        </button>
+                        <span className="text-muted-foreground text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "chat", false)}
+                          className="text-[10px] font-bold text-muted-foreground hover:underline"
+                        >
+                          Desmarcar
+                        </button>
+                        <ChevronDown
+                          onClick={() => toggleSection("chat")}
+                          className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.chat ? "rotate-180" : ""}`}
+                        />
+                      </div>
+                    </div>
+
+                    {openSections.chat && (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { key: "canCaptureChat",           label: "Capturar Atendimentos", desc: "Puxar conversas da fila de espera ou IA para si" },
+                          { key: "canTransferChat",          label: "Transferir Atendimentos", desc: "Redirecionar conversas para outro operador ou setor" },
+                          { key: "canFinishChat",            label: "Encerrar Atendimentos", desc: "Finalizar atendimentos ativos e arquivar" },
+                          { key: "canViewAllChats",          label: "Visualizar Todos os Chats", desc: "Ver conversas atribuídas a outros (leitura)" },
+                          { key: "canOverrideChat",          label: "Assumir Atendimento Alheio", desc: "Forçar controle de conversa alheia (Admin/Supervisor)" },
+                          { key: "canSendInternalNotes",     label: "Enviar Notas Internas", desc: "Criar recados e anotações ocultas para a equipe" },
+                          { key: "canEditClientInfo",        label: "Editar Cadastro no Chat", desc: "Alterar CNPJ, Razão Social, E-mail na barra lateral" },
+                          { key: "canManageTags",            label: "Gerenciar Tags", desc: "Adicionar ou remover etiquetas de clientes" },
+                          { key: "canManageRdCrm",           label: "Criar Oportunidade RD CRM", desc: "Disparar lead para o funil do RD Station CRM" },
+                          { key: "canChangeWalletOperator",  label: "Alterar Carteira no Chat", desc: "Reatribuir a titularidade do cliente diretamente na conversa" },
+                        ].map(({ key, label, desc }) => {
+                          if (!matchesSearch(label, desc)) return null;
+                          const isChecked = perms.chat[key as keyof typeof perms.chat] ?? false;
+                          const isAdminOnly = key === "canOverrideChat";
+                          return (
+                            <label key={key} className={`flex items-start gap-3 rounded-xl border p-3 transition cursor-pointer ${
+                              isAdminOnly ? "border-red-200 bg-red-50/20 hover:bg-red-50/40" : "border-border bg-muted/20 hover:bg-muted/30"
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => updateGroupGranular(selectedGroupId, "chat", key, e.target.checked)}
+                                className={`h-4 w-4 rounded border-gray-300 shrink-0 mt-0.5 cursor-pointer ${
+                                  isAdminOnly ? "text-red-500 focus:ring-red-400" : "text-primary focus:ring-primary"
+                                }`}
+                              />
+                              <div>
+                                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                  {label}
+                                  {isAdminOnly && <span className="text-[9px] font-bold text-red-500 bg-red-100 px-1 py-0.2 rounded">Crítico</span>}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 5: Base de Clientes & Carteira ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("contacts")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <Users className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">3. Base de Clientes & Contatos</span>
+                      </button>
+                      <ChevronDown
+                        onClick={() => toggleSection("contacts")}
+                        className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.contacts ? "rotate-180" : ""}`}
+                      />
+                    </div>
+
+                    {openSections.contacts && (
+                      <div className="p-4 space-y-3">
+                        {/* Escopo de Visualização */}
+                        <div className="p-3 rounded-xl border border-border bg-muted/30 space-y-2">
+                          <span className="text-[11px] font-extrabold text-foreground block">Escopo de Visualização de Contatos:</span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => updateGroupGranular(selectedGroupId, "contacts", "contactScope", "all")}
+                              className={`py-2 px-3 rounded-lg text-xs font-bold border transition ${
+                                perms.contacts.contactScope === "all"
+                                  ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                                  : "bg-card text-muted-foreground border-border hover:bg-muted"
+                              }`}
+                            >
+                              🌍 Todos os Contatos da Empresa
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateGroupGranular(selectedGroupId, "contacts", "contactScope", "wallet_only")}
+                              className={`py-2 px-3 rounded-lg text-xs font-bold border transition ${
+                                perms.contacts.contactScope === "wallet_only"
+                                  ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                                  : "bg-card text-muted-foreground border-border hover:bg-muted"
+                              }`}
+                            >
+                              🔒 Somente Minha Carteira
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {[
+                            { key: "canCreateContact",  label: "Criar Novos Contatos", desc: "Cadastrar contatos manualmente" },
+                            { key: "canEditContact",    label: "Editar Ficha de Contatos", desc: "Alterar telefones, e-mails e CNPJ" },
+                            { key: "canDeleteContact",  label: "Excluir Contatos", desc: "Remover clientes permanentemente da base" },
+                            { key: "canExportContacts", label: "Exportar Base CSV/Excel", desc: "Download da lista completa de contatos" },
+                          ].map(({ key, label, desc }) => {
+                            if (!matchesSearch(label, desc)) return null;
+                            const isChecked = perms.contacts[key as keyof typeof perms.contacts] ?? false;
+                            return (
+                              <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(isChecked)}
+                                  onChange={(e) => updateGroupGranular(selectedGroupId, "contacts", key, e.target.checked)}
+                                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                />
+                                <div>
+                                  <span className="text-xs font-bold block text-foreground">{label}</span>
+                                  <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 6: Valentina IA Hub ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("valentina")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <Bot className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">4. Valentina IA Hub</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "valentina", true)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Marcar Todos
+                        </button>
+                        <span className="text-muted-foreground text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "valentina", false)}
+                          className="text-[10px] font-bold text-muted-foreground hover:underline"
+                        >
+                          Desmarcar
+                        </button>
+                        <ChevronDown
+                          onClick={() => toggleSection("valentina")}
+                          className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.valentina ? "rotate-180" : ""}`}
+                        />
+                      </div>
+                    </div>
+
+                    {openSections.valentina && (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { key: "canAccessChat",      label: "Chat com a Valentina", desc: "Conversar diretamente com a assistente de IA" },
+                          { key: "canAccessSdr",       label: "Visualizar Leads SDR", desc: "Ver a fila de triagem e captação de leads" },
+                          { key: "canManageSdr",       label: "Gerenciar & Pausar SDR", desc: "Alterar comportamento ou pausar bot SDR" },
+                          { key: "canAccessRodizio",   label: "Visualizar Rodízio de Leads", desc: "Acompanhar distribuição e pesos de fila" },
+                          { key: "canManageRodizio",   label: "Configurar Rodízio & Pesos", desc: "Adicionar/remover atendentes do rodízio" },
+                          { key: "canAccessSupervisor",label: "Valentina Supervisor", desc: "Consultar IA para análise operacional" },
+                          { key: "canAccessKnowledge", label: "Consultar Base de Conhecimento", desc: "Ler manuais, PDFs e FAQs ingeridos" },
+                          { key: "canManageKnowledge", label: "Ingerir Base de Conhecimento", desc: "Upload de novos documentos e treinar RAG" },
+                        ].map(({ key, label, desc }) => {
+                          if (!matchesSearch(label, desc)) return null;
+                          const isChecked = perms.valentina[key as keyof typeof perms.valentina] ?? false;
+                          return (
+                            <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => updateGroupGranular(selectedGroupId, "valentina", key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                              />
+                              <div>
+                                <span className="text-xs font-bold block text-foreground">{label}</span>
+                                <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 7: Ligações & Voz IA ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("ligacoes")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <PhoneCall className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">5. Ligações & Voz IA (Twilio)</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "ligacoes", true)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Marcar Todos
+                        </button>
+                        <span className="text-muted-foreground text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "ligacoes", false)}
+                          className="text-[10px] font-bold text-muted-foreground hover:underline"
+                        >
+                          Desmarcar
+                        </button>
+                        <ChevronDown
+                          onClick={() => toggleSection("ligacoes")}
+                          className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.ligacoes ? "rotate-180" : ""}`}
+                        />
+                      </div>
+                    </div>
+
+                    {openSections.ligacoes && (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { key: "canAccessDashboard",  label: "Dashboard de Ligações", desc: "Visão em tempo real de chamadas ativas" },
+                          { key: "canAccessAgenda",     label: "Agenda de Ligações", desc: "Ver compromissos e agendamentos telefônicos" },
+                          { key: "canAccessHistorico",  label: "Histórico & Transcrições", desc: "Ouvir gravações e ler transcrições da IA" },
+                          { key: "canAccessClientes",   label: "Base de Clientes de Voz", desc: "Listagem de contatos qualificados para ligação" },
+                          { key: "canTriggerTestCall",  label: "Disparar Teste de Ligação", desc: "Fazer ligação de teste imediata com a Valentina" },
+                          { key: "canManageCampanhas",  label: "Gerenciar Campanhas em Massa", desc: "Criar e disparar disparos de voz para listas" },
+                          { key: "canManageObjetivos",  label: "Definir Objetivos da IA", desc: "Configurar metas e prompts de ligação" },
+                        ].map(({ key, label, desc }) => {
+                          if (!matchesSearch(label, desc)) return null;
+                          const isChecked = perms.ligacoes[key as keyof typeof perms.ligacoes] ?? false;
+                          return (
+                            <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => updateGroupGranular(selectedGroupId, "ligacoes", key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                              />
+                              <div>
+                                <span className="text-xs font-bold block text-foreground">{label}</span>
+                                <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 8: Monitoramento & QA ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("monitor")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <ClipboardCheck className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">6. Monitoramento & Qualidade QA</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "monitor", true)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Marcar Todos
+                        </button>
+                        <span className="text-muted-foreground text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "monitor", false)}
+                          className="text-[10px] font-bold text-muted-foreground hover:underline"
+                        >
+                          Desmarcar
+                        </button>
+                        <ChevronDown
+                          onClick={() => toggleSection("monitor")}
+                          className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.monitor ? "rotate-180" : ""}`}
+                        />
+                      </div>
+                    </div>
+
+                    {openSections.monitor && (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { key: "canAccessLive",       label: "Espião ao Vivo", desc: "Acompanhar conversas em tempo real sem interferir" },
+                          { key: "canAccessAlerts",     label: "Alertas & Gargalos de SLA", desc: "Ver atendimentos com tempo de espera estourado" },
+                          { key: "canAccessOperators",  label: "Ranking de Operadores", desc: "Comparativo de produtividade da equipe" },
+                          { key: "canAccessAudits",     label: "Auditorias de Atendimento", desc: "Ver notas e pareceres da IA avaliadora" },
+                          { key: "canManageAudits",     label: "Aprovar / Recalibrar Auditorias", desc: "Validar notas e enviar feedback para operadores" },
+                          { key: "canAccessSite",       label: "Visitantes do Site (Live Chat)", desc: "Ver fluxo de visitantes online navegando na loja" },
+                        ].map(({ key, label, desc }) => {
+                          if (!matchesSearch(label, desc)) return null;
+                          const isChecked = perms.monitor[key as keyof typeof perms.monitor] ?? false;
+                          return (
+                            <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => updateGroupGranular(selectedGroupId, "monitor", key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                              />
+                              <div>
+                                <span className="text-xs font-bold block text-foreground">{label}</span>
+                                <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 9: Estatísticas & Custos ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("analytics")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <BarChart2 className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">7. Estatísticas, Relatórios & Custos</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "analytics", true)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Marcar Todos
+                        </button>
+                        <span className="text-muted-foreground text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "analytics", false)}
+                          className="text-[10px] font-bold text-muted-foreground hover:underline"
+                        >
+                          Desmarcar
+                        </button>
+                        <ChevronDown
+                          onClick={() => toggleSection("analytics")}
+                          className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.analytics ? "rotate-180" : ""}`}
+                        />
+                      </div>
+                    </div>
+
+                    {openSections.analytics && (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { key: "canAccessOverview",    label: "Visão Geral & Volumetria", desc: "Gráficos de total de atendimentos e canais" },
+                          { key: "canAccessPerformance", label: "Desempenho por Setor", desc: "Eficiência de times e conversão" },
+                          { key: "canAccessSla",         label: "SLA & Tempos de Espera", desc: "Métricas de TMA, TME e conformidade" },
+                          { key: "canAccessContacts",    label: "Analytics de Clientes", desc: "Frequência de recompra e inatividade" },
+                          { key: "canAccessReports",     label: "Relatórios Executivos IA", desc: "Geração de resumos e relatórios analíticos" },
+                          { key: "canAccessCosts",       label: "Painel de Custos de IA", desc: "Gastos com Vertex AI, tokens e transcrições" },
+                        ].map(({ key, label, desc }) => {
+                          if (!matchesSearch(label, desc)) return null;
+                          const isChecked = perms.analytics[key as keyof typeof perms.analytics] ?? false;
+                          const isCost = key === "canAccessCosts";
+                          return (
+                            <label key={key} className={`flex items-start gap-3 rounded-xl border p-3 transition cursor-pointer ${
+                              isCost ? "border-amber-200 bg-amber-50/20 hover:bg-amber-50/40" : "border-border bg-muted/20 hover:bg-muted/30"
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => updateGroupGranular(selectedGroupId, "analytics", key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                              />
+                              <div>
+                                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                  {label}
+                                  {isCost && <span className="text-[9px] font-bold text-amber-600 bg-amber-100 px-1 py-0.2 rounded">Financeiro</span>}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 10: Gestão de Equipe & Segurança ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("security")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <Shield className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">8. Gestão de Equipe & Segurança</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "security", true)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Marcar Todos
+                        </button>
+                        <span className="text-muted-foreground text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "security", false)}
+                          className="text-[10px] font-bold text-muted-foreground hover:underline"
+                        >
+                          Desmarcar
+                        </button>
+                        <ChevronDown
+                          onClick={() => toggleSection("security")}
+                          className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.security ? "rotate-180" : ""}`}
+                        />
+                      </div>
+                    </div>
+
+                    {openSections.security && (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { key: "canManageUsers",        label: "Criar & Editar Operadores", desc: "Cadastrar novos usuários e definir senhas" },
+                          { key: "canResetUserPasswords", label: "Redefinir Senhas de Outros", desc: "Trocar senhas de membros da equipe" },
+                          { key: "canImpersonateUsers",   label: "Assumir Sessão de Operador", desc: "Fazer login como outro operador (Super Admin)" },
+                          { key: "canManageGroups",       label: "Criar & Editar Grupos", desc: "Modificar permissões e criar novos papéis" },
+                          { key: "canManageSectors",      label: "Gerenciar Setores", desc: "Criar e editar departamentos de atendimento" },
+                          { key: "canManageWallets",      label: "Gerenciar Carteiras Globais", desc: "Distribuir carteiras comerciais de clientes" },
+                          { key: "canManageTemplates",    label: "Gerenciar Templates Globais", desc: "Criar respostas rápidas compartilhadas" },
+                        ].map(({ key, label, desc }) => {
+                          if (!matchesSearch(label, desc)) return null;
+                          const isChecked = perms.security[key as keyof typeof perms.security] ?? false;
+                          return (
+                            <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => updateGroupGranular(selectedGroupId, "security", key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                              />
+                              <div>
+                                <span className="text-xs font-bold block text-foreground">{label}</span>
+                                <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Bloco 11: Ajustes & Conexões ── */}
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("settings")}
+                        className="flex items-center gap-2 text-left flex-1"
+                      >
+                        <Settings className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">9. Ajustes & Conexões Técnicas</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "settings", true)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Marcar Todos
+                        </button>
+                        <span className="text-muted-foreground text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryAll(selectedGroupId, "settings", false)}
+                          className="text-[10px] font-bold text-muted-foreground hover:underline"
+                        >
+                          Desmarcar
+                        </button>
+                        <ChevronDown
+                          onClick={() => toggleSection("settings")}
+                          className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${openSections.settings ? "rotate-180" : ""}`}
+                        />
+                      </div>
+                    </div>
+
+                    {openSections.settings && (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { key: "canAccessWhatsappSettings", label: "Conexões WhatsApp", desc: "Configurar QR Code Baileys ou Meta API" },
+                          { key: "canAccessVozSettings",      label: "Telefonia & Twilio", desc: "Configurar credenciais e números de voz" },
+                          { key: "canAccessRdSettings",       label: "Integração RD CRM", desc: "Conectar OAuth da RD Station" },
+                          { key: "canAccessEmailSettings",    label: "E-mail & SMTP", desc: "Configurar servidor de envio de relatórios" },
+                          { key: "canAccessLiveChatSettings", label: "Widget Live Chat", desc: "Configurar script do chat no site" },
+                        ].map(({ key, label, desc }) => {
+                          if (!matchesSearch(label, desc)) return null;
+                          const isChecked = perms.settings[key as keyof typeof perms.settings] ?? false;
+                          return (
+                            <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => updateGroupGranular(selectedGroupId, "settings", key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                              />
+                              <div>
+                                <span className="text-xs font-bold block text-foreground">{label}</span>
+                                <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
 
                 </div>
               </div>
-
-            </div>
-          </div>
+            );
+          })()}
         </div>
       ) : activeTab === "sectors" ? (
         /* SECTORS TAB */

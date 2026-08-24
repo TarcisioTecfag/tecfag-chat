@@ -45,6 +45,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -485,12 +486,24 @@ export function ChatPanel() {
 
   const activeTyping = activeChat ? clientTypingStatus[activeChat.id] : null;
 
+  const {
+    canCaptureChat,
+    canTransferChat,
+    canFinishChat,
+    canOverrideChat,
+    canSendInternalNotes,
+    canEditClientInfo,
+    canManageTags,
+    canManageRdCrm,
+    canChangeWalletOperator,
+  } = usePermissions();
+
   // ── Flags de permissão derivadas do grupo de acesso ──────────────────────
   const isOwner = !!activeChat && activeChat.operatorId === currentOperatorId;
-  const canCapture = currentGroup?.canCaptureChat ?? false;
-  const canTransfer = currentGroup?.canTransferChat ?? false;
-  const canFinish = currentGroup?.canFinishChat ?? false;
-  const canOverride = currentGroup?.canOverrideChat ?? false;
+  const canCapture = canCaptureChat;
+  const canTransfer = canTransferChat;
+  const canFinish = canFinishChat;
+  const canOverride = canOverrideChat;
   const ownerOperator = activeChat?.operatorId
     ? operators.find((o) => o.id === activeChat.operatorId)
     : null;
@@ -2273,16 +2286,18 @@ export function ChatPanel() {
             >
               Enviar Mensagem
             </button>
-            <button
-              onClick={() => setMsgMode("internal")}
-              className={`pb-1 border-b-2 px-1 transition ${
-                msgMode === "internal"
-                  ? "border-amber-500 text-amber-600"
-                  : "border-transparent text-muted-foreground"
-              }`}
-            >
-              Nota Interna
-            </button>
+            {canSendInternalNotes && (
+              <button
+                onClick={() => setMsgMode("internal")}
+                className={`pb-1 border-b-2 px-1 transition ${
+                  msgMode === "internal"
+                    ? "border-amber-500 text-amber-600"
+                    : "border-transparent text-muted-foreground"
+                }`}
+              >
+                Nota Interna
+              </button>
+            )}
           </div>
 
           {/* Audio preview panel */}

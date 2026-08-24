@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   Users,
   Settings,
@@ -20,6 +21,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 export function Sidebar() {
   const { tenant, setTenant, activeView, setActiveView, operatorProfile, setIsProfileModalOpen, currentGroup } = useChat();
+  const { canAccessView } = usePermissions();
   const [showDropdown, setShowDropdown] = useState(false);
 
   const toggleTenant = () => {
@@ -31,7 +33,7 @@ export function Sidebar() {
     { id: "tasks", icon: ClipboardCheck, label: "Tarefas" },
     { id: "contacts", icon: Contact, label: "Base de Clientes" },
     { id: "wallet", icon: Wallet, label: "Minha Carteira" },
-  ];
+  ].filter((item) => canAccessView(item.id as any));
 
   const decorativeItems = [
     { id: "valentina", icon: Bot,      label: "Valentina",           isAvailable: true },
@@ -40,7 +42,17 @@ export function Sidebar() {
     { id: "analytics", icon: BarChart2, label: "Estatísticas",       isAvailable: true },
     { id: "groups",    icon: Shield,    label: "Grupo de Acesso",    isAvailable: true },
     { id: "settings",  icon: Settings,  label: "Ajustes",            isAvailable: true },
-  ];
+  ].filter((item) => canAccessView(item.id as any));
+
+  // Redirecionamento automático caso a view atual não seja permitida
+  useEffect(() => {
+    if (!canAccessView(activeView)) {
+      const firstAllowed = [...navItems, ...decorativeItems][0]?.id;
+      if (firstAllowed) {
+        setActiveView(firstAllowed as any);
+      }
+    }
+  }, [activeView, currentGroup]);
 
 
   return (

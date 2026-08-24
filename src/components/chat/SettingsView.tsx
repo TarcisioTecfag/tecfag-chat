@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/ConfiguracaoTab";
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
+import { usePermissions } from "@/hooks/usePermissions";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "email" | "livechat";
 
@@ -230,13 +231,25 @@ export function SettingsView() {
     </div>
   );
 
-  const tabs = [
-    { id: "whatsapp", label: tenant === "tecfag" ? "WhatsApp (Meta API)" : "WhatsApp (Baileys)", icon: Smartphone },
-    { id: "voz", label: "Voz & Telefonia (Valentina)", icon: PhoneCall },
-    { id: "rd", label: "RD Station CRM", icon: Link },
-    { id: "email", label: "E-mail & Automações", icon: Mail },
-    { id: "livechat", label: "Live Chat (Site)", icon: Globe },
+  const { canAccessSettingsTab } = usePermissions();
+
+  const allTabs = [
+    { id: "whatsapp" as const, label: tenant === "tecfag" ? "WhatsApp (Meta API)" : "WhatsApp (Baileys)", icon: Smartphone },
+    { id: "voz" as const, label: "Voz & Telefonia (Valentina)", icon: PhoneCall },
+    { id: "rd" as const, label: "RD Station CRM", icon: Link },
+    { id: "email" as const, label: "E-mail & Automações", icon: Mail },
+    { id: "livechat" as const, label: "Live Chat (Site)", icon: Globe },
   ];
+
+  const allowedTabs = allTabs.filter(t => canAccessSettingsTab(t.id));
+
+  useEffect(() => {
+    if (!allowedTabs.some(t => t.id === activeTab)) {
+      if (allowedTabs.length > 0) {
+        setActiveTab(allowedTabs[0].id);
+      }
+    }
+  }, [allowedTabs, activeTab]);
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-card border border-border shadow-soft overflow-hidden">
@@ -265,7 +278,7 @@ export function SettingsView() {
 
         {/* Tab Navigation */}
         <div className="flex items-center gap-2 mt-6 overflow-x-auto scrollbar-none pb-1">
-          {tabs.map((tab) => {
+          {allowedTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (

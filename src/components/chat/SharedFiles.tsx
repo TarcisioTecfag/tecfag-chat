@@ -7,6 +7,7 @@ import { RdCrmCard } from "./RdCrmCard";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
 import { motion } from "framer-motion";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   User,
   Phone,
@@ -203,6 +204,8 @@ export function SharedFiles() {
     disconnectBaileys,
     setRightSidebarOpen,
   } = useChat();
+
+  const { canEditClientInfo, canManageTags, canManageRdCrm, canChangeWalletOperator } = usePermissions();
 
   const [activeTab, setActiveTab] = useState<"details" | "files" | "events">("details");
   const [newTag, setNewTag] = useState(""); // mantido internamente para compatibilidade com updateTags
@@ -596,12 +599,14 @@ export function SharedFiles() {
               <span className="text-[10px] font-bold text-muted-foreground uppercase">
                 Informações
               </span>
-              <button
-                onClick={isEditingInfo ? handleSaveInfo : startEditing}
-                className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
-              >
-                {isEditingInfo ? "Salvar" : "Editar"}
-              </button>
+              {canEditClientInfo && (
+                <button
+                  onClick={isEditingInfo ? handleSaveInfo : startEditing}
+                  className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
+                >
+                  {isEditingInfo ? "Salvar" : "Editar"}
+                </button>
+              )}
             </div>
 
             {isEditingInfo ? (
@@ -848,7 +853,7 @@ export function SharedFiles() {
           </div>
 
           {/* RD Station CRM Card Integration */}
-          {activeChat.id !== "valentina" && (
+          {canManageRdCrm && activeChat.id !== "valentina" && (
             <RdCrmCard contactId={activeChat.contactId || activeChat.id} tenantId={tenant} />
           )}
         </div>

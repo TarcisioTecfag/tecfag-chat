@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { PhoneCall, CalendarDays, History, Users, Megaphone, Target } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DashboardTab } from "./DashboardTab";
@@ -7,22 +7,33 @@ import { HistoricoTab } from "./HistoricoTab";
 import { ClientesTab } from "./ClientesTab";
 import { CampanhasTab } from "./CampanhasTab";
 import { ObjetivosTab } from "./ObjetivosTab";
-
 import { TestCallButton } from "./TestCallButton";
+import { usePermissions } from "@/hooks/usePermissions";
 
 type VoiceTab = "dashboard" | "agenda" | "historico" | "clientes" | "campanhas" | "objetivos";
 
 export function LigacoesView() {
-  const [activeTab, setActiveTab] = useState<VoiceTab>("dashboard");
+  const { canAccessLigacoesTab, canTriggerTestCall } = usePermissions();
 
-  const tabs = [
-    { id: "dashboard", label: "Dashboard ao Vivo", icon: PhoneCall },
-    { id: "agenda", label: "Agenda", icon: CalendarDays },
-    { id: "historico", label: "Histórico & Transcrições", icon: History },
-    { id: "clientes", label: "Base de Clientes", icon: Users },
-    { id: "campanhas", label: "Campanhas em Massa", icon: Megaphone },
-    { id: "objetivos", label: "Objetivos da Valentina", icon: Target },
+  const allTabs = [
+    { id: "dashboard" as const, label: "Dashboard ao Vivo", icon: PhoneCall },
+    { id: "agenda" as const, label: "Agenda", icon: CalendarDays },
+    { id: "historico" as const, label: "Histórico & Transcrições", icon: History },
+    { id: "clientes" as const, label: "Base de Clientes", icon: Users },
+    { id: "campanhas" as const, label: "Campanhas em Massa", icon: Megaphone },
+    { id: "objetivos" as const, label: "Objetivos da Valentina", icon: Target },
   ];
+
+  const allowedTabs = allTabs.filter(t => canAccessLigacoesTab(t.id));
+  const [activeTab, setActiveTab] = useState<VoiceTab>(() => allowedTabs[0]?.id || "dashboard");
+
+  useEffect(() => {
+    if (!allowedTabs.some(t => t.id === activeTab)) {
+      if (allowedTabs.length > 0) {
+        setActiveTab(allowedTabs[0].id);
+      }
+    }
+  }, [allowedTabs, activeTab]);
 
   return (
     <div className="flex flex-col h-full bg-card rounded-3xl border border-border shadow-soft overflow-hidden">
@@ -37,7 +48,7 @@ export function LigacoesView() {
         </div>
 
         <div className="flex items-center gap-3">
-          <TestCallButton />
+          {canTriggerTestCall && <TestCallButton />}
 
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary/10 text-primary text-xs font-bold">
             <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
@@ -48,7 +59,7 @@ export function LigacoesView() {
 
       {/* Internal Tab Bar */}
       <div className="flex items-center gap-1.5 px-5 py-2.5 border-b border-border bg-muted/30 shrink-0">
-        {tabs.map((tab) => {
+        {allowedTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
 

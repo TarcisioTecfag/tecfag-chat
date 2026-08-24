@@ -23,6 +23,7 @@ import {
   Shield,
 } from "lucide-react";
 import { Channel, Conversation } from "@/lib/mockData";
+import { usePermissions } from "@/hooks/usePermissions";
 
 // ─── helper de highlight ──────────────────────────────────────────────────
 function HighlightedText({ text, query }: { text: string; query: string }) {
@@ -78,7 +79,10 @@ export function ContactsView() {
     setActiveView,
     updateTags,
     operators,
+    currentOperatorId,
   } = useChat();
+
+  const { canCreateContact, canEditContact, contactScope } = usePermissions();
 
   const [search, setSearch] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
@@ -137,6 +141,7 @@ export function ContactsView() {
   });
 
   const filteredContacts = conversations.filter((c) => {
+    if (contactScope === "wallet_only" && c.walletOperatorId !== currentOperatorId) return false;
     if (channelFilter !== "all" && c.channel !== channelFilter) return false;
     if (search.trim() !== "") {
       const q = search.toLowerCase();
@@ -223,13 +228,15 @@ export function ContactsView() {
             Conversas
           </button>
           {/* Botao Novo Contato */}
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft"
-          >
-            <UserPlus className="h-4.5 w-4.5" />
-            Novo Contato
-          </button>
+          {canCreateContact && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft"
+            >
+              <UserPlus className="h-4.5 w-4.5" />
+              Novo Contato
+            </button>
+          )}
         </div>
       </header>
 

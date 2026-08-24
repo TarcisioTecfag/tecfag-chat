@@ -44,7 +44,7 @@ export function isNoise(text: string): boolean {
 }
 
 function buildSystemPrompt(visitor: LcVisitor, hasHistory: boolean, knowledgeContext: string): string {
-  const isCpf = Boolean(visitor.cpf && !visitor.cnpj);
+  const isCpf = Boolean((visitor as any).cpf && !visitor.cnpj);
   const isCnpj = Boolean(visitor.cnpj);
 
   const documentContext = isCpf

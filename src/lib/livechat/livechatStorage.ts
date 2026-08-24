@@ -191,9 +191,9 @@ export async function getVisitorAllMessages(
       content: lcMessages.content,
       contentType: lcMessages.contentType,
       mediaUrl: lcMessages.mediaUrl,
+      mediaType: lcMessages.mediaType,
       fileName: lcMessages.fileName,
-      fileSize: lcMessages.fileSize,
-      durationSec: lcMessages.durationSec,
+      trayProductData: lcMessages.trayProductData,
       sentAt: lcMessages.sentAt,
     })
     .from(lcMessages)

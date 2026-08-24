@@ -70,6 +70,7 @@ export const accessGroups = pgTable("access_groups", {
   canFinishChat: boolean("can_finish_chat").default(false).notNull(),
   canViewAllChats: boolean("can_view_all_chats").default(false).notNull(),
   canOverrideChat: boolean("can_override_chat").default(false).notNull(),
+  permissions: jsonb("permissions").$type<any>().default({}).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
