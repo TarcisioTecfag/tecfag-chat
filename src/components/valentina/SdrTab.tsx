@@ -108,7 +108,8 @@ function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
 const DEFAULT_SDR_FIELDS = [
   "NOME COMPLETO",
   "EMPRESA",
-  "CNPJ OU CPF",
+  "CNPJ",
+  "EMAIL",
   "QUAL O TIPO DE PRODUTO?",
   "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO",
   "TIPO DE QUALIFICAÇÃO",
@@ -123,7 +124,9 @@ function normalizeKey(key: string): string {
 
   if (clean.includes("NOME")) return "NOME COMPLETO";
   if (clean.includes("EMPRESA") || clean.includes("RAZAO")) return "EMPRESA";
-  if (clean.includes("CNPJ") || clean.includes("CPF") || clean.includes("DOCUMENTO")) return "CNPJ OU CPF";
+  // Suporta tanto "CNPJ" quanto "CNPJ OU CPF" legado
+  if (clean.includes("CNPJ") || clean.includes("CPF") || clean.includes("DOCUMENTO")) return "CNPJ";
+  if (clean.includes("EMAIL") || clean.includes("E MAIL") || clean.includes("CORREIO")) return "EMAIL";
   if (clean.includes("PRODUTO")) return "QUAL O TIPO DE PRODUTO?";
   if (clean.includes("PROJETO") || clean.includes("DESENVOLVIMENTO")) return "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO";
   if (clean.includes("TEMPERATURA")) return "QUALIFICAÇÃO (TEMPERATURA)";

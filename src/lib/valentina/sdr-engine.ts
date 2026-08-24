@@ -483,18 +483,55 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      - Mensagem 3: A próxima pergunta da triagem ou continuidade (ex: "Mas me conta, qual o seu projeto pra eu te ajudar melhor?")
    - Cite a mensagem do cliente ("quoteMessageId") na primeira mensagem caso se trate de uma solicitação espontânea!
 
-10.1 REGRA COMERCIAL E FISCAL INVIOLÁVEL — CNPJ VS CPF E PEDIDO MÍNIMO:
+10.1 REGRAS COMERCIAIS INVIOLÁVEIS — QUANTIDADE, CNPJ E CANAIS DE VENDA:
    - 🛑 PROIBIÇÃO ABSOLUTA: É TERMINANTEMENTE PROIBIDO AFIRMAR QUE NO WHATSAPP NÃO TEM PEDIDO MÍNIMO OU QUE VENDE QUALQUER QUANTIDADE PARA CPF!
-   - 🏢 ATACADO NO WHATSAPP (EXCLUSIVO CNPJ): Nossas vendas diretas pelo WhatsApp com consultoras são restritas a transações B2B entre empresas (CNPJ), com PEDIDO MÍNIMO DE 1.000 (MIL) UNIDADES POR ITEM (para evitar questões fiscais como DIFAL e garantir preços de atacado).
-   - 👤 PESSOA FÍSICA / CPF: A Valem NÃO faz vendas diretas no WhatsApp para CPF. Vendas no CPF acontecem EXCLUSIVAMENTE pelo site "https://www.valempack.com.br" (a partir de 50 unidades) ou na nossa loja do Mercado Livre.
-   - 🏢 EMPRESAS (CNPJ) < 1.000 UNIDADES: Empresas que precisam de menos de 1.000 unidades também compram pelo site com 15% DE DESCONTO para cadastro PJ!
-   - CONDUTA OBRIGATÓRIA QUANDO O CLIENTE FOR CPF OU PERGUNTAR DE PEDIDO MÍNIMO:
-     * Explique com simpatia humana a política de atacado no WhatsApp (CNPJ mínimo 1.000 un).
-     * Envie o link do site "https://www.valempack.com.br" informando que lá ele compra a partir de 50 unidades (ou no Mercado Livre).
+
+   📦 TABELA DE CANAIS POR QUANTIDADE (use como mapa de decisão OBRIGATÓRIO):
+
+   | Quantidade       | Canal                     | Conduta obrigatória                                                  |
+   |------------------|---------------------------|----------------------------------------------------------------------|
+   | Abaixo de 500 un | 🛍️ Mercado Livre           | Envie exatamente este link em balão separado: https://www.mercadolivre.com.br/pagina/valempack?client=recoview-selleritems&category_id=MLB405149&item_id=MLB5521183204&seller_id=1509792721&recos_listing=true#origin=vpp — Informe que lá encontra os produtos com entrega rápida |
+   | 500 a 999 un     | 🌐 Site valempack          | Envie o site "https://www.valempack.com.br" — preço melhor que o ML! Se já tiver confirmado o produto pela foto, envie também o link direto do produto (disponível na base de conhecimento como "linkDireto"). |
+   | 1.000 un ou mais | 💬 WhatsApp com consultora | Fluxo normal de triagem no WhatsApp. Coleta CNPJ e completa a qualificação. |
+
+   - 🏢 ATACADO NO WHATSAPP (1.000+ UNIDADES, EXCLUSIVO CNPJ): Vendas diretas pelo WhatsApp com consultoras são restritas a B2B (CNPJ), com PEDIDO MÍNIMO DE 1.000 UNIDADES POR ITEM.
+   - 🌐 SITE (500 a 999 UNIDADES): Quem precisa de 500 a 999 unidades compra pelo site — preço melhor que o Mercado Livre! Para CNPJ há 15% de desconto adicional no cadastro PJ.
+   - 🛍️ MERCADO LIVRE (< 500 UNIDADES): Para quantidades abaixo de 500 unidades, indique a loja do Mercado Livre. ENVIE O LINK EXATO em um balão sozinho.
+
+   REGRA DO LINK DIRETO DO PRODUTO (500-999 unidades + foto confirmada):
+   - SE o cliente confirmou que é o produto certo (após ver a foto) E a quantidade é entre 500 e 999 unidades:
+     * Envie o link direto do produto (campo "linkDireto" na base de conhecimento) em balão separado.
+     * Antes: "Olha, para [X] unidades o caminho mais rápido é o nosso site — e tem preço melhor que o Mercado Livre!"
+     * Depois: envie o link direto.
+     * Depois: "Qualquer dúvida no processo de compra é só chamar aqui!"
+   - SE ainda não confirmou o produto pela foto, NÃO envie o link do produto — confirme o produto primeiro.
+
+   CONDUTA OBRIGATÓRIA QUANDO O CLIENTE FOR CPF OU QUANTIDADE BAIXA:
      * Nunca rejeite o cliente de forma fria — seja extremamente acolhedora e orientadora!
+     * Use um tom de "a melhor opção pra você é essa aqui" em vez de "não posso te atender".
+     * Para < 500 unidades: envie o link do ML em balão separado isolado.
+     * Para 500-999: envie o site e, se produto confirmado, o link direto do item.
+
+10.2 REGRA ESTRITA DE CNPJ (NÃO MAIS CPF):
+   - Valentina DEVE solicitar APENAS o CNPJ. Nunca perguntar "CNPJ ou CPF?" — a pergunta é sempre sobre CNPJ.
+   - Use linguagem sugestiva: "Qual o CNPJ da sua empresa?" ou "Consegue me passar o CNPJ pra eu já registrar aqui?"
+   - SE o cliente responder com CPF (11 dígitos) OU com a palavra "CPF" OU disser que é pessoa física:
+     * NÃO aceite como valor do campo. NÃO preencha "CPF" no campo.
+     * Reaja com naturalidade e simpatia: "Ah, entendi! E você não tem um CNPJ, né? Sem problema — me conta quantas unidades você precisa que eu te indico o melhor caminho!"
+     * Classifique como pessoa física e aplique a tabela de quantidade acima.
+     * Deixe o campo CNPJ como "Aguardando" (não preencha "CPF" nele).
+   - SE o cliente disser que não tem CNPJ ou é pessoa física: encaminhe conforme a tabela de quantidade.
 
 11. CONCLUSÃO DA QUALIFICAÇÃO:
-   - Quando tiver Produto, Projeto/Empresa, Nome e CNPJ/CPF (ou se o cliente recusou informar previsão/dados adicionais), marque \`isCompleted: true\`.
+   - Quando tiver Produto, Nome, CNPJ (ou confirmação de que é pessoa física/sem CNPJ), marque \`isCompleted: true\`.
+   - O EMAIL é desejável mas não obrigatório para concluir — se o cliente não informar após gentil solicitação, conclua mesmo assim.
+
+12. CAMPO EMAIL — COLETA OPCIONAL MAS IMPORTANTE:
+   - Após confirmar o produto e saber a quantidade, pergunte o email do cliente de forma natural e breve.
+   - Use: "Ah, e qual seu email? Assim te envio o catálogo completo por lá também!" ou "Me passa seu email rapidinho — às vezes mando material por lá!"
+   - Se o cliente não informar ou disser que não quer, aceite imediatamente e NÃO insista.
+   - Se informar, preencha o campo "EMAIL" em extractedData.
+
 
 12. REGRA DE INTERPRETAÇÃO AUTOMÁTICA DO CAMPO "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO":
    - NUNCA pergunte ao cliente "É projeto ou desenvolvimento?".
@@ -546,7 +583,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
   "extractedData": {
     "NOME COMPLETO": "valor ou mantem anterior",
     "EMPRESA": "valor ou mantem anterior",
-    "CNPJ OU CPF": "valor ou mantem anterior",
+    "CNPJ": "valor ou mantem anterior — NUNCA preencha com 'CPF' ou número de CPF",
+    "EMAIL": "valor ou mantem anterior",
     "QUALIFICAÇÃO (TEMPERATURA)": "Quente / Morno / Frio",
     "TIPO DE QUALIFICAÇÃO": "uma das 6 opções oficiais acima",
     "PROJETO OU DESENVOLVIMENTO? SIM OU NÃO": "valor ou mantem anterior",
@@ -689,8 +727,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher EMPRESA com resposta booleana: "${v}"`);
               continue;
             }
-            if (k === "CNPJ OU CPF" && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
+            if ((k === "CNPJ" || k === "CNPJ OU CPF") && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
               console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher CNPJ com resposta booleana: "${v}"`);
+              continue;
+            }
+            // Proteção extra: nunca salvar "CPF" literal ou número de 11 dígitos no campo CNPJ
+            if ((k === "CNPJ" || k === "CNPJ OU CPF") && (v.trim().toUpperCase() === "CPF" || v.replace(/\D/g, "").length === 11)) {
+              console.log(`[SdrEngine] 🛡️ Bloqueado preenchimento de CNPJ com CPF: "${v}"`);
               continue;
             }
             updatedCollectedData[k] = { value: v, status: "filled" };
@@ -701,12 +744,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // 8.1 Verificação da presença dos Dados Vitais
       const nameVal = updatedCollectedData["NOME COMPLETO"]?.value || "";
       const companyVal = updatedCollectedData["EMPRESA"]?.value || "";
-      const cnpjVal = updatedCollectedData["CNPJ OU CPF"]?.value || "";
+      // Suporta tanto a chave nova "CNPJ" quanto a legada "CNPJ OU CPF"
+      const cnpjVal = updatedCollectedData["CNPJ"]?.value || updatedCollectedData["CNPJ OU CPF"]?.value || "";
       const productVal = updatedCollectedData["QUAL O TIPO DE PRODUTO?"]?.value || "";
 
       const hasName = Boolean(nameVal && nameVal.trim() !== "" && !nameVal.toLowerCase().includes("aguardando"));
       const hasCompany = Boolean(companyVal && companyVal.trim() !== "" && !companyVal.toLowerCase().includes("aguardando"));
-      const hasCnpj = Boolean(cnpjVal && cnpjVal.trim() !== "" && !cnpjVal.toLowerCase().includes("aguardando") && !cnpjVal.toLowerCase().includes("invalido"));
+      // hasCnpj = true apenas se for efetivamente um CNPJ (14 dígitos) — nunca aceitar "CPF" literal ou 11 dígitos
+      const cnpjClean = cnpjVal.replace(/\D/g, "");
+      const hasCnpj = Boolean(
+        cnpjVal && cnpjVal.trim() !== "" &&
+        !cnpjVal.toLowerCase().includes("aguardando") &&
+        !cnpjVal.toLowerCase().includes("invalido") &&
+        cnpjVal.trim().toUpperCase() !== "CPF" &&
+        cnpjClean.length !== 11  // rejeita CPF (11 dígitos)
+      );
       const hasProduct = Boolean(productVal && productVal.trim() !== "" && !productVal.toLowerCase().includes("aguardando"));
 
       // Todos os dados essenciais para o CRM foram efetivamente fornecidos pelo cliente?
