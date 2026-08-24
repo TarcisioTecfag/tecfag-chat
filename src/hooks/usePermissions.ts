@@ -18,9 +18,53 @@ import {
 export function usePermissions() {
   const { currentGroup, operatorProfile, tenant } = useChat();
 
+  // Proteção Master: Dono da conta / Suporte Tecfag nunca pode ser trancado fora das telas de gestão
+  const isMasterAccount = Boolean(
+    operatorProfile?.email?.toLowerCase() === "suporte2@tecfag.com.br" ||
+    operatorProfile?.email?.toLowerCase().includes("admin@") ||
+    operatorProfile?.name?.toLowerCase().includes("tarcisio")
+  );
+
   const permissions: GroupPermissions = useMemo(() => {
-    return normalizeGroupPermissions(currentGroup);
-  }, [currentGroup]);
+    const norm = normalizeGroupPermissions(currentGroup);
+    if (isMasterAccount) {
+      return {
+        ...norm,
+        views: {
+          ...norm.views,
+          chat: true,
+          tasks: true,
+          contacts: true,
+          wallet: true,
+          valentina: true,
+          ligacoes: true,
+          monitor: true,
+          analytics: true,
+          groups: true,
+          settings: true,
+        },
+        security: {
+          ...norm.security,
+          canManageUsers: true,
+          canResetUserPasswords: true,
+          canImpersonateUsers: true,
+          canManageAccessGroups: true,
+          canManageSectors: true,
+          canManageWallets: true,
+          canManageGlobalTemplates: true,
+        },
+        settings: {
+          ...norm.settings,
+          canManageWhatsapp: true,
+          canManageVoiceSettings: true,
+          canManageRdCrmSettings: true,
+          canManageEmailSmtp: true,
+          canManageLiveChatSettings: true,
+        },
+      };
+    }
+    return norm;
+  }, [currentGroup, isMasterAccount]);
 
   // Checagem de Módulos (Menu Lateral)
   const canAccessView = (viewId: ViewId): boolean => {

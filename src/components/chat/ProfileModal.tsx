@@ -1,7 +1,8 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
-import { X, Check, ShieldAlert, Camera, Eye, EyeOff, Plus } from "lucide-react";
+import { usePermissions } from "@/hooks/usePermissions";
+import { X, Check, ShieldAlert, Camera, Eye, EyeOff, Plus, Shield } from "lucide-react";
 import { motion } from "framer-motion";
 
 export function ProfileModal() {
@@ -11,7 +12,10 @@ export function ProfileModal() {
     isProfileModalOpen,
     setIsProfileModalOpen,
     logout,
+    currentGroup,
+    setActiveView,
   } = useChat();
+  const { canAccessView } = usePermissions();
 
   // Local Form States
   const [name, setName] = useState(operatorProfile.name);
@@ -272,6 +276,35 @@ export function ProfileModal() {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+            </div>
+
+            {/* Grupo de Acesso & Permissões */}
+            <div className="rounded-xl border border-border bg-card/60 p-3 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <Shield className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider">
+                    Grupo de Acesso
+                  </div>
+                  <div className="text-xs font-bold text-foreground">
+                    {currentGroup?.name || "Administradores"}
+                  </div>
+                </div>
+              </div>
+              {canAccessView("groups") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsProfileModalOpen(false);
+                    setActiveView("groups");
+                  }}
+                  className="text-[11px] font-bold text-primary hover:underline cursor-pointer px-2 py-1 rounded-lg hover:bg-primary/10 transition"
+                >
+                  Gerenciar Permissões →
+                </button>
+              )}
             </div>
           </div>
 

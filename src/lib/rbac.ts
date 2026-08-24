@@ -637,9 +637,15 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
 
   // Se já tiver o objeto permissions preenchido, faz merge com os defaults
   const existingPerms = rawGroup.permissions || {};
+  const hasCustomPerms =
+    existingPerms &&
+    typeof existingPerms === "object" &&
+    Object.keys(existingPerms).length > 0 &&
+    Boolean(existingPerms.views || existingPerms.chat);
 
   // Inferência inteligente a partir de flags legadas ou nome do grupo se não houver permissions explícito
   const isLegacyAdmin =
+    !hasCustomPerms || // Grupos existentes sem permissions granulares salvos herdam Admin por padrão
     rawGroup.id === "group-admin" ||
     rawGroup.id === "group-1" ||
     rawGroup.role === "admin" ||
