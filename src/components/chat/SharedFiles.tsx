@@ -45,6 +45,8 @@ import {
   UtensilsCrossed,
   CheckSquare,
   ChevronDown,
+  Database,
+  Paperclip,
 } from "lucide-react";
 
 // ── MiniSelect: dropdown 100% customizado (sem <select> nativo) ──────────────
@@ -534,7 +536,10 @@ export function SharedFiles() {
               transition={{ type: "spring", stiffness: 350, damping: 28 }}
             />
           )}
-          📋 Dados
+          <span className="flex items-center justify-center gap-1">
+            <Database className="h-3 w-3" />
+            Dados
+          </span>
         </button>
         <button
           onClick={() => handleTabChange("files")}
@@ -551,7 +556,10 @@ export function SharedFiles() {
               transition={{ type: "spring", stiffness: 350, damping: 28 }}
             />
           )}
-          📁 Arquivos
+          <span className="flex items-center justify-center gap-1">
+            <Paperclip className="h-3 w-3" />
+            Arquivos
+          </span>
         </button>
         <button
           onClick={() => handleTabChange("events")}
@@ -568,7 +576,10 @@ export function SharedFiles() {
               transition={{ type: "spring", stiffness: 350, damping: 28 }}
             />
           )}
-          🕒 Eventos
+          <span className="flex items-center justify-center gap-1">
+            <Clock className="h-3 w-3" />
+            Eventos
+          </span>
         </button>
       </div>
 
