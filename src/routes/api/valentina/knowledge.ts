@@ -475,6 +475,50 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
         }
       },
 
+      // ── PATCH: Atualizar content de um arquivo (reparo de extração falha) ───
+      PATCH: async ({ request }) => {
+        try {
+          const body = await request.json();
+          const { fileId, tenantId, content } = body;
+
+          if (!fileId || !tenantId || content === undefined) {
+            return new Response(JSON.stringify({ error: "fileId, tenantId e content são obrigatórios" }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          // Verifica pertinência ao tenant antes de atualizar
+          const [existing] = await db
+            .select({ id: knowledgeFiles.id, tenantId: knowledgeFiles.tenantId })
+            .from(knowledgeFiles)
+            .where(eq(knowledgeFiles.id, fileId));
+
+          if (!existing || existing.tenantId !== tenantId) {
+            return new Response(JSON.stringify({ error: "Arquivo não encontrado ou não pertence ao tenant" }), {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          await db.update(knowledgeFiles)
+            .set({ content: String(content).slice(0, 200000) })
+            .where(eq(knowledgeFiles.id, fileId));
+
+          console.log(`[knowledge.ts] ✅ Content reparado para arquivo ${fileId} (${String(content).length} chars)`);
+
+          return new Response(JSON.stringify({ success: true, chars: String(content).length }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } catch (e: any) {
+          console.error("[api/valentina/knowledge] Erro no PATCH:", e);
+          return new Response(JSON.stringify({ error: e.message }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      },
+
       // ── DELETE: Excluir pasta ou arquivo ────────────────────────────────────
       DELETE: async ({ request }) => {
         try {
