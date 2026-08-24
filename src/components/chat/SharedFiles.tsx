@@ -257,9 +257,21 @@ export function SharedFiles() {
       setNewTag("");
       return;
     }
-    const updated = [...activeChat.tags, newTag.trim()];
+    const tagName = newTag.trim();
+    const updated = [...activeChat.tags, tagName];
     updateTags(activeChat.id, updated);
     setNewTag("");
+
+    // Fire-and-forget: criar tarefa no RD CRM (não bloqueia UI, falha silenciosa)
+    fetch(`/api/chats/tag-task`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: activeChat.id,
+        tagName,
+        tenantId: tenant,
+      }),
+    }).catch(() => {/* silencioso */});
   };
 
   const handleRemoveTag = (tagToRemove: string) => {

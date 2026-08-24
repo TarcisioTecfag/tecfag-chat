@@ -17,7 +17,7 @@ function formatLastMessage(text: string): { icon?: string; label: string } {
     if (text.includes(":image]"))       { icon = "📷"; typeLabel = "Imagem"; }
     else if (text.includes(":video]"))   { icon = "🎥"; typeLabel = "Vídeo"; }
     else if (text.includes(":audio]"))   { icon = "🎵"; typeLabel = "Áudio"; }
-    else if (text.includes(":sticker]")) { icon = "🪄"; typeLabel = "Figurinha"; }
+    else if (text.includes(":sticker]")) { icon = "💚"; typeLabel = "Figurinha"; }
 
     return {
       icon,

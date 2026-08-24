@@ -393,7 +393,23 @@ function renderMessageContent(
       if (type === "sticker") {
         return wrapMediaWithCaption(
           <div className="relative max-w-[120px] group overflow-visible">
-            <img src={mediaUrl} alt="Figurinha" className="h-28 w-28 object-contain" />
+            <img
+              src={mediaUrl}
+              alt="Figurinha"
+              className="h-28 w-28 object-contain"
+              onError={(e) => {
+                const target = e.currentTarget;
+                target.style.display = "none";
+                const fb = target.nextElementSibling as HTMLElement | null;
+                if (fb) fb.style.display = "flex";
+              }}
+            />
+            <div
+              className="h-28 w-28 items-center justify-center text-5xl hidden"
+              title="Figurinha"
+            >
+              🪄
+            </div>
             {onSaveSticker && (
               <button
                 onClick={() => onSaveSticker(messageId, mediaUrl)}
@@ -1632,31 +1648,67 @@ export function ChatPanel() {
             // ── Mensagens de sistema ──────────────────────────────────────
             if (isSystem) {
               return (
-                <div key={m.id} className={`flex justify-center ${gap} my-2`}>
-                  <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase border border-border">
-                    {renderTextWithLinks(m.text)} — {m.time}
-                  </span>
-                </div>
+                <React.Fragment key={m.id}>
+                  {dateLabel && (
+                    <div className="flex justify-center my-3">
+                      <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground border border-border select-none">
+                        {dateLabel}
+                      </span>
+                    </div>
+                  )}
+                  <div className={`flex justify-center ${gap} my-2`}>
+                    <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase border border-border">
+                      {renderTextWithLinks(m.text)} — {m.time}
+                    </span>
+                  </div>
+                </React.Fragment>
               );
             }
+
+            // ── Separador de Data (estilo WhatsApp) ──────────────────────
+            const todayBR = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+            const yesterdayBR = new Date(Date.now() - 86400000).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+            const formatDateLabel = (dateStr: string) => {
+              if (!dateStr) return null;
+              if (dateStr === todayBR) return "Hoje";
+              if (dateStr === yesterdayBR) return "Ontem";
+              // Converte "DD/MM/AAAA" para extenso: "24 de agosto de 2026"
+              const [d, mo, y] = dateStr.split("/");
+              const months = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+              const monthName = months[parseInt(mo, 10) - 1] || mo;
+              return `${parseInt(d, 10)} de ${monthName} de ${y}`;
+            };
+
+            const showDateSeparator = m.date && (!prev || (prev as any).date !== m.date);
+            const dateLabel = showDateSeparator ? formatDateLabel(m.date as string) : null;
 
             // ── Notas internas ────────────────────────────────────────────
             if (m.isInternalNote) {
               return (
-                <div key={m.id} className={`flex flex-col items-center ${gap} w-full`}>
-                  <div className="max-w-[85%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-soft text-left">
-                    <div
-                      className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5"
-                      style={{ color: "hsl(var(--warning, 38 92% 40%))" }}
-                    >
-                      <Lock className="h-3 w-3 shrink-0" />
-                      Anotação Interna — {m.author} às {m.time}
+                <React.Fragment key={m.id}>
+                  {dateLabel && (
+                    <div className="flex justify-center my-3">
+                      <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground border border-border select-none">
+                        {dateLabel}
+                      </span>
                     </div>
-                    <p className="text-xs leading-relaxed font-medium text-amber-900">
-                      {renderTextWithLinks(m.text, false, true)}
-                    </p>
+                  )}
+                  <div className={`flex flex-col items-center ${gap} w-full`}>
+                    <div className="max-w-[85%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-soft text-left">
+                      <div
+                        className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5"
+                        style={{ color: "hsl(var(--warning, 38 92% 40%))" }}
+                      >
+                        <Lock className="h-3 w-3 shrink-0" />
+                        Anotação Interna — {m.author} às {m.time}
+                      </div>
+                      <p className="text-xs leading-relaxed font-medium text-amber-900">
+                        {renderTextWithLinks(m.text, false, true)}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                </React.Fragment>
               );
             }
 
@@ -1685,9 +1737,16 @@ export function ChatPanel() {
             if (isMe) {
               const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
               return (
+                <React.Fragment key={m.id}>
+                  {dateLabel && (
+                    <div className="flex justify-center my-3">
+                      <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground border border-border select-none">
+                        {dateLabel}
+                      </span>
+                    </div>
+                  )}
                 <motion.div
                   id={`msg-dom-${m.id}`}
-                  key={m.id}
                   layout
                   initial={{ opacity: 0, x: 18, scale: 0.96 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
@@ -1738,15 +1797,23 @@ export function ChatPanel() {
                     </span>
                   )}
                 </motion.div>
+                </React.Fragment>
               );
             }
 
             // ── Recebidas ─────────────────────────────────────────────────
             const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
             return (
+              <React.Fragment key={m.id}>
+                {dateLabel && (
+                  <div className="flex justify-center my-3">
+                    <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground border border-border select-none">
+                      {dateLabel}
+                    </span>
+                  </div>
+                )}
               <motion.div
                 id={`msg-dom-${m.id}`}
-                key={m.id}
                 layout
                 initial={{ opacity: 0, x: -18, scale: 0.96 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
@@ -1919,7 +1986,8 @@ export function ChatPanel() {
                     </span>
                   )}
                 </div>
-              </motion.div>
+                </motion.div>
+              </React.Fragment>
             );
           });
         })()}

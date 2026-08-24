@@ -68,6 +68,7 @@ import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contac
 import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/contacts/check-inactivity'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
+import { Route as ApiChatsTagTaskRouteImport } from './routes/api/chats/tag-task'
 import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
 import { Route as ApiBaileysStatusRouteImport } from './routes/api/baileys/status'
 import { Route as ApiBaileysSendMediaRouteImport } from './routes/api/baileys/send-media'
@@ -384,6 +385,11 @@ const ApiChatsUpdateQueueRoute = ApiChatsUpdateQueueRouteImport.update({
   path: '/update-queue',
   getParentRoute: () => ApiChatsRoute,
 } as any)
+const ApiChatsTagTaskRoute = ApiChatsTagTaskRouteImport.update({
+  id: '/tag-task',
+  path: '/tag-task',
+  getParentRoute: () => ApiChatsRoute,
+} as any)
 const ApiBaileysSyncAvatarsRoute = ApiBaileysSyncAvatarsRouteImport.update({
   id: '/api/baileys/sync-avatars',
   path: '/api/baileys/sync-avatars',
@@ -508,6 +514,7 @@ export interface FileRoutesByFullPath {
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
+  '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
@@ -585,6 +592,7 @@ export interface FileRoutesByTo {
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
+  '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
@@ -663,6 +671,7 @@ export interface FileRoutesById {
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
+  '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
@@ -742,6 +751,7 @@ export interface FileRouteTypes {
     | '/api/baileys/send-media'
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
+    | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/contacts/check-inactivity'
@@ -819,6 +829,7 @@ export interface FileRouteTypes {
     | '/api/baileys/send-media'
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
+    | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/contacts/check-inactivity'
@@ -896,6 +907,7 @@ export interface FileRouteTypes {
     | '/api/baileys/send-media'
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
+    | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/contacts/check-inactivity'
@@ -1420,6 +1432,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatsUpdateQueueRouteImport
       parentRoute: typeof ApiChatsRoute
     }
+    '/api/chats/tag-task': {
+      id: '/api/chats/tag-task'
+      path: '/tag-task'
+      fullPath: '/api/chats/tag-task'
+      preLoaderRoute: typeof ApiChatsTagTaskRouteImport
+      parentRoute: typeof ApiChatsRoute
+    }
     '/api/baileys/sync-avatars': {
       id: '/api/baileys/sync-avatars'
       path: '/api/baileys/sync-avatars'
@@ -1536,10 +1555,12 @@ declare module '@tanstack/react-router' {
 }
 
 interface ApiChatsRouteChildren {
+  ApiChatsTagTaskRoute: typeof ApiChatsTagTaskRoute
   ApiChatsUpdateQueueRoute: typeof ApiChatsUpdateQueueRoute
 }
 
 const ApiChatsRouteChildren: ApiChatsRouteChildren = {
+  ApiChatsTagTaskRoute: ApiChatsTagTaskRoute,
   ApiChatsUpdateQueueRoute: ApiChatsUpdateQueueRoute,
 }
 
