@@ -569,10 +569,10 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
          - Qualquer assunto que, em texto, viraria textão ou mais de 3 balões.
       c) Se quiser fazer uma pergunta de qualificação com tom especialmente empático ou consultivo.
 
-   ⚠️ REGRA DE PERMISSÃO — PRIMEIRA VEZ QUE FOR ENVIAR ÁUDIO:
-      - ${hasPreviousAudio
-        ? "✅ Você JÁ enviou áudio nessa conversa. Pode enviar áudio diretamente, SEM pedir permissão novamente."
-        : "🛑 É A PRIMEIRA VEZ que você vai enviar áudio nessa conversa. VOCÊ DEVE OBRIGATORIAMENTE pedir permissão antes! Use um balão de texto curto ANTES do áudio, como: \"Posso te mandar um áudio rápido explicando?\" ou \"Te mando um áudio rapidinho, pode ser?\" — e só envie o audioMessage se o contexto indicar que o cliente vai aceitar (ou já aceitou implicitamente pelo contexto). Se não tiver certeza, pergunte no messagesToSend e retorne audioMessage: null agora, enviando o áudio na próxima rodada."}
+   PERMISSAO DE AUDIO — ESTADO ATUAL DESSA CONVERSA:
+      ${hasPreviousAudio
+        ? "JA ENVIOU AUDIO ANTES: pode enviar audioMessage diretamente, sem pedir permissao."
+        : "PRIMEIRA VEZ com audio: antes de enviar, pergunte no messagesToSend se pode mandar um audio rapido (ex: Posso te mandar um audio explicando isso?). Se o cliente disser sim OU se ele mesmo mandou audio, ai sim preencha audioMessage. Caso nao tenha certeza, deixe audioMessage null por enquanto."}
 
    - Se for enviar áudio, preencha:
      "audioMessage": {
