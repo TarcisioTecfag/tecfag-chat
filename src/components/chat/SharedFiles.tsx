@@ -47,6 +47,61 @@ import {
   ChevronDown,
 } from "lucide-react";
 
+// ── MiniSelect: dropdown 100% customizado (sem <select> nativo) ──────────────
+interface MiniSelectOption { value: number | string; label: string; }
+function MiniSelect({ value, onChange, options, className }: {
+  value: number | string;
+  onChange: (v: any) => void;
+  options: MiniSelectOption[];
+  className?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value) ?? options[0];
+
+  // Fecha ao clicar fora
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className={`relative ${className ?? ""}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full h-8 flex items-center justify-between gap-1 rounded-lg bg-muted px-2 text-xs text-foreground border border-transparent hover:border-primary/20 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-all cursor-pointer"
+      >
+        <span className="truncate">{selected.label}</span>
+        <ChevronDown className={`h-2.5 w-2.5 shrink-0 text-primary/60 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute z-[60] top-[calc(100%+3px)] left-0 min-w-full max-h-48 overflow-y-auto rounded-xl bg-card border border-border/60 shadow-xl [&::-webkit-scrollbar]:w-0 scrollbar-none">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-xs transition-all cursor-pointer outline-none whitespace-nowrap
+                ${opt.value === value
+                  ? "bg-primary/10 text-primary font-semibold"
+                  : "text-foreground hover:bg-muted"
+                }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface HistoryEventInfo {
   title: string;
   description: string;
@@ -715,41 +770,23 @@ export function SharedFiles() {
                 );
               })()}
 
-
-              {/* ── Data — selects dia/mês/ano sem picker nativo ────────── */}
+              {/* ── Data — dia / mês / ano via MiniSelect ───────────────── */}
               {(() => {
                 const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
                 const daysInMonth = new Date(taskYear, taskMonth, 0).getDate();
                 const currentYear = new Date().getFullYear();
-                const selectCls = "h-8 appearance-none bg-muted text-xs text-foreground rounded-lg px-2 focus:outline-none focus:ring-1 focus:ring-primary/40 border border-transparent focus:border-primary/20 transition cursor-pointer w-full";
+                const dayOpts    = Array.from({length: daysInMonth}, (_,i) => ({ value: i+1, label: String(i+1).padStart(2,"0") }));
+                const monthOpts  = MONTHS.map((m,i) => ({ value: i+1, label: m }));
+                const yearOpts   = [currentYear, currentYear+1, currentYear+2].map(y => ({ value: y, label: String(y) }));
                 return (
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="flex gap-1.5 items-center">
                           <CalendarDays className="h-3.5 w-3.5 text-primary shrink-0" />
-                          {/* Dia */}
-                          <div className="relative w-12 shrink-0">
-                            <select value={taskDay} onChange={(e) => setTaskDay(Number(e.target.value))} className={selectCls}>
-                              {Array.from({length: daysInMonth}, (_,i) => i+1).map(d => (
-                                <option key={d} value={d}>{String(d).padStart(2,"0")}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {/* Mês */}
-                          <div className="relative flex-1 min-w-0">
-                            <select value={taskMonth} onChange={(e) => setTaskMonth(Number(e.target.value))} className={selectCls}>
-                              {MONTHS.map((m,i) => <option key={i+1} value={i+1}>{m}</option>)}
-                            </select>
-                          </div>
-                          {/* Ano */}
-                          <div className="relative w-14 shrink-0">
-                            <select value={taskYear} onChange={(e) => setTaskYear(Number(e.target.value))} className={selectCls}>
-                              {[currentYear, currentYear+1, currentYear+2].map(y => (
-                                <option key={y} value={y}>{y}</option>
-                              ))}
-                            </select>
-                          </div>
+                          <MiniSelect value={taskDay}   onChange={setTaskDay}   options={dayOpts}   className="w-11 shrink-0" />
+                          <MiniSelect value={taskMonth} onChange={setTaskMonth} options={monthOpts} className="flex-1 min-w-0" />
+                          <MiniSelect value={taskYear}  onChange={setTaskYear}  options={yearOpts}  className="w-[3.8rem] shrink-0" />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
@@ -760,32 +797,19 @@ export function SharedFiles() {
                 );
               })()}
 
-              {/* ── Hora — selects hora/minuto sem spinner nativo ─────── */}
+              {/* ── Hora — hora / minuto via MiniSelect ─────────────────── */}
               {(() => {
-                const selectCls = "h-8 appearance-none bg-muted text-xs text-foreground rounded-lg px-2 focus:outline-none focus:ring-1 focus:ring-primary/40 border border-transparent focus:border-primary/20 transition cursor-pointer w-full";
+                const hourOpts = Array.from({length:24},(_,i) => ({ value: i, label: String(i).padStart(2,"0")+"h" }));
+                const minOpts  = [0,15,30,45].map(m => ({ value: m, label: String(m).padStart(2,"0") }));
                 return (
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="flex gap-1.5 items-center">
                           <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
-                          {/* Hora */}
-                          <div className="relative flex-1">
-                            <select value={taskHour} onChange={(e) => setTaskHour(Number(e.target.value))} className={selectCls}>
-                              {Array.from({length:24},(_,i)=>i).map(h => (
-                                <option key={h} value={h}>{String(h).padStart(2,"0")}h</option>
-                              ))}
-                            </select>
-                          </div>
-                          <span className="text-xs text-muted-foreground shrink-0">:</span>
-                          {/* Minuto — de 15 em 15 */}
-                          <div className="relative flex-1">
-                            <select value={taskMin} onChange={(e) => setTaskMin(Number(e.target.value))} className={selectCls}>
-                              {[0,15,30,45].map(m => (
-                                <option key={m} value={m}>{String(m).padStart(2,"0")}</option>
-                              ))}
-                            </select>
-                          </div>
+                          <MiniSelect value={taskHour} onChange={setTaskHour} options={hourOpts} className="flex-1" />
+                          <span className="text-xs text-muted-foreground shrink-0 font-medium">:</span>
+                          <MiniSelect value={taskMin}  onChange={setTaskMin}  options={minOpts}  className="flex-1" />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
