@@ -185,6 +185,33 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const tenantId = url.searchParams.get("tenantId") || "valem";
+        const action = url.searchParams.get("action");
+        const fileId = url.searchParams.get("fileId");
+
+        // ── GET ?action=getContent&fileId=xxx — retorna o content de UM arquivo específico
+        // Usado pelo "Ver RAG" e "Ver Foto" — evita mandar base64 na listagem geral
+        if (action === "getContent" && fileId) {
+          try {
+            const [file] = await db
+              .select({ id: knowledgeFiles.id, content: knowledgeFiles.content, format: knowledgeFiles.format, name: knowledgeFiles.name })
+              .from(knowledgeFiles)
+              .where(eq(knowledgeFiles.id, fileId));
+            if (!file) {
+              return new Response(JSON.stringify({ error: "Arquivo não encontrado" }), {
+                status: 404,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+            return new Response(JSON.stringify({ content: file.content || "" }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          } catch (e: any) {
+            return new Response(JSON.stringify({ error: e.message }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
 
         try {
           let folders = await db
@@ -192,21 +219,45 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
             .from(knowledgeFolders)
             .where(eq(knowledgeFolders.tenantId, tenantId));
 
+          // Busca arquivos SEM o campo content (que pode ter 170KB de base64 por imagem)
+          // Content só é enviado via endpoint dedicado getContent
           let files = await db
-            .select()
+            .select({
+              id: knowledgeFiles.id,
+              tenantId: knowledgeFiles.tenantId,
+              folderId: knowledgeFiles.folderId,
+              name: knowledgeFiles.name,
+              size: knowledgeFiles.size,
+              type: knowledgeFiles.type,
+              format: knowledgeFiles.format,
+              uploadedAt: knowledgeFiles.uploadedAt,
+              // content propositalmente OMITIDO — retornado só via ?action=getContent
+            })
             .from(knowledgeFiles)
             .where(eq(knowledgeFiles.tenantId, tenantId));
 
-          // 🛡️ Auto-reparo de integridade: se algum arquivo estiver com content vazio ou placeholder, repara
-          for (const f of files) {
-            if (!f.content || f.content.trim().length === 0 || f.content.startsWith("[Documento ")) {
-              const repairedContent = await extractKnowledgeText(f.name, f.type, null, f.content);
-              if (repairedContent && repairedContent.length > 20 && !repairedContent.startsWith("[Documento ")) {
-                f.content = repairedContent;
-                try {
-                  await db.update(knowledgeFiles).set({ content: repairedContent }).where(eq(knowledgeFiles.id, f.id));
-                } catch {
-                  // Silencioso
+          // 🛡️ Auto-reparo de integridade: repara apenas arquivos de texto (embeddings) sem conteúdo
+          // NUNCA repara formato real (imagens) pois o content delas é base64, não texto
+          const filesNeedingRepair = (files as any[]).filter(
+            (f) => f.format !== "real" && f.type !== "image"
+          );
+          // Busca content completo só para os que precisam de reparo
+          if (filesNeedingRepair.length > 0) {
+            const fullFiles = await db
+              .select()
+              .from(knowledgeFiles)
+              .where(eq(knowledgeFiles.tenantId, tenantId));
+            const contentMap = new Map(fullFiles.map((f) => [f.id, f.content]));
+            for (const f of filesNeedingRepair) {
+              const rawContent = contentMap.get(f.id) || "";
+              if (!rawContent || rawContent.trim().length === 0 || rawContent.startsWith("[Documento ")) {
+                const repairedContent = await extractKnowledgeText(f.name, f.type, null, rawContent);
+                if (repairedContent && repairedContent.length > 20 && !repairedContent.startsWith("[Documento ")) {
+                  try {
+                    await db.update(knowledgeFiles).set({ content: repairedContent }).where(eq(knowledgeFiles.id, f.id));
+                  } catch {
+                    // Silencioso
+                  }
                 }
               }
             }
@@ -232,13 +283,13 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
                 name: f.name,
                 parentId: f.parentId,
               })),
-              files: files.map((f) => ({
+              files: (files as any[]).map((f) => ({
                 id: f.id,
                 name: f.name,
                 size: f.size,
                 type: f.type,
                 format: f.format,
-                content: f.content,
+                // content OMITIDO propositalmente — use ?action=getContent&fileId=xxx
                 uploadedAt: new Date(f.uploadedAt).toLocaleDateString("pt-BR"),
                 folderId: f.folderId,
               })),

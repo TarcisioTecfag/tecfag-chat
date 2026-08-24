@@ -127,8 +127,11 @@ export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promi
     );
 
     // Compila catálogo de fotos reais disponíveis para a Valentina.
-    // Usa apenas o prefixo do content (antes do [BASE64:...]) para evitar
-    // processar 170KB de base64 desnecessariamente na regex.
+    // Agrupa por produto (código SKU entre colchetes no nome do arquivo) —
+    // mantém apenas a Foto 1 de cada produto para não inflar o prompt.
+    // Ex: "[180013] Frasco Plástico Branco Airless PET 30ml - Foto 1.jpg" e "Foto 2.jpg"
+    //     → inclui só a Foto 1 no catálogo
+    const seenSkus = new Set<string>();
     const realMediaFiles = files
       .filter(f => f.format === "real" && f.content)
       .map(f => {
@@ -139,6 +142,12 @@ export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promi
           console.log(`[KnowledgeService] ⚠️ REAL_MEDIA_PATTERN não encontrou match no arquivo: name="${f.name}" | contentPrefix="${contentPrefix.substring(0, 100)}"`);
           return null;
         }
+        // Extrai SKU do nome (ex: "[180013]" ou "180013") para deduplicação
+        const skuMatch = f.name.match(/^\[?(\d{5,})\]?/);
+        const sku = skuMatch ? skuMatch[1] : f.name;
+        // Inclui só a primeira foto de cada produto no catálogo
+        if (seenSkus.has(sku)) return null;
+        seenSkus.add(sku);
         return `  - "${f.name}" → URL: ${match[1]}`;
       })
       .filter(Boolean);

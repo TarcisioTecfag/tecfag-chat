@@ -53,8 +53,30 @@ export function KnowledgeTab() {
 
   // Preview de imagem real (Formato Real)
   const [previewImageFile, setPreviewImageFile] = useState<FileType | null>(null);
+  // Content carregado sob demanda (Ver RAG / Ver Foto) — não vem mais na listagem
+  const [loadingContentId, setLoadingContentId] = useState<string | null>(null);
+  const [loadedContent, setLoadedContent] = useState<Record<string, string>>({});
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+  /** Busca o `content` de um arquivo específico sob demanda (Ver RAG ou Ver Foto). */
+  async function fetchFileContent(fileId: string): Promise<string> {
+    if (loadedContent[fileId] !== undefined) return loadedContent[fileId];
+    setLoadingContentId(fileId);
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/api/valentina/knowledge?tenantId=valem&action=getContent&fileId=${fileId}`
+      );
+      const data = await res.json();
+      const c = data.content || "";
+      setLoadedContent((prev) => ({ ...prev, [fileId]: c }));
+      return c;
+    } catch {
+      return "";
+    } finally {
+      setLoadingContentId(null);
+    }
+  }
 
 
   // ── Carregar Dados Reais da API no Inicio ─────────────────────────────────
@@ -1023,11 +1045,18 @@ export function KnowledgeTab() {
                       {/* Botão de Ver Conteúdo Extraído (RAG Inspector) */}
                       <button
                         type="button"
-                        onClick={() => setPreviewFile(file)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-primary-soft/40 text-[10px] font-bold text-foreground hover:text-primary transition cursor-pointer shadow-soft"
+                        disabled={loadingContentId === file.id}
+                        onClick={async () => {
+                          const content = await fetchFileContent(file.id);
+                          setPreviewFile({ ...file, content } as any);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-primary-soft/40 text-[10px] font-bold text-foreground hover:text-primary transition cursor-pointer shadow-soft disabled:opacity-50"
                         title="Ver o texto que a IA aprendeu deste arquivo"
                       >
-                        <Eye className="h-3 w-3 text-primary" />
+                        {loadingContentId === file.id
+                          ? <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                          : <Eye className="h-3 w-3 text-primary" />
+                        }
                         <span>Ver RAG</span>
                       </button>
 
@@ -1035,11 +1064,18 @@ export function KnowledgeTab() {
                       {file.format === "real" && file.type === "image" && (
                         <button
                           type="button"
-                          onClick={() => setPreviewImageFile(file)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/20 text-[10px] font-bold text-foreground hover:text-amber-600 transition cursor-pointer shadow-soft"
+                          disabled={loadingContentId === file.id}
+                          onClick={async () => {
+                            const content = await fetchFileContent(file.id);
+                            setPreviewImageFile({ ...file, content } as any);
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/20 text-[10px] font-bold text-foreground hover:text-amber-600 transition cursor-pointer shadow-soft disabled:opacity-50"
                           title="Visualizar a imagem real que a Valentina envia"
                         >
-                          <ImageIcon className="h-3 w-3 text-amber-500" />
+                          {loadingContentId === file.id
+                            ? <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
+                            : <ImageIcon className="h-3 w-3 text-amber-500" />
+                          }
                           <span>Ver Foto</span>
                         </button>
                       )}
