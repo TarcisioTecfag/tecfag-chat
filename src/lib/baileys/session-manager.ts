@@ -384,11 +384,23 @@ export class SessionManager {
         // Quando o QR é escaneado, o Baileys fecha a conexão QR (código 515 ou similar)
         // e reabre como autenticada — mas sock.user ainda é null nesse momento.
         // Verificar se há credenciais salvas em banco é a forma correta.
-        // Regra: reconectar SEMPRE, exceto logout explícito (código 401).
-        const shouldReconnect = !loggedOut;
+        //
+        // Regras de reconexão:
+        //   401 = loggedOut → NÃO reconectar (sessão expirada/revogada)
+        //   440 = connectionReplaced → NÃO reconectar (outra instância assumiu)
+        //         Reconectar aqui criaria loop infinito onde as instâncias se matam mutuamente.
+        //   515 = restartRequired → reconectar (normal após scan do QR)
+        //   Demais → reconectar (queda de rede, timeout, etc.)
+        const connectionReplaced = statusCode === 440;
+        const shouldReconnect = !loggedOut && !connectionReplaced;
         const isPaired = !!sock.user?.id;
 
+        if (connectionReplaced) {
+          console.warn(`[SessionManager] Conexão substituída (440) para tenant ${tenantId} — NÃO reconectando para evitar loop.`);
+        }
+
         console.log(`[SessionManager] Conexão fechada para tenant ${tenantId} — statusCode: ${statusCode}, loggedOut: ${loggedOut}, sock.user: ${sock.user?.id || "null"}, reconectar: ${shouldReconnect}`);
+
 
         this.sessions.delete(tenantId);
         this.sessionStatuses.set(tenantId, "disconnected");
