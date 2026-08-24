@@ -1645,6 +1645,23 @@ export function ChatPanel() {
               ? "mt-3"
               : "";
 
+            // ── Separador de Data (estilo WhatsApp) — calculado ANTES de qualquer if ──
+            const todayBR = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+            const yesterdayBR = new Date(Date.now() - 86400000).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+            const formatDateLabel = (dateStr: string) => {
+              if (!dateStr) return null;
+              if (dateStr === todayBR) return "Hoje";
+              if (dateStr === yesterdayBR) return "Ontem";
+              const [d, mo, y] = dateStr.split("/");
+              const months = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+              const monthName = months[parseInt(mo, 10) - 1] || mo;
+              return `${parseInt(d, 10)} de ${monthName} de ${y}`;
+            };
+
+            const showDateSeparator = (m as any).date && (!prev || (prev as any).date !== (m as any).date);
+            const dateLabel = showDateSeparator ? formatDateLabel((m as any).date as string) : null;
+
             // ── Mensagens de sistema ──────────────────────────────────────
             if (isSystem) {
               return (
@@ -1664,24 +1681,6 @@ export function ChatPanel() {
                 </React.Fragment>
               );
             }
-
-            // ── Separador de Data (estilo WhatsApp) ──────────────────────
-            const todayBR = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-            const yesterdayBR = new Date(Date.now() - 86400000).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-
-            const formatDateLabel = (dateStr: string) => {
-              if (!dateStr) return null;
-              if (dateStr === todayBR) return "Hoje";
-              if (dateStr === yesterdayBR) return "Ontem";
-              // Converte "DD/MM/AAAA" para extenso: "24 de agosto de 2026"
-              const [d, mo, y] = dateStr.split("/");
-              const months = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-              const monthName = months[parseInt(mo, 10) - 1] || mo;
-              return `${parseInt(d, 10)} de ${monthName} de ${y}`;
-            };
-
-            const showDateSeparator = m.date && (!prev || (prev as any).date !== m.date);
-            const dateLabel = showDateSeparator ? formatDateLabel(m.date as string) : null;
 
             // ── Notas internas ────────────────────────────────────────────
             if (m.isInternalNote) {
