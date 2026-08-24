@@ -160,6 +160,7 @@ export function SharedFiles() {
   });
   const [taskTime, setTaskTime] = useState("09:00");
   const [taskCreating, setTaskCreating] = useState(false);
+  const [taskTypeOpen, setTaskTypeOpen] = useState(false);
 
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -705,30 +706,56 @@ export function SharedFiles() {
                 className="w-full h-8 rounded-lg bg-muted px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition"
               />
 
-              {/* Tipo da tarefa */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="relative w-full">
-                      <select
-                        value={taskType}
-                        onChange={(e) => setTaskType(e.target.value)}
-                        className="w-full h-8 appearance-none rounded-lg bg-muted pl-2.5 pr-7 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition cursor-pointer"
-                      >
-                        <option value="task">✅  Tarefa</option>
-                        <option value="call">📞  Ligação</option>
-                        <option value="meeting">👥  Reunião</option>
-                        <option value="email">✉️  E-mail</option>
-                        <option value="lunch">🍽️  Almoço / Visita</option>
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" className="bg-primary text-primary-foreground text-[10px]">
-                    Tipo da atividade no RD CRM
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              {/* Tipo da tarefa — dropdown customizado com ícones */}
+              {(() => {
+                const TASK_TYPES = [
+                  { value: "task",    label: "Tarefa",         Icon: CheckSquare   },
+                  { value: "call",    label: "Ligação",        Icon: PhoneCall      },
+                  { value: "meeting", label: "Reunião",        Icon: Users          },
+                  { value: "email",   label: "E-mail",         Icon: AtSign         },
+                  { value: "lunch",   label: "Almoço / Visita",Icon: UtensilsCrossed},
+                ] as const;
+                const selected = TASK_TYPES.find((t) => t.value === taskType) ?? TASK_TYPES[0];
+                return (
+                  <div className="relative w-full">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => setTaskTypeOpen((o) => !o)}
+                            className="w-full h-8 flex items-center gap-2 rounded-lg bg-muted px-2.5 text-xs text-foreground border border-transparent hover:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary transition cursor-pointer"
+                          >
+                            <selected.Icon className="h-3.5 w-3.5 text-primary shrink-0" />
+                            <span className="flex-1 text-left">{selected.label}</span>
+                            <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${taskTypeOpen ? "rotate-180" : ""}`} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="bg-primary text-primary-foreground text-[10px]">
+                          Tipo da atividade no RD CRM
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+
+                    {taskTypeOpen && (
+                      <div className="absolute z-50 mt-1 w-full rounded-lg bg-card border border-border shadow-lg overflow-hidden">
+                        {TASK_TYPES.map(({ value, label, Icon }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => { setTaskType(value); setTaskTypeOpen(false); }}
+                            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs transition cursor-pointer hover:bg-primary/8 hover:text-primary ${taskType === value ? "bg-primary/10 text-primary font-bold" : "text-foreground"}`}
+                          >
+                            <Icon className={`h-3.5 w-3.5 shrink-0 ${taskType === value ? "text-primary" : "text-muted-foreground"}`} />
+                            {label}
+                            {taskType === value && <Check className="ml-auto h-3 w-3 text-primary" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Data e Hora na mesma linha */}
               <div className="flex gap-2">
