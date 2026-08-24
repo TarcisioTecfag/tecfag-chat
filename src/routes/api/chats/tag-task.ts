@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { conversations, contacts, messages } from "../../../db/schema";
 import { eq } from "drizzle-orm";
-import { rdRequest, getCachedUsers } from "../../../lib/rdCrmService";
+import { rdRequest, getCachedUsers, getCachedDeal } from "../../../lib/rdCrmService";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,24 +89,37 @@ export const Route = createFileRoute("/api/chats/tag-task")({
           const typeLabel = TASK_TYPE_LABELS[taskType] || "Tarefa";
 
           // 3. Buscar o user_id do responsável pelo deal no RD CRM
-          //    A tarefa SEMPRE fica no nome do dono atual do card, não do operador do nosso sistema.
-          //    Isso é obrigatório pois o campo "created_by" é required pelo RD CRM.
+          //    A tarefa SEMPRE fica no nome do dono atual do card (required: created_by).
           let dealOwnerId: string | undefined;
-          try {
-            // Tenta obter o user_id diretamente do deal
-            const deal = await rdRequest<any>(tenantId, "GET", `/deals/${contact.rdCrmDealId}`);
-            dealOwnerId = deal?.user_id || deal?.owner?.id;
-          } catch {/* ignora */}
 
-          if (!dealOwnerId) {
-            // Fallback: primeiro usuário disponível
-            try {
-              const users = await getCachedUsers(tenantId);
-              if (Array.isArray(users) && users.length > 0) dealOwnerId = users[0].id;
-            } catch {/* ignora */}
+          // 3a. Tentar via deal (múltiplos campos possíveis na API v2)
+          try {
+            const deal = await getCachedDeal(tenantId, contact.rdCrmDealId);
+            dealOwnerId =
+              deal?.user_id          ||  // campo plano
+              deal?.user?.id         ||  // objeto aninhado
+              deal?.owner?.id        ||  // alternativa owner
+              deal?.responsible?.id  ||  // alternativa responsible
+              deal?.user_ids?.[0];       // array (improvável mas cobre)
+            console.log(`[TagTask] deal owner lookup — user_id=${deal?.user_id} user.id=${deal?.user?.id} → resultado=${dealOwnerId}`);
+          } catch (e: any) {
+            console.warn("[TagTask] Erro ao buscar deal:", e.message);
           }
 
-          // 4. Criar Task no RD CRM via endpoint correto /tasks
+          // 3b. Fallback: primeiro usuário ativo disponível no CRM
+          if (!dealOwnerId) {
+            try {
+              const users = await getCachedUsers(tenantId);
+              console.log(`[TagTask] fallback getCachedUsers: ${users.length} users, first=${JSON.stringify(users[0] ?? null)}`);
+              if (users.length > 0) dealOwnerId = users[0].id;
+            } catch (e: any) {
+              console.warn("[TagTask] Erro ao buscar users fallback:", e.message);
+            }
+          }
+
+          console.log(`[TagTask] created_by final = ${dealOwnerId ?? "UNDEFINED — task vai falhar"}`);
+
+          // 4. Criar Task no RD CRM
           let taskCreated = false;
           try {
             await rdRequest(tenantId, "POST", "/tasks", {
@@ -115,12 +128,14 @@ export const Route = createFileRoute("/api/chats/tag-task")({
               deal_id: contact.rdCrmDealId,
               due_date: dueDateTimeFull,
               notes: `Tarefa criada via Valem Chat${operatorName ? " por " + operatorName : ""}. Tipo: ${typeLabel}.`,
-              ...(dealOwnerId ? { user_id: dealOwnerId, created_by: dealOwnerId } : {}),
+              user_id: dealOwnerId,
+              created_by: dealOwnerId,
             });
             taskCreated = true;
           } catch (crmErr: any) {
             console.warn(`[TagTask] Falha ao criar task no CRM:`, crmErr.message);
           }
+
 
 
           // 5. Salvar mensagem de sistema no chat (so se criou com sucesso)
