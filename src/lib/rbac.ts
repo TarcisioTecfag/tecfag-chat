@@ -638,8 +638,20 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
   // Se já tiver o objeto permissions preenchido, faz merge com os defaults
   const existingPerms = rawGroup.permissions || {};
 
-  // Inferência inteligente a partir de flags legadas se não houver permissions explícito
-  const isLegacyAdmin = rawGroup.id === "group-admin" || rawGroup.role === "admin";
+  // Inferência inteligente a partir de flags legadas ou nome do grupo se não houver permissions explícito
+  const isLegacyAdmin =
+    rawGroup.id === "group-admin" ||
+    rawGroup.id === "group-1" ||
+    rawGroup.role === "admin" ||
+    (typeof rawGroup.name === "string" && (
+      rawGroup.name.toLowerCase().includes("admin") ||
+      rawGroup.name.toLowerCase().includes("gerent") ||
+      rawGroup.name.toLowerCase().includes("master")
+    )) ||
+    rawGroup.canCreateUser === true ||
+    rawGroup.canResetPassword === true ||
+    rawGroup.canOverrideChat === true;
+
   const baseFallback = isLegacyAdmin ? DEFAULT_ADMIN_PERMISSIONS : (ROLE_PRESETS.vendedor?.permissions || DEFAULT_ADMIN_PERMISSIONS);
 
   return {
