@@ -1,17 +1,23 @@
 {
-  "short_name": "Tecfag Chat",
-  "name": "Tecfag & Valem Chat",
-  "description": "Atendimento Comercial e Suporte em Tempo Real",
+  "short_name": "Valem Chat",
+  "name": "Valem Chat — Atendimento & Gestão Comercial",
+  "description": "Central de Atendimento Multicanal, WhatsApp e Gestão Comercial da Valem Válvulas e Embalagens",
   "icons": [
     {
-      "src": "/logo_tecfag.png",
-      "sizes": "192x192 512x512",
+      "src": "/logo192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo512.png",
+      "sizes": "512x512",
       "type": "image/png"
     }
   ],
   "start_url": "/",
   "background_color": "#0f172a",
-  "theme_color": "#df3d3d",
+  "theme_color": "#2dc4a0",
   "display": "standalone",
   "orientation": "portrait"
 }
+
