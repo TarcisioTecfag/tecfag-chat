@@ -36,6 +36,15 @@ import {
   Save,
   Search,
   Check,
+  CalendarDays,
+  Clock,
+  ListTodo,
+  PhoneIncoming,
+  Users,
+  AtSign,
+  UtensilsCrossed,
+  CheckSquare,
+  ChevronDown,
 } from "lucide-react";
 
 interface HistoryEventInfo {
@@ -139,7 +148,19 @@ export function SharedFiles() {
   } = useChat();
 
   const [activeTab, setActiveTab] = useState<"details" | "files" | "events">("details");
-  const [newTag, setNewTag] = useState("");
+  const [newTag, setNewTag] = useState(""); // mantido internamente para compatibilidade com updateTags
+
+  // ── Estados do formulário de Tarefas ─────────────────────────────────────
+  const [taskSubject, setTaskSubject] = useState("");
+  const [taskType, setTaskType] = useState("task");
+  const [taskDate, setTaskDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0]; // amanhã como padrão
+  });
+  const [taskTime, setTaskTime] = useState("09:00");
+  const [taskCreating, setTaskCreating] = useState(false);
+
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -249,31 +270,48 @@ export function SharedFiles() {
     );
   }
 
-  // Handle Tag Management
-  const handleAddTag = (e: React.FormEvent) => {
+  // ── Criar Tarefa (nova versão com campos completos) ──────────────────────
+  const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTag.trim()) return;
-    if (activeChat.tags.includes(newTag.trim())) {
-      setNewTag("");
-      return;
-    }
-    const tagName = newTag.trim();
-    const updated = [...activeChat.tags, tagName];
-    updateTags(activeChat.id, updated);
-    setNewTag("");
+    if (!taskSubject.trim()) return;
+    setTaskCreating(true);
 
-    // Fire-and-forget: criar tarefa no RD CRM (não bloqueia UI, falha silenciosa)
-    fetch(`/api/chats/tag-task`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        conversationId: activeChat.id,
-        tagName,
-        tenantId: tenant,
-      }),
-    }).catch(() => {/* silencioso */});
+    const label = taskSubject.trim();
+
+    // 1. Salvar como tag internamente (mantém compatibilidade com exibição e banco)
+    if (!activeChat.tags.includes(label)) {
+      const updated = [...activeChat.tags, label];
+      updateTags(activeChat.id, updated);
+    }
+
+    // 2. Criar tarefa no RD CRM com todos os campos
+    try {
+      await fetch(`/api/chats/tag-task`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: activeChat.id,
+          tagName: label,
+          tenantId: tenant,
+          taskType,
+          dueDate: taskDate,
+          dueTime: taskTime,
+        }),
+      });
+    } catch {/* silencioso */}
+
+    // Reset form
+    setTaskSubject("");
+    setTaskType("task");
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setTaskDate(tomorrow.toISOString().split("T")[0]);
+    setTaskTime("09:00");
+    setTaskCreating(false);
+    toast.success("Tarefa criada com sucesso!");
   };
 
+  // Mantido para remover task/tag individualmente
   const handleRemoveTag = (tagToRemove: string) => {
     const updated = activeChat.tags.filter((t) => t !== tagToRemove);
     updateTags(activeChat.id, updated);
@@ -624,24 +662,25 @@ export function SharedFiles() {
             )}
           </div>
 
-          {/* Tags Section */}
-          <div className="space-y-2.5">
+          {/* ── Tarefas ────────────────────────────────────────────────── */}
+          <div className="space-y-3">
             <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
-              <Tag className="h-3.5 w-3.5 text-primary" />
-              Categorização (Tags)
+              <ListTodo className="h-3.5 w-3.5 text-primary" />
+              Tarefas
             </h4>
 
-            {/* Display Tags */}
+            {/* Tarefas existentes */}
             <div className="flex flex-wrap gap-1.5">
               {activeChat.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center gap-1 rounded-lg bg-primary-soft/50 px-2 py-0.5 text-[10px] font-bold text-primary border border-primary/10"
+                  className="inline-flex items-center gap-1 rounded-lg bg-primary/8 px-2 py-0.5 text-[10px] font-bold text-primary border border-primary/15"
                 >
+                  <CheckSquare className="h-2.5 w-2.5 shrink-0" />
                   {tag}
                   <button
                     onClick={() => handleRemoveTag(tag)}
-                    className="text-primary hover:text-red-500 cursor-pointer"
+                    className="text-primary/60 hover:text-red-500 cursor-pointer ml-0.5 transition-colors"
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
@@ -649,25 +688,103 @@ export function SharedFiles() {
               ))}
               {activeChat.tags.length === 0 && (
                 <span className="text-[10px] text-muted-foreground italic">
-                  Nenhuma tag atribuída
+                  Nenhuma tarefa criada
                 </span>
               )}
             </div>
 
-            {/* Add Tag Form */}
-            <form onSubmit={handleAddTag} className="flex gap-2">
+            {/* Formulário de nova tarefa */}
+            <form onSubmit={handleCreateTask} className="space-y-2">
+
+              {/* Nome da tarefa */}
               <input
                 type="text"
-                placeholder="Nova tag..."
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                className="h-8 flex-1 rounded-lg bg-muted px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                placeholder="Nome da tarefa..."
+                value={taskSubject}
+                onChange={(e) => setTaskSubject(e.target.value)}
+                className="w-full h-8 rounded-lg bg-muted px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition"
               />
+
+              {/* Tipo da tarefa */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="relative w-full">
+                      <select
+                        value={taskType}
+                        onChange={(e) => setTaskType(e.target.value)}
+                        className="w-full h-8 appearance-none rounded-lg bg-muted pl-2.5 pr-7 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition cursor-pointer"
+                      >
+                        <option value="task">✅  Tarefa</option>
+                        <option value="call">📞  Ligação</option>
+                        <option value="meeting">👥  Reunião</option>
+                        <option value="email">✉️  E-mail</option>
+                        <option value="lunch">🍽️  Almoço / Visita</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="bg-primary text-primary-foreground text-[10px]">
+                    Tipo da atividade no RD CRM
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              {/* Data e Hora na mesma linha */}
+              <div className="flex gap-2">
+                {/* Data */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="relative flex-1">
+                        <CalendarDays className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary" />
+                        <input
+                          type="date"
+                          value={taskDate}
+                          onChange={(e) => setTaskDate(e.target.value)}
+                          className="w-full h-8 appearance-none rounded-lg bg-muted pl-6 pr-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition [color-scheme:light] accent-primary cursor-pointer"
+                        />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="bg-primary text-primary-foreground text-[10px]">
+                      Data de vencimento
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+
+                {/* Hora */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="relative w-24">
+                        <Clock className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary" />
+                        <input
+                          type="time"
+                          value={taskTime}
+                          onChange={(e) => setTaskTime(e.target.value)}
+                          className="w-full h-8 appearance-none rounded-lg bg-muted pl-6 pr-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition [color-scheme:light] accent-primary cursor-pointer"
+                        />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="bg-primary text-primary-foreground text-[10px]">
+                      Horário
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+
+              {/* Botão criar */}
               <button
                 type="submit"
-                className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition cursor-pointer"
+                disabled={!taskSubject.trim() || taskCreating}
+                className="w-full h-8 flex items-center justify-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
               >
-                <Plus className="h-4 w-4" />
+                {taskCreating ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
+                {taskCreating ? "Criando..." : "Criar Tarefa"}
               </button>
             </form>
           </div>

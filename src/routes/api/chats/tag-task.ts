@@ -10,6 +10,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+// Mapa de tipos para label legivel no CRM
+const TASK_TYPE_LABELS: Record<string, string> = {
+  task:    "Tarefa",
+  call:    "Ligacao",
+  meeting: "Reuniao",
+  email:   "E-mail",
+  lunch:   "Almoco / Visita",
+};
+
 export const Route = createFileRoute("/api/chats/tag-task")({
   server: {
     handlers: {
@@ -22,9 +31,17 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             tagName: string;
             tenantId: string;
             operatorName?: string;
+            taskType?: string;   // "task" | "call" | "meeting" | "email" | "lunch"
+            dueDate?: string;    // "YYYY-MM-DD"
+            dueTime?: string;    // "HH:MM"
           };
 
-          const { conversationId, tagName, tenantId, operatorName } = body;
+          const {
+            conversationId, tagName, tenantId, operatorName,
+            taskType = "task",
+            dueDate,
+            dueTime,
+          } = body;
 
           if (!conversationId || !tagName || !tenantId) {
             return new Response(
@@ -52,42 +69,58 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             .where(eq(contacts.id, conv.contactId));
 
           if (!contact?.rdCrmDealId) {
-            // Sem deal no CRM — tag salva normalmente, tarefa ignorada silenciosamente
             return new Response(
               JSON.stringify({ skipped: true, reason: "Contato sem card no CRM" }),
               { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 
-          // 2. Criar Activity "task" no RD CRM
-          const dueDate = new Date();
-          dueDate.setDate(dueDate.getDate() + 1);
-          const dueDateISO = dueDate.toISOString().split("T")[0]; // YYYY-MM-DD
+          // 2. Montar data/hora de vencimento
+          let dueDateISO = dueDate;
+          if (!dueDateISO) {
+            const d = new Date();
+            d.setDate(d.getDate() + 1);
+            dueDateISO = d.toISOString().split("T")[0];
+          }
 
+          // Se tiver hora, combinar em datetime ISO 8601 com fuso BR (-03:00)
+          let dueDateTimeFull = dueDateISO;
+          if (dueTime) {
+            dueDateTimeFull = `${dueDateISO}T${dueTime}:00-03:00`;
+          }
+
+          const typeLabel = TASK_TYPE_LABELS[taskType] || "Tarefa";
+
+          // 3. Criar Activity no RD CRM
           let activityCreated = false;
           try {
             await rdRequest(tenantId, "POST", "/activities", {
-              subject: `Tag: ${tagName}`,
-              type: "task",
+              subject: tagName,
+              type: taskType,
               deal_id: contact.rdCrmDealId,
-              due_date: dueDateISO,
-              notes: `Tag "${tagName}" adicionada via Valem Chat${operatorName ? ` por ${operatorName}` : ""}`,
+              due_date: dueDateTimeFull,
+              notes: `Tarefa criada via Valem Chat${operatorName ? ` por ${operatorName}` : ""}. Tipo: ${typeLabel}.`,
             });
             activityCreated = true;
           } catch (crmErr: any) {
             console.warn(`[TagTask] Falha ao criar activity no CRM (nao bloqueante):`, crmErr.message);
           }
 
-          // 3. Salvar mensagem de sistema no chat registrando o evento
+          // 4. Salvar mensagem de sistema no chat
           if (activityCreated) {
             try {
+              const dueParts = dueDateISO.split("-");
+              const dueFmt = dueParts.length === 3
+                ? `${dueParts[2]}/${dueParts[1]}/${dueParts[0]}${dueTime ? " as " + dueTime : ""}`
+                : dueDateISO;
+
               await db.insert(messages).values({
-                id: `sys-tag-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                id: `sys-task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                 conversationId,
                 tenantId,
                 senderType: "system",
                 senderName: "Sistema",
-                content: `Tag "${tagName}" adicionada — Tarefa criada no CRM`,
+                content: `Tarefa criada: "${tagName}" (${typeLabel}) — Venc. ${dueFmt}`,
                 isInternalNote: false,
                 sentAt: new Date(),
               });
