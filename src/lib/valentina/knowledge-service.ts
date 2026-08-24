@@ -1,6 +1,16 @@
 import { db } from "../../db";
 import { knowledgeFiles, knowledgeFolders } from "../../db/schema";
 import { eq } from "drizzle-orm";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Diretório físico onde as mídias de Formato Real são salvas.
+// Usa import.meta.url (igual ao knowledge.ts) para resolver corretamente
+// tanto em desenvolvimento (ts-node) quanto em produção (Railway/.output/).
+const __dirname_ks = path.dirname(fileURLToPath(import.meta.url));
+export const KNOWLEDGE_MEDIA_DIR = path.resolve(__dirname_ks, "../../../public/knowledge-media");
+
+
 
 const VALEM_CORE_COMMERCIAL_POLICIES = `
 --- 🏛️ DIRETRIZES COMERCIAIS, FISCAIS, CATÁLOGO & FAQ OFICIAL VALEMPACK (INVIOLÁVEL) ---

@@ -6,11 +6,13 @@ import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
 import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
-import { getKnowledgeBaseContext } from "./knowledge-service";
+import { getKnowledgeBaseContext, KNOWLEDGE_MEDIA_DIR } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { getAiPersona } from "../ai-persona";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
+import path from "node:path";
+import { readFile } from "node:fs/promises";
 
 
 
@@ -1058,20 +1060,18 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             for (const imageRelUrl of imageUrlsToSend) {
               if (signal?.aborted) break;
               try {
-                // Constrói URL absoluta usando PUBLIC_APP_URL (Railway/produção) ou localhost (dev)
-                const serverBase = process.env.PUBLIC_APP_URL?.replace(/\/$/, "")
-                  || `http://localhost:${process.env.PORT || 3000}`;
-                const imageAbsUrl = imageRelUrl.startsWith("http")
-                  ? imageRelUrl
-                  : `${serverBase}${imageRelUrl}`;
+                // ── Lê a imagem direto do disco usando o mesmo MEDIA_DIR do upload ──
+                // imageRelUrl vem como "/knowledge-media/kf-xxx.jpg"
+                // Extrai só o nome do arquivo (kf-xxx.jpg) e junta com KNOWLEDGE_MEDIA_DIR
+                const fileName = path.basename(imageRelUrl);
+                const filePath = path.join(KNOWLEDGE_MEDIA_DIR, fileName);
 
-                console.log(`[SdrEngine] 🖼️ Enviando imagem Formato Real via Baileys: ${imageAbsUrl}`);
+                console.log(`[SdrEngine] 🖼️ Lendo imagem Formato Real do disco: ${filePath}`);
 
-                const imgResponse = await fetch(imageAbsUrl);
-                if (!imgResponse.ok) throw new Error(`HTTP ${imgResponse.status}`);
-                const imgBuffer = Buffer.from(await imgResponse.arrayBuffer());
+                const imgBuffer = await readFile(filePath);
+
                 const ext = imageRelUrl.split(".").pop()?.toLowerCase() || "jpg";
-                const mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : "image/jpeg";
+                const mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
 
                 await sock.sendPresenceUpdate("composing", realJid);
                 await new Promise(r => setTimeout(r, 800));
@@ -1095,6 +1095,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           }
         }
         // ── FIM INTERCEPTAÇÃO DE IMAGENS ─────────────────────────────────────
+
 
         await this.sendHumanizedBotMessages(
           tenantId,
