@@ -764,26 +764,33 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (aiResult.extractedData) {
         for (const [k, rawV] of Object.entries(aiResult.extractedData)) {
           const v = String(rawV || "").trim();
-          if (v && !v.toLowerCase().includes("mantem")) {
-            const lowerV = v.toLowerCase();
-            // Evitar que booleans ou respostas de confirmação ("sim"/"true") sobrescrevam o nome real da empresa ou CNPJ
-            if (k === "EMPRESA" && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
-              console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher EMPRESA com resposta booleana: "${v}"`);
-              continue;
-            }
-            if ((k === "CNPJ" || k === "CNPJ OU CPF") && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
-              console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher CNPJ com resposta booleana: "${v}"`);
-              continue;
-            }
-            // Proteção extra: nunca salvar "CPF" literal ou número de 11 dígitos no campo CNPJ
-            if ((k === "CNPJ" || k === "CNPJ OU CPF") && (v.trim().toUpperCase() === "CPF" || v.replace(/\D/g, "").length === 11)) {
-              console.log(`[SdrEngine] 🛡️ Bloqueado preenchimento de CNPJ com CPF: "${v}"`);
-              continue;
-            }
-            updatedCollectedData[k] = { value: v, status: "filled" };
+          const lowerV = v.toLowerCase();
+
+          // Ignorar valores vazios, placeholders e instruções de manter
+          if (!v) continue;
+          if (lowerV.includes("mantem") || lowerV.includes("mantém")) continue;
+          if (lowerV.includes("aguardando")) continue;
+          if (lowerV === "n/a" || lowerV === "-" || lowerV === "nenhum" || lowerV === "nenhuma") continue;
+          if (lowerV.includes("não informado") || lowerV.includes("nao informado")) continue;
+
+          // Evitar que booleans ou respostas de confirmação ("sim"/"true") sobrescrevam o nome real da empresa ou CNPJ
+          if (k === "EMPRESA" && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
+            console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher EMPRESA com resposta booleana: "${v}"`);
+            continue;
           }
+          if ((k === "CNPJ" || k === "CNPJ OU CPF") && ["true", "false", "sim", "nao", "não"].includes(lowerV)) {
+            console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher CNPJ com resposta booleana: "${v}"`);
+            continue;
+          }
+          // Proteção extra: nunca salvar "CPF" literal ou número de 11 dígitos no campo CNPJ
+          if ((k === "CNPJ" || k === "CNPJ OU CPF") && (v.trim().toUpperCase() === "CPF" || v.replace(/\D/g, "").length === 11)) {
+            console.log(`[SdrEngine] 🛡️ Bloqueado preenchimento de CNPJ com CPF: "${v}"`);
+            continue;
+          }
+          updatedCollectedData[k] = { value: v, status: "filled" };
         }
       }
+
 
       // 8.1 Verificação da presença dos Dados Vitais
       const nameVal = updatedCollectedData["NOME COMPLETO"]?.value || "";
