@@ -520,58 +520,7 @@ export function SharedFiles() {
 
       {activeTab === "details" ? (
         /* TAB 1: DADOS DO CLIENTE */
-        <div className="flex-1 flex flex-col overflow-y-auto pr-1 scrollbar-thin space-y-5">
-          {/* Avatar and Name */}
-          <div className="flex flex-col items-center text-center">
-            {activeChat.avatar ? (
-              <img
-                src={activeChat.avatar}
-                alt=""
-                className="h-16 w-16 rounded-full object-cover border border-border shadow-soft"
-              />
-            ) : (
-              <div
-                className="grid h-16 w-16 place-items-center rounded-full text-base font-bold text-foreground"
-                style={{ background: activeChat.initialsBg || "#eee" }}
-              >
-                {activeChat.initials || "U"}
-              </div>
-            )}
-            {isEditingInfo ? (
-              <div className="mt-3 w-full max-w-[200px] text-left">
-                <label className="text-[9px] font-bold text-muted-foreground block text-center mb-0.5">
-                  Nome Completo
-                </label>
-                <input
-                  type="text"
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border text-center"
-                />
-              </div>
-            ) : (
-              <div className="relative w-full flex justify-center items-center mt-3 group px-8">
-                <h3 className="text-base font-bold text-foreground">{activeChat.name}</h3>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={startEditing}
-                      className="absolute right-6 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground transition duration-150 cursor-pointer"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Editar dados do contato</TooltipContent>
-                </Tooltip>
-              </div>
-            )}
-
-            <div className="flex items-center gap-1.5 mt-1.5">
-              <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1 bg-muted px-2.5 py-0.5 rounded-full">
-                Origem: {activeChat.channel}
-              </span>
-            </div>
-          </div>
+        <div className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden pr-1 space-y-5 [&::-webkit-scrollbar]:w-0 [&::-webkit-scrollbar-thumb]:invisible scrollbar-none">
 
           {/* Contact Fields */}
           <div className="space-y-3 bg-muted/40 p-3 rounded-2xl border border-line">
@@ -709,11 +658,11 @@ export function SharedFiles() {
               {/* Tipo da tarefa — dropdown customizado com ícones */}
               {(() => {
                 const TASK_TYPES = [
-                  { value: "task",    label: "Tarefa",         Icon: CheckSquare   },
-                  { value: "call",    label: "Ligação",        Icon: PhoneCall      },
-                  { value: "meeting", label: "Reunião",        Icon: Users          },
-                  { value: "email",   label: "E-mail",         Icon: AtSign         },
-                  { value: "lunch",   label: "Almoço / Visita",Icon: UtensilsCrossed},
+                  { value: "task",    label: "Tarefa",          Icon: CheckSquare    },
+                  { value: "call",    label: "Ligação",         Icon: PhoneCall      },
+                  { value: "meeting", label: "Reunião",         Icon: Users          },
+                  { value: "email",   label: "E-mail",          Icon: AtSign         },
+                  { value: "lunch",   label: "Almoço / Visita", Icon: UtensilsCrossed},
                 ] as const;
                 const selected = TASK_TYPES.find((t) => t.value === taskType) ?? TASK_TYPES[0];
                 return (
@@ -724,56 +673,63 @@ export function SharedFiles() {
                           <button
                             type="button"
                             onClick={() => setTaskTypeOpen((o) => !o)}
-                            className="w-full h-8 flex items-center gap-2 rounded-lg bg-muted px-2.5 text-xs text-foreground border border-transparent hover:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary transition cursor-pointer"
+                            className="w-full h-8 flex items-center gap-2 rounded-lg bg-muted px-2.5 text-xs text-foreground border border-transparent hover:border-primary/20 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-all cursor-pointer"
                           >
                             <selected.Icon className="h-3.5 w-3.5 text-primary shrink-0" />
-                            <span className="flex-1 text-left">{selected.label}</span>
-                            <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${taskTypeOpen ? "rotate-180" : ""}`} />
+                            <span className="flex-1 text-left font-medium">{selected.label}</span>
+                            <ChevronDown className={`h-3 w-3 text-primary/60 transition-transform duration-200 ${taskTypeOpen ? "rotate-180" : ""}`} />
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent side="left" className="bg-primary text-primary-foreground text-[10px]">
+                        <TooltipContent side="left" className="bg-primary text-white text-[10px] font-semibold">
                           Tipo da atividade no RD CRM
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
                     {taskTypeOpen && (
-                      <div className="absolute z-50 mt-1 w-full rounded-lg bg-card border border-border shadow-lg overflow-hidden">
-                        {TASK_TYPES.map(({ value, label, Icon }) => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => { setTaskType(value); setTaskTypeOpen(false); }}
-                            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs transition cursor-pointer hover:bg-primary/8 hover:text-primary ${taskType === value ? "bg-primary/10 text-primary font-bold" : "text-foreground"}`}
-                          >
-                            <Icon className={`h-3.5 w-3.5 shrink-0 ${taskType === value ? "text-primary" : "text-muted-foreground"}`} />
-                            {label}
-                            {taskType === value && <Check className="ml-auto h-3 w-3 text-primary" />}
-                          </button>
-                        ))}
+                      <div className="absolute z-50 top-[calc(100%+4px)] left-0 right-0 rounded-xl bg-card border border-border/60 shadow-xl overflow-hidden">
+                        {TASK_TYPES.map(({ value, label, Icon }) => {
+                          const isActive = taskType === value;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => { setTaskType(value); setTaskTypeOpen(false); }}
+                              className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-all cursor-pointer outline-none
+                                ${isActive
+                                  ? "bg-primary/10 text-primary font-semibold"
+                                  : "text-foreground hover:bg-muted hover:text-foreground"
+                                }`}
+                            >
+                              <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                              <span className="flex-1 text-left">{label}</span>
+                              {isActive && <Check className="h-3 w-3 text-primary shrink-0" />}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
                 );
               })()}
 
-              {/* Data e Hora na mesma linha */}
-              <div className="flex gap-2">
+              {/* Data e Hora na mesma linha — ícones nativos ocultos para evitar scroll horizontal */}
+              <div className="flex gap-2 min-w-0">
                 {/* Data */}
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="relative flex-1">
-                        <CalendarDays className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary" />
+                      <div className="relative flex-1 min-w-0">
+                        <CalendarDays className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary z-10" />
                         <input
                           type="date"
                           value={taskDate}
                           onChange={(e) => setTaskDate(e.target.value)}
-                          className="w-full h-8 appearance-none rounded-lg bg-muted pl-6 pr-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition [color-scheme:light] accent-primary cursor-pointer"
+                          className="w-full h-8 rounded-lg bg-muted pl-6 pr-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 border border-transparent focus:border-primary/20 transition cursor-pointer [color-scheme:light] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                         />
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" className="bg-primary text-primary-foreground text-[10px]">
+                    <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
                       Data de vencimento
                     </TooltipContent>
                   </Tooltip>
@@ -783,17 +739,17 @@ export function SharedFiles() {
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="relative w-24">
-                        <Clock className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary" />
+                      <div className="relative w-[5.5rem] shrink-0">
+                        <Clock className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary z-10" />
                         <input
                           type="time"
                           value={taskTime}
                           onChange={(e) => setTaskTime(e.target.value)}
-                          className="w-full h-8 appearance-none rounded-lg bg-muted pl-6 pr-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition [color-scheme:light] accent-primary cursor-pointer"
+                          className="w-full h-8 rounded-lg bg-muted pl-6 pr-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 border border-transparent focus:border-primary/20 transition cursor-pointer [color-scheme:light] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                         />
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" className="bg-primary text-primary-foreground text-[10px]">
+                    <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
                       Horário
                     </TooltipContent>
                   </Tooltip>
