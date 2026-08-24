@@ -4,7 +4,7 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { 
-  Folder, FolderPlus, Edit3, Trash2, ChevronDown, ChevronRight,
+  Folder, FolderPlus, FolderUp, Edit3, Trash2, ChevronDown, ChevronRight,
   Brain, Paperclip, UploadCloud, FileText, Image as ImageIcon, Check, X,
   Eye, Sparkles, BookOpen, Loader2, ListChecks
 } from "lucide-react";
@@ -48,7 +48,11 @@ export function KnowledgeTab() {
   const [isQueueRunning, setIsQueueRunning] = useState(false);
   const [dragOverZone, setDragOverZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const queueRunningRef = useRef(false);
+
+  // Preview de imagem real (Formato Real)
+  const [previewImageFile, setPreviewImageFile] = useState<FileType | null>(null);
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -291,7 +295,185 @@ export function KnowledgeTab() {
     }
   };
 
-  // ── Operações de Arquivo & Upload Real com Extração de Texto ──────────────
+  // ── Upload de Pasta Completa (com hierarquia) ────────────────────────────────
+
+  const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    if (!selectedFolderId) {
+      alert("Por favor, selecione ou crie uma pasta destino primeiro.");
+      return;
+    }
+
+    const allFiles = Array.from(e.target.files);
+    e.target.value = ""; // reset input
+
+    // Mapeia cada caminho relativo de pasta → ID no backend
+    const folderPathToId = new Map<string, string>();
+    folderPathToId.set("", selectedFolderId); // raiz = pasta selecionada
+
+    // Coleta todos os caminhos de pasta únicos (ordenados por profundidade)
+    const folderPaths = new Set<string>();
+    for (const file of allFiles) {
+      const parts = file.webkitRelativePath.split("/");
+      // parts[0] = nome da pasta raiz que o usuário selecionou, partes[N-1] = arquivo
+      for (let depth = 1; depth < parts.length - 1; depth++) {
+        folderPaths.add(parts.slice(0, depth + 1).join("/"));
+      }
+    }
+
+    // Cria as pastas em ordem de profundidade (mais rasas primeiro)
+    const sortedPaths = Array.from(folderPaths).sort(
+      (a, b) => a.split("/").length - b.split("/").length
+    );
+
+    for (const folderPath of sortedPaths) {
+      const parts = folderPath.split("/");
+      const folderName = parts[parts.length - 1];
+      const parentPath = parts.slice(0, -1).join("/");
+      const parentId = folderPathToId.get(parentPath) || selectedFolderId;
+
+      const newId = `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      folderPathToId.set(folderPath, newId);
+
+      const newFolder: FolderType = { id: newId, name: folderName, parentId };
+      setFolders(prev => [...prev, newFolder]);
+      setExpandedFolderIds(prev => new Set(prev).add(parentId));
+
+      try {
+        await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: "valem",
+            action: "create_folder",
+            id: newId,
+            name: folderName,
+            parentId,
+          }),
+        });
+      } catch (err) {
+        console.error("[KnowledgeTab] Erro ao criar subpasta:", err);
+      }
+    }
+
+    // Agora enfileira os arquivos para upload, cada um para sua pasta correta
+    const newItems: UploadQueueItem[] = [];
+    const originalSelectedFolderId = selectedFolderId;
+
+    for (const file of allFiles) {
+      const parts = file.webkitRelativePath.split("/");
+      // A pasta destino é o penúltimo segmento do caminho
+      const fileFolderPath = parts.slice(0, -1).join("/");
+      const targetFolderId = folderPathToId.get(fileFolderPath) || originalSelectedFolderId;
+
+      newItems.push({ file, status: "pending", progress: 0, _targetFolderId: targetFolderId } as any);
+    }
+
+    setUploadQueue(prev => {
+      const combined = [...prev, ...newItems];
+      setTimeout(() => runUploadQueueWithFolderIds(combined), 0);
+      return combined;
+    });
+  };
+
+  // Versão do runUploadQueue que respeita _targetFolderId por item
+  const runUploadQueueWithFolderIds = useCallback(async (queue: (UploadQueueItem & { _targetFolderId?: string })[]) => {
+    if (queueRunningRef.current) return;
+    queueRunningRef.current = true;
+    setIsQueueRunning(true);
+
+    for (let i = 0; i < queue.length; i++) {
+      if (queue[i].status !== "pending") continue;
+
+      setUploadQueue(prev => prev.map((item, idx) =>
+        idx === i ? { ...item, status: "uploading", progress: 30 } : item
+      ));
+
+      const targetFolderId = (queue[i] as any)._targetFolderId || selectedFolderId;
+
+      try {
+        const savedFile = await uploadSingleFileToFolder(queue[i].file, targetFolderId);
+        if (savedFile) setFiles(prev => [...prev, savedFile]);
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? { ...item, status: "done", progress: 100 } : item
+        ));
+      } catch (err: any) {
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? { ...item, status: "error", progress: 0, error: err.message } : item
+        ));
+      }
+
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    queueRunningRef.current = false;
+    setIsQueueRunning(false);
+  }, [selectedFolderId, uploadMode, BACKEND_URL]);
+
+  // Versão de uploadSingleFile que aceita folderId explícito
+  const uploadSingleFileToFolder = async (fileObj: File, folderId: string | null): Promise<FileType | null> => {
+    const fileName = fileObj.name;
+    const fileSize = fileObj.size;
+    const extension = fileName.split(".").pop()?.toLowerCase() || "";
+
+    let type: FileType["type"] = "txt";
+    if (extension === "pdf") type = "pdf";
+    else if (["doc", "docx"].includes(extension)) type = "word";
+    else if (["png", "jpg", "jpeg", "webp", "gif"].includes(extension)) type = "image";
+
+    const formattedSize = fileSize > 1024 * 1024
+      ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
+      : `${(fileSize / 1024).toFixed(0)} KB`;
+
+    let fileContent = "";
+    let base64Data: string | null = null;
+
+    if (type === "txt" || ["md", "json", "csv", "tsv"].includes(extension)) {
+      fileContent = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve((e.target?.result as string) || "");
+        reader.onerror = () => resolve("");
+        reader.readAsText(fileObj);
+      });
+    } else {
+      base64Data = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const res = (e.target?.result as string) || "";
+          const commaIdx = res.indexOf(",");
+          resolve(commaIdx !== -1 ? res.slice(commaIdx + 1) : res);
+        };
+        reader.onerror = () => resolve("");
+        reader.readAsDataURL(fileObj);
+      });
+    }
+
+    const res = await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantId: "valem",
+        action: "upload_file",
+        name: fileName,
+        size: formattedSize,
+        type,
+        format: uploadMode,
+        folderId,
+        content: fileContent || null,
+        base64: base64Data,
+      }),
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    return data.file || null;
+  };
+
+  // ── Operações de Arquivo ─────────────────────────────────────────────────────
 
   const handleDeleteFile = async (id: string) => {
     setFiles((prev) => prev.filter((file) => file.id !== id));
@@ -589,13 +771,34 @@ export function KnowledgeTab() {
       <div className="w-[32%] bg-muted/20 border border-border/80 rounded-2xl flex flex-col p-4 min-h-0 select-none">
         <div className="flex items-center justify-between mb-4 pb-2 border-b border-border/60">
           <span className="text-xs font-black uppercase text-muted-foreground select-none">Diretórios</span>
-          <button
-            onClick={() => setIsCreatingFolder((v) => !v)}
-            className="flex items-center gap-1 py-1 px-2.5 rounded-lg bg-primary hover:bg-primary/95 text-primary-foreground text-[10px] font-extrabold shadow-soft transition cursor-pointer"
-          >
-            <FolderPlus className="h-3 w-3" />
-            <span>Nova Pasta</span>
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Subir Pasta */}
+            <button
+              onClick={() => folderInputRef.current?.click()}
+              className="flex items-center gap-1 py-1 px-2.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground/80 hover:text-foreground text-[10px] font-extrabold shadow-soft transition cursor-pointer border border-border"
+              title="Importa uma pasta do seu computador mantendo a hierarquia de subpastas"
+            >
+              <FolderUp className="h-3 w-3" />
+              <span>Subir Pasta</span>
+            </button>
+            <input
+              ref={folderInputRef}
+              type="file"
+              className="hidden"
+              // @ts-ignore — atributo não-padrão mas suportado por todos os browsers modernos
+              webkitdirectory=""
+              multiple
+              onChange={handleFolderUpload}
+            />
+            {/* Nova Pasta */}
+            <button
+              onClick={() => setIsCreatingFolder((v) => !v)}
+              className="flex items-center gap-1 py-1 px-2.5 rounded-lg bg-primary hover:bg-primary/95 text-primary-foreground text-[10px] font-extrabold shadow-soft transition cursor-pointer"
+            >
+              <FolderPlus className="h-3 w-3" />
+              <span>Nova Pasta</span>
+            </button>
+          </div>
         </div>
 
         {/* Input de criação rápida de pasta */}
@@ -828,6 +1031,19 @@ export function KnowledgeTab() {
                         <span>Ver RAG</span>
                       </button>
 
+                      {/* Botão Ver Foto — apenas para Formato Real + imagem */}
+                      {file.format === "real" && file.type === "image" && (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewImageFile(file)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/20 text-[10px] font-bold text-foreground hover:text-amber-600 transition cursor-pointer shadow-soft"
+                          title="Visualizar a imagem real que a Valentina envia"
+                        >
+                          <ImageIcon className="h-3 w-3 text-amber-500" />
+                          <span>Ver Foto</span>
+                        </button>
+                      )}
+
                       {/* Badge do Formato em Harmonia Verde */}
                       {file.format === "embeddings" ? (
                         <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-primary-soft text-primary border border-primary/25 select-none" title="Armazenado no cérebro da IA para aprendizado">
@@ -920,7 +1136,80 @@ export function KnowledgeTab() {
         </div>
       )}
 
+      {/* ── MODAL: Preview de Imagem Real (Ver Foto) ──────────────────────────── */}
+      {previewImageFile && (() => {
+        // Extrai base64 do content: "[FORMATO_REAL:url][BASE64:xxxxx]"
+        const content = previewImageFile.content || "";
+        const base64Match = content.match(/\[BASE64:([A-Za-z0-9+/=]+)\]/);
+        const base64Data = base64Match ? base64Match[1] : null;
+        // Detecta mime type pela extensão do nome
+        const ext = previewImageFile.name.split(".").pop()?.toLowerCase() || "jpeg";
+        const mimeMap: Record<string, string> = { jpg: "jpeg", jpeg: "jpeg", png: "png", webp: "webp", gif: "gif" };
+        const mime = `image/${mimeMap[ext] || "jpeg"}`;
+        const imgSrc = base64Data ? `data:${mime};base64,${base64Data}` : null;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-card border border-border rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-border bg-muted/20">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center flex-shrink-0 border border-amber-500/20">
+                    <ImageIcon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-extrabold text-foreground truncate">{previewImageFile.name}</h3>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/10 text-amber-600 border border-amber-500/30">
+                        <Paperclip className="w-2.5 h-2.5" /> Formato Real
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {previewImageFile.size} · Imagem enviada diretamente pela Valentina
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPreviewImageFile(null)}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Imagem */}
+              <div className="flex-1 overflow-auto flex items-center justify-center p-4 bg-background/60 min-h-0">
+                {imgSrc ? (
+                  <img
+                    src={imgSrc}
+                    alt={previewImageFile.name}
+                    className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-md"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+                    <ImageIcon className="w-12 h-12 opacity-20" />
+                    <span className="text-xs">Imagem não disponível — base64 não encontrado no banco.</span>
+                    <span className="text-[10px] text-muted-foreground/60">
+                      Tente re-subir o arquivo em Formato Real.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-3.5 border-t border-border bg-muted/20 flex items-center justify-end">
+                <button
+                  onClick={() => setPreviewImageFile(null)}
+                  className="px-4 py-1.5 bg-primary text-primary-foreground font-bold rounded-xl text-xs hover:opacity-90 transition cursor-pointer shadow-soft"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
-
