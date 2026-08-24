@@ -76,12 +76,17 @@ export async function getRealMediaFiles(tenantId: string): Promise<RealMediaFile
     return files
       .filter(f => f.format === "real" && f.content)
       .map(f => {
-        const urlMatch = (f.content || "").match(REAL_MEDIA_PATTERN);
+        const contentFull = f.content || "";
+        // Separa o prefixo (URL) do base64 enorme para evitar regex lenta em 170KB
+        const b64SplitIdx = contentFull.indexOf("[BASE64:");
+        const contentPrefix = b64SplitIdx >= 0 ? contentFull.substring(0, b64SplitIdx) : contentFull;
+
+        const urlMatch = contentPrefix.match(REAL_MEDIA_PATTERN);
         if (!urlMatch) return null;
         const mediaUrl = urlMatch[1];
 
-        // Extrai base64 salvo no banco (novo formato)
-        const b64Match = (f.content || "").match(BASE64_PATTERN);
+        // Extrai base64 salvo no banco (novo formato) — usa o content completo
+        const b64Match = contentFull.match(BASE64_PATTERN);
         const base64Data = b64Match?.[1];
 
         // Deriva mimeType a partir da extensão do mediaUrl
@@ -121,15 +126,20 @@ export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promi
         && f.format !== "real" // Arquivos Formato Real não entram no RAG de texto
     );
 
-    // Compila catálogo de fotos reais disponíveis para a Valentina
+    // Compila catálogo de fotos reais disponíveis para a Valentina.
+    // Usa apenas o prefixo do content (antes do [BASE64:...]) para evitar
+    // processar 170KB de base64 desnecessariamente na regex.
     const realMediaFiles = files
       .filter(f => f.format === "real" && f.content)
       .map(f => {
-        const match = (f.content || "").match(REAL_MEDIA_PATTERN);
+        // Separa o prefixo "[FORMATO_REAL:url]" do resto (que pode conter base64 enorme)
+        const contentPrefix = (f.content || "").split("[BASE64:")[0];
+        const match = contentPrefix.match(REAL_MEDIA_PATTERN);
         if (!match) return null;
         return `  - "${f.name}" → URL: ${match[1]}`;
       })
       .filter(Boolean);
+
 
     let additionalDocs = "";
     if (activeFiles.length > 0) {
