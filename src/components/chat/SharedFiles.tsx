@@ -153,12 +153,15 @@ export function SharedFiles() {
   // ── Estados do formulário de Tarefas ─────────────────────────────────────
   const [taskSubject, setTaskSubject] = useState("");
   const [taskType, setTaskType] = useState("task");
-  const [taskDate, setTaskDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split("T")[0]; // amanhã como padrão
-  });
-  const [taskTime, setTaskTime] = useState("09:00");
+  // Data e hora separados em partes para evitar o picker nativo do browser
+  const [taskDay,   setTaskDay]   = useState(() => { const d = new Date(); d.setDate(d.getDate()+1); return d.getDate(); });
+  const [taskMonth, setTaskMonth] = useState(() => { const d = new Date(); d.setDate(d.getDate()+1); return d.getMonth()+1; });
+  const [taskYear,  setTaskYear]  = useState(() => { const d = new Date(); d.setDate(d.getDate()+1); return d.getFullYear(); });
+  const [taskHour,  setTaskHour]  = useState(9);
+  const [taskMin,   setTaskMin]   = useState(0);
+  // Valores derivados usados no envio
+  const taskDate = `${taskYear}-${String(taskMonth).padStart(2,"0")}-${String(taskDay).padStart(2,"0")}`;
+  const taskTime = `${String(taskHour).padStart(2,"0")}:${String(taskMin).padStart(2,"0")}`;
   const [taskCreating, setTaskCreating] = useState(false);
   const [taskTypeOpen, setTaskTypeOpen] = useState(false);
 
@@ -304,10 +307,9 @@ export function SharedFiles() {
     // Reset form
     setTaskSubject("");
     setTaskType("task");
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    setTaskDate(tomorrow.toISOString().split("T")[0]);
-    setTaskTime("09:00");
+    const tmr = new Date(); tmr.setDate(tmr.getDate() + 1);
+    setTaskDay(tmr.getDate()); setTaskMonth(tmr.getMonth()+1); setTaskYear(tmr.getFullYear());
+    setTaskHour(9); setTaskMin(0);
     setTaskCreating(false);
     toast.success("Tarefa criada com sucesso!");
   };
@@ -713,48 +715,86 @@ export function SharedFiles() {
                 );
               })()}
 
-              {/* Data e Hora na mesma linha — ícones nativos ocultos para evitar scroll horizontal */}
-              <div className="flex gap-2 min-w-0">
-                {/* Data */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="relative flex-1 min-w-0">
-                        <CalendarDays className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary z-10" />
-                        <input
-                          type="date"
-                          value={taskDate}
-                          onChange={(e) => setTaskDate(e.target.value)}
-                          className="w-full h-8 rounded-lg bg-muted pl-6 pr-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 border border-transparent focus:border-primary/20 transition cursor-pointer [color-scheme:light] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                        />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
-                      Data de vencimento
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
 
-                {/* Hora */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="relative w-[5.5rem] shrink-0">
-                        <Clock className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary z-10" />
-                        <input
-                          type="time"
-                          value={taskTime}
-                          onChange={(e) => setTaskTime(e.target.value)}
-                          className="w-full h-8 rounded-lg bg-muted pl-6 pr-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 border border-transparent focus:border-primary/20 transition cursor-pointer [color-scheme:light] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                        />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
-                      Horário
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
+              {/* ── Data — selects dia/mês/ano sem picker nativo ────────── */}
+              {(() => {
+                const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+                const daysInMonth = new Date(taskYear, taskMonth, 0).getDate();
+                const currentYear = new Date().getFullYear();
+                const selectCls = "h-8 appearance-none bg-muted text-xs text-foreground rounded-lg px-2 focus:outline-none focus:ring-1 focus:ring-primary/40 border border-transparent focus:border-primary/20 transition cursor-pointer w-full";
+                return (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex gap-1.5 items-center">
+                          <CalendarDays className="h-3.5 w-3.5 text-primary shrink-0" />
+                          {/* Dia */}
+                          <div className="relative w-12 shrink-0">
+                            <select value={taskDay} onChange={(e) => setTaskDay(Number(e.target.value))} className={selectCls}>
+                              {Array.from({length: daysInMonth}, (_,i) => i+1).map(d => (
+                                <option key={d} value={d}>{String(d).padStart(2,"0")}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {/* Mês */}
+                          <div className="relative flex-1 min-w-0">
+                            <select value={taskMonth} onChange={(e) => setTaskMonth(Number(e.target.value))} className={selectCls}>
+                              {MONTHS.map((m,i) => <option key={i+1} value={i+1}>{m}</option>)}
+                            </select>
+                          </div>
+                          {/* Ano */}
+                          <div className="relative w-14 shrink-0">
+                            <select value={taskYear} onChange={(e) => setTaskYear(Number(e.target.value))} className={selectCls}>
+                              {[currentYear, currentYear+1, currentYear+2].map(y => (
+                                <option key={y} value={y}>{y}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
+                        Data de vencimento
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                );
+              })()}
+
+              {/* ── Hora — selects hora/minuto sem spinner nativo ─────── */}
+              {(() => {
+                const selectCls = "h-8 appearance-none bg-muted text-xs text-foreground rounded-lg px-2 focus:outline-none focus:ring-1 focus:ring-primary/40 border border-transparent focus:border-primary/20 transition cursor-pointer w-full";
+                return (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex gap-1.5 items-center">
+                          <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
+                          {/* Hora */}
+                          <div className="relative flex-1">
+                            <select value={taskHour} onChange={(e) => setTaskHour(Number(e.target.value))} className={selectCls}>
+                              {Array.from({length:24},(_,i)=>i).map(h => (
+                                <option key={h} value={h}>{String(h).padStart(2,"0")}h</option>
+                              ))}
+                            </select>
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0">:</span>
+                          {/* Minuto — de 15 em 15 */}
+                          <div className="relative flex-1">
+                            <select value={taskMin} onChange={(e) => setTaskMin(Number(e.target.value))} className={selectCls}>
+                              {[0,15,30,45].map(m => (
+                                <option key={m} value={m}>{String(m).padStart(2,"0")}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
+                        Horário de vencimento
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                );
+              })()}
 
               {/* Botão criar */}
               <button
