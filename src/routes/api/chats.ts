@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { conversations, contacts, messages, sectors, operators } from "../../db/schema";
 import { eq, desc, asc } from "drizzle-orm";
-import { rdRequest } from "../../lib/rdCrmService";
+import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -34,6 +34,7 @@ export const Route = createFileRoute("/api/chats")({
             conversationId: string;
             senderType: string;
             senderName: string;
+            senderEmail?: string;
             content: string;
             isInternalNote?: boolean;
             quotedMessageId?: string | null;
@@ -42,10 +43,11 @@ export const Route = createFileRoute("/api/chats")({
           };
 
           const {
-            tenantId, conversationId, senderType, senderName,
+            tenantId, conversationId, senderType, senderName, senderEmail,
             content, isInternalNote = false,
             quotedMessageId, quotedMessageSender, quotedMessageContent,
           } = body;
+
 
           if (!tenantId || !conversationId || !content) {
             return new Response(
@@ -88,16 +90,31 @@ export const Route = createFileRoute("/api/chats")({
 
                 if (!contact?.rdCrmDealId) return;
 
+                // Tentar mapear o e-mail do operador para um user_id no RD CRM
+                // (para que a nota apareça com o nome real, não "N/A")
+                let noteUserId: string | undefined;
+                if (senderEmail) {
+                  try {
+                    const users = await getCachedUsers(tenantId);
+                    const matched = users.find((u: any) =>
+                      u.email?.toLowerCase() === senderEmail.toLowerCase()
+                    );
+                    if (matched) noteUserId = matched.id;
+                  } catch {/* ignora — nota vai sem user_id */}
+                }
+
                 // Endpoint correto: /deals/{id}/notes com campo description (igual ao SDR)
                 await rdRequest(tenantId, "POST", `/deals/${contact.rdCrmDealId}/notes`, {
                   description: `[Nota Interna — ${senderName}]\n\n${content}`,
+                  ...(noteUserId ? { user_id: noteUserId } : {}),
                 });
-                console.log(`[chats POST] Nota interna enviada ao CRM para deal ${contact.rdCrmDealId}`);
+                console.log(`[chats POST] Nota interna enviada ao CRM para deal ${contact.rdCrmDealId} (user: ${noteUserId ?? "padrão"})`);
               } catch (crmErr: any) {
                 console.warn("[chats POST] Falha ao enviar nota interna ao CRM (não bloqueante):", crmErr.message);
               }
             })();
           }
+
 
           return new Response(JSON.stringify({ success: true, id: msgId }), {
             status: 201,

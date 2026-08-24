@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { conversations, contacts, messages } from "../../../db/schema";
 import { eq } from "drizzle-orm";
@@ -88,14 +88,23 @@ export const Route = createFileRoute("/api/chats/tag-task")({
 
           const typeLabel = TASK_TYPE_LABELS[taskType] || "Tarefa";
 
-          // 3. Buscar usuario responsavel (primeiro usuario disponivel como fallback)
-          let userId: string | undefined;
+          // 3. Buscar o user_id do responsável pelo deal no RD CRM
+          //    A tarefa SEMPRE fica no nome do dono atual do card, não do operador do nosso sistema.
+          //    Isso é obrigatório pois o campo "created_by" é required pelo RD CRM.
+          let dealOwnerId: string | undefined;
           try {
-            const users = await getCachedUsers(tenantId);
-            if (Array.isArray(users) && users.length > 0) {
-              userId = users[0].id;
-            }
-          } catch {/* ignora — task vai sem user_id */}
+            // Tenta obter o user_id diretamente do deal
+            const deal = await rdRequest<any>(tenantId, "GET", `/deals/${contact.rdCrmDealId}`);
+            dealOwnerId = deal?.user_id || deal?.owner?.id;
+          } catch {/* ignora */}
+
+          if (!dealOwnerId) {
+            // Fallback: primeiro usuário disponível
+            try {
+              const users = await getCachedUsers(tenantId);
+              if (Array.isArray(users) && users.length > 0) dealOwnerId = users[0].id;
+            } catch {/* ignora */}
+          }
 
           // 4. Criar Task no RD CRM via endpoint correto /tasks
           let taskCreated = false;
@@ -106,12 +115,13 @@ export const Route = createFileRoute("/api/chats/tag-task")({
               deal_id: contact.rdCrmDealId,
               due_date: dueDateTimeFull,
               notes: `Tarefa criada via Valem Chat${operatorName ? " por " + operatorName : ""}. Tipo: ${typeLabel}.`,
-              ...(userId ? { user_id: userId } : {}),
+              ...(dealOwnerId ? { user_id: dealOwnerId, created_by: dealOwnerId } : {}),
             });
             taskCreated = true;
           } catch (crmErr: any) {
             console.warn(`[TagTask] Falha ao criar task no CRM:`, crmErr.message);
           }
+
 
           // 5. Salvar mensagem de sistema no chat (so se criou com sucesso)
           if (taskCreated) {
