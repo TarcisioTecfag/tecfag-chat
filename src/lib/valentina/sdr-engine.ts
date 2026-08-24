@@ -1048,6 +1048,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           return msg.replace(/\[SEND_IMAGE:[^\]]+\]/gi, "").trim();
         }).filter(Boolean);
 
+        // 🔍 Diagnóstico: logar se Gemini gerou SEND_IMAGE ou não
+        console.log(`[SdrEngine] 🔍 DIAGNÓSTICO: imageUrlsToSend=${JSON.stringify(imageUrlsToSend)} | messagesToSend count=${aiResult.messagesToSend.length}`);
+
         if (imageUrlsToSend.length > 0 && !signal?.aborted) {
           const sock = SessionManager.getInstance().getSession(tenantId);
           const realJid = sock ? await resolveRealJid(sock, contactPhone) : null;
@@ -1055,6 +1058,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           if (sock && realJid) {
             // Carrega base64 das imagens do banco (sobrevive a redeploys Railway)
             const realMediaFiles = await getRealMediaFiles(tenantId);
+            console.log(`[SdrEngine] 🔍 realMediaFiles carregados: ${realMediaFiles.length} arquivo(s) | base64 presente: ${realMediaFiles.filter(f => f.base64Data).length}`);
+
 
             for (const imageRelUrl of imageUrlsToSend) {
               if (signal?.aborted) break;
