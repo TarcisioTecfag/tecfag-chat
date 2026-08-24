@@ -1033,6 +1033,69 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       if ((!dynamicAudio || dynamicAudio.position !== "only_audio") && aiResult.messagesToSend.length > 0 && !signal?.aborted) {
+        // ── INTERCEPTAÇÃO DE IMAGENS FORMATO REAL ────────────────────────────
+        // Extrai tags [SEND_IMAGE:url] dos balões, envia as imagens via Baileys
+        // e remove as tags do texto antes de chegar no sendHumanizedBotMessages.
+        const SEND_IMAGE_RE = /\[SEND_IMAGE:([^\]]+)\]/gi;
+        const imageUrlsToSend: string[] = [];
+
+        // Coleta todas as URLs de imagem e limpa os textos
+        aiResult.messagesToSend = aiResult.messagesToSend.map((msg) => {
+          let match: RegExpExecArray | null;
+          SEND_IMAGE_RE.lastIndex = 0;
+          while ((match = SEND_IMAGE_RE.exec(msg)) !== null) {
+            imageUrlsToSend.push(match[1].trim());
+          }
+          return msg.replace(/\[SEND_IMAGE:[^\]]+\]/gi, "").trim();
+        }).filter(Boolean);
+
+        // Envia imagens via Baileys antes dos balões de texto
+        if (imageUrlsToSend.length > 0 && !signal?.aborted) {
+          const sock = SessionManager.getInstance().getSession(tenantId);
+          const realJid = sock ? await resolveRealJid(sock, contactPhone) : null;
+
+          if (sock && realJid) {
+            for (const imageRelUrl of imageUrlsToSend) {
+              if (signal?.aborted) break;
+              try {
+                // Constrói URL absoluta usando PUBLIC_APP_URL (Railway/produção) ou localhost (dev)
+                const serverBase = process.env.PUBLIC_APP_URL?.replace(/\/$/, "")
+                  || `http://localhost:${process.env.PORT || 3000}`;
+                const imageAbsUrl = imageRelUrl.startsWith("http")
+                  ? imageRelUrl
+                  : `${serverBase}${imageRelUrl}`;
+
+                console.log(`[SdrEngine] 🖼️ Enviando imagem Formato Real via Baileys: ${imageAbsUrl}`);
+
+                const imgResponse = await fetch(imageAbsUrl);
+                if (!imgResponse.ok) throw new Error(`HTTP ${imgResponse.status}`);
+                const imgBuffer = Buffer.from(await imgResponse.arrayBuffer());
+                const ext = imageRelUrl.split(".").pop()?.toLowerCase() || "jpg";
+                const mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : "image/jpeg";
+
+                await sock.sendPresenceUpdate("composing", realJid);
+                await new Promise(r => setTimeout(r, 800));
+
+                await sock.sendMessage(realJid, {
+                  image: imgBuffer,
+                  mimetype: mimeType,
+                  caption: "",
+                });
+
+                console.log(`[SdrEngine] ✅ Imagem enviada para ${contactPhone}`);
+                await new Promise(r => setTimeout(r, 600));
+              } catch (imgErr: any) {
+                if (!signal?.aborted) {
+                  console.error(`[SdrEngine] ❌ Falha ao enviar imagem Formato Real:`, imgErr.message);
+                }
+              }
+            }
+          } else {
+            console.warn(`[SdrEngine] ⚠️ Sessão Baileys não disponível para envio de imagem. Pulando.`);
+          }
+        }
+        // ── FIM INTERCEPTAÇÃO DE IMAGENS ─────────────────────────────────────
+
         await this.sendHumanizedBotMessages(
           tenantId,
           conversationId,
@@ -1043,6 +1106,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           aiResult.quoteMessageId
         );
       }
+
 
       if (dynamicAudio && (!dynamicAudio.position || dynamicAudio.position === "after_text") && !signal?.aborted) {
         await this.sendDynamicPttAudio(
