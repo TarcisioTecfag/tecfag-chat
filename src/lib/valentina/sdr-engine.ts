@@ -1022,8 +1022,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       // GREETING INJETADO PELO CÓDIGO (não pelo Gemini):
-      // Quando é a primeira mensagem, enviamos saudação + apresentação de forma determinística.
-      // O Gemini só responde o CONTEÚDO (a partir do balão 3), sem risco de duplicação.
       if (isFirstMessage && !signal?.aborted) {
         const aiPersonaForGreeting = getAiPersona(tenantId);
         const greetingMessages = [
@@ -1036,12 +1034,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       if ((!dynamicAudio || dynamicAudio.position !== "only_audio") && aiResult.messagesToSend.length > 0 && !signal?.aborted) {
         // ── INTERCEPTAÇÃO DE IMAGENS FORMATO REAL ────────────────────────────
-        // Extrai tags [SEND_IMAGE:url] dos balões, envia as imagens via Baileys
-        // e remove as tags do texto antes de chegar no sendHumanizedBotMessages.
+        // Extrai tags [SEND_IMAGE:url] dos balões, envia imagem via Baileys e
+        // remove as tags do texto antes de chegar no sendHumanizedBotMessages.
         const SEND_IMAGE_RE = /\[SEND_IMAGE:([^\]]+)\]/gi;
         const imageUrlsToSend: string[] = [];
 
-        // Coleta todas as URLs de imagem e limpa os textos
         aiResult.messagesToSend = aiResult.messagesToSend.map((msg) => {
           let match: RegExpExecArray | null;
           SEND_IMAGE_RE.lastIndex = 0;
@@ -1051,37 +1048,39 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           return msg.replace(/\[SEND_IMAGE:[^\]]+\]/gi, "").trim();
         }).filter(Boolean);
 
-        // Envia imagens via Baileys antes dos balões de texto
         if (imageUrlsToSend.length > 0 && !signal?.aborted) {
           const sock = SessionManager.getInstance().getSession(tenantId);
           const realJid = sock ? await resolveRealJid(sock, contactPhone) : null;
 
           if (sock && realJid) {
+            // Carrega base64 das imagens do banco (sobrevive a redeploys Railway)
+            const realMediaFiles = await getRealMediaFiles(tenantId);
+
             for (const imageRelUrl of imageUrlsToSend) {
               if (signal?.aborted) break;
               try {
-                // ── Lê a imagem direto do disco usando o mesmo MEDIA_DIR do upload ──
-                // imageRelUrl vem como "/knowledge-media/kf-xxx.jpg"
-                // Extrai só o nome do arquivo (kf-xxx.jpg) e junta com KNOWLEDGE_MEDIA_DIR
-                const fileName = path.basename(imageRelUrl);
-                const filePath = path.join(KNOWLEDGE_MEDIA_DIR, fileName);
+                const mediaFile = realMediaFiles.find(f => f.mediaUrl === imageRelUrl);
+                let imgBuffer: Buffer;
+                let mimeType: string;
 
-                console.log(`[SdrEngine] 🖼️ Lendo imagem Formato Real do disco: ${filePath}`);
-
-                const imgBuffer = await readFile(filePath);
-
-                const ext = imageRelUrl.split(".").pop()?.toLowerCase() || "jpg";
-                const mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
+                if (mediaFile?.base64Data) {
+                  // ✅ Fonte primária: base64 persistido no banco de dados
+                  imgBuffer = Buffer.from(mediaFile.base64Data, "base64");
+                  mimeType = mediaFile.mimeType || "image/jpeg";
+                  console.log(`[SdrEngine] 🖼️ Imagem carregada do banco DB: ${imageRelUrl} (${imgBuffer.length} bytes)`);
+                } else {
+                  // ⚠️ Fallback: tenta ler do disco (funciona local com volume montado)
+                  const fileName = path.basename(imageRelUrl);
+                  const filePath = path.join(KNOWLEDGE_MEDIA_DIR, fileName);
+                  console.log(`[SdrEngine] 🖼️ Fallback — lendo do disco: ${filePath}`);
+                  imgBuffer = await readFile(filePath);
+                  const ext = imageRelUrl.split(".").pop()?.toLowerCase() || "jpg";
+                  mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
+                }
 
                 await sock.sendPresenceUpdate("composing", realJid);
                 await new Promise(r => setTimeout(r, 800));
-
-                await sock.sendMessage(realJid, {
-                  image: imgBuffer,
-                  mimetype: mimeType,
-                  caption: "",
-                });
-
+                await sock.sendMessage(realJid, { image: imgBuffer, mimetype: mimeType, caption: "" });
                 console.log(`[SdrEngine] ✅ Imagem enviada para ${contactPhone}`);
                 await new Promise(r => setTimeout(r, 600));
               } catch (imgErr: any) {
@@ -1096,7 +1095,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
         // ── FIM INTERCEPTAÇÃO DE IMAGENS ─────────────────────────────────────
 
-
         await this.sendHumanizedBotMessages(
           tenantId,
           conversationId,
@@ -1107,6 +1105,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           aiResult.quoteMessageId
         );
       }
+
 
 
       if (dynamicAudio && (!dynamicAudio.position || dynamicAudio.position === "after_text") && !signal?.aborted) {

@@ -52,15 +52,18 @@ const VALEM_CORE_COMMERCIAL_POLICIES = `
 
 // ── Regex de identificação de mídia real ───────────────────────────────────────
 const REAL_MEDIA_PATTERN = /^\[FORMATO_REAL:(\/knowledge-media\/[^\]]+)\]/;
+const BASE64_PATTERN = /\[BASE64:([A-Za-z0-9+/=]+)\]/;
 
 export interface RealMediaFile {
   name: string;
   mediaUrl: string;
   fileId: string;
+  base64Data?: string;   // Base64 da imagem — fonte de verdade persistente no banco
+  mimeType?: string;
 }
 
 /**
- * Retorna todos os arquivos de Formato Real com mediaUrl disponível.
+ * Retorna todos os arquivos de Formato Real com mediaUrl e base64 disponíveis.
  * Usado pelo motor da Valentina para matching e envio de fotos.
  */
 export async function getRealMediaFiles(tenantId: string): Promise<RealMediaFile[]> {
@@ -73,9 +76,19 @@ export async function getRealMediaFiles(tenantId: string): Promise<RealMediaFile
     return files
       .filter(f => f.format === "real" && f.content)
       .map(f => {
-        const match = (f.content || "").match(REAL_MEDIA_PATTERN);
-        if (!match) return null;
-        return { name: f.name, mediaUrl: match[1], fileId: f.id };
+        const urlMatch = (f.content || "").match(REAL_MEDIA_PATTERN);
+        if (!urlMatch) return null;
+        const mediaUrl = urlMatch[1];
+
+        // Extrai base64 salvo no banco (novo formato)
+        const b64Match = (f.content || "").match(BASE64_PATTERN);
+        const base64Data = b64Match?.[1];
+
+        // Deriva mimeType a partir da extensão do mediaUrl
+        const ext = mediaUrl.split(".").pop()?.toLowerCase() || "jpg";
+        const mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
+
+        return { name: f.name, mediaUrl, fileId: f.id, base64Data, mimeType };
       })
       .filter(Boolean) as RealMediaFile[];
   } catch {

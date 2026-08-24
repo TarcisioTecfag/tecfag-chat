@@ -336,10 +336,15 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
               }
             }
 
-            // ── Formato Real: salva arquivo físico em public/knowledge-media ──
+            // ── Formato Real: salva arquivo físico (best-effort) + base64 no banco ──
             let mediaUrl: string | null = null;
+            let realBase64: string | null = null;
 
             if (format === "real" && base64 && (type === "image" || ["png","jpg","jpeg","gif","webp","pdf","docx","doc"].some(e => name.toLowerCase().endsWith(`.${e}`)))) {
+              // Guarda o base64 para persistência no banco (sobrevive a redeploys Railway)
+              realBase64 = base64;
+
+              // Tenta salvar fisicamente (best-effort — pode falhar em Railway efêmero)
               try {
                 const ext = name.split(".").pop()?.toLowerCase() || "bin";
                 const safeFileName = `${fileId}.${ext}`;
@@ -347,23 +352,33 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
                 const buf = Buffer.from(base64, "base64");
                 fs.writeFileSync(filePath, buf);
                 mediaUrl = `/knowledge-media/${safeFileName}`;
-                console.log(`[knowledge.ts] 🖼️ Formato Real salvo: ${mediaUrl} (${buf.length} bytes)`);
+                console.log(`[knowledge.ts] 🖼️ Formato Real salvo no disco: ${mediaUrl} (${buf.length} bytes)`);
               } catch (saveErr: any) {
-                console.error(`[knowledge.ts] ❌ Erro ao salvar arquivo físico:`, saveErr.message);
+                // Falha silenciosa — base64 no banco é a fonte de verdade
+                console.warn(`[knowledge.ts] ⚠️ Não foi possível salvar no disco (ok no Railway): ${saveErr.message}`);
+                // Usa o fileId como referência mesmo sem arquivo físico
+                const ext = name.split(".").pop()?.toLowerCase() || "jpg";
+                mediaUrl = `/knowledge-media/${fileId}.${ext}`;
               }
             }
 
             // Extrai texto real do documento (PDF, DOCX, XLSX, TXT)
-            // Para Formato Real de imagem, o content guarda a URL pública para recuperação pela Valentina
-            let extractedContent = mediaUrl
-              ? `[FORMATO_REAL:${mediaUrl}] Arquivo: ${name}` // Chave de recuperação para a IA
-              : await extractKnowledgeText(name, type, base64, content);
+            // Para Formato Real de imagem, o content guarda: marcador + base64 (fonte de verdade)
+            let extractedContent: string;
 
-            // Para Formato Real NÃO-imagem (PDF/doc real), também salva a URL de download
-            if (format === "real" && mediaUrl && type !== "image") {
-              const textContent = await extractKnowledgeText(name, type, base64, content);
-              extractedContent = `[FORMATO_REAL:${mediaUrl}] ${textContent}`;
+            if (format === "real" && mediaUrl) {
+              if (type === "image" && realBase64) {
+                // 🔑 BASE64 NO BANCO — sobrevive a qualquer redeploy do Railway
+                extractedContent = `[FORMATO_REAL:${mediaUrl}][BASE64:${realBase64}]`;
+              } else {
+                // Para documentos Formato Real (PDF/DOCX), extrai texto + guarda URL
+                const textContent = await extractKnowledgeText(name, type, base64, content);
+                extractedContent = `[FORMATO_REAL:${mediaUrl}] ${textContent}`;
+              }
+            } else {
+              extractedContent = await extractKnowledgeText(name, type, base64, content);
             }
+
 
             await db.insert(knowledgeFiles).values({
               id: fileId,
