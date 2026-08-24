@@ -1575,6 +1575,30 @@ export class ValemChatWidget {
         fullDateStr: formatFullDate(),
       });
     }
+    // ── Imagem real enviada pela Valentina (Formato Real) ────────────────────
+    if (type === "send_image") {
+      this.hideTypingIndicator();
+      // Constrói URL absoluta para o servidor de origem do widget
+      const serverOrigin = this.opts.wsUrl
+        ? this.opts.wsUrl.replace(/^wss?:\/\//, "").replace(/\/ws\/.*$/, "")
+        : location.origin.replace(/^https?:\/\//, "");
+      const protocol = location.protocol === "https:" ? "https:" : "http:";
+      const absoluteUrl = payload.imageUrl?.startsWith("http")
+        ? payload.imageUrl
+        : `${protocol}//${serverOrigin}${payload.imageUrl}`;
+
+      this.addMessage({
+        id: payload.messageId || crypto.randomUUID?.() || String(Date.now()),
+        sender: "ai",
+        text: "",
+        contentType: "image",
+        mediaUrl: absoluteUrl,
+        fileName: payload.imageUrl?.split("/").pop() || "produto.jpg",
+        timestamp: new Date().toISOString(),
+        timeStr: formatTime(),
+        fullDateStr: formatFullDate(),
+      });
+    }
     if (type === "typing") payload.isTyping ? this.showTypingIndicator() : this.hideTypingIndicator();
     if (type === "bridge_initiated" || type === "bridge_sent") {
       this.hideTypingIndicator();
@@ -1592,6 +1616,7 @@ export class ValemChatWidget {
       });
     }
   }
+
 
   private scheduleReconnect() {
     if (this.reconnectTimer) return;

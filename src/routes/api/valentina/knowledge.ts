@@ -2,6 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { knowledgeFiles, knowledgeFolders } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Diretório de mídia estático para arquivos de Formato Real
+const __dirname_es = path.dirname(fileURLToPath(import.meta.url));
+// Resolve para <projeto>/public/knowledge-media/
+const MEDIA_DIR = path.resolve(__dirname_es, "../../../../public/knowledge-media");
+if (!fs.existsSync(MEDIA_DIR)) {
+  fs.mkdirSync(MEDIA_DIR, { recursive: true });
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -325,8 +336,34 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
               }
             }
 
+            // ── Formato Real: salva arquivo físico em public/knowledge-media ──
+            let mediaUrl: string | null = null;
+
+            if (format === "real" && base64 && (type === "image" || ["png","jpg","jpeg","gif","webp","pdf","docx","doc"].some(e => name.toLowerCase().endsWith(`.${e}`)))) {
+              try {
+                const ext = name.split(".").pop()?.toLowerCase() || "bin";
+                const safeFileName = `${fileId}.${ext}`;
+                const filePath = path.join(MEDIA_DIR, safeFileName);
+                const buf = Buffer.from(base64, "base64");
+                fs.writeFileSync(filePath, buf);
+                mediaUrl = `/knowledge-media/${safeFileName}`;
+                console.log(`[knowledge.ts] 🖼️ Formato Real salvo: ${mediaUrl} (${buf.length} bytes)`);
+              } catch (saveErr: any) {
+                console.error(`[knowledge.ts] ❌ Erro ao salvar arquivo físico:`, saveErr.message);
+              }
+            }
+
             // Extrai texto real do documento (PDF, DOCX, XLSX, TXT)
-            const extractedContent = await extractKnowledgeText(name, type, base64, content);
+            // Para Formato Real de imagem, o content guarda a URL pública para recuperação pela Valentina
+            let extractedContent = mediaUrl
+              ? `[FORMATO_REAL:${mediaUrl}] Arquivo: ${name}` // Chave de recuperação para a IA
+              : await extractKnowledgeText(name, type, base64, content);
+
+            // Para Formato Real NÃO-imagem (PDF/doc real), também salva a URL de download
+            if (format === "real" && mediaUrl && type !== "image") {
+              const textContent = await extractKnowledgeText(name, type, base64, content);
+              extractedContent = `[FORMATO_REAL:${mediaUrl}] ${textContent}`;
+            }
 
             await db.insert(knowledgeFiles).values({
               id: fileId,
@@ -350,6 +387,7 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
                   type,
                   format,
                   content: extractedContent,
+                  mediaUrl,
                   uploadedAt: new Date().toLocaleDateString("pt-BR"),
                   folderId: validFolderId,
                 },

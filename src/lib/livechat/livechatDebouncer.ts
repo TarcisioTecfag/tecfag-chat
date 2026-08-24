@@ -174,7 +174,50 @@ export class LiveChatDebouncer {
         await updateVisitorData(session.tenantId, session.visitor.id, { cnpj: aiResponse.cnpjToCheck });
       }
 
+      // ── Envio de imagens reais (Formato Real) antes dos balões de texto ─────
+      if (aiResponse.sendImageUrls && aiResponse.sendImageUrls.length > 0) {
+        session.wsSend({ type: "typing", isTyping: false });
+        await new Promise(r => setTimeout(r, 300));
+
+        for (const imageUrl of aiResponse.sendImageUrls) {
+          if (signal.aborted) break;
+
+          // Salva mensagem de imagem no banco para histórico
+          const imgMsg = await saveMessage(session.tenantId, session.chat.id, "ai", `[IMAGE:${imageUrl}]`);
+
+          // Envia evento de imagem para o widget
+          session.wsSend({
+            type: "send_image",
+            chatId: session.chat.id,
+            messageId: imgMsg.id,
+            imageUrl,
+            sender: "ai",
+          });
+
+          session.broadcastToOps({
+            type: "new_message",
+            chatId: session.chat.id,
+            visitorId: session.visitor.id,
+            sender: "ai",
+            content: `[IMAGE:${imageUrl}]`,
+            imageUrl,
+          });
+
+          await new Promise(r => setTimeout(r, 600));
+        }
+
+        if (signal.aborted) {
+          session.isProcessing = false;
+          session.abortController = null;
+          return;
+        }
+
+        session.wsSend({ type: "typing", isTyping: true });
+        await new Promise(r => setTimeout(r, 800));
+      }
+
       // Envio cadenciado e fragmentado dos balões
+
       const fragments = aiResponse.messagesToSend && aiResponse.messagesToSend.length > 0
         ? aiResponse.messagesToSend
         : [aiResponse.text];

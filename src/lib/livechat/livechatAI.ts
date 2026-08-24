@@ -24,6 +24,7 @@ const STAGE_PATTERN = /\[STAGE:([\w_]+)\]/i;
 const SCORE_PATTERN = /\[SCORE:(\d+)\]/i;
 const PRODUCT_PATTERN = /\[TRAY_PRODUCT:(\d+)\]/i;
 const CNPJ_PATTERN = /\[CNPJ_CHECK:([\d.\-\/]+)\]/i;
+const SEND_IMAGE_PATTERN = /\[SEND_IMAGE:([^\]]+)\]/gi;
 
 export interface AiResponse {
   messagesToSend: string[];              // Fragmentos separados de balões
@@ -34,6 +35,7 @@ export interface AiResponse {
   cnpjToCheck?: string;                 // CNPJ para validar
   shouldBridgeToWhatsApp: boolean;      // True quando atacado qualificado
   checkoutUrl?: string;                 // Link de checkout para varejo
+  sendImageUrls?: string[];             // URLs de imagens a enviar (Formato Real)
 }
 
 export function isNoise(text: string): boolean {
@@ -166,12 +168,21 @@ export async function processVisitorMessage(
   const trayProductId = productMatch ? parseInt(productMatch[1], 10) : undefined;
   const cnpjToCheck = cnpjMatch?.[1];
 
+  // Extrai URLs de imagens reais (SEND_IMAGE)
+  const sendImageUrls: string[] = [];
+  const imageTagRegex = /\[SEND_IMAGE:([^\]]+)\]/gi;
+  let imageMatch: RegExpExecArray | null;
+  while ((imageMatch = imageTagRegex.exec(safeResponse)) !== null) {
+    sendImageUrls.push(imageMatch[1].trim());
+  }
+
   // 5. Remove tags do texto e limpa saudações repetitivas se já em conversa
   let cleanText = safeResponse
     .replace(/\[STAGE:[\w_]+\]/gi, "")
     .replace(/\[SCORE:\d+\]/gi, "")
     .replace(/\[TRAY_PRODUCT:\d+\]/gi, "")
     .replace(/\[CNPJ_CHECK:[\d.\/\-]+\]/gi, "")
+    .replace(/\[SEND_IMAGE:[^\]]+\]/gi, "")
     .trim();
 
   // 6. Fragmentar em balões individuais por quebras de linha ou pontuação
@@ -205,8 +216,10 @@ export async function processVisitorMessage(
     trayProductId,
     cnpjToCheck,
     shouldBridgeToWhatsApp,
+    sendImageUrls: sendImageUrls.length > 0 ? sendImageUrls : undefined,
   };
 }
+
 
 /**
  * Gera mensagem proativa de abertura quando o visitante abre o widget.

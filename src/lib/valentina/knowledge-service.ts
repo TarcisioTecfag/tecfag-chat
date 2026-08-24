@@ -40,6 +40,39 @@ const VALEM_CORE_COMMERCIAL_POLICIES = `
 --- FIM DAS DIRETRIZES OFICIAIS ---
 `;
 
+// ── Regex de identificação de mídia real ───────────────────────────────────────
+const REAL_MEDIA_PATTERN = /^\[FORMATO_REAL:(\/knowledge-media\/[^\]]+)\]/;
+
+export interface RealMediaFile {
+  name: string;
+  mediaUrl: string;
+  fileId: string;
+}
+
+/**
+ * Retorna todos os arquivos de Formato Real com mediaUrl disponível.
+ * Usado pelo motor da Valentina para matching e envio de fotos.
+ */
+export async function getRealMediaFiles(tenantId: string): Promise<RealMediaFile[]> {
+  try {
+    const files = await db
+      .select()
+      .from(knowledgeFiles)
+      .where(eq(knowledgeFiles.tenantId, tenantId));
+
+    return files
+      .filter(f => f.format === "real" && f.content)
+      .map(f => {
+        const match = (f.content || "").match(REAL_MEDIA_PATTERN);
+        if (!match) return null;
+        return { name: f.name, mediaUrl: match[1], fileId: f.id };
+      })
+      .filter(Boolean) as RealMediaFile[];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Busca o contexto consolidado de todos os arquivos da base de conhecimento
  * salvos para alimentar o prompt do Gemini (SDR e Supervisor) e ligações (Twilio/ElevenLabs).
@@ -59,10 +92,21 @@ export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promi
     const folderMap = new Map<string, string>();
     folders.forEach((f) => folderMap.set(f.id, f.name));
 
-    // Inclui todos os arquivos com conteúdo de texto extraído
+    // Inclui arquivos de texto com conteúdo extraído (exceto marcadores de formato real)
     const activeFiles = files.filter(
       (f) => f.content && f.content.trim().length > 0 && !f.content.startsWith("[Documento ")
+        && f.format !== "real" // Arquivos Formato Real não entram no RAG de texto
     );
+
+    // Compila catálogo de fotos reais disponíveis para a Valentina
+    const realMediaFiles = files
+      .filter(f => f.format === "real" && f.content)
+      .map(f => {
+        const match = (f.content || "").match(REAL_MEDIA_PATTERN);
+        if (!match) return null;
+        return `  - "${f.name}" → URL: ${match[1]}`;
+      })
+      .filter(Boolean);
 
     let additionalDocs = "";
     if (activeFiles.length > 0) {
@@ -74,10 +118,21 @@ export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promi
         .join("\n\n");
     }
 
+    const realMediaSection = realMediaFiles.length > 0
+      ? `\n\n📸 FOTOS REAIS DISPONÍVEIS PARA ENVIO (Formato Real):
+Você pode enviar essas fotos ao cliente durante o atendimento usando a tag [SEND_IMAGE:URL].
+Exemplos de uso:
+  - Cliente pede "válvula pump" → identifique o produto na lista abaixo e emita [SEND_IMAGE:URL] antes da mensagem de confirmação.
+  - Fluxo obrigatório: 1. Envie a imagem com [SEND_IMAGE:URL]. 2. Pergunte: "Esse seria o modelo que você está procurando?" 3. Se SIM → prossiga. Se NÃO → peça mais detalhes ou foto de referência. NÃO insista.
+Lista de fotos cadastradas:
+${realMediaFiles.join("\n")}`
+      : "";
+
     return `\n\n📚 BASE DE CONHECIMENTO, REGRAS COMERCIAIS E CATÁLOGO OFICIAL VALEMPACK:
 ${VALEM_CORE_COMMERCIAL_POLICIES}
 
 ${additionalDocs ? `DOCUMENTOS ADICIONAIS DA BASE:\n${additionalDocs}\n` : ""}
+${realMediaSection}
 
 DIRETRIZ CRÍTICA DE USO DA BASE DE CONHECIMENTO:
 1. Você tem autoridade total para usar as informações e regras fiscais/comerciais acima para responder com precisão matemática e comercial a qualquer dúvida do cliente.

@@ -2,17 +2,24 @@
 // 📚 KNOWLEDGE BASE TAB — Gerenciamento de arquivos e pastas da Valentina
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { 
   Folder, FolderPlus, Edit3, Trash2, ChevronDown, ChevronRight,
   Brain, Paperclip, UploadCloud, FileText, Image as ImageIcon, Check, X,
-  Eye, Sparkles, BookOpen
+  Eye, Sparkles, BookOpen, Loader2, ListChecks
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { 
   Folder as FolderType, 
   KnowledgeFile as FileType,
 } from "./valentina-mock-data";
+
+interface UploadQueueItem {
+  file: File;
+  status: "pending" | "uploading" | "done" | "error";
+  progress: number;
+  error?: string;
+}
 
 export function KnowledgeTab() {
   const { setSelectedChatId, setActiveView } = useChat();
@@ -35,14 +42,16 @@ export function KnowledgeTab() {
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [draggedFileId, setDraggedFileId] = useState<string | null>(null);
   
-  // Upload
+  // Upload — Fila de Múltiplos Arquivos
   const [uploadMode, setUploadMode] = useState<"embeddings" | "real">("embeddings");
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+  const [isQueueRunning, setIsQueueRunning] = useState(false);
   const [dragOverZone, setDragOverZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const queueRunningRef = useRef(false);
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
 
   // ── Carregar Dados Reais da API no Inicio ─────────────────────────────────
   React.useEffect(() => {
@@ -295,15 +304,9 @@ export function KnowledgeTab() {
     }
   };
 
-  const handleRealFileUpload = async (fileObj: File) => {
-    if (!selectedFolderId) {
-      alert("Por favor, selecione ou crie uma pasta primeiro.");
-      return;
-    }
+  // ── Upload em Fila de Múltiplos Arquivos ────────────────────────────────────
 
-    setIsUploading(true);
-    setUploadProgress(20);
-
+  const uploadSingleFile = async (fileObj: File, queueIdx: number): Promise<FileType | null> => {
     const fileName = fileObj.name;
     const fileSize = fileObj.size;
     const extension = fileName.split(".").pop()?.toLowerCase() || "";
@@ -311,7 +314,7 @@ export function KnowledgeTab() {
     let type: FileType["type"] = "txt";
     if (extension === "pdf") type = "pdf";
     else if (["doc", "docx"].includes(extension)) type = "word";
-    else if (["png", "jpg", "jpeg", "webp"].includes(extension)) type = "image";
+    else if (["png", "jpg", "jpeg", "webp", "gif"].includes(extension)) type = "image";
 
     const formattedSize = fileSize > 1024 * 1024
       ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
@@ -321,84 +324,122 @@ export function KnowledgeTab() {
     let base64Data: string | null = null;
 
     if (type === "txt" || ["md", "json", "csv", "tsv"].includes(extension)) {
-      try {
-        fileContent = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve((e.target?.result as string) || "");
-          reader.onerror = () => resolve("");
-          reader.readAsText(fileObj);
-        });
-      } catch (err) {
-        console.warn("[KnowledgeTab] Erro ao ler arquivo de texto:", err);
-      }
+      fileContent = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve((e.target?.result as string) || "");
+        reader.onerror = () => resolve("");
+        reader.readAsText(fileObj);
+      });
     } else {
-      // Lê como base64 para o backend extrair o texto via pdf-parse ou mammoth
-      try {
-        const rawBase64 = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const res = (e.target?.result as string) || "";
-            const commaIdx = res.indexOf(",");
-            resolve(commaIdx !== -1 ? res.slice(commaIdx + 1) : res);
-          };
-          reader.onerror = () => resolve("");
-          reader.readAsDataURL(fileObj);
-        });
-        base64Data = rawBase64;
-      } catch (err) {
-        console.warn("[KnowledgeTab] Erro ao ler arquivo como base64:", err);
-      }
+      base64Data = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const res = (e.target?.result as string) || "";
+          const commaIdx = res.indexOf(",");
+          resolve(commaIdx !== -1 ? res.slice(commaIdx + 1) : res);
+        };
+        reader.onerror = () => resolve("");
+        reader.readAsDataURL(fileObj);
+      });
     }
 
-    setUploadProgress(60);
+    const res = await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantId: "valem",
+        action: "upload_file",
+        name: fileName,
+        size: formattedSize,
+        type,
+        format: uploadMode,
+        folderId: selectedFolderId,
+        content: fileContent || null,
+        base64: base64Data,
+      }),
+    });
 
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId: "valem",
-          action: "upload_file",
-          name: fileName,
-          size: formattedSize,
-          type,
-          format: uploadMode,
-          folderId: selectedFolderId,
-          content: fileContent || null,
-          base64: base64Data,
-        }),
-      });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || `HTTP ${res.status}`);
+    }
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || `HTTP ${res.status}`);
+    const data = await res.json();
+    return data.file || null;
+  };
+
+  const runUploadQueue = useCallback(async (queue: UploadQueueItem[]) => {
+    if (queueRunningRef.current) return;
+    queueRunningRef.current = true;
+    setIsQueueRunning(true);
+
+    for (let i = 0; i < queue.length; i++) {
+      if (queue[i].status !== "pending") continue;
+
+      setUploadQueue(prev => prev.map((item, idx) =>
+        idx === i ? { ...item, status: "uploading", progress: 30 } : item
+      ));
+
+      try {
+        const savedFile = await uploadSingleFile(queue[i].file, i);
+        if (savedFile) {
+          setFiles(prev => [...prev, savedFile]);
+        }
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? { ...item, status: "done", progress: 100 } : item
+        ));
+      } catch (err: any) {
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? { ...item, status: "error", progress: 0, error: err.message } : item
+        ));
       }
 
-      const data = await res.json();
-      setUploadProgress(100);
+      // Pequeno delay entre uploads para não sobrecarregar o servidor
+      await new Promise(r => setTimeout(r, 150));
+    }
 
-      if (data.file) {
-        setFiles((prev) => [...prev, data.file]);
-      }
-    } catch (err: any) {
-      console.error("[KnowledgeTab] Erro no upload para a API:", err);
-      alert(`Falha ao salvar arquivo no banco de dados: ${err.message || "Erro de servidor"}`);
-    } finally {
-      setTimeout(() => setIsUploading(false), 300);
+    queueRunningRef.current = false;
+    setIsQueueRunning(false);
+  }, [selectedFolderId, uploadMode, BACKEND_URL]);
+
+  const enqueueFiles = useCallback((fileList: FileList | File[]) => {
+    if (!selectedFolderId) {
+      alert("Por favor, selecione ou crie uma pasta primeiro.");
+      return;
+    }
+
+    const newItems: UploadQueueItem[] = Array.from(fileList).map(file => ({
+      file,
+      status: "pending",
+      progress: 0,
+    }));
+
+    setUploadQueue(prev => {
+      const combined = [...prev, ...newItems];
+      // Dispara a fila com o array combinado atual
+      setTimeout(() => runUploadQueue(combined), 0);
+      return combined;
+    });
+  }, [selectedFolderId, runUploadQueue]);
+
+  const clearQueue = () => {
+    if (!isQueueRunning) {
+      setUploadQueue([]);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleRealFileUpload(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      enqueueFiles(e.target.files);
+      e.target.value = ""; // Reset input para permitir selecionar os mesmos arquivos novamente
     }
   };
 
   const handleDropUpload = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOverZone(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleRealFileUpload(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      enqueueFiles(e.dataTransfer.files);
     }
   };
 
@@ -675,36 +716,77 @@ export function KnowledgeTab() {
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.md,.json,.csv,.xlsx,.xls"
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.json,.csv,.xlsx,.xls"
               className="hidden"
+              multiple
             />
-            {isUploading ? (
-              <div className="w-full max-w-xs flex flex-col items-center gap-1.5 animate-in fade-in duration-200">
-                <span className="text-[10px] font-extrabold text-primary uppercase animate-pulse">Enviando arquivo ({uploadProgress}%)</span>
-                <div className="w-full bg-border rounded-full h-1.5 overflow-hidden">
-                  <div 
-                    className="bg-primary h-full rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
-                <UploadCloud className="h-8 w-8 text-muted-foreground/60 animate-bounce duration-1000" />
-                <div>
-                  <p className="text-xs font-bold text-foreground">Arraste e solte arquivos aqui</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Suporta PDF, Word, TXT, Markdown (MD), Planilhas e Imagens</p>
-                </div>
+            <UploadCloud className="h-8 w-8 text-muted-foreground/60 animate-bounce duration-1000" />
+            <div>
+              <p className="text-xs font-bold text-foreground">Arraste e solte arquivos aqui</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Suporta múltiplos arquivos · PDF, Word, TXT, Markdown (MD), Planilhas e Imagens</p>
+            </div>
 
-                <div className="mt-1 px-3 py-1 rounded bg-card border border-border text-[9px] font-black uppercase text-primary">
-                  {uploadMode === "embeddings" ? "Modo Ativo: Embedding de IA" : "Modo Ativo: Formato Real de Envio"}
-                </div>
-              </>
-            )}
+            <div className="mt-1 px-3 py-1 rounded bg-card border border-border text-[9px] font-black uppercase text-primary">
+              {uploadMode === "embeddings" ? "Modo Ativo: Embedding de IA" : "Modo Ativo: Formato Real de Envio"}
+            </div>
           </div>
         ) : (
           <div className="border border-border/80 bg-muted/20 rounded-2xl p-8 text-center text-xs text-muted-foreground select-none shrink-0 mb-4">
             Selecione uma pasta na árvore de diretórios ao lado para habilitar uploads.
+          </div>
+        )}
+
+        {/* Painel de Fila de Upload */}
+        {uploadQueue.length > 0 && (
+          <div className="mt-3 rounded-xl border border-border bg-card overflow-hidden shrink-0">
+            <div className="flex items-center justify-between px-3 py-2 bg-muted/40 border-b border-border">
+              <div className="flex items-center gap-1.5 text-[10px] font-black text-foreground uppercase">
+                <ListChecks className="h-3.5 w-3.5 text-primary" />
+                <span>Fila de Upload</span>
+                <span className="text-muted-foreground font-normal">
+                  ({uploadQueue.filter(i => i.status === "done").length}/{uploadQueue.length} concluídos)
+                </span>
+              </div>
+              {!isQueueRunning && (
+                <button
+                  onClick={clearQueue}
+                  className="text-[9px] text-muted-foreground hover:text-foreground transition px-2 py-0.5 rounded hover:bg-muted cursor-pointer"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+            <div className="max-h-40 overflow-y-auto scrollbar-thin divide-y divide-border/50">
+              {uploadQueue.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-2 px-3 py-1.5">
+                  {item.status === "done" && <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
+                  {item.status === "error" && <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                  {item.status === "uploading" && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />}
+                  {item.status === "pending" && <div className="h-3.5 w-3.5 rounded-full border-2 border-muted-foreground/30 shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-foreground truncate font-medium">{item.file.name}</p>
+                    {item.status === "uploading" && (
+                      <div className="w-full bg-border rounded-full h-0.5 mt-0.5 overflow-hidden">
+                        <div className="bg-primary h-full rounded-full transition-all duration-300 animate-pulse" style={{ width: "60%" }} />
+                      </div>
+                    )}
+                    {item.status === "error" && (
+                      <p className="text-[9px] text-red-500 truncate">{item.error}</p>
+                    )}
+                  </div>
+                  <span className={`text-[9px] shrink-0 font-bold ${
+                    item.status === "done" ? "text-emerald-500" :
+                    item.status === "error" ? "text-red-500" :
+                    item.status === "uploading" ? "text-primary animate-pulse" :
+                    "text-muted-foreground"
+                  }`}>
+                    {item.status === "done" ? "OK" :
+                     item.status === "error" ? "ERRO" :
+                     item.status === "uploading" ? "↑" : "..."}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
