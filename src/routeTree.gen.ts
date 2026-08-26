@@ -42,6 +42,8 @@ import { Route as ApiValentinaRodizioRouteImport } from './routes/api/valentina/
 import { Route as ApiValentinaMessagesRouteImport } from './routes/api/valentina/messages'
 import { Route as ApiValentinaKnowledgeRouteImport } from './routes/api/valentina/knowledge'
 import { Route as ApiValentinaConfigRouteImport } from './routes/api/valentina/config'
+import { Route as ApiValentinaCatalogImagesRouteImport } from './routes/api/valentina/catalog-images'
+import { Route as ApiValentinaAssistantRouteImport } from './routes/api/valentina/assistant'
 import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/agents'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
@@ -250,6 +252,17 @@ const ApiValentinaKnowledgeRoute = ApiValentinaKnowledgeRouteImport.update({
 const ApiValentinaConfigRoute = ApiValentinaConfigRouteImport.update({
   id: '/api/valentina/config',
   path: '/api/valentina/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaCatalogImagesRoute =
+  ApiValentinaCatalogImagesRouteImport.update({
+    id: '/api/valentina/catalog-images',
+    path: '/api/valentina/catalog-images',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiValentinaAssistantRoute = ApiValentinaAssistantRouteImport.update({
+  id: '/api/valentina/assistant',
+  path: '/api/valentina/assistant',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiValentinaAgentsRoute = ApiValentinaAgentsRouteImport.update({
@@ -541,6 +554,8 @@ export interface FileRoutesByFullPath {
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
+  '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
+  '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
   '/api/valentina/config': typeof ApiValentinaConfigRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
@@ -619,6 +634,8 @@ export interface FileRoutesByTo {
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
+  '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
+  '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
   '/api/valentina/config': typeof ApiValentinaConfigRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
@@ -698,6 +715,8 @@ export interface FileRoutesById {
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
+  '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
+  '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
   '/api/valentina/config': typeof ApiValentinaConfigRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
@@ -778,6 +797,8 @@ export interface FileRouteTypes {
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/valentina/agents'
+    | '/api/valentina/assistant'
+    | '/api/valentina/catalog-images'
     | '/api/valentina/config'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
@@ -856,6 +877,8 @@ export interface FileRouteTypes {
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/valentina/agents'
+    | '/api/valentina/assistant'
+    | '/api/valentina/catalog-images'
     | '/api/valentina/config'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
@@ -934,6 +957,8 @@ export interface FileRouteTypes {
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/valentina/agents'
+    | '/api/valentina/assistant'
+    | '/api/valentina/catalog-images'
     | '/api/valentina/config'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
@@ -1008,6 +1033,8 @@ export interface RootRouteChildren {
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
   ApiValentinaAgentsRoute: typeof ApiValentinaAgentsRoute
+  ApiValentinaAssistantRoute: typeof ApiValentinaAssistantRoute
+  ApiValentinaCatalogImagesRoute: typeof ApiValentinaCatalogImagesRoute
   ApiValentinaConfigRoute: typeof ApiValentinaConfigRoute
   ApiValentinaKnowledgeRoute: typeof ApiValentinaKnowledgeRoute
   ApiValentinaMessagesRoute: typeof ApiValentinaMessagesRoute
@@ -1248,6 +1275,20 @@ declare module '@tanstack/react-router' {
       path: '/api/valentina/config'
       fullPath: '/api/valentina/config'
       preLoaderRoute: typeof ApiValentinaConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/catalog-images': {
+      id: '/api/valentina/catalog-images'
+      path: '/api/valentina/catalog-images'
+      fullPath: '/api/valentina/catalog-images'
+      preLoaderRoute: typeof ApiValentinaCatalogImagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/assistant': {
+      id: '/api/valentina/assistant'
+      path: '/api/valentina/assistant'
+      fullPath: '/api/valentina/assistant'
+      preLoaderRoute: typeof ApiValentinaAssistantRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina/agents': {
@@ -1682,6 +1723,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
   ApiValentinaAgentsRoute: ApiValentinaAgentsRoute,
+  ApiValentinaAssistantRoute: ApiValentinaAssistantRoute,
+  ApiValentinaCatalogImagesRoute: ApiValentinaCatalogImagesRoute,
   ApiValentinaConfigRoute: ApiValentinaConfigRoute,
   ApiValentinaKnowledgeRoute: ApiValentinaKnowledgeRoute,
   ApiValentinaMessagesRoute: ApiValentinaMessagesRoute,

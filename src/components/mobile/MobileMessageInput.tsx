@@ -13,8 +13,12 @@ import {
   FileText,
   Image as ImageIcon,
   Film,
+  Sparkles,
+  Package,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { ValentinaAssistantModal } from "../chat/ValentinaAssistantModal";
+import { ProductCatalogPicker } from "../chat/ProductCatalogPicker";
 
 interface MobileMessageInputProps {
   onSendMessage?: (text: string, isInternalNote: boolean) => void;
@@ -29,10 +33,31 @@ const COMMON_EMOJIS = [
 export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   onSendMessage,
 }) => {
-  const { sendMessage, templates } = useChat();
+  const { sendMessage, templates, selectedChatId, conversations, tenant, operatorProfile } = useChat();
 
   const [activeTab, setActiveTab] = useState<"message" | "internal_note">("message");
   const [text, setText] = useState("");
+  const [showValentinaModal, setShowValentinaModal] = useState(false);
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+
+  const activeChat = conversations.find((c) => c.id === selectedChatId);
+
+  const handleApplyValentinaText = (newText: string, asInternalNote: boolean = false) => {
+    if (asInternalNote) {
+      setActiveTab("internal_note");
+      setText(newText);
+    } else {
+      setActiveTab("message");
+      setText(newText);
+    }
+    setIsCatalogOpen(false);
+  };
+
+  const handleAttachCatalogFiles = (newFiles: File[]) => {
+    setAttachments((prev) => [...prev, ...newFiles]);
+    setIsCatalogOpen(false);
+    setActiveTab("message");
+  };
   
   // Modais e Popovers
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
@@ -301,20 +326,23 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
           </div>
         ) : (
           <>
-            {/* Abas Superiores: Enviar Mensagem | Nota Interna */}
-            <div className="flex items-center justify-between px-2 pb-1 border-b border-border/40 text-xs font-bold select-none">
-              <div className="flex items-center gap-4">
+            {/* Abas Superiores: Enviar Mensagem | Nota Interna | Valentina | Válvulas */}
+            <div className="flex items-center justify-between px-2 pb-1 border-b border-border/40 text-xs font-bold select-none overflow-x-auto scrollbar-none">
+              <div className="flex items-center gap-3 shrink-0">
                 <motion.button
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => setActiveTab("message")}
-                  className={`relative pb-1 transition-colors cursor-pointer ${
-                    activeTab === "message"
+                  onClick={() => {
+                    setActiveTab("message");
+                    setIsCatalogOpen(false);
+                  }}
+                  className={`relative pb-1 transition-colors cursor-pointer text-xs ${
+                    !isCatalogOpen && activeTab === "message"
                       ? "text-primary font-extrabold"
                       : "text-muted-foreground hover:text-foreground font-medium"
                   }`}
                 >
                   Enviar Mensagem
-                  {activeTab === "message" && (
+                  {!isCatalogOpen && activeTab === "message" && (
                     <motion.span
                       layoutId="mobileInputActiveTab"
                       className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"
@@ -324,39 +352,76 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
 
                 <motion.button
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => setActiveTab("internal_note")}
-                  className={`relative pb-1 transition-colors cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === "internal_note"
+                  onClick={() => {
+                    setActiveTab("internal_note");
+                    setIsCatalogOpen(false);
+                  }}
+                  className={`relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs ${
+                    !isCatalogOpen && activeTab === "internal_note"
                       ? "text-amber-600 dark:text-amber-400 font-extrabold"
                       : "text-muted-foreground hover:text-foreground font-medium"
                   }`}
                 >
                   <Lock className="w-3 h-3 text-amber-500" />
                   <span>Nota Interna</span>
-                  {activeTab === "internal_note" && (
+                  {!isCatalogOpen && activeTab === "internal_note" && (
                     <motion.span
                       layoutId="mobileInputActiveTab"
                       className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
                     />
                   )}
                 </motion.button>
+
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowValentinaModal(true)}
+                  className="relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs text-primary hover:opacity-85 font-bold"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Valentina</span>
+                </motion.button>
+
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setIsCatalogOpen((v) => !v)}
+                  className={`relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs ${
+                    isCatalogOpen
+                      ? "text-primary font-extrabold"
+                      : "text-muted-foreground hover:text-foreground font-medium"
+                  }`}
+                >
+                  <Package className="w-3 h-3" />
+                  <span>Válvulas</span>
+                  {isCatalogOpen && (
+                    <motion.span
+                      layoutId="mobileInputActiveTab"
+                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"
+                    />
+                  )}
+                </motion.button>
               </div>
 
-              {activeTab === "internal_note" && (
-                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full">
-                  Privado (Equipe)
+              {activeTab === "internal_note" && !isCatalogOpen && (
+                <span className="text-[9px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-1.5 py-0.2 rounded-full shrink-0">
+                  Equipe
                 </span>
               )}
             </div>
 
-            {/* Caixa de Digitação Mobile Centralizada e Ajustada */}
-            <div
-              className={`flex items-center gap-2 rounded-full px-3.5 py-1 shadow-2xs border transition-all ${
-                activeTab === "internal_note"
-                  ? "bg-amber-500/10 border-amber-400/50 focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200"
-                  : "bg-muted/70 border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
-              }`}
-            >
+            {isCatalogOpen ? (
+              <ProductCatalogPicker
+                tenantId={tenant}
+                onAttachFiles={handleAttachCatalogFiles}
+                onClose={() => setIsCatalogOpen(false)}
+              />
+            ) : (
+              <div
+                className={`flex items-center gap-2 rounded-full px-3.5 py-1 shadow-2xs border transition-all ${
+                  activeTab === "internal_note"
+                    ? "bg-amber-500/10 border-amber-400/50 focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200"
+                    : "bg-muted/70 border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
+                }`}
+              >
               <input
                 type="text"
                 value={text}
@@ -441,9 +506,23 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                 </motion.button>
               </div>
             </div>
+            )}
           </>
         )}
       </div>
+
+      {/* Valentina Assistant Modal */}
+      <ValentinaAssistantModal
+        isOpen={showValentinaModal}
+        onClose={() => setShowValentinaModal(false)}
+        conversationId={selectedChatId || ""}
+        contactName={activeChat?.name}
+        currentDraftText={text}
+        recentMessages={activeChat?.messages}
+        tenantId={tenant}
+        operatorName={operatorProfile?.name || "Vendedor"}
+        onApplyText={handleApplyValentinaText}
+      />
     </div>
   );
 };

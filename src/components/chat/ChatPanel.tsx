@@ -37,7 +37,11 @@ import {
   AlertCircle,
   MessageSquare,
   Star,
+  Sparkles,
+  Package,
 } from "lucide-react";
+import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
+import { ProductCatalogPicker } from "./ProductCatalogPicker";
 import { io as socketIO, type Socket } from "socket.io-client";
 import {
   Tooltip,
@@ -516,6 +520,31 @@ export function ChatPanel() {
   }, [activeChat?.id]);
 
   const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
+  const [showValentinaModal, setShowValentinaModal] = useState(false);
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+
+  const handleApplyValentinaText = (newText: string, asInternalNote: boolean = false) => {
+    if (asInternalNote) {
+      setMsgMode("internal");
+      setText(newText);
+    } else {
+      setMsgMode("client");
+      setText(newText);
+    }
+    setIsCatalogOpen(false);
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  };
+
+  const handleAttachCatalogFiles = (newFiles: File[]) => {
+    setAttachments((prev) => [...prev, ...newFiles]);
+    setIsCatalogOpen(false);
+    setMsgMode("client");
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  };
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showTransferDropdown, setShowTransferDropdown] = useState(false);
   const [selectedTransferSectorId, setSelectedTransferSectorId] = useState<string | null>(null);
@@ -2274,33 +2303,66 @@ export function ChatPanel() {
             </div>
           )}
 
-          {/* Double Mode Selector (Mensagem vs Nota) */}
-          <div className="flex gap-2 pl-2 mb-1.5 text-[11px] font-bold">
+          {/* 4-Mode Selector (Mensagem vs Nota vs Valentina vs Válvulas) */}
+          <div className="flex items-center gap-3 pl-2 mb-1.5 text-[11px] font-bold select-none">
             <button
-              onClick={() => setMsgMode("client")}
-              className={`pb-1 border-b-2 px-1 transition ${
-                msgMode === "client"
+              onClick={() => {
+                setMsgMode("client");
+                setIsCatalogOpen(false);
+              }}
+              className={`pb-1 border-b-2 px-1 transition cursor-pointer ${
+                !isCatalogOpen && msgMode === "client"
                   ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
               Enviar Mensagem
             </button>
             {canSendInternalNotes && (
               <button
-                onClick={() => setMsgMode("internal")}
-                className={`pb-1 border-b-2 px-1 transition ${
-                  msgMode === "internal"
-                    ? "border-amber-500 text-amber-600"
-                    : "border-transparent text-muted-foreground"
+                onClick={() => {
+                  setMsgMode("internal");
+                  setIsCatalogOpen(false);
+                }}
+                className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
+                  !isCatalogOpen && msgMode === "internal"
+                    ? "border-amber-500 text-amber-600 dark:text-amber-400"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Nota Interna
+                <Lock className="h-3 w-3 text-amber-500" />
+                <span>Nota Interna</span>
               </button>
             )}
+            <button
+              onClick={() => setShowValentinaModal(true)}
+              className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1 text-primary hover:opacity-85"
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>Valentina</span>
+            </button>
+            <button
+              onClick={() => setIsCatalogOpen((v) => !v)}
+              className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
+                isCatalogOpen
+                  ? "border-primary text-primary font-extrabold"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Package className="h-3 w-3" />
+              <span>Válvulas</span>
+            </button>
           </div>
 
-          {/* Audio preview panel */}
+          {isCatalogOpen ? (
+            <ProductCatalogPicker
+              tenantId={tenant}
+              onAttachFiles={handleAttachCatalogFiles}
+              onClose={() => setIsCatalogOpen(false)}
+            />
+          ) : (
+            <>
+              {/* Audio preview panel */}
           {recordingState === "preview" && audioUrl && (
             <div className="flex items-center gap-3 mb-3 px-1 animate-in slide-in-from-bottom-2 duration-200">
               <div className="flex-1">
@@ -2563,6 +2625,8 @@ export function ChatPanel() {
           </div>
             </>
           )}
+          </>
+          )}
         </div>
       ) : (
         <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
@@ -2630,6 +2694,19 @@ export function ChatPanel() {
           </div>
         </div>
       )}
+
+      {/* Valentina Assistant Modal */}
+      <ValentinaAssistantModal
+        isOpen={showValentinaModal}
+        onClose={() => setShowValentinaModal(false)}
+        conversationId={activeChat?.id || ""}
+        contactName={activeChat?.name}
+        currentDraftText={text}
+        recentMessages={activeChat?.messages}
+        tenantId={tenant}
+        operatorName={operatorProfile?.name || "Vendedor"}
+        onApplyText={handleApplyValentinaText}
+      />
     </motion.section>
   );
 }
