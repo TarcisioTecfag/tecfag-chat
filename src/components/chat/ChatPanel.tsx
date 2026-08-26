@@ -522,6 +522,7 @@ export function ChatPanel() {
   const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
   const [showValentinaModal, setShowValentinaModal] = useState(false);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [showFinishConfirmModal, setShowFinishConfirmModal] = useState(false);
 
   const handleApplyValentinaText = (newText: string, asInternalNote: boolean = false) => {
     if (asInternalNote) {
@@ -1465,8 +1466,8 @@ export function ChatPanel() {
               {/* Finish Chat — apenas para o dono com canFinishChat */}
               {activeChat.id !== "valentina" && isOwner && canFinish && (
                 <button
-                  onClick={() => finishChat(activeChat.id)}
-                  className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
+                  onClick={() => setShowFinishConfirmModal(true)}
+                  className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
                 >
                   <CheckCircle className="h-3.5 w-3.5" />
                   Finalizar
@@ -2706,6 +2707,67 @@ export function ChatPanel() {
         operatorName={operatorProfile?.name || "Vendedor"}
         onApplyText={handleApplyValentinaText}
       />
+
+      {/* Modal de Confirmação de Finalização de Atendimento */}
+      <AnimatePresence>
+        {showFinishConfirmModal && activeChat && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 select-none animate-in fade-in duration-150"
+            onClick={() => setShowFinishConfirmModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="w-full max-w-md rounded-3xl bg-card border border-border p-6 shadow-card flex flex-col gap-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-4">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-primary/10 border border-primary/20 text-primary">
+                  <CheckCircle className="h-6 w-6" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Finalizar Atendimento?
+                  </h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Você está prestes a encerrar o atendimento com <strong className="text-foreground font-bold">{activeChat.name}</strong>. A conversa será movida para a aba de <span className="text-primary font-semibold">Finalizados</span>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-muted/40 border border-border p-3.5 flex items-center gap-3">
+                <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+                <span className="text-[11px] text-muted-foreground font-medium">
+                  Você poderá reativar ou transferir este atendimento a qualquer momento no histórico.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowFinishConfirmModal(false)}
+                  className="h-10 rounded-xl border border-border bg-card px-4 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                >
+                  Continuar Atendendo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFinishConfirmModal(false);
+                    finishChat(activeChat.id);
+                  }}
+                  className="h-10 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft flex items-center gap-1.5"
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  Sim, Finalizar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.section>
   );
 }

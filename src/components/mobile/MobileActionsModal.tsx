@@ -33,6 +33,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
 
   const [showTransferSelect, setShowTransferSelect] = useState(false);
   const [showCustomerFile, setShowCustomerFile] = useState(false);
+  const [showFinishConfirm, setShowFinishConfirm] = useState(false);
 
   if (!isOpen || !activeChat) return null;
 
@@ -132,6 +133,39 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                   <span>Ver Feed & Sugestões da Valentina</span>
                 </button>
               </div>
+            ) : showFinishConfirm ? (
+              /* CASO 2.5: CONFIRMAÇÃO DE FINALIZAÇÃO */
+              <div className="flex flex-col gap-3.5 py-1">
+                <div className="flex items-start gap-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 border border-primary/20 text-primary">
+                    <CheckCircle className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-extrabold text-foreground">Finalizar Atendimento?</h4>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Encerrar a conversa com <strong className="text-foreground">{activeChat.name}</strong> e mover para Finalizados?
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFinishConfirm(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-border bg-card text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFinish}
+                    className="flex-1 py-2.5 rounded-xl bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 shadow-soft transition cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Sim, Finalizar
+                  </button>
+                </div>
+              </div>
             ) : !showTransferSelect ? (
               /* CASO 2: AÇÕES DE CLIENTE REAL (PARIDADE 100% COM PC) */
               <div className="flex flex-col gap-2.5 py-1">
@@ -163,7 +197,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                 {isMine && canFinish && activeChat.queue !== "finalizados" && (
                   <motion.button
                     whileTap={{ scale: 0.96 }}
-                    onClick={handleFinish}
+                    onClick={() => setShowFinishConfirm(true)}
                     className="w-full py-3 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-2.5 shadow-soft transition cursor-pointer"
                   >
                     <CheckCircle className="w-4 h-4" />
