@@ -1736,15 +1736,14 @@ export function ChatPanel() {
                     </div>
                   )}
                   <div className={`flex flex-col items-center ${gap} w-full`}>
-                    <div className="max-w-[85%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-soft text-left">
+                    <div className="max-w-[85%] rounded-2xl border border-amber-500/20 bg-amber-500/10 dark:bg-amber-950/40 dark:border-amber-500/30 px-5 py-3 shadow-soft text-left">
                       <div
-                        className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5"
-                        style={{ color: "hsl(var(--warning, 38 92% 40%))" }}
+                        className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase mb-1.5 text-amber-600 dark:text-amber-400"
                       >
                         <Lock className="h-3 w-3 shrink-0" />
                         Anotação Interna — {m.author} às {m.time}
                       </div>
-                      <p className="text-xs leading-relaxed font-medium text-amber-900">
+                      <p className="text-xs leading-relaxed font-medium text-amber-950 dark:text-amber-200">
                         {renderTextWithLinks(m.text, false, true)}
                       </p>
                     </div>
@@ -2453,7 +2452,7 @@ export function ChatPanel() {
               recordingState === "recording"
                 ? "border-primary/40 bg-primary/5"
                 : msgMode === "internal"
-                  ? "bg-amber-50/70 border-amber-200"
+                  ? "bg-amber-500/10 border-amber-500/30 dark:bg-amber-950/30 dark:border-amber-500/40"
                   : isDragging
                     ? "border-primary bg-primary/5"
                     : "bg-card border-border"

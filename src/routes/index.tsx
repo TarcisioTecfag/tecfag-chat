@@ -48,11 +48,11 @@ function Index() {
   const themeStyles = tenant === "tecfag"
     ? ({
         "--primary": "#df3d3d", // Vermelho Tecfag
-        "--primary-soft": "#fde8e8",
+        "--primary-soft": "rgba(223, 61, 61, 0.15)",
       } as React.CSSProperties)
     : ({
         "--primary": "#2dc4a0", // Verde Esmeralda Valem
-        "--primary-soft": "#d8f1ea",
+        "--primary-soft": "rgba(45, 196, 160, 0.15)",
       } as React.CSSProperties);
 
   if (isMobile) {

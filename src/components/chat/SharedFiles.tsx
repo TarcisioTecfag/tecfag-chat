@@ -669,7 +669,7 @@ export function SharedFiles() {
                       {formatCNPJ(activeChat.cnpj)}
                     </div>
                     {activeChat.cnpj && (
-                      <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 mt-0.5 inline-block">
+                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30 mt-0.5 inline-block">
                         CNPJ Validado
                       </span>
                     )}

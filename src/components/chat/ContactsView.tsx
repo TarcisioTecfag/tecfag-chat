@@ -314,7 +314,7 @@ export function ContactsView() {
                             <Building className="h-3 w-3 text-muted-foreground" />
                             {formatCNPJ(c.cnpj)}
                           </div>
-                          <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-100 mt-0.5 inline-block">Validado</span>
+                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/15 px-1 py-0.2 rounded border border-emerald-500/30 mt-0.5 inline-block">Validado</span>
                         </div>
                       ) : (
                         <span className="text-muted-foreground italic font-medium">Nenhum</span>

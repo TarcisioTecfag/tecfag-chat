@@ -164,10 +164,10 @@ export function ChatList() {
             onClick={() => setShowStatusDropdown(!showStatusDropdown)}
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold transition hover:opacity-90 cursor-pointer capitalize ${
               operatorProfile.status === "disponivel"
-                ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                 : operatorProfile.status === "pausa"
-                ? "bg-amber-50 text-amber-600 border border-amber-100"
-                : "bg-gray-50 text-gray-500 border border-gray-100"
+                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                : "bg-muted text-muted-foreground border border-border"
             }`}
           >
             {operatorProfile.status === "disponivel" ? "Disponível" : operatorProfile.status === "pausa" ? "Em Pausa" : "Desconectado"}
@@ -191,14 +191,12 @@ export function ChatList() {
                         updateOperatorProfile({ status: st });
                         setShowStatusDropdown(false);
                       }}
-                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-muted ${
-                        operatorProfile.status === st ? "text-primary bg-primary-soft/50" : "text-muted-foreground"
-                      }`}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-foreground hover:bg-muted transition capitalize cursor-pointer"
                     >
                       <span className={`h-2 w-2 rounded-full ${
                         st === "disponivel" ? "bg-emerald-500" : st === "pausa" ? "bg-amber-500" : "bg-gray-400"
                       }`} />
-                      <span className="capitalize">{st === "disponivel" ? "Disponível" : st === "pausa" ? "Em Pausa" : "Desconectado"}</span>
+                      {st === "disponivel" ? "Disponível" : st === "pausa" ? "Em Pausa" : "Desconectado"}
                     </button>
                   ))}
                   <div className="my-1 border-t border-border/60" />
@@ -237,8 +235,8 @@ export function ChatList() {
           onClick={() => setChannelFilter("all")}
           className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
             channelFilter === "all"
-              ? "bg-foreground text-background"
-              : "bg-muted text-muted-foreground hover:bg-border"
+              ? "bg-primary text-primary-foreground shadow-soft"
+              : "bg-muted text-muted-foreground hover:bg-border hover:text-foreground"
           }`}
         >
           Todos
@@ -249,7 +247,7 @@ export function ChatList() {
             className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
               channelFilter === "whatsapp"
                 ? "bg-emerald-500 text-white shadow-soft"
-                : "bg-muted text-emerald-600 hover:bg-emerald-50"
+                : "bg-muted text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
             }`}
             title="WhatsApp Only"
           >
@@ -262,7 +260,7 @@ export function ChatList() {
             className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
               channelFilter === "instagram"
                 ? "bg-gradient-to-tr from-yellow-500 to-purple-600 text-white shadow-soft"
-                : "bg-muted text-purple-600 hover:bg-purple-50"
+                : "bg-muted text-purple-600 dark:text-purple-400 hover:bg-purple-500/10"
             }`}
             title="Instagram Only"
           >
@@ -275,7 +273,7 @@ export function ChatList() {
             className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
               channelFilter === "messenger"
                 ? "bg-blue-600 text-white shadow-soft"
-                : "bg-muted text-blue-600 hover:bg-blue-50"
+                : "bg-muted text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
             }`}
             title="Messenger Only"
           >
@@ -460,12 +458,12 @@ export function ChatList() {
                             {c.sectorName && (
                               <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md border ${
                                 c.sectorName === "Comercial"
-                                  ? "bg-purple-50 text-purple-600 border-purple-100"
+                                  ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
                                   : c.sectorName === "Suporte"
-                                  ? "bg-blue-50 text-blue-600 border-blue-100"
+                                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
                                   : c.sectorName === "Financeiro"
-                                  ? "bg-amber-50 text-amber-600 border-amber-100"
-                                  : "bg-gray-50 text-gray-600 border-gray-100"
+                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                  : "bg-muted text-muted-foreground border-border"
                               }`}>
                                 {c.sectorName}
                               </span>
