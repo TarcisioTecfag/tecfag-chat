@@ -352,6 +352,15 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
 
                 <motion.button
                   whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowValentinaModal(true)}
+                  className="relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs text-primary hover:opacity-85 font-bold"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Valentina</span>
+                </motion.button>
+
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
                   onClick={() => {
                     setActiveTab("internal_note");
                     setIsCatalogOpen(false);
@@ -370,15 +379,6 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                       className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
                     />
                   )}
-                </motion.button>
-
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowValentinaModal(true)}
-                  className="relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs text-primary hover:opacity-85 font-bold"
-                >
-                  <Sparkles className="w-3 h-3" />
-                  <span>Valentina</span>
                 </motion.button>
 
                 <motion.button

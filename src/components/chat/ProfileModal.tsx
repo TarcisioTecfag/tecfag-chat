@@ -2,8 +2,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import React, { useState, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { usePermissions } from "@/hooks/usePermissions";
-import { X, Check, ShieldAlert, Camera, Eye, EyeOff, Plus, Shield } from "lucide-react";
+import { X, Check, ShieldAlert, Camera, Eye, EyeOff, Plus, Shield, Sun, Moon, Monitor } from "lucide-react";
 import { motion } from "framer-motion";
+import { useTheme } from "@/hooks/useTheme";
 
 export function ProfileModal() {
   const {
@@ -16,6 +17,7 @@ export function ProfileModal() {
     setActiveView,
   } = useChat();
   const { canAccessView } = usePermissions();
+  const { theme, setTheme } = useTheme();
 
   // Local Form States
   const [name, setName] = useState(operatorProfile.name);
@@ -274,6 +276,51 @@ export function ProfileModal() {
                   className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Tema do Sistema / Aparência */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                Tema / Aparência
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTheme("light")}
+                  className={`flex h-9.5 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-bold transition cursor-pointer ${
+                    theme === "light"
+                      ? "bg-primary border-primary text-primary-foreground shadow-soft"
+                      : "bg-card border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <Sun className="h-4 w-4" />
+                  <span>Claro</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme("dark")}
+                  className={`flex h-9.5 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-bold transition cursor-pointer ${
+                    theme === "dark"
+                      ? "bg-primary border-primary text-primary-foreground shadow-soft"
+                      : "bg-card border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <Moon className="h-4 w-4" />
+                  <span>Escuro</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme("system")}
+                  className={`flex h-9.5 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-bold transition cursor-pointer ${
+                    theme === "system"
+                      ? "bg-primary border-primary text-primary-foreground shadow-soft"
+                      : "bg-card border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <Monitor className="h-4 w-4" />
+                  <span>Automático</span>
                 </button>
               </div>
             </div>

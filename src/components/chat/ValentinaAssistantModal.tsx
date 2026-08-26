@@ -42,15 +42,15 @@ const ACTION_CARDS: ActionCard[] = [
     id: "best_response",
     title: "Melhor Resposta",
     description:
-      "Lê todo o histórico da conversa e gera a melhor resposta comercial e técnica para você enviar agora.",
+      "Lê o histórico recente e sugere uma resposta comercial rápida, objetiva e natural para o WhatsApp.",
     icon: Sparkles,
-    badge: "Mais Usado",
+    badge: "Mais Rápido",
   },
   {
     id: "grammar_fix",
     title: "Corretor Gramatical",
     description:
-      "Revisa e corrige ortografia, concordância e pontuação do seu rascunho sem alterar seu sentido ou estilo.",
+      "Corrige pontuação, acentuação e expande abreviações (ex: vc → você, mt → muito) no seu rascunho.",
     icon: CheckCircle2,
     requiresDraft: true,
   },
@@ -58,7 +58,7 @@ const ACTION_CARDS: ActionCard[] = [
     id: "lead_summary",
     title: "Resumo do Lead",
     description:
-      "Gera uma síntese estruturada da necessidade, perfil/CNPJ e próximo passo para registro interno.",
+      "Gera uma síntese estruturada da conversa (necessidade, perfil e próximo passo) para anotação interna.",
     icon: FileText,
   },
 ];

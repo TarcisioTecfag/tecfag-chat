@@ -36,77 +36,38 @@ export const Route = createFileRoute("/api/valentina/assistant")({
             });
           }
 
-          // Busca base de conhecimento da Valem
-          const knowledgeContext = await getKnowledgeBaseContext(tenantId);
-
-          // Obtém mensagens recentes para contexto
+          // Obtém mensagens recentes para contexto (apenas quando necessário)
           let recentHistory = "";
-          if (Array.isArray(clientMessages) && clientMessages.length > 0) {
-            recentHistory = clientMessages
-              .slice(-15)
-              .map((m: any) => `${m.side === "in" || m.sender === "client" ? "Cliente" : "Vendedor"}: ${m.text || m.content || ""}`)
-              .join("\n");
-          } else if (conversationId && conversationId !== "valentina") {
-            try {
-              const dbMsgs = await db
-                .select({
-                  content: messages.content,
-                  senderType: messages.senderType,
-                  sentAt: messages.sentAt,
-                })
-                .from(messages)
-                .where(eq(messages.conversationId, conversationId))
-                .orderBy(desc(messages.sentAt))
-                .limit(15);
-
-              recentHistory = dbMsgs
-                .reverse()
-                .map((m) => `${m.senderType === "contact" || m.senderType === "client" ? "Cliente" : "Vendedor"}: ${m.content}`)
+          if (action === "best_response" || action === "lead_summary") {
+            if (Array.isArray(clientMessages) && clientMessages.length > 0) {
+              recentHistory = clientMessages
+                .slice(-12)
+                .map((m: any) => `${m.side === "in" || m.sender === "client" ? "Cliente" : "Vendedor"}: ${m.text || m.content || ""}`)
                 .join("\n");
-            } catch (err) {
-              console.warn("[assistant.ts] Aviso ao buscar mensagens do banco:", err);
+            } else if (conversationId && conversationId !== "valentina") {
+              try {
+                const dbMsgs = await db
+                  .select({
+                    content: messages.content,
+                    senderType: messages.senderType,
+                    sentAt: messages.sentAt,
+                  })
+                  .from(messages)
+                  .where(eq(messages.conversationId, conversationId))
+                  .orderBy(desc(messages.sentAt))
+                  .limit(12);
+
+                recentHistory = dbMsgs
+                  .reverse()
+                  .map((m) => `${m.senderType === "contact" || m.senderType === "client" ? "Cliente" : "Vendedor"}: ${m.content}`)
+                  .join("\n");
+              } catch (err) {
+                console.warn("[assistant.ts] Aviso ao buscar mensagens do banco:", err);
+              }
             }
           }
 
-          // ─── AÇÃO 1: MELHOR RESPOSTA ──────────────────────────────────────────
-          if (action === "best_response") {
-            const prompt = `Você é a IA Valentina, assistente comercial sênior e especialista técnica da Valem Válvulas e Embalagens.
-O vendedor ${operatorName} está atendendo o cliente ${contactName || "Cliente"} no WhatsApp e precisa da MELHOR resposta comercial, empática, persuasiva e precisa para enviar AGORA.
-
-${knowledgeContext}
-
-HISTÓRICO RECENTE DA CONVERSA:
-${recentHistory || "Nenhuma mensagem anterior no histórico. O cliente acabou de iniciar o contato."}
-
-${currentText ? `RASCUNHO DIGITADO PELO VENDEDOR (SE ÚTIL):\n"${currentText}"\n` : ""}
-
-DIRETRIZES PARA A RESPOSTA:
-1. Escreva em 1ª pessoa ("nós temos", "posso verificar para você", "nossa válvula...", etc.) ou pronta para o vendedor enviar diretamente.
-2. Seja ágil, direto, prestativo e comercialmente acolhedor.
-3. Se o cliente perguntou de produto/rosca/frasco, responda com precisão técnica e ofereça o modelo ideal.
-4. Lembre-se das regras fundamentais da Valem:
-   - Atacado WhatsApp B2B (CNPJ): Pedido mínimo de 1.000 unidades por item, faturado/condições comerciais especiais.
-   - E-commerce (site www.valempack.com.br): Aberto para CPF e CNPJ a partir de 50 unidades, com 15% de desconto PJ.
-5. NUNCA adicione saudações repetitivas se a conversa já estiver em andamento.
-6. Retorne APENAS o texto exato da mensagem sugerida, sem explicações extras, aspas ou títulos.`;
-
-            const generated = await vertexAi.generateText(prompt, "gemini-2.5-flash", undefined, {
-              feature: "valentina_chat",
-              tenantId,
-              metadata: { conversationId, action },
-            });
-
-            return new Response(
-              JSON.stringify({
-                success: true,
-                action,
-                text: (generated || "").trim().replace(/^"|"$/g, ""),
-              }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          // ─── AÇÃO 2: CORRETOR GRAMATICAL ──────────────────────────────────────
+          // ─── AÇÃO 1: CORRETOR GRAMATICAL & ORTOGRÁFICO (INSTANTÂNEO) ─────────
           if (action === "grammar_fix") {
             if (!currentText || !currentText.trim()) {
               return new Response(
@@ -118,17 +79,28 @@ DIRETRIZES PARA A RESPOSTA:
               );
             }
 
-            const prompt = `Você é um revisor de texto e corretor gramatical em língua portuguesa para atendimento comercial no WhatsApp da Valem Válvulas e Embalagens.
+            const prompt = `Você é um revisor e corretor gramatical em tempo real para atendimento comercial no WhatsApp da Valem Válvulas e Embalagens.
 
 TEXTO DO VENDEDOR PARA CORRIGIR:
 "${currentText}"
 
-REGRAS INVIOLÁVEIS:
-1. Corrija APENAS erros gramaticais, ortográficos, de pontuação, concordância e acentuação.
-2. NUNCA altere o sentido da mensagem, a intenção, as palavras-chave comerciais (nomes de válvulas, roscas como 24/410, 28/410, ml, un) ou o estilo de comunicação do vendedor.
-3. Não mude a estrutura da frase a menos que haja erro gramatical grave.
-4. Mantenha eventuais quebras de linha e emojis existentes intactos.
-5. Retorne APENAS o texto corrigido, sem qualquer comentário, aspas adicionais ou introdução.`;
+INSTRUÇÕES OBRIGATÓRIAS:
+1. Corrija toda a ortografia, concordância verbal/nominal, acentuação e pontuação (vírgulas, ponto final, interrogação).
+2. EXPANDA OBRIGATORIAMENTE todas as abreviações e gírias de chat/internet para português formal correto por extenso:
+   - "mt" -> "muito"
+   - "vc" -> "você", "vcs" -> "vocês"
+   - "pq" -> "porque" ou "por que"
+   - "tb" ou "tbm" -> "também"
+   - "td" ou "tds" -> "tudo" ou "todos"
+   - "pra" -> "para", "pro" -> "para o"
+   - "q" -> "que"
+   - "kd" -> "cadê"
+   - "blz" -> "beleza"
+   - "oq" -> "o que"
+   - "obg" ou "obgd" -> "obrigado" / "obrigada"
+3. Preserve termos técnicos, códigos de produtos, medidas e números (ex: 24/410, 28/410, 18/410, 100ml, un, R$).
+4. Mantenha emojis e quebras de linha existentes.
+5. Retorne APENAS o texto corrigido final, sem aspas, sem títulos e sem explicações.`;
 
             const corrected = await vertexAi.generateText(prompt, "gemini-2.5-flash", undefined, {
               feature: "valentina_chat",
@@ -146,22 +118,58 @@ REGRAS INVIOLÁVEIS:
             );
           }
 
+          // ─── AÇÃO 2: MELHOR RESPOSTA (HUMANA, CURTA E OBJETIVA) ──────────────
+          if (action === "best_response") {
+            const prompt = `Você é uma consultora de vendas sênior, experiente e muito prática da Valem Válvulas e Embalagens atendendo no WhatsApp.
+O vendedor ${operatorName} está atendendo o cliente ${contactName || "Cliente"} e precisa da MELHOR resposta comercial para enviar AGORA.
+
+REGRAS COMERCIAIS CHAVE:
+- Produtos: Válvulas Spray (líquidos/perfumes), Válvulas Pump/Saboneteira (cremes/álcool), Mini Triggers (borrifadores), Tampas Luxo (Dourada, Prata, Bamboo), Frascos e Potes de Vidro Âmbar (10ml a 100ml). Roscas: 18/410, 20/410, 24/410, 28/410.
+- Atacado WhatsApp B2B (CNPJ): Mínimo 1.000 unidades por item, com faturamento e condições especiais.
+- Varejo/Amostras (Site www.valempack.com.br): A partir de 50 unidades com 15% de desconto para PJ.
+
+HISTÓRICO DA CONVERSA NO WHATSAPP:
+${recentHistory || "Cliente acabou de iniciar o contato."}
+
+${currentText ? `RASCUNHO DO VENDEDOR:\n"${currentText}"\n` : ""}
+
+DIRETRIZES DE TOM (WHATSAPP REAL):
+1. Escreva uma resposta ULTRA-CURTA, NATURAL, DIRETA E HUMANA (máximo de 1 a 3 frases).
+2. Escreva como uma pessoa de verdade responde no WhatsApp: NADA de textos gigantes, NADA de introduções robóticas como "Olá, tudo bem? Sou a assistente...".
+3. Responda direto à dúvida/necessidade do cliente e termine com uma pergunta prática de fechamento ou continuidade (ex: qual quantidade precisa, qual a rosca do frasco dele, ou cor desejada).
+4. Retorne APENAS o texto da mensagem sugerida, sem aspas e sem explicações.`;
+
+            const generated = await vertexAi.generateText(prompt, "gemini-2.5-flash", undefined, {
+              feature: "valentina_chat",
+              tenantId,
+              metadata: { conversationId, action },
+            });
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                action,
+                text: (generated || "").trim().replace(/^"|"$/g, ""),
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
           // ─── AÇÃO 3: RESUMO DO LEAD ───────────────────────────────────────────
           if (action === "lead_summary") {
-            const prompt = `Você é a IA Valentina, assistente de inteligência comercial da Valem Válvulas e Embalagens.
-Analise a conversa abaixo e gere um RESUMO ESTRUTURADO DO LEAD em tópicos objetivos para registro interno.
+            const prompt = `Você é a assistente de inteligência comercial da Valem Válvulas e Embalagens.
+Analise a conversa abaixo e gere um RESUMO ESTRUTURADO DO LEAD em 4 tópicos objetivos:
 
 HISTÓRICO DA CONVERSA:
 ${recentHistory || "Histórico vazio."}
-
 ${contactName ? `NOME DO CONTATO: ${contactName}` : ""}
 
-FORMATO OBRIGATÓRIO (SEM EMOJIS, TEXTO LIMPO E PROFISSIONAL):
+FORMATO OBRIGATÓRIO (TEXTO DIRETO E LIMPO):
 [RESUMO DO LEAD]
-- Necessidade: (Quais produtos, medidas de rosca, frascos ou volumes o cliente procura)
-- Perfil e Dados: (Se é CNPJ/Atacado ou CPF/Varejo, segmento da empresa, estimativa de quantidade se informada)
-- Situacao Atual: (Em qual etapa parou a negociação ou qual a última dúvida/pendência)
-- Proximo Passo: (Ação comercial clara e recomendada para o vendedor)
+- Necessidade: (Produtos, medidas de rosca, frascos ou volumes procurados)
+- Perfil e Dados: (CNPJ/Atacado ou CPF/Site, segmento e volume estimado)
+- Situacao Atual: (Última dúvida ou etapa da conversa)
+- Proximo Passo: (Ação comercial recomendada para o vendedor)
 
 Retorne APENAS os 4 tópicos acima estruturados, sem comentários adicionais.`;
 

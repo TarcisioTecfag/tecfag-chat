@@ -19,7 +19,7 @@ export interface CatalogImageItem {
   name: string;
   sku: string;
   mediaUrl: string;
-  base64Data?: string;
+  thumbnailUrl: string;
   mimeType: string;
   size: string;
   type: string;
@@ -47,14 +47,20 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
   const fetchCatalogImages = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/valentina/catalog-images?tenantId=${tenantId}&includeBase64=true`);
+      const res = await fetch(`/api/valentina/catalog-images?tenantId=${tenantId}`);
+      if (!res.ok) {
+        throw new Error(`Status ${res.status}`);
+      }
       const data = await res.json();
-      if (data.items) {
+      if (Array.isArray(data.items)) {
         setImages(data.items);
+      } else {
+        setImages([]);
       }
     } catch (err) {
       console.error("[ProductCatalogPicker] Erro ao carregar imagens:", err);
       toast.error("Erro ao carregar catálogo de fotos reais.");
+      setImages([]);
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +78,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
 
     return images.filter((item) => {
       const nameLower = item.name.toLowerCase();
-      const skuLower = item.sku.toLowerCase();
+      const skuLower = (item.sku || "").toLowerCase();
       return parts.every((p) => nameLower.includes(p) || skuLower.includes(p));
     });
   }, [images, searchTerm]);
@@ -100,37 +106,29 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
     }
   };
 
-  // Converte base64 ou fetch para File
+  // Converte base64 ou fetch para File de forma ágil
   const convertToFile = async (item: CatalogImageItem): Promise<File | null> => {
     try {
-      let b64 = item.base64Data;
-
-      // Se não tiver base64 pré-carregado, busca via getContent
-      if (!b64) {
-        const res = await fetch(`/api/valentina/knowledge?tenantId=${tenantId}&action=getContent&fileId=${item.id}`);
+      // 1. Tenta buscar base64 leve via endpoint getFileData
+      const res = await fetch(`/api/valentina/catalog-images?tenantId=${tenantId}&action=getFileData&fileId=${item.id}`);
+      if (res.ok) {
         const data = await res.json();
-        const content = data.content || "";
-        const match = content.match(/\[BASE64:([A-Za-z0-9+/=]+)\]/);
-        b64 = match ? match[1] : undefined;
+        if (data.base64) {
+          const byteCharacters = atob(data.base64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          return new File([byteArray], item.name, { type: item.mimeType || "image/jpeg" });
+        }
       }
 
-      if (b64) {
-        const byteCharacters = atob(b64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        return new File([byteArray], item.name, { type: item.mimeType || "image/jpeg" });
-      }
-
-      // Fallback: busca via URL estática se existir
-      if (item.mediaUrl) {
-        const blobRes = await fetch(item.mediaUrl);
-        if (blobRes.ok) {
-          const blob = await blobRes.blob();
-          return new File([blob], item.name, { type: item.mimeType || blob.type || "image/jpeg" });
-        }
+      // 2. Fallback: busca binário via endpoint rawImage ou mediaUrl
+      const blobRes = await fetch(item.thumbnailUrl || item.mediaUrl);
+      if (blobRes.ok) {
+        const blob = await blobRes.blob();
+        return new File([blob], item.name, { type: item.mimeType || blob.type || "image/jpeg" });
       }
 
       return null;
@@ -252,9 +250,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
             {filteredImages.map((item) => {
               const isSelected = selectedIds.has(item.id);
-              const imgSrc = item.base64Data
-                ? `data:${item.mimeType};base64,${item.base64Data}`
-                : item.mediaUrl;
+              const imgSrc = item.thumbnailUrl || item.mediaUrl;
 
               return (
                 <div
@@ -273,15 +269,17 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
                         src={imgSrc}
                         alt={item.name}
                         loading="lazy"
-                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200 relative z-1"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = "none";
+                        }}
                       />
-                    ) : (
-                      <Package className="h-8 w-8 text-muted-foreground/40" />
-                    )}
+                    ) : null}
+                    <Package className="h-8 w-8 text-muted-foreground/40 absolute z-0" />
 
                     {/* Checkbox indicator */}
                     <div
-                      className={`absolute top-2 left-2 flex h-5 w-5 items-center justify-center rounded-md border transition-all ${
+                      className={`absolute top-2 left-2 z-2 flex h-5 w-5 items-center justify-center rounded-md border transition-all ${
                         isSelected
                           ? "bg-primary border-primary text-primary-foreground shadow-xs"
                           : "bg-background/80 backdrop-blur-xs border-border/80 text-transparent group-hover:border-foreground/40"
@@ -398,13 +396,9 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
 
             <div className="flex-1 p-4 overflow-auto flex items-center justify-center bg-background min-h-0">
               <img
-                src={
-                  zoomImage.base64Data
-                    ? `data:${zoomImage.mimeType};base64,${zoomImage.base64Data}`
-                    : zoomImage.mediaUrl
-                }
+                src={zoomImage.thumbnailUrl || zoomImage.mediaUrl}
                 alt={zoomImage.name}
-                className="max-h-[60vh] max-w-full object-contain rounded-lg"
+                className="max-h-[60vh] max-w-full object-contain rounded-lg shadow-xs"
               />
             </div>
 

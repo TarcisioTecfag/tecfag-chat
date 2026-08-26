@@ -2303,7 +2303,7 @@ export function ChatPanel() {
             </div>
           )}
 
-          {/* 4-Mode Selector (Mensagem vs Nota vs Valentina vs Válvulas) */}
+          {/* 4-Mode Selector (Mensagem vs Valentina vs Nota vs Válvulas) */}
           <div className="flex items-center gap-3 pl-2 mb-1.5 text-[11px] font-bold select-none">
             <button
               onClick={() => {
@@ -2317,6 +2317,13 @@ export function ChatPanel() {
               }`}
             >
               Enviar Mensagem
+            </button>
+            <button
+              onClick={() => setShowValentinaModal(true)}
+              className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1 text-primary hover:opacity-85"
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>Valentina</span>
             </button>
             {canSendInternalNotes && (
               <button
@@ -2334,13 +2341,6 @@ export function ChatPanel() {
                 <span>Nota Interna</span>
               </button>
             )}
-            <button
-              onClick={() => setShowValentinaModal(true)}
-              className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1 text-primary hover:opacity-85"
-            >
-              <Sparkles className="h-3 w-3" />
-              <span>Valentina</span>
-            </button>
             <button
               onClick={() => setIsCatalogOpen((v) => !v)}
               className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${

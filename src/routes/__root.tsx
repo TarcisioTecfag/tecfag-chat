@@ -15,6 +15,7 @@ import { ChatProvider } from "@/hooks/useChatState";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { DeployNotificationModal } from "@/components/ui/DeployNotificationModal";
+import { useTheme } from "../hooks/useTheme";
 
 function NotFoundComponent() {
   return (
@@ -157,6 +158,11 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="pt-BR" className="notranslate" translate="no">
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("chat_theme_mode");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}}catch(e){}})();`,
+          }}
+        />
         <HeadContent />
       </head>
       <body>
@@ -169,6 +175,7 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useTheme(); // Mantém ouvintes de matchMedia e sincronização de tema ativos
 
   return (
     <QueryClientProvider client={queryClient}>
