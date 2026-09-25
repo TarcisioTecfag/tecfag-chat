@@ -47,6 +47,7 @@ export type Conversation = {
   sectorId?: string | null;
   sectorName?: string | null;
   responsibleName?: string;
+  version?: number;
 };
 
 export type OperatorTemplate = {

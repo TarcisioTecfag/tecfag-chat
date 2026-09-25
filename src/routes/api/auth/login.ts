@@ -1,7 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { db } from "../../../db";
-import { operators } from "../../../db/schema";
-import { eq, sql } from "drizzle-orm";
+import { db } from "../../../db/index.js";
+import { operators } from "../../../db/schema.js";
+import { eq, and } from "drizzle-orm";
+import { verifyPassword, hashPassword, needsPasswordMigration } from "../../../lib/auth-crypto.js";
+import {
+  createSession,
+  buildSessionCookie,
+  sanitizeOperator,
+  checkLoginRateLimit,
+  recordFailedLogin,
+  resetLoginRateLimit,
+} from "../../../lib/auth-session.js";
 
 export const Route = createFileRoute("/api/auth/login")({
   server: {
@@ -17,64 +26,104 @@ export const Route = createFileRoute("/api/auth/login")({
         });
       },
       POST: async ({ request }) => {
-        const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        };
-
         try {
-          const body = await request.json();
+          const body = await request.json().catch(() => ({}));
           const email = (body.email || "").toString().trim().toLowerCase();
-          const password = (body.password || body.passwordHash || "").toString();
+          const password = (body.password || "").toString();
+          const tenantId = (body.tenantId || "").toString().trim().toLowerCase();
 
           if (!email || !password) {
             return new Response(
-              JSON.stringify({ success: false, error: "E-mail e senha são obrigatórios" }),
-              {
-                status: 400,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              }
+              JSON.stringify({ success: false, error: "E-mail e senha são obrigatórios." }),
+              { status: 400, headers: { "Content-Type": "application/json" } }
             );
           }
 
-          // Buscar operador no PostgreSQL por e-mail (case-insensitive)
-          const allOps = await db.select().from(operators);
-          const matchedOp = allOps.find(
-            (op) => op.email.trim().toLowerCase() === email && op.passwordHash === password
-          );
+          if (!tenantId || (tenantId !== "valem" && tenantId !== "tecfag")) {
+            return new Response(
+              JSON.stringify({ success: false, error: "Selecione a empresa (Tecfag ou Valem)." }),
+              { status: 400, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
+          // Rate Limit por identificador (tenant + email)
+          const rateLimitKey = `${tenantId}:${email}`;
+          const rateCheck = checkLoginRateLimit(rateLimitKey);
+          if (!rateCheck.allowed) {
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: `Muitas tentativas incorretas. Tente novamente em ${rateCheck.remainingSeconds} segundos.`,
+              }),
+              { status: 429, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
+          // Buscar operador estritamente dentro do tenant selecionado
+          const matchedOp = await db.query.operators.findFirst({
+            where: and(
+              eq(operators.tenantId, tenantId),
+              eq(operators.email, email)
+            ),
+          });
 
           if (!matchedOp) {
-            console.warn(`[Login API] Falha no login para o e-mail: ${email}`);
+            recordFailedLogin(rateLimitKey);
             return new Response(
               JSON.stringify({ success: false, error: "Credenciais inválidas. Tente novamente." }),
-              {
-                status: 401,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              }
+              { status: 401, headers: { "Content-Type": "application/json" } }
             );
           }
 
-          console.log(`[Login API] ✅ Operador autenticado com sucesso: ${matchedOp.name} (${matchedOp.email}) | Tenant: ${matchedOp.tenantId}`);
+          // Validação segura com scrypt / timingSafeEqual
+          const isPasswordValid = verifyPassword(password, matchedOp.passwordHash);
+          if (!isPasswordValid) {
+            recordFailedLogin(rateLimitKey);
+            return new Response(
+              JSON.stringify({ success: false, error: "Credenciais inválidas. Tente novamente." }),
+              { status: 401, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
+          // Login com sucesso: reseta limitador
+          resetLoginRateLimit(rateLimitKey);
+
+          // Migração suave de senha se ainda não estiver em scrypt
+          if (needsPasswordMigration(matchedOp.passwordHash)) {
+            const upgradedHash = hashPassword(password);
+            await db
+              .update(operators)
+              .set({ passwordHash: upgradedHash })
+              .where(eq(operators.id, matchedOp.id));
+          }
+
+          // Criar sessão de servidor segura
+          const { token, expiresAt } = await createSession(matchedOp.tenantId, matchedOp.id);
+          const cookieHeader = buildSessionCookie(token, expiresAt);
+
+          console.log(`[Login API] ✅ Operador autenticado com sessão HttpOnly: ${matchedOp.name} (${matchedOp.email}) | Tenant: ${matchedOp.tenantId}`);
+
+          const sanitized = sanitizeOperator(matchedOp);
 
           return new Response(
             JSON.stringify({
               success: true,
-              operator: matchedOp,
+              operator: sanitized,
+              tenantId: matchedOp.tenantId,
             }),
             {
               status: 200,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                "Set-Cookie": cookieHeader,
+              },
             }
           );
         } catch (e: any) {
-          console.error("[Login API] Erro ao autenticar no DB:", e);
+          console.error("[Login API] Erro ao autenticar no servidor:", e);
           return new Response(
-            JSON.stringify({ success: false, error: e.message || "Erro interno no servidor ao autenticar" }),
-            {
-              status: 500,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            JSON.stringify({ success: false, error: "Erro interno no servidor ao autenticar." }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
           );
         }
       },

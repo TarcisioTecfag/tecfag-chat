@@ -3,7 +3,7 @@ import { useChat } from "@/hooks/useChatState";
 import { 
   Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save, Mail, 
   FileText, Link, ExternalLink, CheckCircle2, Loader2, PhoneCall, Clock, 
-  MessageSquare, ShieldAlert, Calendar, Sparkles, Send, Bell, Globe
+  MessageSquare, ShieldAlert, Calendar, Sparkles, Send, Bell, Globe, Copy
 } from "lucide-react";
 import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/ConfiguracaoTab";
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
@@ -109,38 +109,193 @@ export function SettingsView() {
     }
   };
 
+  // Estado do Canal WhatsApp Unificado (Meta / Baileys)
+  const [whatsappChannel, setWhatsappChannel] = useState<{
+    activeProvider: "baileys" | "meta";
+    connectionStatus: string;
+    connectionVersion: number;
+    livePhone: string;
+    metaBusinessAccountId: string;
+    metaPhoneNumberId: string;
+    metaVerifyToken: string;
+    metaAccessToken: string;
+    metaAppSecret: string;
+    hasMetaAccessToken: boolean;
+    hasMetaAppSecret: boolean;
+  }>({
+    activeProvider: "baileys",
+    connectionStatus: "disconnected",
+    connectionVersion: 1,
+    livePhone: "",
+    metaBusinessAccountId: "",
+    metaPhoneNumberId: "",
+    metaVerifyToken: "tecfag_chat_webhook_secret",
+    metaAccessToken: "",
+    metaAppSecret: "",
+    hasMetaAccessToken: false,
+    hasMetaAppSecret: false,
+  });
+
+  const [loadingChannel, setLoadingChannel] = useState(false);
+  const [switchingProvider, setSwitchingProvider] = useState(false);
+  const [testingMeta, setTestingMeta] = useState(false);
+  const [metaTestResult, setMetaTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [savingChannel, setSavingChannel] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
+
   // Estados do Diagnóstico de Envio
   const [testPhone, setTestPhone] = useState("");
-  const [testMessage, setTestMessage] = useState("Teste de conexão bem-sucedido! Valem Chat funcionando de forma perfeita.");
+  const [testMessage, setTestMessage] = useState("Teste de conexão e entrega operacional! Sistema multitenant ativo.");
   const [testStatus, setTestStatus] = useState<{ type: "success" | "error" | "idle" | "sending"; message: string }>({
     type: "idle",
     message: "",
   });
 
-  const handleMetaSave = (e: React.FormEvent) => {
+  const loadWhatsAppConfig = async () => {
+    try {
+      setLoadingChannel(true);
+      const res = await fetch(`${BACKEND_URL}/api/settings/whatsapp?tenantId=${tenant}`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWhatsappChannel((prev) => ({
+          ...prev,
+          activeProvider: data.activeProvider || "baileys",
+          connectionStatus: data.connectionStatus || "disconnected",
+          connectionVersion: data.connectionVersion || 1,
+          livePhone: data.livePhone || data.baileysPairedPhone || "",
+          metaBusinessAccountId: data.metaBusinessAccountId || "",
+          metaPhoneNumberId: data.metaPhoneNumberId || "",
+          metaVerifyToken: data.metaVerifyToken || "tecfag_chat_webhook_secret",
+          hasMetaAccessToken: !!data.hasMetaAccessToken,
+          hasMetaAppSecret: !!data.hasMetaAppSecret,
+        }));
+      }
+    } catch (e) {
+      console.error("Erro ao carregar canal do WhatsApp:", e);
+    } finally {
+      setLoadingChannel(false);
+    }
+  };
+
+  useEffect(() => {
+    loadWhatsAppConfig();
+  }, [tenant]);
+
+  const handleSwitchProvider = async (targetProvider: "baileys" | "meta") => {
+    if (switchingProvider) return;
+    setSwitchingProvider(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings/whatsapp/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "switch_provider",
+          provider: targetProvider,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setWhatsappChannel((prev) => ({
+          ...prev,
+          activeProvider: targetProvider,
+          connectionVersion: data.connectionVersion,
+        }));
+        if (targetProvider === "baileys") {
+          connectBaileys(true);
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao alternar provedor:", e);
+    } finally {
+      setSwitchingProvider(false);
+    }
+  };
+
+  const handleSaveMetaCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
-    setMetaConfig({ ...metaForm, status: "connected" });
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+    setSavingChannel(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings/whatsapp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          activeProvider: whatsappChannel.activeProvider,
+          metaBusinessAccountId: whatsappChannel.metaBusinessAccountId,
+          metaPhoneNumberId: whatsappChannel.metaPhoneNumberId,
+          metaVerifyToken: whatsappChannel.metaVerifyToken,
+          ...(whatsappChannel.metaAccessToken ? { metaAccessToken: whatsappChannel.metaAccessToken } : {}),
+          ...(whatsappChannel.metaAppSecret ? { metaAppSecret: whatsappChannel.metaAppSecret } : {}),
+        }),
+      });
+      if (res.ok) {
+        setIsSaved(true);
+        setTimeout(() => setIsSaved(false), 3000);
+        await loadWhatsAppConfig();
+      }
+    } catch (e) {
+      console.error("Erro ao salvar credenciais Meta:", e);
+    } finally {
+      setSavingChannel(false);
+    }
+  };
+
+  const handleTestMetaCredentials = async () => {
+    setTestingMeta(true);
+    setMetaTestResult(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings/whatsapp/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "test_credentials",
+          customConfig: {
+            phoneNumberId: whatsappChannel.metaPhoneNumberId,
+            accessToken: whatsappChannel.metaAccessToken || undefined,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMetaTestResult({
+          success: true,
+          message: `Conexão válida! Número verificado: ${data.details?.display_phone_number || "OK"} (${data.details?.verified_name || "Meta Cloud"})`,
+        });
+      } else {
+        setMetaTestResult({
+          success: false,
+          message: data.message || data.error || "Falha ao validar credenciais na Meta Graph API.",
+        });
+      }
+    } catch (e: any) {
+      setMetaTestResult({ success: false, message: e.message || "Erro de rede ao validar na Meta." });
+    } finally {
+      setTestingMeta(false);
+    }
   };
 
   const handleTestSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testPhone) {
-      setTestStatus({ type: "error", message: "Por favor, informe o número de telefone de destino." });
+      setTestStatus({ type: "error", message: "Por favor, informe o número de telefone de destino com DDD." });
       return;
     }
 
-    setTestStatus({ type: "sending", message: "Enviando mensagem de teste..." });
+    setTestStatus({ type: "sending", message: "Disparando mensagem pelo provedor ativo..." });
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/baileys/send`, {
+      const response = await fetch(`${BACKEND_URL}/api/whatsapp/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
-          tenantId: "valem",
-          phone: testPhone.replace(/\D/g, ""), // Limpa caracteres
+          phone: testPhone.replace(/\D/g, ""),
           text: testMessage,
+          clientMessageId: `test-send-${Date.now()}`,
         }),
       });
 
@@ -148,7 +303,7 @@ export function SettingsView() {
       if (response.ok && data.success) {
         setTestStatus({
           type: "success",
-          message: "Mensagem de teste enviada com sucesso! Verifique o aparelho do destinatário.",
+          message: `Mensagem aceita com sucesso pelo provedor '${(data.provider || whatsappChannel.activeProvider).toUpperCase()}' (ID: ${data.messageId || "OK"}). Verifique o aparelho do destinatário!`,
         });
       } else {
         throw new Error(data.error || "O servidor não pôde concluir o envio.");
@@ -157,7 +312,7 @@ export function SettingsView() {
       console.error("Erro no envio de teste:", err);
       setTestStatus({
         type: "error",
-        message: err.message || "Erro desconhecido. Verifique se o WhatsApp está conectado de verdade.",
+        message: err.message || "Erro desconhecido. Verifique se o provedor está conectado.",
       });
     }
   };
@@ -234,7 +389,7 @@ export function SettingsView() {
   const { canAccessSettingsTab } = usePermissions();
 
   const allTabs = [
-    { id: "whatsapp" as const, label: tenant === "tecfag" ? "WhatsApp (Meta API)" : "WhatsApp (Baileys)", icon: Smartphone },
+    { id: "whatsapp" as const, label: "WhatsApp (Meta / Baileys)", icon: Smartphone },
     { id: "voz" as const, label: "Voz & Telefonia (Valentina)", icon: PhoneCall },
     { id: "rd" as const, label: "RD Station CRM", icon: Link },
     { id: "email" as const, label: "E-mail & Automações", icon: Mail },
@@ -301,298 +456,431 @@ export function SettingsView() {
 
       {/* Tab Body */}
       <div className="flex-1 overflow-y-auto p-8 bg-background/50 space-y-6">
-        {/* ABA 1: WHATSAPP */}
+        {/* ABA 1: WHATSAPP MULTI-TENANT (META OU BAILEYS) */}
         {activeTab === "whatsapp" && (
-          <div className="space-y-6">
-            {tenant === "tecfag" ? (
-              /* META API CONFIGURATION */
-              <div className="space-y-6 max-w-4xl">
-                <div className="flex items-center justify-between rounded-2xl bg-card p-5 border border-border shadow-soft">
-                  <div className="flex items-center gap-4">
-                    <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-primary">
-                      <Shield className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-foreground">Status da Integração Meta</h3>
-                      <p className="text-xs text-muted-foreground mt-0.5">API Oficial do WhatsApp Cloud</p>
-                    </div>
+          <div className="space-y-6 max-w-5xl">
+            {/* 1. SELETOR DE PROVEDOR ATIVO */}
+            <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                      Provedor WhatsApp Ativo ({tenant === "valem" ? "Valem" : "Tecfag"})
+                    </span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted font-mono text-muted-foreground">
+                      v{whatsappChannel.connectionVersion}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-3.5 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Conectado
-                  </div>
+                  <h3 className="text-lg font-extrabold text-foreground mt-0.5">
+                    {whatsappChannel.activeProvider === "meta"
+                      ? "Meta WhatsApp Cloud API Oficial"
+                      : "Baileys — Conexão via WhatsApp Web"}
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Cada empresa pode operar de forma independente com a API Oficial da Meta ou via QR Code (Baileys).
+                  </p>
                 </div>
 
-                <form onSubmit={handleMetaSave} className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-5">
-                  <div className="flex items-center gap-2 border-b border-border pb-3 mb-2">
-                    <Key className="h-4 w-4 text-primary" />
-                    <h4 className="font-bold text-foreground">Credenciais da API Meta Developer</h4>
+                <div className="flex items-center gap-2">
+                  {whatsappChannel.activeProvider === "meta" ? (
+                    <div className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-3.5 py-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Meta Ativo
+                    </div>
+                  ) : (
+                    <div className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-bold border ${
+                      baileysConfig.status === "connected"
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                        : baileysConfig.status === "qr_ready"
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                        : "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
+                    }`}>
+                      <span className={`h-2 w-2 rounded-full ${baileysConfig.status === "connected" ? "bg-emerald-500 animate-pulse" : baileysConfig.status === "qr_ready" ? "bg-amber-500 animate-pulse" : "bg-red-500"}`} />
+                      {baileysConfig.status === "connected" ? "Baileys Conectado" : baileysConfig.status === "qr_ready" ? "Aguardando QR" : "Baileys Desconectado"}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Botões de Alternância de Provedor */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchProvider("meta")}
+                  disabled={switchingProvider || whatsappChannel.activeProvider === "meta"}
+                  className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
+                    whatsappChannel.activeProvider === "meta"
+                      ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-soft"
+                      : "border-border bg-muted/20 hover:bg-muted/40 hover:border-border/80"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${whatsappChannel.activeProvider === "meta" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                        <Shield className="h-4 w-4" />
+                      </div>
+                      <span className="text-xs font-bold text-foreground">Meta Cloud API (Oficial)</span>
+                    </div>
+                    {whatsappChannel.activeProvider === "meta" && (
+                      <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/20 text-primary px-2 py-0.5 rounded-md">
+                        Em Uso
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+                    Graph API oficial v21.0 da Meta, templates aprovados, alta taxa de entrega e webhook HMAC SHA-256 verificado.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSwitchProvider("baileys")}
+                  disabled={switchingProvider || whatsappChannel.activeProvider === "baileys"}
+                  className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
+                    whatsappChannel.activeProvider === "baileys"
+                      ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-soft"
+                      : "border-border bg-muted/20 hover:bg-muted/40 hover:border-border/80"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${whatsappChannel.activeProvider === "baileys" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                        <Smartphone className="h-4 w-4" />
+                      </div>
+                      <span className="text-xs font-bold text-foreground">Baileys (WhatsApp Web)</span>
+                    </div>
+                    {whatsappChannel.activeProvider === "baileys" && (
+                      <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/20 text-primary px-2 py-0.5 rounded-md">
+                        Em Uso
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+                    Conexão em tempo real via QR Code. Não requer verificação de empresa na Meta, sem custos por mensagem de template.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* 2. CONTEÚDO ESPECÍFICO DO PROVEDOR ATIVO */}
+            {whatsappChannel.activeProvider === "meta" ? (
+              /* PAINEL META OFICIAL */
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <form onSubmit={handleSaveMetaCredentials} className="lg:col-span-2 rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
+                  <div className="flex items-center justify-between border-b border-border pb-3">
+                    <div className="flex items-center gap-2">
+                      <Key className="h-4 w-4 text-primary" />
+                      <h4 className="font-bold text-foreground text-sm">Credenciais Meta Cloud API</h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleTestMetaCredentials}
+                      disabled={testingMeta}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-foreground text-xs font-semibold hover:bg-muted/80 transition cursor-pointer border border-border"
+                    >
+                      {testingMeta ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                      Testar Conexão Meta
+                    </button>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
+                  {metaTestResult && (
+                    <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                      metaTestResult.success
+                        ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold"
+                        : "bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 font-semibold"
+                    }`}>
+                      {metaTestResult.success ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+                      <span>{metaTestResult.message}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
                       <label className="text-xs font-semibold text-foreground/80">Meta Business Account ID</label>
                       <input
                         type="text"
-                        value={metaForm.businessAccountId}
-                        onChange={(e) => setMetaForm({ ...metaForm, businessAccountId: e.target.value })}
-                        className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        placeholder="Ex: 104829104859201"
+                        value={whatsappChannel.metaBusinessAccountId}
+                        onChange={(e) => setWhatsappChannel({ ...whatsappChannel, metaBusinessAccountId: e.target.value })}
+                        className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border font-mono"
                       />
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <label className="text-xs font-semibold text-foreground/80">WhatsApp Phone Number ID</label>
                       <input
                         type="text"
-                        value={metaForm.phoneNumberId}
-                        onChange={(e) => setMetaForm({ ...metaForm, phoneNumberId: e.target.value })}
-                        className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        placeholder="Ex: 102948571029384"
+                        value={whatsappChannel.metaPhoneNumberId}
+                        onChange={(e) => setWhatsappChannel({ ...whatsappChannel, metaPhoneNumberId: e.target.value })}
+                        className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border font-mono"
                       />
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-foreground/80">Token de Acesso Permanente (System User Token)</label>
-                    <textarea
-                      rows={3}
-                      value={metaForm.accessToken}
-                      onChange={(e) => setMetaForm({ ...metaForm, accessToken: e.target.value })}
-                      className="w-full rounded-xl bg-muted p-4 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border resize-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-foreground/80">Token de Verificação do Webhook (Webhook Verify Token)</label>
-                    <input
-                      type="text"
-                      value={metaForm.webhookVerifyToken}
-                      onChange={(e) => setMetaForm({ ...metaForm, webhookVerifyToken: e.target.value })}
-                      className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between pt-4 border-t border-border">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <AlertCircle className="h-4 w-4" />
-                      Mantenha esses dados seguros. Eles controlam o envio de templates oficiais.
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-foreground/80">System User Access Token (Permanente)</label>
+                      {whatsappChannel.hasMetaAccessToken && (
+                        <span className="text-[10px] text-emerald-600 font-semibold">✓ Token configurado</span>
+                      )}
                     </div>
+                    <textarea
+                      rows={2}
+                      placeholder={whatsappChannel.hasMetaAccessToken ? "Token já configurado no banco. Digite um novo valor se desejar alterar." : "EAAG..."}
+                      value={whatsappChannel.metaAccessToken}
+                      onChange={(e) => setWhatsappChannel({ ...whatsappChannel, metaAccessToken: e.target.value })}
+                      className="w-full rounded-xl bg-muted p-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-foreground/80">Meta App Secret (HMAC SHA-256)</label>
+                        {whatsappChannel.hasMetaAppSecret && (
+                          <span className="text-[10px] text-emerald-600 font-semibold">✓ Secret salvo</span>
+                        )}
+                      </div>
+                      <input
+                        type="password"
+                        placeholder={whatsappChannel.hasMetaAppSecret ? "••••••••••••••••" : "App Secret"}
+                        value={whatsappChannel.metaAppSecret}
+                        onChange={(e) => setWhatsappChannel({ ...whatsappChannel, metaAppSecret: e.target.value })}
+                        className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-foreground/80">Webhook Verify Token</label>
+                      <input
+                        type="text"
+                        value={whatsappChannel.metaVerifyToken}
+                        onChange={(e) => setWhatsappChannel({ ...whatsappChannel, metaVerifyToken: e.target.value })}
+                        className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                    <span className="text-[11px] text-muted-foreground">
+                      Tokens são armazenados de forma isolada para este inquilino ({tenant}).
+                    </span>
                     <button
                       type="submit"
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft"
+                      disabled={savingChannel}
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft"
                     >
-                      {isSaved ? (
-                        <>
-                          <Check className="h-4 w-4" />
-                          Salvo!
-                        </>
-                      ) : (
-                        <>
-                          <Save className="h-4 w-4" />
-                          Salvar Alterações Meta
-                        </>
-                      )}
+                      {savingChannel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                      {isSaved ? "Salvo com Sucesso!" : "Salvar Configurações"}
                     </button>
                   </div>
                 </form>
+
+                {/* Box de Webhook */}
+                <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Link className="h-4 w-4 text-primary" />
+                    <h4 className="font-bold text-foreground text-sm">Webhook Meta Developer</h4>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Configure este endpoint no Meta App Dashboard para receber mensagens recebidas e atualizações de entrega.
+                  </p>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-semibold text-muted-foreground">URL de Callback (Webhook)</label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        readOnly
+                        value={typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/meta` : "/api/webhooks/meta"}
+                        className="h-8 flex-1 rounded-lg bg-muted px-2.5 text-[11px] font-mono text-foreground border border-border"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof navigator !== "undefined") {
+                            navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/meta`);
+                            setCopiedWebhook(true);
+                            setTimeout(() => setCopiedWebhook(false), 2000);
+                          }
+                        }}
+                        className="h-8 px-2.5 rounded-lg bg-muted border border-border text-xs font-semibold hover:bg-muted/80 flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedWebhook ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-muted/40 p-3 space-y-2 border border-border text-xs">
+                    <div className="font-semibold text-foreground text-[11px]">Campos a assinar no Webhook:</div>
+                    <ul className="list-disc list-inside text-muted-foreground text-[11px] space-y-1">
+                      <li><code>messages</code> (Mensagens recebidas e status)</li>
+                      <li>Token de Verificação: <code className="text-primary font-bold">{whatsappChannel.metaVerifyToken}</code></li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             ) : (
-              /* BAILEYS CONNECTION GRID */
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                <div className="space-y-6">
-                  {/* Status Panel */}
-                  <div className="flex items-center justify-between rounded-2xl bg-card p-5 border border-border shadow-soft">
-                    <div className="flex items-center gap-4">
-                      <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-primary">
-                        <Smartphone className="h-6 w-6" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-foreground">Conexão Baileys (WhatsApp)</h3>
-                        <p className="text-xs text-muted-foreground mt-0.5">Integração baseada em pareamento de QR Code</p>
-                      </div>
+              /* PAINEL BAILEYS */
+              <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-6">
+                <div className="flex items-center justify-between border-b border-border pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                      <Smartphone className="h-5 w-5" />
                     </div>
-                    
-                    {baileysConfig.status === "connected" && (
-                      <div className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-3.5 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                        Conectado
-                      </div>
-                    )}
-                    {baileysConfig.status === "qr_ready" && (
-                      <div className="flex items-center gap-2 rounded-full bg-amber-500/10 px-3.5 py-1 text-xs font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                        <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                        Aguardando Leitura
-                      </div>
-                    )}
-                    {baileysConfig.status === "connecting" && (
-                      <div className="flex items-center gap-2 rounded-full bg-blue-500/10 px-3.5 py-1 text-xs font-bold text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        Iniciando...
-                      </div>
-                    )}
-                    {baileysConfig.status === "disconnected" && (
-                      <div className="flex items-center gap-2 rounded-full bg-red-500/10 px-3.5 py-1 text-xs font-bold text-red-600 dark:text-red-400 border border-red-500/20">
-                        <span className="h-2 w-2 rounded-full bg-red-500" />
-                        Desconectado
-                      </div>
-                    )}
+                    <div>
+                      <h4 className="font-bold text-foreground text-sm">Pareamento WhatsApp Web (Baileys)</h4>
+                      <p className="text-xs text-muted-foreground">Conecte o aparelho oficial do inquilino via leitura de QR Code</p>
+                    </div>
                   </div>
 
-                  {/* QR Connection Screen */}
-                  <div className="rounded-2xl bg-card p-8 border border-border shadow-soft">
+                  <div className="flex items-center gap-2">
                     {baileysConfig.status === "connected" ? (
-                      <div className="flex flex-col items-center justify-center text-center py-6">
-                        <div className="grid h-16 w-16 place-items-center rounded-full bg-emerald-500/10 text-emerald-500 mb-4">
-                          <Check className="h-8 w-8" strokeWidth={2.5} />
-                        </div>
-                        <h4 className="text-lg font-extrabold text-foreground">Sessão Ativa com Sucesso</h4>
-                        <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                          O Valem Chat está emparelhado e ativo respondendo mensagens do número:
-                        </p>
-                        <span className="text-base font-bold text-primary mt-2">{baileysConfig.pairedPhone}</span>
-
-                        <div className="mt-8 pt-6 border-t border-border w-full flex justify-center">
-                          <button
-                            onClick={disconnectBaileys}
-                            className="h-10 rounded-xl border border-red-500/20 bg-red-500/10 px-6 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-500/20 transition cursor-pointer"
-                          >
-                            Desconectar Dispositivo
-                          </button>
-                        </div>
-                      </div>
-                    ) : baileysConfig.status === "connecting" ? (
-                      <div className="flex flex-col items-center justify-center py-12">
-                        <RefreshCw className="h-12 w-12 animate-spin text-primary mb-4" />
-                        <h4 className="text-sm font-bold text-foreground">Solicitando nova sessão ao servidor...</h4>
-                        <p className="text-xs text-muted-foreground mt-1">Isso pode levar alguns segundos</p>
-                      </div>
-                    ) : baileysConfig.status === "qr_ready" ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                        <div className="flex flex-col items-center justify-center bg-muted p-6 rounded-2xl border border-border">
-                          <div className="bg-white p-4 rounded-xl shadow-soft">
-                            {baileysConfig.qrCodeUrl ? (
-                              <img src={baileysConfig.qrCodeUrl} alt="WhatsApp Web QR Code" className="h-44 w-44 object-contain" />
-                            ) : (
-                              <div className="h-44 w-44 flex items-center justify-center bg-gray-100 rounded-lg">
-                                <QrCode className="h-12 w-12 text-muted-foreground animate-pulse" />
-                              </div>
-                            )}
-                          </div>
-                          <span className="text-[11px] text-muted-foreground mt-4 flex items-center gap-1.5">
-                            <RefreshCw className="h-3 w-3 animate-spin" /> O código atualiza a cada 30 segundos.
-                          </span>
-                        </div>
-
-                        <div className="space-y-4">
-                          <h4 className="text-base font-bold text-foreground">Instruções de conexão:</h4>
-                          <ol className="list-decimal list-inside space-y-2 text-xs text-muted-foreground leading-relaxed">
-                            <li>Abra o <strong className="text-foreground">WhatsApp</strong> no celular.</li>
-                            <li>Acesse <strong className="text-foreground">Configurações → Aparelhos Conectados</strong>.</li>
-                            <li>Toque em <strong className="text-foreground">Conectar um aparelho</strong>.</li>
-                            <li>Aponte a câmera para ler o QR Code ao lado.</li>
-                          </ol>
-
-                          <div className="pt-4 flex gap-3">
-                            <button
-                              onClick={disconnectBaileys}
-                              className="h-9 rounded-xl border border-border bg-card px-5 text-xs font-semibold text-muted-foreground hover:bg-muted transition cursor-pointer"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                      <button
+                        onClick={disconnectBaileys}
+                        className="h-9 px-4 rounded-xl border border-red-500/20 bg-red-500/10 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-500/20 transition cursor-pointer"
+                      >
+                        Desconectar Dispositivo
+                      </button>
                     ) : (
-                      <div className="flex flex-col items-center justify-center text-center py-8">
-                        <div className="grid h-16 w-16 place-items-center rounded-full bg-red-500/10 text-red-500 mb-4">
-                          <AlertCircle className="h-8 w-8" />
-                        </div>
-                        <h4 className="text-base font-bold text-foreground">Nenhuma Sessão de WhatsApp Ativa</h4>
-                        <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                          Para que o Valem Chat possa enviar e receber mensagens via Baileys, conecte uma linha do WhatsApp.
-                        </p>
-                        <button
-                          onClick={() => connectBaileys(true)}
-                          className="mt-6 h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
-                        >
-                          Gerar QR Code de Conexão
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => connectBaileys(true)}
+                        className="h-9 px-4 rounded-xl bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft flex items-center gap-1.5"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Gerar Novo QR Code
+                      </button>
                     )}
                   </div>
                 </div>
 
-                {/* Diagnóstico de Envio */}
-                <div className="space-y-6">
-                  <div className="rounded-2xl bg-card p-6 border border-border shadow-soft flex flex-col justify-between min-h-[360px]">
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 border-b border-border pb-3 mb-2">
-                        <Send className="h-4 w-4 text-primary" />
-                        <h4 className="font-bold text-foreground">Diagnóstico de Envio (Teste de Disparo)</h4>
+                {baileysConfig.status === "connected" ? (
+                  <div className="flex flex-col items-center justify-center text-center py-6">
+                    <div className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500/10 text-emerald-500 mb-3">
+                      <Check className="h-7 w-7" strokeWidth={2.5} />
+                    </div>
+                    <h4 className="text-base font-extrabold text-foreground">Sessão Ativa com Sucesso</h4>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                      O canal Baileys está emparelhado e ativo respondendo mensagens do número:
+                    </p>
+                    <span className="text-base font-bold text-primary mt-2 font-mono">{baileysConfig.pairedPhone || "WhatsApp Conectado"}</span>
+                  </div>
+                ) : baileysConfig.status === "connecting" ? (
+                  <div className="flex flex-col items-center justify-center py-10">
+                    <RefreshCw className="h-10 w-10 animate-spin text-primary mb-3" />
+                    <h4 className="text-sm font-bold text-foreground">Solicitando nova sessão ao servidor...</h4>
+                    <p className="text-xs text-muted-foreground mt-1">Isso pode levar alguns segundos</p>
+                  </div>
+                ) : baileysConfig.status === "qr_ready" ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center py-2">
+                    <div className="flex flex-col items-center justify-center bg-muted/40 p-6 rounded-2xl border border-border">
+                      <div className="bg-white p-4 rounded-xl shadow-soft">
+                        {baileysConfig.qrCodeUrl ? (
+                          <img src={baileysConfig.qrCodeUrl} alt="WhatsApp Web QR Code" className="h-44 w-44 object-contain" />
+                        ) : (
+                          <div className="h-44 w-44 flex items-center justify-center bg-gray-100 rounded-lg">
+                            <QrCode className="h-12 w-12 text-muted-foreground animate-pulse" />
+                          </div>
+                        )}
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Envie uma mensagem instantânea de teste para qualquer número de sua preferência para validar o fluxo de envio e receber logs de execução.
-                      </p>
-
-                      <form onSubmit={handleTestSend} className="space-y-4">
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-semibold text-foreground/80 block">Número do Celular (DDI + DDD + Número)</label>
-                          <input
-                            type="text"
-                            placeholder="Ex: 5514981468232"
-                            value={testPhone}
-                            onChange={(e) => setTestPhone(e.target.value)}
-                            disabled={baileysConfig.status !== "connected"}
-                            className="h-10 w-full rounded-xl bg-muted px-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border disabled:opacity-50"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-semibold text-foreground/80 block">Conteúdo da Mensagem</label>
-                          <textarea
-                            rows={3}
-                            value={testMessage}
-                            onChange={(e) => setTestMessage(e.target.value)}
-                            disabled={baileysConfig.status !== "connected"}
-                            className="w-full rounded-xl bg-muted p-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border resize-none disabled:opacity-50"
-                          />
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={baileysConfig.status !== "connected" || testStatus.type === "sending"}
-                          className="w-full inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground transition hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-soft active:scale-98"
-                        >
-                          {testStatus.type === "sending" ? (
-                            <>
-                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                              Disparando...
-                            </>
-                          ) : (
-                            "Disparar Mensagem de Teste"
-                          )}
-                        </button>
-                      </form>
+                      <span className="text-[11px] text-muted-foreground mt-3 flex items-center gap-1.5">
+                        <RefreshCw className="h-3 w-3 animate-spin" /> O código atualiza a cada 30 segundos.
+                      </span>
                     </div>
 
-                    {testStatus.type !== "idle" && (
-                      <div className="mt-4 pt-4 border-t border-border">
-                        {testStatus.type === "success" && (
-                          <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-start gap-2">
-                            <span className="h-2 w-2 rounded-full bg-emerald-500 mt-1 shrink-0 animate-pulse" />
-                            <div>{testStatus.message}</div>
-                          </div>
-                        )}
-                        {testStatus.type === "error" && (
-                          <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-xs font-semibold text-red-600 dark:text-red-400 flex items-start gap-2">
-                            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                            <div>{testStatus.message}</div>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <div className="space-y-4">
+                      <h4 className="text-sm font-bold text-foreground">Instruções para Conectar:</h4>
+                      <ol className="list-decimal list-inside space-y-2 text-xs text-muted-foreground leading-relaxed">
+                        <li>Abra o aplicativo <strong className="text-foreground">WhatsApp</strong> no celular.</li>
+                        <li>Toque no menu (3 pontinhos ou Ajustes) → <strong className="text-foreground">Aparelhos Conectados</strong>.</li>
+                        <li>Toque no botão <strong className="text-foreground">Conectar um aparelho</strong>.</li>
+                        <li>Aponte a câmera do celular para o QR Code exibido ao lado.</li>
+                      </ol>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-center py-6">
+                    <div className="grid h-12 w-12 place-items-center rounded-full bg-muted text-muted-foreground mb-3">
+                      <Smartphone className="h-6 w-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-foreground">Nenhuma Sessão Ativa</h4>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                      Clique em &quot;Gerar Novo QR Code&quot; para iniciar o pareamento do WhatsApp Web neste tenant.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
+
+            {/* 3. DIAGNÓSTICO E DISPARO DE TESTE UNIVERSAL */}
+            <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
+              <div className="flex items-center gap-2 border-b border-border pb-3">
+                <Send className="h-4 w-4 text-primary" />
+                <h4 className="font-bold text-foreground text-sm">
+                  Diagnóstico de Envio — Teste de Disparo ({whatsappChannel.activeProvider.toUpperCase()})
+                </h4>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Envie uma mensagem instantânea de teste para validar a entrega em tempo real através do provedor ativo.
+              </p>
+
+              <form onSubmit={handleTestSend} className="space-y-4 max-w-xl">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-foreground/80 block">Telefone de Destino (DDI + DDD + Número)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 5511999990000"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-foreground/80 block">Mensagem de Teste</label>
+                  <textarea
+                    rows={2}
+                    value={testMessage}
+                    onChange={(e) => setTestMessage(e.target.value)}
+                    className="w-full rounded-xl bg-muted p-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={testStatus.type === "sending"}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground transition hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-soft"
+                >
+                  {testStatus.type === "sending" ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Disparando Mensagem...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-3.5 w-3.5" />
+                      Disparar Mensagem de Teste
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {testStatus.type !== "idle" && (
+                <div className="pt-2">
+                  {testStatus.type === "success" && (
+                    <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-start gap-2">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div>{testStatus.message}</div>
+                    </div>
+                  )}
+                  {testStatus.type === "error" && (
+                    <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-xs font-semibold text-red-600 dark:text-red-400 flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div>{testStatus.message}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

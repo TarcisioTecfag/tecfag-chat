@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager } from "../../../lib/baileys/session-manager";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,8 +16,12 @@ export const Route = createFileRoute("/api/baileys/presence")({
       },
       POST: async ({ request }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
           const body = await request.json();
-          const { tenantId = "valem", jid } = body;
+          const { jid } = body;
 
           if (!jid) {
             return new Response(JSON.stringify({ error: "jid é obrigatório" }), {
@@ -26,7 +31,7 @@ export const Route = createFileRoute("/api/baileys/presence")({
           }
 
           const sessionManager = SessionManager.getInstance();
-          await sessionManager.subscribePresence(tenantId, jid);
+          await sessionManager.subscribePresence(session.tenantId, jid);
 
           return new Response(JSON.stringify({ success: true, jid }), {
             status: 200,

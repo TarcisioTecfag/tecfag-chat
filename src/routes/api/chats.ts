@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { conversations, contacts, messages, sectors, operators } from "../../db/schema";
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, and, desc, lt, inArray } from "drizzle-orm";
 import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
+import { requireSession } from "../../lib/auth-session";
+import { getAiPersona } from "../../lib/ai-persona";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -18,8 +20,7 @@ export const Route = createFileRoute("/api/chats")({
         });
       },
 
-      // POST /api/chats — Persiste mensagem (nota interna) no banco
-      // Quando isInternalNote=true e o contato tiver rdCrmDealId, envia também como anotação no RD CRM
+      // POST /api/chats — Persiste mensagem (nota interna ou do sistema) no banco
       POST: async ({ request }) => {
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
@@ -29,11 +30,14 @@ export const Route = createFileRoute("/api/chats")({
         };
 
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
           const body = await request.json() as {
-            tenantId: string;
             conversationId: string;
-            senderType: string;
-            senderName: string;
+            senderType?: string;
+            senderName?: string;
             senderEmail?: string;
             content: string;
             isInternalNote?: boolean;
@@ -43,83 +47,104 @@ export const Route = createFileRoute("/api/chats")({
           };
 
           const {
-            tenantId, conversationId, senderType, senderName, senderEmail,
+            conversationId, senderType = "agent", senderName, senderEmail,
             content, isInternalNote = false,
             quotedMessageId, quotedMessageSender, quotedMessageContent,
           } = body;
 
-
-          if (!tenantId || !conversationId || !content) {
+          if (!conversationId || !content) {
             return new Response(
-              JSON.stringify({ error: "tenantId, conversationId e content são obrigatórios" }),
+              JSON.stringify({ error: "conversationId e content são obrigatórios" }),
               { status: 400, headers: corsHeaders }
             );
           }
 
-          // 1. Salvar mensagem no banco
+          // Validar se a conversa pertence ao tenant da sessão
+          const [conv] = await db
+            .select()
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.id, conversationId),
+                eq(conversations.tenantId, session.tenantId)
+              )
+            );
+
+          if (!conv) {
+            return new Response(JSON.stringify({ error: "Conversa não encontrada" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
+          }
+
           const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const now = new Date();
+
           await db.insert(messages).values({
             id: msgId,
             conversationId,
-            tenantId,
+            tenantId: session.tenantId,
             senderType: senderType as any,
-            senderName,
+            senderName: senderName || session.operator.name,
             content,
             isInternalNote,
             quotedMessageId: quotedMessageId ?? null,
             quotedMessageSender: quotedMessageSender ?? null,
             quotedMessageContent: quotedMessageContent ?? null,
-            sentAt: new Date(),
+            direction: "outbound",
+            status: "accepted",
+            sentAt: now,
+            updatedAt: now,
           });
 
-          // 2. Se for nota interna, tentar enviar como anotação no RD CRM (fire-and-forget)
-          if (isInternalNote) {
+          await db
+            .update(conversations)
+            .set({ lastMessageTime: now, updatedAt: now })
+            .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId)));
+
+          // Se for nota interna e houver integração RD CRM (apenas Valem no MVP)
+          if (isInternalNote && session.tenantId === "valem") {
             (async () => {
               try {
-                const [conv] = await db
-                  .select({ contactId: conversations.contactId })
-                  .from(conversations)
-                  .where(eq(conversations.id, conversationId));
-
-                if (!conv?.contactId) return;
-
+                if (!conv.contactId) return;
                 const [contact] = await db
                   .select({ rdCrmDealId: contacts.rdCrmDealId })
                   .from(contacts)
-                  .where(eq(contacts.id, conv.contactId));
+                  .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, session.tenantId)));
 
                 if (!contact?.rdCrmDealId) return;
 
-                // Tentar mapear o e-mail do operador para um user_id no RD CRM
-                // (para que a nota apareça com o nome real, não "N/A")
                 let noteUserId: string | undefined;
                 if (senderEmail) {
                   try {
-                    const users = await getCachedUsers(tenantId);
-                    const matched = users.find((u: any) =>
-                      u.email?.toLowerCase() === senderEmail.toLowerCase()
-                    );
-                    if (matched) noteUserId = matched.id;
-                  } catch {/* ignora — nota vai sem user_id */}
+                    const users = await getCachedUsers(session.tenantId);
+                    const matched = users.find((u: any) => u.email?.toLowerCase() === senderEmail.toLowerCase());
+                    if (matched) noteUserId = matched._id || matched.id;
+                  } catch {}
                 }
 
-                // Endpoint correto: /deals/{id}/notes com campo description (igual ao SDR)
-                await rdRequest(tenantId, "POST", `/deals/${contact.rdCrmDealId}/notes`, {
-                  description: `[Nota Interna — ${senderName}]\n\n${content}`,
-                  ...(noteUserId ? { user_id: noteUserId } : {}),
-                });
-                console.log(`[chats POST] Nota interna enviada ao CRM para deal ${contact.rdCrmDealId} (user: ${noteUserId ?? "padrão"})`);
-              } catch (crmErr: any) {
-                console.warn("[chats POST] Falha ao enviar nota interna ao CRM (não bloqueante):", crmErr.message);
+                await rdRequest(
+                  session.tenantId,
+                  "POST",
+                  `/deals/${contact.rdCrmDealId}/activity_notes`,
+                  {
+                    activity_note: {
+                      text: content,
+                      user_id: noteUserId,
+                    },
+                  }
+                );
+              } catch (err: any) {
+                console.error("[api/chats] Erro ao enviar nota para RD CRM:", err.message);
               }
             })();
           }
 
-
           return new Response(JSON.stringify({ success: true, id: msgId }), {
-            status: 201,
+            status: 200,
             headers: corsHeaders,
           });
+
         } catch (e: any) {
           console.error("[api/chats POST] Erro:", e);
           return new Response(JSON.stringify({ error: e.message }), {
@@ -129,22 +154,47 @@ export const Route = createFileRoute("/api/chats")({
         }
       },
 
+      // GET /api/chats — Retorna lista paginada e otimizada de conversas do tenant
       GET: async ({ request }) => {
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
+          "Content-Type": "application/json",
         };
 
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId") || "valem";
-
         try {
-          // 0. Carregar mapa de operadores do tenant para resolver nome do responsável dinamicamente
-          const allOperators = await db.select().from(operators).where(eq(operators.tenantId, tenantId));
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
+          const url = new URL(request.url);
+          const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10), 1), 100);
+          const queueFilter = url.searchParams.get("queue");
+          const beforeCursor = url.searchParams.get("before");
+
+          // 0. Carregar mapa de operadores do tenant em memória
+          const allOperators = await db
+            .select({ id: operators.id, name: operators.name })
+            .from(operators)
+            .where(eq(operators.tenantId, session.tenantId));
           const operatorMap = new Map(allOperators.map((o) => [o.id, o.name]));
 
-          // 1. Buscar todas as conversas do tenant com contatos e setores relacionados
+          // 1. Montar condições da query com isolamento por tenant
+          const conditions = [eq(conversations.tenantId, session.tenantId)];
+
+          if (queueFilter && queueFilter !== "todos") {
+            conditions.push(eq(conversations.queueState, queueFilter));
+          }
+
+          if (beforeCursor) {
+            const beforeDate = new Date(beforeCursor);
+            if (!isNaN(beforeDate.getTime())) {
+              conditions.push(lt(conversations.lastMessageTime, beforeDate));
+            }
+          }
+
+          // 2. Buscar conversas com contacts e sectors via INNER JOIN eficiente
           const rows = await db
             .select({
               conversation: conversations,
@@ -152,40 +202,62 @@ export const Route = createFileRoute("/api/chats")({
               sectorName: sectors.name,
             })
             .from(conversations)
-            .innerJoin(contacts, eq(conversations.contactId, contacts.id))
-            .leftJoin(sectors, eq(conversations.sectorId, sectors.id))
-            .where(eq(conversations.tenantId, tenantId))
-            .orderBy(desc(conversations.lastMessageTime));
+            .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, session.tenantId)))
+            .leftJoin(sectors, and(eq(conversations.sectorId, sectors.id), eq(sectors.tenantId, session.tenantId)))
+            .where(and(...conditions))
+            .orderBy(desc(conversations.lastMessageTime))
+            .limit(limit);
 
-          const chatList = [];
+          if (rows.length === 0) {
+            return new Response(JSON.stringify([]), { headers: corsHeaders });
+          }
 
-          for (const row of rows) {
-            // 2. Obter as mensagens da conversa ordenadas por tempo de envio
-            const msgs = await db
-              .select()
-              .from(messages)
-              .where(eq(messages.conversationId, row.conversation.id))
-              .orderBy(asc(messages.sentAt));
+          // 3. Buscar mensagens recentes em lote (BATCH) eliminando o problema N+1
+          const convIds = rows.map((r) => r.conversation.id);
+          const recentMessages = await db
+            .select()
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, session.tenantId),
+                inArray(messages.conversationId, convIds)
+              )
+            )
+            .orderBy(desc(messages.sentAt))
+            .limit(convIds.length * 30); // Limite razoável para preview
 
-            // Formatar iniciais do cliente
+          // Agrupa mensagens por conversa
+          const messagesByConv = new Map<string, any[]>();
+          for (const m of recentMessages) {
+            const list = messagesByConv.get(m.conversationId) || [];
+            list.push(m);
+            messagesByConv.set(m.conversationId, list);
+          }
+
+          const aiPersona = getAiPersona(session.tenantId);
+          const aiName = `${aiPersona.name} IA`;
+
+          // 4. Montar a lista formatada de retorno
+          const chatList = rows.map((row) => {
+            const convMsgs = (messagesByConv.get(row.conversation.id) || []).reverse();
+
             const initials = row.contact.name
               .split(" ")
-              .map((w) => w[0])
+              .map((w: string) => w[0])
               .join("")
               .toUpperCase()
               .substring(0, 2);
 
-            // Resolução consistente e garantida do Nome do Responsável (sem dessincronia)
             let respName = "Na Fila";
             if (row.conversation.operatorId && operatorMap.has(row.conversation.operatorId)) {
               respName = operatorMap.get(row.conversation.operatorId)!;
             } else if (row.conversation.queueState === "automacao") {
-              respName = "Valentina IA";
+              respName = aiName;
             } else if (row.contact.responsibleName && row.contact.responsibleName !== "Na Fila") {
               respName = row.contact.responsibleName;
             }
 
-            chatList.push({
+            return {
               id: row.conversation.id,
               contactId: row.contact.id,
               name: row.contact.name,
@@ -206,11 +278,12 @@ export const Route = createFileRoute("/api/chats")({
               sectorId: row.conversation.sectorId || null,
               sectorName: row.sectorName || null,
               unreadCount: row.conversation.unreadCount || 0,
+              version: row.conversation.version || 1, // Concorrência otimista (Entrega C)
               lastMessageTime: new Date(row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
                 hour: "2-digit",
                 minute: "2-digit",
               }),
-              messages: msgs.map((m) => ({
+              messages: convMsgs.map((m) => ({
                 id: m.id,
                 author: m.senderType === "client" ? row.contact.name : m.senderName,
                 text: m.content,
@@ -221,7 +294,7 @@ export const Route = createFileRoute("/api/chats")({
                 }),
                 date: new Date(m.sentAt).toLocaleDateString("pt-BR", {
                   timeZone: "America/Sao_Paulo",
-                }), // "DD/MM/AAAA" — usado pelo separador de data no chat
+                }),
                 sentAtISO: new Date(m.sentAt).toISOString(),
                 side: m.senderType === "client" ? "in" : "out",
                 isInternalNote: m.isInternalNote,
@@ -230,19 +303,18 @@ export const Route = createFileRoute("/api/chats")({
                 quotedMessageSender: m.quotedMessageSender,
                 quotedMessageContent: m.quotedMessageContent,
               })),
-
-            });
-          }
+            };
+          });
 
           return new Response(JSON.stringify(chatList), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            headers: corsHeaders,
           });
 
         } catch (e: any) {
-          console.error("[api/chats] Erro ao buscar lista de conversas:", e);
+          console.error("[api/chats GET] Erro ao buscar lista de conversas:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            headers: corsHeaders,
           });
         }
       },

@@ -4,6 +4,7 @@ import { db } from "../../../db";
 import { contacts } from "../../../db/schema";
 import { eq, isNull, and, or, like } from "drizzle-orm";
 import { urlToBase64 } from "../../../lib/utils";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,8 +26,11 @@ export const Route = createFileRoute("/api/baileys/sync-avatars")({
 
       POST: async ({ request }) => {
         try {
-          const body = await request.json().catch(() => ({}));
-          const tenantId = body.tenantId || "valem";
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
+          const tenantId = session.tenantId;
 
           const sessionManager = SessionManager.getInstance();
           const sock = sessionManager.getSession(tenantId);

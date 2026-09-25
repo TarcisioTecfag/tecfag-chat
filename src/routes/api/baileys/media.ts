@@ -4,6 +4,7 @@ import path from "path";
 import { db } from "../../../db";
 import { mediaFiles } from "../../../db/schema";
 import { eq } from "drizzle-orm";
+import { getAuthSession } from "../../../lib/auth-session";
 
 export const Route = createFileRoute("/api/baileys/media")({
   server: {
@@ -25,12 +26,26 @@ export const Route = createFileRoute("/api/baileys/media")({
           "Access-Control-Allow-Headers": "Content-Type",
         };
 
+        const session = await getAuthSession(request);
+
         const url = new URL(request.url);
         const messageId = url.searchParams.get("messageId");
 
         if (!messageId) {
           return new Response(JSON.stringify({ error: "messageId é obrigatório" }), {
             status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Consultar registro para verificar pertinência ao tenant se autenticado
+        const mediaRecord = await db.query.mediaFiles.findFirst({
+          where: eq(mediaFiles.id, messageId),
+        });
+
+        if (session && mediaRecord?.tenantId && mediaRecord.tenantId !== session.tenantId) {
+          return new Response(JSON.stringify({ error: "Mídia não encontrada" }), {
+            status: 404,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -58,10 +73,6 @@ export const Route = createFileRoute("/api/baileys/media")({
         } else {
           // Fallback para o banco de dados
           try {
-            const mediaRecord = await db.query.mediaFiles.findFirst({
-              where: eq(mediaFiles.id, messageId),
-            });
-
             if (!mediaRecord) {
               return new Response(JSON.stringify({ error: "Mídia não encontrada" }), {
                 status: 404,

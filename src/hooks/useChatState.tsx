@@ -150,7 +150,7 @@ type ChatContextType = {
  
   // Authentication
   isAuthenticated: boolean;
-  login: (email: string, passwordHash: string) => Promise<boolean>;
+  login: (tenantOrEmail: "tecfag" | "valem" | string, emailOrPass: string, maybePass?: string) => Promise<boolean>;
   logout: () => void;
 };
 
@@ -245,22 +245,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [tenant]);
 
   const [isClient, setIsClient] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("chat_is_authenticated") === "true";
-    }
-    return false;
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
-  // Restaurar dados do localStorage após a montagem do componente no cliente (evita Hydration Mismatch)
+  // Restaurar dados da sessão do servidor após montagem no cliente
   useEffect(() => {
     setIsClient(true);
     if (typeof window !== "undefined") {
-      const savedAuth = localStorage.getItem("chat_is_authenticated");
-      if (savedAuth === "true") {
-        setIsAuthenticated(true);
-      }
-
       const savedTenant = localStorage.getItem("chat_tenant");
       if (savedTenant === "valem" || savedTenant === "tecfag") {
         setTenantState(savedTenant as any);
@@ -276,34 +266,48 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveView(savedView as any);
       }
 
-      const savedOperators = localStorage.getItem("rbac_operators");
-      if (savedOperators) {
-        try {
-          setOperators(JSON.parse(savedOperators));
-        } catch (e) {}
-      }
-
-      // Sincronizar operadores do banco — sempre com tenantId para evitar vazamento entre tenants.
-      // Lê o tenant salvo no localStorage (ou usa 'valem' como fallback do tenant ativo).
-      const tenantForFetch = (savedTenant === "valem" || savedTenant === "tecfag")
-        ? savedTenant
-        : "valem";
-      fetch(`${BACKEND_URL}/api/operators?tenantId=${tenantForFetch}`)
-        .then((res) => res.json())
+      // Validar sessão ativa no servidor com cookie HttpOnly
+      fetch(`${BACKEND_URL}/api/auth/session`, {
+        credentials: "include",
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Sessão inválida ou não autenticado");
+          return res.json();
+        })
         .then((data) => {
-          if (Array.isArray(data) && data.length > 0) {
-            setOperators(data);
-            try {
-              localStorage.setItem("rbac_operators", JSON.stringify(data));
-            } catch (e) {}
+          if (data && data.authenticated && data.operator) {
+            setIsAuthenticated(true);
+            const activeTenant = data.tenantId || "tecfag";
+            setTenantState(activeTenant);
+            setCurrentOperatorId(data.operator.id);
+
+            setOperators((prev) => {
+              const exists = prev.some((o) => o.id === data.operator.id);
+              return exists ? prev.map((o) => (o.id === data.operator.id ? data.operator : o)) : [data.operator, ...prev];
+            });
+
+            // Sincronizar lista de operadores do tenant autenticado
+            fetch(`${BACKEND_URL}/api/operators?tenantId=${activeTenant}`, {
+              credentials: "include",
+            })
+              .then((res) => res.json())
+              .then((opList) => {
+                if (Array.isArray(opList) && opList.length > 0) {
+                  setOperators(opList);
+                }
+              })
+              .catch((err) => console.error("Erro ao sincronizar operadores da sessão:", err));
+          } else {
+            setIsAuthenticated(false);
+            localStorage.removeItem("chat_is_authenticated");
+            localStorage.removeItem("rbac_operators");
           }
         })
-        .catch((err) => console.error("Erro ao sincronizar operadores do banco:", err));
-
-      const savedOpId = localStorage.getItem("rbac_current_operator_id");
-      if (savedOpId) {
-        setCurrentOperatorId(savedOpId);
-      }
+        .catch(() => {
+          setIsAuthenticated(false);
+          localStorage.removeItem("chat_is_authenticated");
+          localStorage.removeItem("rbac_operators");
+        });
     }
   }, []);
 
@@ -1267,7 +1271,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const shouldSendReal =
-      tenant === "valem" &&
       currentChat.channel === "whatsapp" &&
       !isInternalNote;
 
@@ -1288,21 +1291,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         targetPhone = `55${targetPhone}`;
       }
 
+      const clientMessageId = `cmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
       try {
-        // Só envia texto se houver conteúdo
+        // Envia mensagem pelo endpoint unificado /api/whatsapp/send (Baileys ou Meta conforme activeProvider)
         if (text.trim()) {
-          const response = await fetch(`${BACKEND_URL}/api/baileys/send`, {
+          const response = await fetch(`${BACKEND_URL}/api/whatsapp/send`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({
-              tenantId: "valem",
-              phone: targetPhone,
-              text,
               conversationId: selectedChatId,
-              senderName: operatorProfile.name,
+              recipientPhone: targetPhone,
+              text,
+              clientMessageId,
               quotedMessageId: quotedMessage?.id || null,
-              quotedMessageSender: quotedMessage?.sender || null,
-              quotedMessageContent: quotedMessage?.content || null,
             }),
           });
 
@@ -1317,16 +1320,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           for (const file of attachments) {
             try {
               const formData = new FormData();
-              formData.append("tenantId", "valem");
+              formData.append("tenantId", tenant);
               formData.append("phone", targetPhone);
               formData.append("conversationId", selectedChatId);
               formData.append("senderName", operatorProfile.name);
-              // Usa 3 argumentos para garantir que o filename seja enviado
-              // mesmo quando `file` é um Blob puro (sem .name)
               const safeName = (file as any).name || file.name || "audio.webm";
               formData.append("file", file, safeName);
               const mediaRes = await fetch(`${BACKEND_URL}/api/baileys/send-media`, {
                 method: "POST",
+                credentials: "include",
                 body: formData,
               });
               if (!mediaRes.ok) {
@@ -1470,17 +1472,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           conversationId: id,
           queueState: "meus",
           operatorId: currentOperatorId,
           systemMessageText: textLog,
+          expectedVersion: previousState?.version ?? 1,
         }),
       });
 
       if (res.status === 409) {
         // Outro operador capturou antes — rollback
         console.warn("[captureChat] Conflito: chat já foi capturado por outro operador.");
+        toast.error("Conflito: Esta conversa já foi capturada ou modificada por outro atendente.");
         if (previousState) {
           setConversations((prev) =>
             prev.map((c) => (c.id === id ? { ...previousState } : c))
@@ -1551,6 +1556,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           conversationId: id,
           queueState: targetQueueState,
@@ -1558,8 +1564,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           sectorId: sectorId,
           systemMessageText: textLog,
           isTransfer: true,
+          expectedVersion: previousState?.version ?? 1,
         }),
       });
+
+      if (res.status === 409) {
+        console.warn("[transferChat] Conflito: chat já foi modificado por outro operador.");
+        toast.error("Conflito: Esta conversa já foi modificada ou capturada por outro atendente.");
+        if (previousState) {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === id ? { ...previousState } : c))
+          );
+        }
+        return;
+      }
 
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -1577,6 +1595,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const finishChat = async (id: string) => {
     const textLog = "Conversa encerrada e movida para Finalizados.";
+    const previousState = conversationsRef.current.find((c) => c.id === id);
+
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === id) {
@@ -1602,17 +1622,40 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSelectedChatId(id);
 
     try {
-      await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
+      const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           conversationId: id,
           queueState: "finalizados",
           systemMessageText: textLog,
+          expectedVersion: previousState?.version ?? 1,
         }),
       });
+
+      if (res.status === 409) {
+        console.warn("[finishChat] Conflito: chat já foi finalizado ou alterado por outro operador.");
+        toast.error("Conflito: Esta conversa já foi alterada por outro atendente.");
+        if (previousState) {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === id ? { ...previousState } : c))
+          );
+        }
+        setSelectedChatId(null);
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
     } catch (err) {
       console.error("Erro ao persistir encerramento de chat no DB:", err);
+      if (previousState) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...previousState } : c))
+        );
+      }
     }
   };
 
@@ -1871,12 +1914,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             conversationId: activeConversation.id,
             queueState: newQueueState,
             operatorId: targetOperatorId,
             systemMessageText: logText,
             isTransfer: true,
+            expectedVersion: activeConversation.version ?? 1,
           }),
         });
         if (!res.ok) {
@@ -1974,7 +2019,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await fetch(`${BACKEND_URL}/api/baileys/disconnect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId: "valem" }),
+        body: JSON.stringify({ tenantId: tenant }),
       });
     } catch (e) {
       console.error("Erro ao desconectar do Baileys no backend:", e);
@@ -1994,10 +2039,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       fetch(`${BACKEND_URL}/api/baileys/presence`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId: "valem", jid: currentChat.phone }),
+        body: JSON.stringify({ tenantId: tenant, jid: currentChat.phone }),
       }).catch(() => {});
     }
-  }, [selectedChatId, conversations]);
+  }, [selectedChatId, conversations, tenant]);
 
   // Auto-limpar estados de "digitando" / "gravando" antigos (> 5s) caso evento 'paused' falhe
   useEffect(() => {
@@ -2029,7 +2074,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       qrCodeUrl: "",
     }));
 
-    const url = `${BACKEND_URL}/api/baileys/connect?tenantId=valem${forceNew ? "&force=true" : ""}`;
+    const url = `${BACKEND_URL}/api/baileys/connect?tenantId=${tenant}${forceNew ? "&force=true" : ""}`;
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 
@@ -2050,7 +2095,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             fetch(`${BACKEND_URL}/api/baileys/sync-avatars`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ tenantId: "valem" }),
+              body: JSON.stringify({ tenantId: tenant }),
             })
               .then((r) => r.json())
               .then((result) =>
@@ -2384,7 +2429,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Evento de atualização de fila: captura, transferência ou finalização.
           // Atualiza APENAS os campos de estado da conversa — sem criar balão de mensagem,
           // sem incrementar unreadCount, sem tocar som de notificação.
-          const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName } = data;
+          const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
 
           setConversations((prev) =>
             prev.map((c) => {
@@ -2395,6 +2440,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
                 sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
                 responsibleName: responsibleName !== undefined ? responsibleName : c.responsibleName,
+                version: version !== undefined ? version : (c.version ? c.version + 1 : 1),
               };
             })
           );
@@ -2459,29 +2505,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Buscar status inicial do Baileys e limpar SSE ao desmontar
   useEffect(() => {
-    if (tenant === "valem") {
-      // Sempre abre o canal SSE para acordar a sessão e receber novas mensagens/status do Baileys
-      connectBaileys();
+    // Sempre abre o canal SSE para acordar a sessão e receber novas mensagens/status do tenant ativo
+    connectBaileys();
 
-      fetch(`${BACKEND_URL}/api/baileys/status?tenantId=valem`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.status) {
-            setBaileysConfig((prev) => ({
-              ...prev,
-              status: data.status,
-              pairedPhone: data.pairedPhone ? `+${data.pairedPhone}` : data.pairedPhone || "",
-              // Não usar api.qrserver.com — QR é gerado localmente via biblioteca qrcode
-            }));
-          }
-        })
-        .catch((err) => console.error("Erro ao verificar status do Baileys:", err));
-    } else {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-    }
+    fetch(`${BACKEND_URL}/api/baileys/status?tenantId=${tenant}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.status) {
+          setBaileysConfig((prev) => ({
+            ...prev,
+            status: data.status,
+            pairedPhone: data.pairedPhone ? `+${data.pairedPhone}` : data.pairedPhone || "",
+            // Não usar api.qrserver.com — QR é gerado localmente via biblioteca qrcode
+          }));
+        }
+      })
+      .catch((err) => console.error("Erro ao verificar status do Baileys:", err));
   }, [tenant]);
 
   useEffect(() => {
@@ -2492,24 +2531,43 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const login = async (email: string, passwordHash: string): Promise<boolean> => {
-    console.log("[Login Debug] Tentativa de login no servidor para email:", email);
-    
+  const login = async (
+    tenantOrEmail: "tecfag" | "valem" | string,
+    emailOrPass: string,
+    maybePass?: string
+  ): Promise<boolean> => {
+    let targetTenant: "tecfag" | "valem";
+    let targetEmail: string;
+    let targetPassword: string;
+
+    if (maybePass !== undefined) {
+      targetTenant = (tenantOrEmail === "valem" ? "valem" : "tecfag");
+      targetEmail = emailOrPass.trim();
+      targetPassword = maybePass;
+    } else {
+      targetEmail = tenantOrEmail.trim();
+      targetPassword = emailOrPass;
+      targetTenant = targetEmail.toLowerCase().includes("valem") ? "valem" : "tecfag";
+    }
+
     try {
-      // 1. Tentar autenticar via servidor PostgreSQL (/api/auth/login)
       const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password: passwordHash }),
+        credentials: "include",
+        body: JSON.stringify({
+          tenantId: targetTenant,
+          email: targetEmail,
+          password: targetPassword,
+        }),
       });
 
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.operator) {
           const matchedOp = data.operator;
-          console.log("[Login Debug] Operador autenticado com sucesso pelo servidor:", matchedOp);
 
-          // Atualizar estado de operadores incluindo o operador logado
+          // Atualizar estado de operadores incluindo o operador logado sanitizado
           setOperators((prev) => {
             const exists = prev.some((o) => o.id === matchedOp.id);
             return exists ? prev.map((o) => (o.id === matchedOp.id ? matchedOp : o)) : [...prev, matchedOp];
@@ -2517,75 +2575,65 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           setCurrentOperatorId(matchedOp.id);
 
-          // Sincronizar o tenant ativo com o tenant do operador
           if (matchedOp.tenantId) {
             setTenantState(matchedOp.tenantId);
             if (typeof window !== "undefined") {
               try {
                 localStorage.setItem("chat_tenant", matchedOp.tenantId);
+                localStorage.setItem("rbac_current_operator_id", matchedOp.id);
+                // Remove rbac_operators que podia conter hashes de senha legadas
+                localStorage.removeItem("rbac_operators");
               } catch (e) {}
             }
             document.title = matchedOp.tenantId === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
 
-            // Buscar todos os operadores do tenant autenticado
-            fetch(`${BACKEND_URL}/api/operators?tenantId=${matchedOp.tenantId}`)
+            // Buscar operadores atualizados e sanitizados do tenant autenticado
+            fetch(`${BACKEND_URL}/api/operators?tenantId=${matchedOp.tenantId}`, {
+              credentials: "include",
+            })
               .then((res) => res.json())
               .then((opList) => {
                 if (Array.isArray(opList) && opList.length > 0) {
                   setOperators(opList);
-                  if (typeof window !== "undefined") {
-                    try {
-                      localStorage.setItem("rbac_operators", JSON.stringify(opList));
-                    } catch (e) {}
-                  }
                 }
               })
               .catch((err) => console.error("Erro ao sincronizar operadores pós-login:", err));
           }
 
           setIsAuthenticated(true);
-          if (typeof window !== "undefined") {
-            try {
-              localStorage.setItem("chat_is_authenticated", "true");
-              localStorage.setItem("rbac_current_operator_id", matchedOp.id);
-            } catch (e) {
-              console.error("Erro ao salvar dados de autenticação:", e);
-            }
-          }
           return true;
         }
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        console.warn("[Login] Falha de autenticação:", errData.error || response.statusText);
       }
     } catch (err) {
-      console.warn("[Login Debug] Erro ao conectar à API de autenticação, tentando fallback local:", err);
-    }
-
-    // Fallback local caso a API não esteja acessível (ex: offline)
-    const matchedOp = operators.find(
-      (op) => op.email.toLowerCase() === email.toLowerCase() && op.passwordHash === passwordHash
-    );
-    if (matchedOp) {
-      setCurrentOperatorId(matchedOp.id);
-      setIsAuthenticated(true);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("chat_is_authenticated", "true");
-          localStorage.setItem("rbac_current_operator_id", matchedOp.id);
-        } catch (e) {}
-      }
-      return true;
+      console.error("[Login] Erro ao conectar ao serviço de autenticação:", err);
     }
 
     return false;
   };
 
-  const logout = () => {
-    setIsAuthenticated(false);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.removeItem("chat_is_authenticated");
-        localStorage.removeItem("rbac_current_operator_id");
-      } catch (e) {
-        console.error("Erro ao limpar dados de autenticação:", e);
+  const logout = async () => {
+    try {
+      await fetch(`${BACKEND_URL}/api/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (e) {
+      console.error("Erro ao efetuar logout no servidor:", e);
+    } finally {
+      setIsAuthenticated(false);
+      setCurrentOperatorId("");
+      setSelectedChatId(null);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.removeItem("chat_is_authenticated");
+          localStorage.removeItem("rbac_current_operator_id");
+          localStorage.removeItem("rbac_operators");
+        } catch (e) {
+          console.error("Erro ao limpar dados de autenticação:", e);
+        }
       }
     }
   };

@@ -35,6 +35,7 @@ export type SessionEvent =
       operatorId: string | null;
       sectorId: string | null;
       responsibleName?: string;
+      version?: number;
     }
   | { type: "contact_updated"; contactId?: string; contact?: any; updates?: any }
   | { type: "chat_updated"; chat: any }
@@ -949,20 +950,17 @@ export class SessionManager {
       const convId = conversation?.id || `conv-${tenantId}-${contactId}`;
       const isFromMe = !!rawMsg.key.fromMe;
 
-      // ── Comando !reset: Zera a triagem e limpa o histórico para recomeçar do zero ──
+      // ── Comando !reset: Reinicia a triagem da IA SEM apagar o histórico de mensagens ──
       if (text.trim().toLowerCase() === "!reset") {
-        console.log(`[Baileys/Reset] Comando !reset acionado para a conversa ${convId} (${phone})`);
+        console.log(`[Baileys/Reset] Comando !reset acionado para a conversa ${convId} (${phone}) — reiniciando fluxo de triagem sem apagar mensagens.`);
 
         // 1. Limpar sessão de debounce ativa
         SdrDebouncer.getInstance().clearSession(convId);
 
-        // 2. Apagar estado de triagem anterior
+        // 2. Apagar apenas o estado de fluxo da triagem anterior (preserva mensagens e contatos)
         await db.delete(agentFlowStates).where(eq(agentFlowStates.conversationId, convId));
 
-        // 3. Apagar mensagens registradas no banco para essa conversa
-        await db.delete(messages).where(eq(messages.conversationId, convId));
-
-        // 4. Resetar status da conversa no DB para 'automacao' sem operador
+        // 3. Resetar status da conversa no DB para 'automacao' sem operador
         if (conversation) {
           await db
             .update(conversations)
@@ -970,13 +968,14 @@ export class SessionManager {
               queueState: "automacao",
               operatorId: null,
               unreadCount: 0,
-              lastMessageText: "🔄 Atendimento resetado via !reset",
+              lastMessageText: "🔄 Fluxo de triagem reiniciado via !reset",
               lastMessageTime: new Date(),
+              updatedAt: new Date(),
             })
             .where(eq(conversations.id, convId));
         }
 
-        // 5. Criar imediatamente um novo agentFlowState limpo para que o contato permaneça sempre no SDR
+        // 4. Criar novo agentFlowState limpo
         const newFlowId = `fs-sdr-${Date.now()}`;
         await db.insert(agentFlowStates).values({
           id: newFlowId,
@@ -991,7 +990,7 @@ export class SessionManager {
           outcome: "in_progress",
         });
 
-        // 6. Notificar a UI via SSE
+        // 5. Notificar a UI via SSE
         this.notify(tenantId, {
           type: "queue_update",
           conversationId: convId,
@@ -1001,14 +1000,13 @@ export class SessionManager {
           responsibleName: "Valentina IA",
         });
 
-
-        // 6. Responder no WhatsApp confirmando o reset
+        // 6. Responder no WhatsApp confirmando o reinício da triagem
         const sock = this.getSession(tenantId);
         if (sock) {
           try {
             const realJid = await resolveRealJid(sock, phone);
             await sock.sendMessage(realJid, {
-              text: "🔄 Atendimento resetado com sucesso! Apaguei todo o histórico anterior e a Valentina está pronta para começar do zero.",
+              text: "🔄 Fluxo de triagem reiniciado com sucesso! A Valentina está pronta para um novo atendimento.",
             });
           } catch (err: any) {
             console.error("[Baileys/Reset] Erro ao enviar resposta no WA:", err?.message);

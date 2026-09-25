@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager } from "../../../lib/baileys/session-manager";
+import { requireSession } from "../../../lib/auth-session";
 
 export const Route = createFileRoute("/api/baileys/status")({
   server: {
@@ -15,22 +16,27 @@ export const Route = createFileRoute("/api/baileys/status")({
         });
       },
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         };
 
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const session = auth.session;
+
+        const url = new URL(request.url);
+        const requestedTenant = url.searchParams.get("tenantId");
+
+        if (requestedTenant && requestedTenant !== session.tenantId) {
+          return new Response(
+            JSON.stringify({ error: "Acesso negado ao tenant especificado", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
+        const tenantId = session.tenantId;
         const sessionManager = SessionManager.getInstance();
         const status = sessionManager.getStatus(tenantId);
         const qr = sessionManager.getQr(tenantId);

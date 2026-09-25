@@ -15,11 +15,18 @@ export const channelConfigs = pgTable("channel_configs", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   
+  // Controle central de provedor ativo e versão de conexão
+  activeProvider: text("active_provider").default("baileys").notNull(), // 'baileys' | 'meta'
+  connectionStatus: text("connection_status").default("disconnected").notNull(), // 'disconnected' | 'connecting' | 'connected' | 'error'
+  connectionVersion: integer("connection_version").default(1).notNull(),
+  lastError: text("last_error"),
+
   // Configurações exclusivas da API Meta (Tec Chat)
   metaBusinessAccountId: text("meta_business_account_id"),
   metaPhoneNumberId: text("meta_phone_number_id"),
   metaAccessToken: text("meta_access_token"),
   metaVerifyToken: text("meta_verify_token"),
+  metaAppSecret: text("meta_app_secret"), // Segredo da aplicação Meta para validar assinatura HMAC SHA-256 do webhook
 
   // Configurações exclusivas do Baileys (Valem Chat)
   baileysSessionStatus: text("baileys_session_status").default("disconnected"), // 'disconnected' | 'qr_ready' | 'connected'
@@ -98,6 +105,17 @@ export const operators = pgTable("operators", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 3.5. SESSÕES DE AUTENTICAÇÃO DO SERVIDOR (HttpOnly Cookie Sessions) ──────
+export const authSessions = pgTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "cascade" }).notNull(),
+  tokenHash: text("token_hash").notNull().unique(), // sha256 do token do cookie
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── 4. CONTATOS (Base de Clientes) ─────────────────────────────────────────
 export const contacts = pgTable("contacts", {
   id: text("id").primaryKey(),
@@ -132,6 +150,10 @@ export const conversations = pgTable("conversations", {
   queueState: text("queue_state").default("fila").notNull(), // 'meus' | 'fila' | 'automacao' | 'finalizados'
   unreadCount: integer("unread_count").default(0).notNull(),
   
+  // Controle de concorrência otimista (Entrega C) e carimbo de atualização
+  version: integer("version").default(1).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
   lastMessageText: text("last_message_text"),
   lastMessageTime: timestamp("last_message_time").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -139,7 +161,7 @@ export const conversations = pgTable("conversations", {
 
 // ─── 6. MENSAGENS (Histórico de Chat & Notas Internas) ───────────────────────
 export const messages = pgTable("messages", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey(), // ID interno estável
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
   
@@ -154,9 +176,17 @@ export const messages = pgTable("messages", {
   quotedMessageContent: text("quoted_message_content"),
 
   // Interpretação textual de mídia feita pelo Gemini (imagem, áudio, PDF).
-  // Salva o que foi "visto/ouvido" em turnos anteriores para que a Valentina
-  // mantenha memória visual sem precisar reenviar o binário da mídia.
   mediaInterpretation: text("media_interpretation"),
+
+  // ── Transporte Universal & Fila Confiável de Mensagens (Entregas A & B) ───────
+  externalId: text("external_id"), // ID externo retornado pelo WhatsApp (Baileys stanzaId / Meta wamid)
+  provider: text("provider").default("baileys"), // 'baileys' | 'meta' | 'system' | 'internal'
+  direction: text("direction").default("inbound"), // 'inbound' | 'outbound'
+  status: text("status").default("accepted").notNull(), // 'pending' | 'sending' | 'accepted' | 'delivered' | 'read' | 'failed' | 'unknown'
+  idempotencyKey: text("idempotency_key"), // clientMessageId enviado pelo frontend para evitar envios duplicados
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 
   sentAt: timestamp("sent_at").defaultNow().notNull(),
 });
@@ -174,10 +204,28 @@ export const quickResponses = pgTable("quick_responses", {
 // ─── 8. ARQUIVOS E MÍDIAS PERSISTIDOS (Salvos em definitivo no banco) ───────
 export const mediaFiles = pgTable("media_files", {
   id: text("id").primaryKey(), // o messageId da mídia
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }), // Isolamento por tenant
+  conversationId: text("conversation_id"),
   fileName: text("file_name"),
   mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size"),
   base64Data: text("base64_data").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── 8.5. RECEBIMENTOS PENDENTES (Caixa de entrada durável para Webhooks / Eventos) ───────
+export const pendingInbounds = pgTable("pending_inbounds", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  provider: text("provider").notNull(), // 'baileys' | 'meta'
+  externalEventId: text("external_event_id"), // ID do evento do provedor para deduplicação
+  payload: jsonb("payload").notNull(),
+  status: text("status").default("pending").notNull(), // 'pending' | 'processing' | 'processed' | 'failed'
+  attempts: integer("attempts").default(0).notNull(),
+  nextRetryAt: timestamp("next_retry_at"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
 });
 
 // ─── 9. SESSÕES DE CHAMADA (Ligações WebRTC) ─────────────────────────────────

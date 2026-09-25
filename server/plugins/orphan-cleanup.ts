@@ -22,81 +22,90 @@ export default function orphanCleanupPlugin(nitroApp: any) {
       const { operators, conversations, contacts } = await import("../../src/db/schema.js");
       const { sql, notInArray, isNotNull } = await import("drizzle-orm");
 
-      console.log("[OrphanCleanup] 🔍 Verificando registros órfãos...");
+      console.log("[OrphanCleanup] 🔍 Verificando registros órfãos por tenant...");
+      const { tenants } = await import("../../src/db/schema.js");
+      const { eq, inArray, and } = await import("drizzle-orm");
 
-      // 1. Buscar todos os IDs de operadores existentes
-      const existingOperators = await db
-        .select({ id: operators.id })
-        .from(operators);
+      const allTenants = await db.select({ id: tenants.id }).from(tenants);
 
-      const existingIds = existingOperators.map((o) => o.id);
+      for (const tenant of allTenants) {
+        const tenantId = tenant.id;
 
-      if (existingIds.length === 0) {
-        console.log("[OrphanCleanup] ⚠️ Nenhum operador encontrado no banco. Pulando limpeza.");
-        return;
-      }
+        // 1. Buscar operadores deste tenant
+        const tenantOps = await db
+          .select({ id: operators.id })
+          .from(operators)
+          .where(eq(operators.tenantId, tenantId));
 
-      // 2. Conversas com operatorId que não existe mais → zerar + devolver à fila
-      const orphanedConvs = await db
-        .select({ id: conversations.id, operatorId: conversations.operatorId })
-        .from(conversations)
-        .where(
-          // operatorId não nulo E não está na lista de operadores existentes
-          // Usamos sql raw para o NOT IN com array dinâmico via drizzle
-          isNotNull(conversations.operatorId as any)
+        const tenantOpIds = tenantOps.map((o) => o.id);
+
+        // 2. Conversas deste tenant com operatorId não pertencente a este tenant
+        const orphanedConvs = await db
+          .select({ id: conversations.id, operatorId: conversations.operatorId })
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.tenantId, tenantId),
+              isNotNull(conversations.operatorId as any)
+            )
+          );
+
+        const realOrphans = orphanedConvs.filter(
+          (c) => c.operatorId && !tenantOpIds.includes(c.operatorId)
         );
 
-      // Filtrar no JS (mais seguro que NOT IN com array potencialmente vazio)
-      const realOrphans = orphanedConvs.filter(
-        (c) => c.operatorId && !existingIds.includes(c.operatorId)
-      );
+        if (realOrphans.length > 0) {
+          const orphanConvIds = realOrphans.map((c) => c.id);
+          await db
+            .update(conversations)
+            .set({
+              operatorId: null,
+              queueState: "fila",
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(conversations.tenantId, tenantId),
+                inArray(conversations.id, orphanConvIds)
+              )
+            );
 
-      if (realOrphans.length > 0) {
-        const orphanConvIds = realOrphans.map((c) => c.id);
-        const { eq, inArray, and } = await import("drizzle-orm");
+          console.log(
+            `[OrphanCleanup][${tenantId}] ✅ ${realOrphans.length} conversa(s) órfãs devolvidas à fila.`
+          );
+        }
 
-        // Zerar operatorId e devolver à fila
-        await db
-          .update(conversations)
-          .set({
-            operatorId: null,
-            queueState: "fila",
-          })
-          .where(inArray(conversations.id, orphanConvIds));
+        // 3. Contatos deste tenant com walletOperatorId não pertencente a este tenant
+        const allContacts = await db
+          .select({ id: contacts.id, walletOperatorId: contacts.walletOperatorId })
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.tenantId, tenantId),
+              isNotNull(contacts.walletOperatorId)
+            )
+          );
 
-        console.log(
-          `[OrphanCleanup] ✅ ${realOrphans.length} conversa(s) com operador deletado → devolvidas à fila.`,
-          realOrphans.map((c) => `${c.id} (era: ${c.operatorId})`).join(", ")
+        const orphanWallets = allContacts.filter(
+          (c) => c.walletOperatorId && !tenantOpIds.includes(c.walletOperatorId)
         );
-      } else {
-        console.log("[OrphanCleanup] ✅ Nenhuma conversa órfã encontrada.");
-      }
 
-      // 3. Contatos com walletOperatorId que não existe mais → zerar carteira
-      const allContacts = await db
-        .select({ id: contacts.id, walletOperatorId: contacts.walletOperatorId })
-        .from(contacts)
-        .where(isNotNull(contacts.walletOperatorId));
+        if (orphanWallets.length > 0) {
+          const orphanContactIds = orphanWallets.map((c) => c.id);
+          await db
+            .update(contacts)
+            .set({ walletOperatorId: null })
+            .where(
+              and(
+                eq(contacts.tenantId, tenantId),
+                inArray(contacts.id, orphanContactIds)
+              )
+            );
 
-      const orphanWallets = allContacts.filter(
-        (c) => c.walletOperatorId && !existingIds.includes(c.walletOperatorId)
-      );
-
-      if (orphanWallets.length > 0) {
-        const { inArray } = await import("drizzle-orm");
-        const orphanContactIds = orphanWallets.map((c) => c.id);
-
-        await db
-          .update(contacts)
-          .set({ walletOperatorId: null })
-          .where(inArray(contacts.id, orphanContactIds));
-
-        console.log(
-          `[OrphanCleanup] ✅ ${orphanWallets.length} contato(s) com carteira de operador deletado → carteira removida.`,
-          orphanWallets.map((c) => `${c.id} (era: ${c.walletOperatorId})`).join(", ")
-        );
-      } else {
-        console.log("[OrphanCleanup] ✅ Nenhuma carteira órfã encontrada.");
+          console.log(
+            `[OrphanCleanup][${tenantId}] ✅ ${orphanWallets.length} contato(s) com carteira órfã limpos.`
+          );
+        }
       }
 
       console.log("[OrphanCleanup] 🏁 Limpeza concluída.");

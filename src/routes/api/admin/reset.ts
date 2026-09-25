@@ -19,18 +19,18 @@ import {
 import { eq, and } from "drizzle-orm";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import { rdRequest } from "../../../lib/rdCrmService";
+import { getAuthSession } from "../../../lib/auth-session.js";
 
 const corsHeaders = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 // ─── POST /api/admin/reset ───────────────────────────────────────────────────
-// Limpa todos os dados operacionais (conversas, mensagens, contatos, alertas,
-// logs de IA, métricas) SEM apagar operadores, setores e grupos de acesso.
-// ATENÇÃO: Ação irreversível. Use apenas em ambiente de desenvolvimento/testes.
+// ATENÇÃO: Rota estritamente desabilitada em produção. Em desenvolvimento, exige
+// sessão ativa com perfil de administrador do respectivo tenant.
 export const Route = createFileRoute("/api/admin/reset")({
   server: {
     handlers: {
@@ -38,22 +38,25 @@ export const Route = createFileRoute("/api/admin/reset")({
         return new Response(null, { status: 204, headers: corsHeaders });
       },
 
-      // ─── GET /api/admin/reset?action=fix-duplicates ─────────────────────────
-      // Encontra contatos duplicados (mesmo phone + tenant) e faz o merge/reset.
-      // ROTA TEMPORÁRIA — remover após uso!
-      // Uso: GET /api/admin/reset?action=fix-duplicates&tenantId=valem&token=VALEM_ADMIN_2024
       GET: async ({ request }: any) => {
-        const url = new URL(request.url);
-        const action   = url.searchParams.get("action");
-        const tenantId = url.searchParams.get("tenantId");
-        const token    = url.searchParams.get("token");
+        if (process.env.NODE_ENV === "production") {
+          return new Response(
+            JSON.stringify({ error: "Rotas de diagnóstico e manutenção estão desabilitadas em produção." }),
+            { status: 403, headers: corsHeaders }
+          );
+        }
 
-        if (token !== "VALEM_ADMIN_2024") {
-          return new Response(JSON.stringify({ error: "Token invalido" }), { status: 403, headers: corsHeaders });
+        const session = await getAuthSession(request);
+        if (!session || session.operator.role !== "admin") {
+          return new Response(
+            JSON.stringify({ error: "Acesso restrito a administradores autenticados." }),
+            { status: 403, headers: corsHeaders }
+          );
         }
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId obrigatorio" }), { status: 400, headers: corsHeaders });
-        }
+
+        const url = new URL(request.url);
+        const action = url.searchParams.get("action");
+        const tenantId = session.tenantId;
 
         // ─── GET ?action=rd-pipelines ────────────────────────────────────────
         // Retorna todos os funis do RD CRM com IDs exatos de pipeline e stages.
@@ -203,7 +206,23 @@ export const Route = createFileRoute("/api/admin/reset")({
 
       POST: async ({ request }: any) => {
         try {
+          if (process.env.NODE_ENV === "production") {
+            return new Response(
+              JSON.stringify({ error: "Operação destrutiva estritamente desabilitada em produção." }),
+              { status: 403, headers: corsHeaders }
+            );
+          }
+
+          const session = await getAuthSession(request);
+          if (!session || session.operator.role !== "admin") {
+            return new Response(
+              JSON.stringify({ error: "Acesso restrito a administradores autenticados." }),
+              { status: 403, headers: corsHeaders }
+            );
+          }
+
           const body = await request.json().catch(() => ({}));
+          const tenantId = session.tenantId;
 
           // Chave de segurança simples para evitar resets acidentais
           if (body?.confirm !== "RESET_TUDO_AGORA") {
@@ -218,59 +237,47 @@ export const Route = createFileRoute("/api/admin/reset")({
 
           const results: Record<string, number> = {};
 
-          // Ordem de deleção respeita FK constraints:
-          // 1. Dependentes primeiro, depois pais
-
-          // Logs e auditorias de IA
-          const [r_aiLogs] = await db.delete(aiUsageLogs).returning({ id: aiUsageLogs.id });
+          // Deleções estritamente filtradas pelo tenant do administrador autenticado
+          const [r_aiLogs] = await db.delete(aiUsageLogs).where(eq(aiUsageLogs.tenantId, tenantId)).returning({ id: aiUsageLogs.id });
           results.ai_usage_logs = Array.isArray(r_aiLogs) ? r_aiLogs.length : 0;
 
-          const [r_audits] = await db.delete(aiConversationAudits).returning({ id: aiConversationAudits.id });
+          const [r_audits] = await db.delete(aiConversationAudits).where(eq(aiConversationAudits.tenantId, tenantId)).returning({ id: aiConversationAudits.id });
           results.ai_conversation_audits = Array.isArray(r_audits) ? r_audits.length : 0;
 
-          const [r_reports] = await db.delete(aiReports).returning({ id: aiReports.id });
+          const [r_reports] = await db.delete(aiReports).where(eq(aiReports.tenantId, tenantId)).returning({ id: aiReports.id });
           results.ai_reports = Array.isArray(r_reports) ? r_reports.length : 0;
 
-          // Métricas diárias dos operadores
-          const [r_metrics] = await db.delete(operatorDailyMetrics).returning({ id: operatorDailyMetrics.id });
+          const [r_metrics] = await db.delete(operatorDailyMetrics).where(eq(operatorDailyMetrics.tenantId, tenantId)).returning({ id: operatorDailyMetrics.id });
           results.operator_daily_metrics = Array.isArray(r_metrics) ? r_metrics.length : 0;
 
-          // Mensagens internas (alertas do Supervisor / Valentina)
-          const [r_internal] = await db.delete(internalMessages).returning({ id: internalMessages.id });
+          const [r_internal] = await db.delete(internalMessages).where(eq(internalMessages.tenantId, tenantId)).returning({ id: internalMessages.id });
           results.internal_messages = Array.isArray(r_internal) ? r_internal.length : 0;
 
-          // Logs de tempo de resposta (SLA)
-          const [r_rtLogs] = await db.delete(responseTimeLogs).returning({ id: responseTimeLogs.id });
+          const [r_rtLogs] = await db.delete(responseTimeLogs).where(eq(responseTimeLogs.tenantId, tenantId)).returning({ id: responseTimeLogs.id });
           results.response_time_logs = Array.isArray(r_rtLogs) ? r_rtLogs.length : 0;
 
-          // Arquivos de mídia e chamadas
-          const [r_media] = await db.delete(mediaFiles).returning({ id: mediaFiles.id });
+          const [r_media] = await db.delete(mediaFiles).where(eq(mediaFiles.tenantId, tenantId)).returning({ id: mediaFiles.id });
           results.media_files = Array.isArray(r_media) ? r_media.length : 0;
 
-          const [r_calls] = await db.delete(callSessions).returning({ id: callSessions.id });
+          const [r_calls] = await db.delete(callSessions).where(eq(callSessions.tenantId, tenantId)).returning({ id: callSessions.id });
           results.call_sessions = Array.isArray(r_calls) ? r_calls.length : 0;
 
-          // Tarefas
-          const [r_tasks] = await db.delete(tasks).returning({ id: tasks.id });
+          const [r_tasks] = await db.delete(tasks).where(eq(tasks.tenantId, tenantId)).returning({ id: tasks.id });
           results.tasks = Array.isArray(r_tasks) ? r_tasks.length : 0;
 
-          // Estados de agentes e round-robin
-          const [r_flowStates] = await db.delete(agentFlowStates).returning({ id: agentFlowStates.id });
+          const [r_flowStates] = await db.delete(agentFlowStates).where(eq(agentFlowStates.tenantId, tenantId)).returning({ id: agentFlowStates.id });
           results.agent_flow_states = Array.isArray(r_flowStates) ? r_flowStates.length : 0;
 
-          const [r_rr] = await db.delete(roundRobinState).returning({ id: roundRobinState.id });
+          const [r_rr] = await db.delete(roundRobinState).where(eq(roundRobinState.tenantId, tenantId)).returning({ id: roundRobinState.id });
           results.round_robin_state = Array.isArray(r_rr) ? r_rr.length : 0;
 
-          // Mensagens das conversas
-          const [r_msgs] = await db.delete(messages).returning({ id: messages.id });
+          const [r_msgs] = await db.delete(messages).where(eq(messages.tenantId, tenantId)).returning({ id: messages.id });
           results.messages = Array.isArray(r_msgs) ? r_msgs.length : 0;
 
-          // Conversas
-          const [r_convs] = await db.delete(conversations).returning({ id: conversations.id });
+          const [r_convs] = await db.delete(conversations).where(eq(conversations.tenantId, tenantId)).returning({ id: conversations.id });
           results.conversations = Array.isArray(r_convs) ? r_convs.length : 0;
 
-          // Contatos (por último — referenciado pelas conversas)
-          const [r_contacts] = await db.delete(contacts).returning({ id: contacts.id });
+          const [r_contacts] = await db.delete(contacts).where(eq(contacts.tenantId, tenantId)).returning({ id: contacts.id });
           results.contacts = Array.isArray(r_contacts) ? r_contacts.length : 0;
 
           const total = Object.values(results).reduce((a, b) => a + b, 0);

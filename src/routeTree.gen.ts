@@ -31,11 +31,14 @@ import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
+import { Route as ApiEventsRouteImport } from './routes/api/events'
 import { Route as ApiElevenlabsConversationsRouteImport } from './routes/api/elevenlabs-conversations'
 import { Route as ApiElevenlabsAudioRouteImport } from './routes/api/elevenlabs-audio'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
+import { Route as ApiWhatsappSendRouteImport } from './routes/api/whatsapp/send'
+import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
 import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
 import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
 import { Route as ApiValentinaRodizioRouteImport } from './routes/api/valentina/rodizio'
@@ -45,6 +48,7 @@ import { Route as ApiValentinaConfigRouteImport } from './routes/api/valentina/c
 import { Route as ApiValentinaCatalogImagesRouteImport } from './routes/api/valentina/catalog-images'
 import { Route as ApiValentinaAssistantRouteImport } from './routes/api/valentina/assistant'
 import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/agents'
+import { Route as ApiSettingsWhatsappRouteImport } from './routes/api/settings/whatsapp'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
 import { Route as ApiLivechatVisitorsRouteImport } from './routes/api/livechat/visitors'
@@ -79,13 +83,17 @@ import { Route as ApiBaileysPresenceRouteImport } from './routes/api/baileys/pre
 import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
 import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
 import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
+import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
+import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAdminResetRouteImport } from './routes/api/admin/reset'
 import { Route as ApiValentinaVoiceChatCompletionsRouteImport } from './routes/api/valentina-voice/chat/completions'
+import { Route as ApiSettingsWhatsappActionsRouteImport } from './routes/api/settings/whatsapp/actions'
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
 import { Route as ApiLivechatVisitorVisitorIdRouteImport } from './routes/api/livechat/visitor/$visitorId'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
+import { Route as ApiChatsChatIdMessagesRouteImport } from './routes/api/chats/$chatId/messages'
 import { Route as ApiValentinaVoiceV1ChatCompletionsRouteImport } from './routes/api/valentina-voice/v1/chat/completions'
 
 const IndexRoute = IndexRouteImport.update({
@@ -198,6 +206,11 @@ const ApiGroupsRoute = ApiGroupsRouteImport.update({
   path: '/api/groups',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiEventsRoute = ApiEventsRouteImport.update({
+  id: '/api/events',
+  path: '/api/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiElevenlabsConversationsRoute =
   ApiElevenlabsConversationsRouteImport.update({
     id: '/api/elevenlabs-conversations',
@@ -222,6 +235,16 @@ const ApiChatsRoute = ApiChatsRouteImport.update({
 const ApiCallsRoute = ApiCallsRouteImport.update({
   id: '/api/calls',
   path: '/api/calls',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWhatsappSendRoute = ApiWhatsappSendRouteImport.update({
+  id: '/api/whatsapp/send',
+  path: '/api/whatsapp/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksMetaRoute = ApiWebhooksMetaRouteImport.update({
+  id: '/api/webhooks/meta',
+  path: '/api/webhooks/meta',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiValentinaSupervisorRoute = ApiValentinaSupervisorRouteImport.update({
@@ -268,6 +291,11 @@ const ApiValentinaAssistantRoute = ApiValentinaAssistantRouteImport.update({
 const ApiValentinaAgentsRoute = ApiValentinaAgentsRouteImport.update({
   id: '/api/valentina/agents',
   path: '/api/valentina/agents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsWhatsappRoute = ApiSettingsWhatsappRouteImport.update({
+  id: '/api/settings/whatsapp',
+  path: '/api/settings/whatsapp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSettingsReportsRoute = ApiSettingsReportsRouteImport.update({
@@ -443,6 +471,16 @@ const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
   path: '/api/baileys/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
+  id: '/api/auth/session',
+  path: '/api/auth/session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
+  id: '/api/auth/logout',
+  path: '/api/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
   id: '/api/auth/login',
   path: '/api/auth/login',
@@ -458,6 +496,12 @@ const ApiValentinaVoiceChatCompletionsRoute =
     id: '/chat/completions',
     path: '/chat/completions',
     getParentRoute: () => ApiValentinaVoiceRoute,
+  } as any)
+const ApiSettingsWhatsappActionsRoute =
+  ApiSettingsWhatsappActionsRouteImport.update({
+    id: '/actions',
+    path: '/actions',
+    getParentRoute: () => ApiSettingsWhatsappRoute,
   } as any)
 const ApiSettingsRdCrmFieldsRoute = ApiSettingsRdCrmFieldsRouteImport.update({
   id: '/fields',
@@ -482,6 +526,11 @@ const ApiContactsContactIdRdDealRoute =
     path: '/rd-deal',
     getParentRoute: () => ApiContactsContactIdRoute,
   } as any)
+const ApiChatsChatIdMessagesRoute = ApiChatsChatIdMessagesRouteImport.update({
+  id: '/$chatId/messages',
+  path: '/$chatId/messages',
+  getParentRoute: () => ApiChatsRoute,
+} as any)
 const ApiValentinaVoiceV1ChatCompletionsRoute =
   ApiValentinaVoiceV1ChatCompletionsRouteImport.update({
     id: '/v1/chat/completions',
@@ -496,6 +545,7 @@ export interface FileRoutesByFullPath {
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
+  '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -519,6 +569,8 @@ export interface FileRoutesByFullPath {
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -553,6 +605,7 @@ export interface FileRoutesByFullPath {
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
   '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
   '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
@@ -562,10 +615,14 @@ export interface FileRoutesByFullPath {
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/send': typeof ApiWhatsappSendRoute
+  '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
@@ -576,6 +633,7 @@ export interface FileRoutesByTo {
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
+  '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -599,6 +657,8 @@ export interface FileRoutesByTo {
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -633,6 +693,7 @@ export interface FileRoutesByTo {
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
   '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
   '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
@@ -642,10 +703,14 @@ export interface FileRoutesByTo {
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/send': typeof ApiWhatsappSendRoute
+  '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
@@ -657,6 +722,7 @@ export interface FileRoutesById {
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
+  '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
@@ -680,6 +746,8 @@ export interface FileRoutesById {
   '/call/$roomId': typeof CallRoomIdRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -714,6 +782,7 @@ export interface FileRoutesById {
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
+  '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
   '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
   '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
@@ -723,10 +792,14 @@ export interface FileRoutesById {
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/send': typeof ApiWhatsappSendRoute
+  '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
@@ -739,6 +812,7 @@ export interface FileRouteTypes {
     | '/api/contacts'
     | '/api/elevenlabs-audio'
     | '/api/elevenlabs-conversations'
+    | '/api/events'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -762,6 +836,8 @@ export interface FileRouteTypes {
     | '/call/$roomId'
     | '/api/admin/reset'
     | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/session'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -796,6 +872,7 @@ export interface FileRouteTypes {
     | '/api/livechat/visitors'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/settings/whatsapp'
     | '/api/valentina/agents'
     | '/api/valentina/assistant'
     | '/api/valentina/catalog-images'
@@ -805,10 +882,14 @@ export interface FileRouteTypes {
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
+    | '/api/webhooks/meta'
+    | '/api/whatsapp/send'
+    | '/api/chats/$chatId/messages'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
     | '/api/valentina-voice/v1/chat/completions'
   fileRoutesByTo: FileRoutesByTo
@@ -819,6 +900,7 @@ export interface FileRouteTypes {
     | '/api/contacts'
     | '/api/elevenlabs-audio'
     | '/api/elevenlabs-conversations'
+    | '/api/events'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -842,6 +924,8 @@ export interface FileRouteTypes {
     | '/call/$roomId'
     | '/api/admin/reset'
     | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/session'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -876,6 +960,7 @@ export interface FileRouteTypes {
     | '/api/livechat/visitors'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/settings/whatsapp'
     | '/api/valentina/agents'
     | '/api/valentina/assistant'
     | '/api/valentina/catalog-images'
@@ -885,10 +970,14 @@ export interface FileRouteTypes {
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
+    | '/api/webhooks/meta'
+    | '/api/whatsapp/send'
+    | '/api/chats/$chatId/messages'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
     | '/api/valentina-voice/v1/chat/completions'
   id:
@@ -899,6 +988,7 @@ export interface FileRouteTypes {
     | '/api/contacts'
     | '/api/elevenlabs-audio'
     | '/api/elevenlabs-conversations'
+    | '/api/events'
     | '/api/groups'
     | '/api/health'
     | '/api/operators'
@@ -922,6 +1012,8 @@ export interface FileRouteTypes {
     | '/call/$roomId'
     | '/api/admin/reset'
     | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/session'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -956,6 +1048,7 @@ export interface FileRouteTypes {
     | '/api/livechat/visitors'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
+    | '/api/settings/whatsapp'
     | '/api/valentina/agents'
     | '/api/valentina/assistant'
     | '/api/valentina/catalog-images'
@@ -965,10 +1058,14 @@ export interface FileRouteTypes {
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
+    | '/api/webhooks/meta'
+    | '/api/whatsapp/send'
+    | '/api/chats/$chatId/messages'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
     | '/api/valentina-voice/v1/chat/completions'
   fileRoutesById: FileRoutesById
@@ -980,6 +1077,7 @@ export interface RootRouteChildren {
   ApiContactsRoute: typeof ApiContactsRouteWithChildren
   ApiElevenlabsAudioRoute: typeof ApiElevenlabsAudioRoute
   ApiElevenlabsConversationsRoute: typeof ApiElevenlabsConversationsRoute
+  ApiEventsRoute: typeof ApiEventsRoute
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiOperatorsRoute: typeof ApiOperatorsRoute
@@ -1003,6 +1101,8 @@ export interface RootRouteChildren {
   CallRoomIdRoute: typeof CallRoomIdRoute
   ApiAdminResetRoute: typeof ApiAdminResetRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
+  ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  ApiAuthSessionRoute: typeof ApiAuthSessionRoute
   ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
   ApiBaileysDisconnectRoute: typeof ApiBaileysDisconnectRoute
   ApiBaileysMediaRoute: typeof ApiBaileysMediaRoute
@@ -1032,6 +1132,7 @@ export interface RootRouteChildren {
   ApiLivechatVisitorsRoute: typeof ApiLivechatVisitorsRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
+  ApiSettingsWhatsappRoute: typeof ApiSettingsWhatsappRouteWithChildren
   ApiValentinaAgentsRoute: typeof ApiValentinaAgentsRoute
   ApiValentinaAssistantRoute: typeof ApiValentinaAssistantRoute
   ApiValentinaCatalogImagesRoute: typeof ApiValentinaCatalogImagesRoute
@@ -1041,6 +1142,8 @@ export interface RootRouteChildren {
   ApiValentinaRodizioRoute: typeof ApiValentinaRodizioRoute
   ApiValentinaSdrRoute: typeof ApiValentinaSdrRoute
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
+  ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
+  ApiWhatsappSendRoute: typeof ApiWhatsappSendRoute
   ApiLivechatVisitorVisitorIdRoute: typeof ApiLivechatVisitorVisitorIdRoute
 }
 
@@ -1200,6 +1303,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGroupsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/events': {
+      id: '/api/events'
+      path: '/api/events'
+      fullPath: '/api/events'
+      preLoaderRoute: typeof ApiEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/elevenlabs-conversations': {
       id: '/api/elevenlabs-conversations'
       path: '/api/elevenlabs-conversations'
@@ -1233,6 +1343,20 @@ declare module '@tanstack/react-router' {
       path: '/api/calls'
       fullPath: '/api/calls'
       preLoaderRoute: typeof ApiCallsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/whatsapp/send': {
+      id: '/api/whatsapp/send'
+      path: '/api/whatsapp/send'
+      fullPath: '/api/whatsapp/send'
+      preLoaderRoute: typeof ApiWhatsappSendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/meta': {
+      id: '/api/webhooks/meta'
+      path: '/api/webhooks/meta'
+      fullPath: '/api/webhooks/meta'
+      preLoaderRoute: typeof ApiWebhooksMetaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina/supervisor': {
@@ -1296,6 +1420,13 @@ declare module '@tanstack/react-router' {
       path: '/api/valentina/agents'
       fullPath: '/api/valentina/agents'
       preLoaderRoute: typeof ApiValentinaAgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings/whatsapp': {
+      id: '/api/settings/whatsapp'
+      path: '/api/settings/whatsapp'
+      fullPath: '/api/settings/whatsapp'
+      preLoaderRoute: typeof ApiSettingsWhatsappRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/settings/reports': {
@@ -1536,6 +1667,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBaileysConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/session': {
+      id: '/api/auth/session'
+      path: '/api/auth/session'
+      fullPath: '/api/auth/session'
+      preLoaderRoute: typeof ApiAuthSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/logout': {
+      id: '/api/auth/logout'
+      path: '/api/auth/logout'
+      fullPath: '/api/auth/logout'
+      preLoaderRoute: typeof ApiAuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/login': {
       id: '/api/auth/login'
       path: '/api/auth/login'
@@ -1556,6 +1701,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/valentina-voice/chat/completions'
       preLoaderRoute: typeof ApiValentinaVoiceChatCompletionsRouteImport
       parentRoute: typeof ApiValentinaVoiceRoute
+    }
+    '/api/settings/whatsapp/actions': {
+      id: '/api/settings/whatsapp/actions'
+      path: '/actions'
+      fullPath: '/api/settings/whatsapp/actions'
+      preLoaderRoute: typeof ApiSettingsWhatsappActionsRouteImport
+      parentRoute: typeof ApiSettingsWhatsappRoute
     }
     '/api/settings/rd-crm/fields': {
       id: '/api/settings/rd-crm/fields'
@@ -1585,6 +1737,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiContactsContactIdRdDealRouteImport
       parentRoute: typeof ApiContactsContactIdRoute
     }
+    '/api/chats/$chatId/messages': {
+      id: '/api/chats/$chatId/messages'
+      path: '/$chatId/messages'
+      fullPath: '/api/chats/$chatId/messages'
+      preLoaderRoute: typeof ApiChatsChatIdMessagesRouteImport
+      parentRoute: typeof ApiChatsRoute
+    }
     '/api/valentina-voice/v1/chat/completions': {
       id: '/api/valentina-voice/v1/chat/completions'
       path: '/v1/chat/completions'
@@ -1598,11 +1757,13 @@ declare module '@tanstack/react-router' {
 interface ApiChatsRouteChildren {
   ApiChatsTagTaskRoute: typeof ApiChatsTagTaskRoute
   ApiChatsUpdateQueueRoute: typeof ApiChatsUpdateQueueRoute
+  ApiChatsChatIdMessagesRoute: typeof ApiChatsChatIdMessagesRoute
 }
 
 const ApiChatsRouteChildren: ApiChatsRouteChildren = {
   ApiChatsTagTaskRoute: ApiChatsTagTaskRoute,
   ApiChatsUpdateQueueRoute: ApiChatsUpdateQueueRoute,
+  ApiChatsChatIdMessagesRoute: ApiChatsChatIdMessagesRoute,
 }
 
 const ApiChatsRouteWithChildren = ApiChatsRoute._addFileChildren(
@@ -1663,6 +1824,17 @@ const ApiSettingsRdCrmRouteChildren: ApiSettingsRdCrmRouteChildren = {
 const ApiSettingsRdCrmRouteWithChildren =
   ApiSettingsRdCrmRoute._addFileChildren(ApiSettingsRdCrmRouteChildren)
 
+interface ApiSettingsWhatsappRouteChildren {
+  ApiSettingsWhatsappActionsRoute: typeof ApiSettingsWhatsappActionsRoute
+}
+
+const ApiSettingsWhatsappRouteChildren: ApiSettingsWhatsappRouteChildren = {
+  ApiSettingsWhatsappActionsRoute: ApiSettingsWhatsappActionsRoute,
+}
+
+const ApiSettingsWhatsappRouteWithChildren =
+  ApiSettingsWhatsappRoute._addFileChildren(ApiSettingsWhatsappRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiCallsRoute: ApiCallsRoute,
@@ -1670,6 +1842,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiContactsRoute: ApiContactsRouteWithChildren,
   ApiElevenlabsAudioRoute: ApiElevenlabsAudioRoute,
   ApiElevenlabsConversationsRoute: ApiElevenlabsConversationsRoute,
+  ApiEventsRoute: ApiEventsRoute,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiOperatorsRoute: ApiOperatorsRoute,
@@ -1693,6 +1866,8 @@ const rootRouteChildren: RootRouteChildren = {
   CallRoomIdRoute: CallRoomIdRoute,
   ApiAdminResetRoute: ApiAdminResetRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
+  ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  ApiAuthSessionRoute: ApiAuthSessionRoute,
   ApiBaileysConnectRoute: ApiBaileysConnectRoute,
   ApiBaileysDisconnectRoute: ApiBaileysDisconnectRoute,
   ApiBaileysMediaRoute: ApiBaileysMediaRoute,
@@ -1722,6 +1897,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLivechatVisitorsRoute: ApiLivechatVisitorsRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
+  ApiSettingsWhatsappRoute: ApiSettingsWhatsappRouteWithChildren,
   ApiValentinaAgentsRoute: ApiValentinaAgentsRoute,
   ApiValentinaAssistantRoute: ApiValentinaAssistantRoute,
   ApiValentinaCatalogImagesRoute: ApiValentinaCatalogImagesRoute,
@@ -1731,6 +1907,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaRodizioRoute: ApiValentinaRodizioRoute,
   ApiValentinaSdrRoute: ApiValentinaSdrRoute,
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
+  ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
+  ApiWhatsappSendRoute: ApiWhatsappSendRoute,
   ApiLivechatVisitorVisitorIdRoute: ApiLivechatVisitorVisitorIdRoute,
 }
 export const routeTree = rootRouteImport

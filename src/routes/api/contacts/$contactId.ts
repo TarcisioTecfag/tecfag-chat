@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { contacts } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -15,9 +16,13 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
 
       // ── PATCH /api/contacts/:contactId ──────────────────────────────────────
-      // Body: { phone?, email?, cnpj?, cpf? }
+      // Body: { name?, phone?, email?, cnpj?, cpf?, tags?, cnpjDetails? }
       PATCH: async ({ request, params }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
           const { contactId } = params as { contactId: string };
           const body = await request.json() as {
             name?: string;
@@ -26,6 +31,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             cnpj?: string;
             cpf?: string;
             tags?: string[];
+            cnpjDetails?: any;
           };
 
           // Monta apenas os campos enviados
@@ -45,7 +51,10 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             });
           }
 
-          await db.update(contacts).set(updates).where(eq(contacts.id, contactId));
+          const result = await db
+            .update(contacts)
+            .set(updates)
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)));
 
           return new Response(JSON.stringify({ success: true }), {
             headers: { ...CORS, "Content-Type": "application/json" },
@@ -60,13 +69,17 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
       },
 
       // ── GET /api/contacts/:contactId ────────────────────────────────────────
-      GET: async ({ params }) => {
+      GET: async ({ request, params }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
           const { contactId } = params as { contactId: string };
           const [contact] = await db
             .select()
             .from(contacts)
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)));
 
           if (!contact) {
             return new Response(JSON.stringify({ error: "Contato não encontrado" }), {

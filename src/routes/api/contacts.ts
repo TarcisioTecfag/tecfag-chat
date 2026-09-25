@@ -1,43 +1,44 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { db } from "../../db";
-import { contacts, conversations, operators } from "../../db/schema";
-import { eq } from "drizzle-orm";
-import { shouldIgnoreJid } from "../../lib/baileys/jid-validator";
+import { db } from "../../db/index.js";
+import { contacts, conversations, operators } from "../../db/schema.js";
+import { eq, and } from "drizzle-orm";
+import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
+import { getAuthSession, validateTenantAccess } from "../../lib/auth-session.js";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
 
 export const Route = createFileRoute("/api/contacts")({
   server: {
     handlers: {
       OPTIONS: async () => {
-        return new Response(null, {
-          status: 204,
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-          },
-        });
+        return new Response(null, { status: 204, headers: corsHeaders });
       },
       POST: async ({ request }) => {
-        const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        };
-
         try {
-          const body = await request.json();
-          const { tenantId, name, phone, email, cnpj, channel, operatorId, queueState, contactId, conversationId } = body;
+          const session = await getAuthSession(request);
+          const body = await request.json().catch(() => ({}));
+          const { name, phone, email, cnpj, channel, operatorId, queueState, contactId, conversationId } = body;
+
+          const tenantId = session ? session.tenantId : body.tenantId;
 
           if (!tenantId || !name) {
-            return new Response(JSON.stringify({ error: "tenantId e name são obrigatórios" }), {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({ error: "Sessão inválida ou campos obrigatórios ausentes (tenantId, name).", code: "UNAUTHORIZED" }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
-          // Rejeita JIDs de grupo, status ou broadcast como campo phone.
-          // Nota: não bloquear números internacionais — a validação é baseada
-          // no sufixo JID, não no prefixo numérico.
+          if (session && body.tenantId && body.tenantId !== session.tenantId) {
+            return new Response(
+              JSON.stringify({ error: "Não é permitido criar contatos para outro tenant.", code: "FORBIDDEN" }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
           if (phone && shouldIgnoreJid(phone)) {
             return new Response(
               JSON.stringify({ error: "Telefone inválido: grupos, status e listas de transmissão não são aceitos como contato." }),
@@ -48,14 +49,19 @@ export const Route = createFileRoute("/api/contacts")({
           const finalContactId = contactId || `cont-${Date.now()}`;
           const finalConversationId = conversationId || `conv-${Date.now()}`;
 
-          // Obter o nome do operador para popular responsibleName
+          // Se operador foi informado, validar que pertence ao mesmo tenant
           let respName = "Na Fila";
-          if (operatorId && (queueState === "meus" || !queueState)) {
+          let validOperatorId = null;
+
+          if (operatorId) {
             const op = await db.query.operators.findFirst({
-              where: eq(operators.id, operatorId),
+              where: and(eq(operators.id, operatorId), eq(operators.tenantId, tenantId)),
             });
             if (op) {
-              respName = op.name;
+              validOperatorId = op.id;
+              if (queueState === "meus" || !queueState) {
+                respName = op.name;
+              }
             }
           }
 
@@ -68,19 +74,23 @@ export const Route = createFileRoute("/api/contacts")({
             email: email || null,
             cnpj: cnpj || null,
             mainChannel: channel || "whatsapp",
-            walletOperatorId: operatorId || null,
+            walletOperatorId: validOperatorId,
             responsibleName: respName,
+            createdAt: new Date(),
           });
 
-          // 2. Criar Conversa no Banco
+          // 2. Criar Conversa no Banco vinculada atomicamente ao mesmo tenant
           await db.insert(conversations).values({
             id: finalConversationId,
             tenantId,
             contactId: finalContactId,
-            operatorId: operatorId || null,
+            operatorId: validOperatorId,
             queueState: queueState || "meus",
             lastMessageText: "Contato criado e atendimento iniciado.",
             lastMessageTime: new Date(),
+            version: 1,
+            updatedAt: new Date(),
+            createdAt: new Date(),
           });
 
           return new Response(
@@ -90,11 +100,12 @@ export const Route = createFileRoute("/api/contacts")({
               conversationId: finalConversationId,
             }),
             {
+              status: 201,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             }
           );
         } catch (e: any) {
-          console.error("Erro ao criar contato e conversa no DB:", e);
+          console.error("[POST /api/contacts] Erro ao criar contato e conversa no DB:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },

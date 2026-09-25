@@ -6,15 +6,15 @@ import { motion } from "framer-motion";
 
 export function Login() {
   const { login } = useChat();
+  const [selectedTenant, setSelectedTenant] = useState<"tecfag" | "valem">("tecfag");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Determinar dinamicamente o inquilino com base no texto do email para mudar o tema de cores
-  const isValem = email.toLowerCase().includes("valem");
-  const activeTenant = isValem ? "valem" : "tecfag";
+  const activeTenant = selectedTenant;
+  const isValem = activeTenant === "valem";
 
   // Estilos de tema dinâmicos para harmonia de cores
   const themeStyles = activeTenant === "tecfag"
@@ -29,6 +29,16 @@ export function Login() {
         "--primary-hover": "#24a383",
       } as React.CSSProperties);
 
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    const lower = val.toLowerCase();
+    if (lower.includes("@valem")) {
+      setSelectedTenant("valem");
+    } else if (lower.includes("@tecfag")) {
+      setSelectedTenant("tecfag");
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -38,11 +48,11 @@ export function Login() {
 
     setIsLoading(true);
     try {
-      const success = await login(email, password);
+      const success = await login(selectedTenant, email, password);
       if (success) {
-        toast.success("Login efetuado com sucesso!");
+        toast.success(`Login efetuado com sucesso no ${selectedTenant === "tecfag" ? "Tecfag" : "Valem"}!`);
       } else {
-        toast.error("Credenciais inválidas. Tente novamente.");
+        toast.error("Credenciais inválidas para a empresa selecionada. Tente novamente.");
       }
     } catch (err) {
       toast.error("Ocorreu um erro ao tentar entrar.");
@@ -186,6 +196,39 @@ export function Login() {
             </p>
           </div>
 
+          {/* Seletor Explícito de Empresa / Tenant */}
+          <div className="mb-4">
+            <label className="block text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1.5 text-center md:text-left">
+              Selecione a Empresa
+            </label>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-muted/50 border border-border rounded-xl">
+              <button
+                type="button"
+                onClick={() => setSelectedTenant("tecfag")}
+                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
+                  selectedTenant === "tecfag"
+                    ? "bg-[#df3d3d] text-white shadow-md shadow-red-500/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${selectedTenant === "tecfag" ? "bg-white" : "bg-red-500"}`} />
+                Tecfag
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedTenant("valem")}
+                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
+                  selectedTenant === "valem"
+                    ? "bg-[#2dc4a0] text-white shadow-md shadow-emerald-500/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${selectedTenant === "valem" ? "bg-white" : "bg-emerald-500"}`} />
+                Valem
+              </button>
+            </div>
+          </div>
+
           {/* Formulário */}
           <form onSubmit={handleSubmit} className="space-y-3.5 md:space-y-4">
             
@@ -197,8 +240,8 @@ export function Login() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="exemplo@tecfag.com.br"
+                onChange={(e) => handleEmailChange(e.target.value)}
+                placeholder={activeTenant === "valem" ? "atendente@valem.com.br" : "exemplo@tecfag.com.br"}
                 required
                 disabled={isLoading}
                 className="block w-full text-sm text-foreground bg-transparent border-0 p-0 focus:ring-0 focus:outline-none placeholder:text-muted-foreground/50 transition-all duration-500"

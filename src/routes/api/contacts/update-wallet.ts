@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { contacts, conversations, agentFlowStates } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { contacts, conversations, agentFlowStates, operators } from "../../../db/schema";
+import { and, eq } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
+import { requireSession } from "../../../lib/auth-session";
+import { getAiPersona } from "../../../lib/ai-persona";
 
 export const Route = createFileRoute("/api/contacts/update-wallet")({
   server: {
@@ -25,6 +27,10 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
         };
 
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
           const body = await request.json();
           const { contactId, walletOperatorId } = body;
 
@@ -35,23 +41,40 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
             });
           }
 
+          // Se informou um operador de carteira, valida se pertence ao mesmo tenant
+          if (walletOperatorId) {
+            const [op] = await db
+              .select({ id: operators.id })
+              .from(operators)
+              .where(and(eq(operators.id, walletOperatorId), eq(operators.tenantId, session.tenantId)));
+            if (!op) {
+              return new Response(JSON.stringify({ error: "Operador não encontrado para este tenant" }), {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+          }
+
           const isRemovingFromWallet = !walletOperatorId;
 
-          // 1. Atualizar o contato no banco
+          // 1. Atualizar o contato no banco com filtro obrigatório por tenant
           await db
             .update(contacts)
             .set({
               walletOperatorId: walletOperatorId || null,
               responsibleName: isRemovingFromWallet ? "Na Fila" : undefined,
             })
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)));
 
-          // 2. Se for remoção de carteira, devolver a conversa para a Valentina IA (automacao) e resetar a triagem
+          // 2. Se for remoção de carteira, devolver a conversa para a IA do tenant (automacao) e resetar a triagem
           if (isRemovingFromWallet) {
             const clientConvs = await db
               .select()
               .from(conversations)
-              .where(eq(conversations.contactId, contactId));
+              .where(and(eq(conversations.contactId, contactId), eq(conversations.tenantId, session.tenantId)));
+
+            const aiPersona = getAiPersona(session.tenantId);
+            const aiName = `${aiPersona.name} IA`;
 
             for (const conv of clientConvs) {
               // Redireciona a fila para 'automacao' e zera o operador responsável
@@ -61,23 +84,23 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
                   operatorId: null,
                   queueState: "automacao",
                   lastMessageTime: new Date(),
+                  updatedAt: new Date(),
                 })
+                .where(and(eq(conversations.id, conv.id), eq(conversations.tenantId, session.tenantId)));
 
-                .where(eq(conversations.id, conv.id));
-
-              // Reseta o estado do fluxo SDR para que a Valentina realize novo atendimento quando o cliente falar
+              // Reseta o estado do fluxo SDR para que a IA realize novo atendimento quando o cliente falar
               await db
                 .delete(agentFlowStates)
                 .where(eq(agentFlowStates.conversationId, conv.id));
 
-              // Notifica SSE em tempo real para o painel atualizar a fila do atendimento para Valentina IA
-              SessionManager.getInstance().notifyPublic(conv.tenantId, {
+              // Notifica SSE em tempo real para o painel atualizar a fila do atendimento
+              SessionManager.getInstance().notifyPublic(session.tenantId, {
                 type: "queue_update",
                 conversationId: conv.id,
                 queueState: "automacao",
                 operatorId: null,
                 sectorId: conv.sectorId,
-                responsibleName: "Valentina IA",
+                responsibleName: aiName,
               });
             }
           }

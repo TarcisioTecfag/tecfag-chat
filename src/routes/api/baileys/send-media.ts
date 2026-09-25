@@ -2,7 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager, resolveRealJid } from "../../../lib/baileys/session-manager";
 import { db } from "../../../db";
 import { messages, conversations, contacts, mediaFiles } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,16 +20,20 @@ export const Route = createFileRoute("/api/baileys/send-media")({
 
       POST: async ({ request }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
           const formData = await request.formData();
-          const tenantId = formData.get("tenantId") as string;
+          const tenantId = session.tenantId; // Sempre derivado da sessão autenticada
           const phone = formData.get("phone") as string;
           const conversationId = formData.get("conversationId") as string;
-          const senderName = formData.get("senderName") as string;
+          const senderName = (formData.get("senderName") as string) || session.operator.name;
           const file = formData.get("file") as File | null;
 
-          if (!tenantId || !file) {
+          if (!file) {
             return new Response(
-              JSON.stringify({ error: "tenantId e file são obrigatórios" }),
+              JSON.stringify({ error: "file é obrigatório" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
@@ -49,7 +55,7 @@ export const Route = createFileRoute("/api/baileys/send-media")({
           if (conversationId) {
             try {
               const conv = await db.query.conversations.findFirst({
-                where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+                where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
               });
               contactId = conv?.contactId;
             } catch {}
@@ -58,7 +64,7 @@ export const Route = createFileRoute("/api/baileys/send-media")({
           let contact: any;
           if (contactId) {
             contact = await db.query.contacts.findFirst({
-              where: (t, { eq: dEq }) => dEq(t.id, contactId!),
+              where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, contactId!), dEq(t.tenantId, tenantId)),
             });
           }
 
@@ -75,7 +81,7 @@ export const Route = createFileRoute("/api/baileys/send-media")({
               try {
                 await db.update(contacts)
                   .set({ whatsappJid: jid })
-                  .where(eq(contacts.id, contactId));
+                  .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
                 console.log(`[Baileys SendMedia] JID ${jid} salvo no contato ${contactId}`);
               } catch (err: any) {
                 console.error(`[Baileys SendMedia] Erro ao salvar JID no contato:`, err.message);
@@ -177,13 +183,15 @@ export const Route = createFileRoute("/api/baileys/send-media")({
 
             await db.update(conversations)
               .set({ lastMessageText: displayContent, lastMessageTime: new Date() })
-              .where(eq(conversations.id, conversationId));
+              .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
 
             // Persistir a mídia permanentemente no banco de dados (Base64)
             try {
               const base64Data = buffer.toString("base64");
               await db.insert(mediaFiles).values({
                 id: sentMsg.key.id,
+                tenantId,
+                conversationId: conversationId || null,
                 fileName: fileName || null,
                 mimeType: mime,
                 base64Data,
