@@ -59,22 +59,13 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             );
           }
 
-          // 1. Buscar conversa + contato para obter rdCrmDealId
-          //    Inclui tenantId no select para verificar ownership do tenant da sessão
+          // 1. Buscar conversa verificando tenant JÁ NA QUERY — nunca busca por id puro
           const [conv] = await db
-            .select({ contactId: conversations.contactId, tenantId: conversations.tenantId })
+            .select({ contactId: conversations.contactId })
             .from(conversations)
-            .where(eq(conversations.id, conversationId));
+            .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
 
           if (!conv?.contactId) {
-            return new Response(
-              JSON.stringify({ skipped: true, reason: "Conversa nao encontrada" }),
-              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          // Verificar que a conversa pertence ao tenant da sessão
-          if (conv.tenantId !== tenantId) {
             return new Response(
               JSON.stringify({ error: "Conversa não encontrada.", code: "NOT_FOUND" }),
               { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }

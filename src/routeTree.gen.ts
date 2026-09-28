@@ -29,6 +29,7 @@ import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
 import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
 import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
+import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiEventsRouteImport } from './routes/api/events'
@@ -194,6 +195,11 @@ const ApiPushRoute = ApiPushRouteImport.update({
 const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
   id: '/api/operators',
   path: '/api/operators',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOperatorsProfileRoute = ApiOperatorsProfileRouteImport.update({
+  id: '/api/operators/profile',
+  path: '/api/operators/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -549,6 +555,7 @@ export interface FileRoutesByFullPath {
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/operators': typeof ApiOperatorsRoute
+  '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
@@ -1846,6 +1853,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGroupsRoute: ApiGroupsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiOperatorsRoute: ApiOperatorsRoute,
+  ApiOperatorsProfileRoute: ApiOperatorsProfileRoute,
   ApiPushRoute: ApiPushRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
   ApiSectorsRoute: ApiSectorsRoute,

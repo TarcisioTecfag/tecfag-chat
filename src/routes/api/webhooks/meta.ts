@@ -104,12 +104,13 @@ export const Route = createFileRoute("/api/webhooks/meta")({
           }
 
           if (allPhoneNumberIds.size === 0) {
-            // Lote sem phone_number_id em nenhum change — pode ser evento de teste ou heartbeat da Meta
-            console.warn("[Meta Webhook] Lote sem phone_number_id identificável. Ignorado.");
-            return new Response(JSON.stringify({ ok: true, skipped: true }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            });
+            // Sem phone_number_id não é possível identificar o tenant nem validar a assinatura HMAC.
+            // Retornar 400 — não podemos aceitar o evento com segurança.
+            console.warn("[Meta Webhook] Rejeitado: lote sem phone_number_id — impossível validar assinatura HMAC.");
+            return new Response(
+              JSON.stringify({ error: "Bad Request: payload sem phone_number_id — formato não suportado" }),
+              { status: 400, headers: { "Content-Type": "application/json" } }
+            );
           }
 
           // Resolve tenantId para cada phoneNumberId único do lote e verifica consistência
@@ -196,7 +197,20 @@ export const Route = createFileRoute("/api/webhooks/meta")({
               const value = batchChange?.value;
               if (!value) continue;
 
-              // 4.1. Mensagens recebidas
+              // Confirmar que este change tem phone_number_id pertencente ao tenant resolvido.
+              // A assinatura do lote já foi validada; changes individuais sem o ID são apenas pulados.
+              const changePid = value?.metadata?.phone_number_id;
+              if (!changePid) {
+                console.warn(`[Meta Webhook] Change sem phone_number_id pulado (tenant '${tenantId}').`);
+                continue;
+              }
+              if (tenantsByPhone.get(changePid) !== tenantId) {
+                // Defesa em profundidade — não deve ocorrer se a validação do lote estava correta
+                console.error(`[Meta Webhook] Change com phone_number_id '${changePid}' inconsistente. Pulado.`);
+                continue;
+              }
+
+              // 5.1. Mensagens recebidas
               const incomingMessages = value?.messages;
               if (Array.isArray(incomingMessages) && incomingMessages.length > 0) {
                 const contactProfile = value?.contacts?.[0]?.profile?.name;

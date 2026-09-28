@@ -466,6 +466,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateOperatorProfile = async (fields: Partial<OperatorProfile>) => {
+    // Snapshot do estado antes da atualização otimista — necessário para rollback
+    const previousOperators = operators;
+
     setOperators((prev) =>
       prev.map((op) =>
         op.id === currentOperatorId
@@ -480,27 +483,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       )
     );
 
-    const targetOp = operators.find((op) => op.id === currentOperatorId);
-    if (targetOp) {
-      try {
-        await fetch(`${BACKEND_URL}/api/operators`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: currentOperatorId,
-            tenantId: (targetOp as any).tenantId || tenant,
-            name: fields.name ?? targetOp.name,
-            email: fields.email ?? targetOp.email,
-            avatar: fields.avatar ?? targetOp.avatar,
-            status: fields.status ?? targetOp.status,
-            passwordHash: targetOp.passwordHash,
-            role: (targetOp as any).role,
-            groupId: targetOp.groupId,
-          }),
-        });
-      } catch (err) {
-        console.error("Erro ao sincronizar atualização de perfil de operador no DB:", err);
+    try {
+      // PATCH /api/operators/profile — rota específica para auto-edição de perfil
+      // Não requer admin; tenantId e operatorId vêm da sessão no servidor.
+      // passwordHash NUNCA é enviado.
+      const res = await fetch(`${BACKEND_URL}/api/operators/profile`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: fields.name,
+          email: fields.email,
+          avatar: fields.avatar,
+          status: fields.status,
+        }),
+      });
+
+      if (!res.ok) {
+        // Reverter estado se o servidor rejeitar
+        const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        console.error("[updateOperatorProfile] Servidor rejeitou a atualização:", errBody);
+        setOperators(previousOperators);
+        toast.error(`Erro ao salvar perfil: ${errBody.error || res.statusText}`);
       }
+    } catch (err) {
+      console.error("Erro ao sincronizar atualização de perfil de operador no DB:", err);
+      setOperators(previousOperators);
+      toast.error("Erro de conexão ao salvar perfil.");
     }
   };
 
@@ -532,27 +541,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       avatar: `https://i.pravatar.cc/80?img=${Math.floor(Math.random() * 70)}`,
       tenantId: tenant,
     };
-    setOperators((prev) => {
-      const updated = [...prev, newOp];
-      if (typeof window !== "undefined") {
-        try {
-          // passwordHash já foi excluído de newOp — safe
-          localStorage.setItem("rbac_operators", JSON.stringify(updated));
-        } catch (e) {}
-      }
-      return updated;
-    });
 
     try {
-      await fetch(`${BACKEND_URL}/api/operators`, {
+      // Envia ao servidor ANTES de atualizar o estado — padrão pessimista
+      const res = await fetch(`${BACKEND_URL}/api/operators`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         // Envia 'password' em claro para o servidor fazer o hash; nunca envia passwordHash
         body: JSON.stringify({ ...newOp, password: passwordHash }),
       });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        console.error("[createOperator] Falha na API:", errBody);
+        toast.error(`Erro ao criar operador: ${errBody.error || res.statusText}`);
+        return; // Não atualiza o estado — operador não foi criado
+      }
+
+      // Só adiciona ao estado local após confirmação do servidor
+      setOperators((prev) => [...prev, newOp]);
     } catch (err) {
       console.error("Erro ao criar operador no DB:", err);
+      toast.error("Erro de conexão ao criar operador.");
     }
   };
 
