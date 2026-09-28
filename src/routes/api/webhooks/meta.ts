@@ -216,23 +216,58 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                 }
 
                 // Se TEM mensagens ou status mas NÃO TEM phone_number_id:
-                // NÃO pode ser descartado silenciosamente! Deve ser guardado em pending_inbounds para análise
-                // e o lote marcado como não concluído para que a Meta retente.
-                console.error(`[Meta Webhook] FALHA CRÍTICA: Change contém mensagens/status mas phone_number_id está ausente! Gravando em pending_inbounds para análise (tenant '${tenantId}').`);
+                // NÃO pode ser descartado silenciosamente!
+                // Deve ser guardado em pending_inbounds com status 'pending' (para o recovery worker reprocessar)
+                // com externalEventId determinístico para evitar multiplicação de registros a cada retry da Meta.
+                console.error(`[Meta Webhook] FALHA CRÍTICA: Change contém mensagens/status mas phone_number_id está ausente! Gravando em pending_inbounds como pending para recuperação (tenant '${tenantId}').`);
                 unprocessableItemsCount++;
                 unprocessableErrors.push("Change contém mensagens/status mas metadata.phone_number_id está ausente");
 
+                const firstMsgId = incomingMessages?.[0]?.id;
+                const firstStatusId = statuses?.[0]?.id;
+                const eventFingerprint = firstMsgId
+                  ? `msg:${firstMsgId}`
+                  : firstStatusId
+                  ? `status:${firstStatusId}:${statuses?.[0]?.status || ""}`
+                  : `raw:${crypto.createHash("sha256").update(JSON.stringify(batchChange)).digest("hex").substring(0, 16)}`;
+
+                const orphanEventId = `meta:${tenantId}:orphan:${eventFingerprint}`;
+                const orphanId = `inb_orphan_${crypto.createHash("sha256").update(orphanEventId).digest("hex").substring(0, 24)}`;
+
                 try {
-                  await db.insert(pendingInbounds).values({
-                    id: `meta_orphan_${Date.now()}_${crypto.randomUUID()}`,
-                    tenantId,
-                    provider: "meta",
-                    externalEventId: `meta:orphan:${Date.now()}:${crypto.randomUUID()}`,
-                    payload: batchChange,
-                    status: "failed",
-                    attempts: 1,
-                    errorMessage: "Change contém mensagens/status mas metadata.phone_number_id está ausente no webhook",
-                  });
+                  const [existingOrphan] = await db
+                    .select({ id: pendingInbounds.id, attempts: pendingInbounds.attempts })
+                    .from(pendingInbounds)
+                    .where(
+                      and(
+                        eq(pendingInbounds.tenantId, tenantId),
+                        eq(pendingInbounds.externalEventId, orphanEventId)
+                      )
+                    );
+
+                  if (existingOrphan) {
+                    await db
+                      .update(pendingInbounds)
+                      .set({
+                        attempts: (existingOrphan.attempts || 1) + 1,
+                        errorMessage: "Retentativa Meta: Change contém mensagens/status mas metadata.phone_number_id ausente",
+                        nextRetryAt: new Date(Date.now() + 60000),
+                      })
+                      .where(eq(pendingInbounds.id, existingOrphan.id));
+                  } else {
+                    await db.insert(pendingInbounds).values({
+                      id: orphanId,
+                      tenantId,
+                      provider: "meta",
+                      externalEventId: orphanEventId,
+                      payload: batchChange,
+                      status: "pending",
+                      attempts: 1,
+                      nextRetryAt: new Date(Date.now() + 60000),
+                      errorMessage: "Change contém mensagens/status mas metadata.phone_number_id ausente no webhook",
+                      createdAt: new Date(),
+                    });
+                  }
                 } catch (dbErr) {
                   console.error("[Meta Webhook] Erro ao gravar evento não processável em pending_inbounds:", dbErr);
                 }
@@ -246,17 +281,51 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                 unprocessableItemsCount++;
                 unprocessableErrors.push(`Change com phone_number_id '${changePid}' inconsistente com tenant '${tenantId}'`);
 
+                const firstMsgId = incomingMessages?.[0]?.id;
+                const firstStatusId = statuses?.[0]?.id;
+                const eventFingerprint = firstMsgId
+                  ? `msg:${firstMsgId}`
+                  : firstStatusId
+                  ? `status:${firstStatusId}:${statuses?.[0]?.status || ""}`
+                  : `raw:${crypto.createHash("sha256").update(JSON.stringify(batchChange)).digest("hex").substring(0, 16)}`;
+
+                const mismatchEventId = `meta:${tenantId}:mismatch:${eventFingerprint}`;
+                const mismatchId = `inb_mismatch_${crypto.createHash("sha256").update(mismatchEventId).digest("hex").substring(0, 24)}`;
+
                 try {
-                  await db.insert(pendingInbounds).values({
-                    id: `meta_mismatch_${Date.now()}_${crypto.randomUUID()}`,
-                    tenantId,
-                    provider: "meta",
-                    externalEventId: `meta:mismatch:${Date.now()}:${crypto.randomUUID()}`,
-                    payload: batchChange,
-                    status: "failed",
-                    attempts: 1,
-                    errorMessage: `phone_number_id '${changePid}' diverge do tenant '${tenantId}' do lote`,
-                  });
+                  const [existingMismatch] = await db
+                    .select({ id: pendingInbounds.id, attempts: pendingInbounds.attempts })
+                    .from(pendingInbounds)
+                    .where(
+                      and(
+                        eq(pendingInbounds.tenantId, tenantId),
+                        eq(pendingInbounds.externalEventId, mismatchEventId)
+                      )
+                    );
+
+                  if (existingMismatch) {
+                    await db
+                      .update(pendingInbounds)
+                      .set({
+                        attempts: (existingMismatch.attempts || 1) + 1,
+                        errorMessage: `Retentativa Meta: phone_number_id '${changePid}' diverge do tenant '${tenantId}' do lote`,
+                        nextRetryAt: new Date(Date.now() + 60000),
+                      })
+                      .where(eq(pendingInbounds.id, existingMismatch.id));
+                  } else {
+                    await db.insert(pendingInbounds).values({
+                      id: mismatchId,
+                      tenantId,
+                      provider: "meta",
+                      externalEventId: mismatchEventId,
+                      payload: batchChange,
+                      status: "pending",
+                      attempts: 1,
+                      nextRetryAt: new Date(Date.now() + 60000),
+                      errorMessage: `phone_number_id '${changePid}' diverge do tenant '${tenantId}' do lote`,
+                      createdAt: new Date(),
+                    });
+                  }
                 } catch (dbErr) {
                   console.error("[Meta Webhook] Erro ao gravar evento divergente em pending_inbounds:", dbErr);
                 }
@@ -307,6 +376,12 @@ export const Route = createFileRoute("/api/webhooks/meta")({
 
                   if (result.success) {
                     processedMessagesCount++;
+                  } else {
+                    // Se o processamento do inbound falhou, NÃO responder 200!
+                    // Contabilizar como item não processável para retornar HTTP 500 e acionar retry da Meta.
+                    unprocessableItemsCount++;
+                    unprocessableErrors.push(result.error || `Falha ao processar mensagem ${messageId}`);
+                    console.error(`[Meta Webhook] InboundProcessor falhou ao processar mensagem ${messageId}:`, result.error);
                   }
                 }
               }
