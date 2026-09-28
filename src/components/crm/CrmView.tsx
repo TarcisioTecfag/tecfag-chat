@@ -51,13 +51,18 @@ export function CrmView() {
       const data = await res.json();
       const list = data.pipelines || [];
       setPipelines(list);
-      if (list.length > 0 && !selectedPipelineId) {
-        const defaultPipe = list.find((p: any) => p.isDefault) || list[0];
-        setSelectedPipelineId(defaultPipe.id);
+      if (list.length > 0) {
+        if (!selectedPipelineId || !list.some((p: any) => p.id === selectedPipelineId)) {
+          const defaultPipe = list.find((p: any) => p.isDefault) || list[0];
+          setSelectedPipelineId(defaultPipe.id);
+        }
+      } else {
+        setLoading(false);
       }
     } catch (err: any) {
       console.error("[CrmView] Erro pipelines:", err);
       toast.error("Falha ao carregar funis comerciais.");
+      setLoading(false);
     }
   }, [selectedPipelineId]);
 
@@ -76,7 +81,10 @@ export function CrmView() {
 
   // Carrega deals com os filtros ativos
   const fetchDeals = useCallback(async () => {
-    if (!selectedPipelineId) return;
+    if (!selectedPipelineId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -207,10 +215,21 @@ export function CrmView() {
           <div className="flex h-full w-full items-center justify-center p-8 text-center">
             <div className="max-w-md space-y-3">
               <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground/60" />
-              <h3 className="text-sm font-bold text-foreground">Nenhum funil selecionado</h3>
+              <h3 className="text-sm font-bold text-foreground">Nenhum funil disponível</h3>
               <p className="text-xs text-muted-foreground">
-                Crie um novo funil ou selecione um funil existente na barra superior para acompanhar suas negociações.
+                Nenhum funil comercial foi detectado para o seu tenant ou as informações ainda estão sendo sincronizadas.
               </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoading(true);
+                  fetchPipelines();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Inicializar / Recarregar Funil</span>
+              </button>
             </div>
           </div>
         ) : viewMode === "kanban" ? (

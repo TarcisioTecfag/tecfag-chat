@@ -59,11 +59,17 @@ export function CrmToolbar({
               onChange={(e) => onPipelineChange(e.target.value)}
               className="bg-transparent font-bold text-foreground outline-none cursor-pointer pr-4 text-xs"
             >
-              {pipelines.map((p) => (
-                <option key={p.id} value={p.id} className="bg-card text-foreground">
-                  {p.name} {p.isDefault ? "(Padrão)" : ""}
+              {pipelines.length === 0 ? (
+                <option value="" disabled className="bg-card text-muted-foreground">
+                  Nenhum funil disponível
                 </option>
-              ))}
+              ) : (
+                pipelines.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-card text-foreground">
+                    {p.name} {p.isDefault ? "(Padrão)" : ""}
+                  </option>
+                ))
+              )}
             </select>
           </div>
         </div>

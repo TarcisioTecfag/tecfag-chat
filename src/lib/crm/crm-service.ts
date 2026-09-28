@@ -79,7 +79,28 @@ export class CrmService {
       .orderBy(asc(crmPipelines.orderIndex), asc(crmPipelines.createdAt));
 
     if (pipelines.length === 0) {
-      return [];
+      // Auto-inicializa o funil padrão para o tenant se ainda não houver nenhum funil cadastrado
+      try {
+        const defaultPipeline = await this.createPipeline(tenantId, {
+          name: "Funil Comercial",
+          orderIndex: 0,
+          isDefault: true,
+          color: "#0284c7",
+          coolingDays: 10,
+          stages: [
+            { name: "Primeiro Contato", orderIndex: 0 },
+            { name: "Qualificação", orderIndex: 1 },
+            { name: "Proposta Enviada", orderIndex: 2 },
+            { name: "Negociação", orderIndex: 3 },
+            { name: "Fechamento / Ganho", orderIndex: 4, isWinStage: true },
+            { name: "Perdido", orderIndex: 5, isLossStage: true },
+          ],
+        });
+        return [defaultPipeline];
+      } catch (seedErr: any) {
+        console.error("[CrmService] Falha ao auto-inicializar funil padrão:", seedErr);
+        return [];
+      }
     }
 
     const pipelineIds = pipelines.map((p) => p.id);
