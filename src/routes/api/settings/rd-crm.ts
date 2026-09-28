@@ -23,15 +23,8 @@ export const Route = createFileRoute("/api/settings/rd-crm")({
           const auth = await requireSession(request);
           if ("response" in auth) return auth.response;
           const { session } = auth;
-
-          if (session.operator.role !== "admin") {
-            return new Response(JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }), {
-              status: 403,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-
           const tenantId = session.tenantId;
+
           const configured = await isRdCrmConfigured(tenantId);
 
           return new Response(JSON.stringify({ configured }), {

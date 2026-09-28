@@ -2506,6 +2506,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const sseRetryCountRef = useRef<number>(0);
   const sseRetryTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Mantém referência estável do handler para evitar que re-renders do componente reconectem o SSE
+  const handleIncomingSseEventRef = useRef(handleIncomingSseEvent);
+  useEffect(() => {
+    handleIncomingSseEventRef.current = handleIncomingSseEvent;
+  }, [handleIncomingSseEvent]);
+
   useEffect(() => {
     if (!isAuthenticated) {
       if (universalSseRef.current) {
@@ -2561,7 +2567,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           if (!event.data || event.data.trim() === "" || event.data.trim() === ": ping") return;
           const data = JSON.parse(event.data);
-          handleIncomingSseEvent(data);
+          handleIncomingSseEventRef.current(data);
         } catch (e) {
           console.error("[SSE Universal] Erro ao analisar evento recebido:", e);
         }
@@ -2598,7 +2604,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sseRetryTimerRef.current = null;
       }
     };
-  }, [isAuthenticated, handleIncomingSseEvent, setConversations]);
+  }, [isAuthenticated, setConversations]);
 
   // ── Conexão Baileys (habilitada apenas quando activeProvider === 'baileys') ─
   const connectBaileys = (forceNew: boolean = false) => {
