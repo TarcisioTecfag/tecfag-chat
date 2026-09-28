@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import crypto from "node:crypto";
 import { db } from "../../../db";
-import { channelConfigs, messages } from "../../../db/schema";
+import { channelConfigs, messages, pendingInbounds } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { inboundProcessor } from "../../../lib/whatsapp/inbound";
 
@@ -191,27 +191,80 @@ export const Route = createFileRoute("/api/webhooks/meta")({
           // 4. PERSISTÊNCIA SÍNCRONA & DURÁVEL — processa TODAS as entries e changes do lote
           let processedMessagesCount = 0;
           let processedStatusesCount = 0;
+          let unprocessableItemsCount = 0;
+          const unprocessableErrors: string[] = [];
 
           for (const batchEntry of body?.entry ?? []) {
             for (const batchChange of batchEntry?.changes ?? []) {
               const value = batchChange?.value;
               if (!value) continue;
 
+              const incomingMessages = value?.messages;
+              const statuses = value?.statuses;
+              const hasActionableContent =
+                (Array.isArray(incomingMessages) && incomingMessages.length > 0) ||
+                (Array.isArray(statuses) && statuses.length > 0);
+
               // Confirmar que este change tem phone_number_id pertencente ao tenant resolvido.
-              // A assinatura do lote já foi validada; changes individuais sem o ID são apenas pulados.
               const changePid = value?.metadata?.phone_number_id;
+
               if (!changePid) {
-                console.warn(`[Meta Webhook] Change sem phone_number_id pulado (tenant '${tenantId}').`);
+                // Se NÃO tem mensagens nem status (ex: evento genérico de conta ou heartbeat), pode ser ignorado sem perda de dados
+                if (!hasActionableContent) {
+                  console.info(`[Meta Webhook] Change sem mensagens/status e sem phone_number_id ignorado com segurança (tenant '${tenantId}').`);
+                  continue;
+                }
+
+                // Se TEM mensagens ou status mas NÃO TEM phone_number_id:
+                // NÃO pode ser descartado silenciosamente! Deve ser guardado em pending_inbounds para análise
+                // e o lote marcado como não concluído para que a Meta retente.
+                console.error(`[Meta Webhook] FALHA CRÍTICA: Change contém mensagens/status mas phone_number_id está ausente! Gravando em pending_inbounds para análise (tenant '${tenantId}').`);
+                unprocessableItemsCount++;
+                unprocessableErrors.push("Change contém mensagens/status mas metadata.phone_number_id está ausente");
+
+                try {
+                  await db.insert(pendingInbounds).values({
+                    id: `meta_orphan_${Date.now()}_${crypto.randomUUID()}`,
+                    tenantId,
+                    provider: "meta",
+                    externalEventId: `meta:orphan:${Date.now()}:${crypto.randomUUID()}`,
+                    payload: batchChange,
+                    status: "failed",
+                    attempts: 1,
+                    errorMessage: "Change contém mensagens/status mas metadata.phone_number_id está ausente no webhook",
+                  });
+                } catch (dbErr) {
+                  console.error("[Meta Webhook] Erro ao gravar evento não processável em pending_inbounds:", dbErr);
+                }
+
                 continue;
               }
+
               if (tenantsByPhone.get(changePid) !== tenantId) {
-                // Defesa em profundidade — não deve ocorrer se a validação do lote estava correta
-                console.error(`[Meta Webhook] Change com phone_number_id '${changePid}' inconsistente. Pulado.`);
+                // Defesa em profundidade: inconsistência entre número do change e tenant resolvido
+                console.error(`[Meta Webhook] FALHA CRÍTICA: Change com phone_number_id '${changePid}' diverge do tenant '${tenantId}' do lote! Gravando para análise.`);
+                unprocessableItemsCount++;
+                unprocessableErrors.push(`Change com phone_number_id '${changePid}' inconsistente com tenant '${tenantId}'`);
+
+                try {
+                  await db.insert(pendingInbounds).values({
+                    id: `meta_mismatch_${Date.now()}_${crypto.randomUUID()}`,
+                    tenantId,
+                    provider: "meta",
+                    externalEventId: `meta:mismatch:${Date.now()}:${crypto.randomUUID()}`,
+                    payload: batchChange,
+                    status: "failed",
+                    attempts: 1,
+                    errorMessage: `phone_number_id '${changePid}' diverge do tenant '${tenantId}' do lote`,
+                  });
+                } catch (dbErr) {
+                  console.error("[Meta Webhook] Erro ao gravar evento divergente em pending_inbounds:", dbErr);
+                }
+
                 continue;
               }
 
               // 5.1. Mensagens recebidas
-              const incomingMessages = value?.messages;
               if (Array.isArray(incomingMessages) && incomingMessages.length > 0) {
                 const contactProfile = value?.contacts?.[0]?.profile?.name;
 
@@ -259,7 +312,6 @@ export const Route = createFileRoute("/api/webhooks/meta")({
               }
 
               // 4.2. Atualizações de Status de Mensagens Enviadas (statuses)
-              const statuses = value?.statuses;
               if (Array.isArray(statuses) && statuses.length > 0) {
                 for (const statusObj of statuses) {
                   const wamid = statusObj.id;
@@ -292,7 +344,28 @@ export const Route = createFileRoute("/api/webhooks/meta")({
             } // fim for batchChange
           } // fim for batchEntry
 
-          // 5. Retorna 200 OK com confirmação de que os dados foram persistidos com segurança
+          // 5. Se houve algum item com mensagem/status que não pôde ser processado com integridade,
+          // responder HTTP 500 (falha recuperável) para que a Meta retente o lote e o monitoramento seja alertado.
+          // O evento já foi salvo em pending_inbounds para não haver perda de dados.
+          if (unprocessableItemsCount > 0) {
+            console.error(`[Meta Webhook] Lote finalizado com ${unprocessableItemsCount} item(ns) acionável(is) não processado(s). Retornando 500 para retry da Meta.`);
+            return new Response(
+              JSON.stringify({
+                error: "Erro recuperável: item(ns) acionáveis não processáveis no lote. Eventos guardados em pending_inbounds para análise.",
+                tenantId,
+                unprocessableItemsCount,
+                errors: unprocessableErrors,
+                processedMessages: processedMessagesCount,
+                processedStatuses: processedStatusesCount,
+              }),
+              {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+              }
+            );
+          }
+
+          // 6. Retorna 200 OK com confirmação de que 100% dos dados acionáveis foram persistidos com segurança
           return new Response(
             JSON.stringify({
               success: true,

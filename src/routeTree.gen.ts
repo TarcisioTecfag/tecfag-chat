@@ -29,7 +29,6 @@ import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
 import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
 import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
-import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiEventsRouteImport } from './routes/api/events'
@@ -52,6 +51,7 @@ import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/a
 import { Route as ApiSettingsWhatsappRouteImport } from './routes/api/settings/whatsapp'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
+import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
 import { Route as ApiLivechatVisitorsRouteImport } from './routes/api/livechat/visitors'
 import { Route as ApiLivechatTrayConfigRouteImport } from './routes/api/livechat/tray-config'
 import { Route as ApiLivechatMetricsRouteImport } from './routes/api/livechat/metrics'
@@ -197,11 +197,6 @@ const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
   path: '/api/operators',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiOperatorsProfileRoute = ApiOperatorsProfileRouteImport.update({
-  id: '/api/operators/profile',
-  path: '/api/operators/profile',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
@@ -313,6 +308,11 @@ const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
   id: '/api/settings/rd-crm',
   path: '/api/settings/rd-crm',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOperatorsProfileRoute = ApiOperatorsProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => ApiOperatorsRoute,
 } as any)
 const ApiLivechatVisitorsRoute = ApiLivechatVisitorsRouteImport.update({
   id: '/api/livechat/visitors',
@@ -554,8 +554,7 @@ export interface FileRoutesByFullPath {
   '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/operators': typeof ApiOperatorsRoute
-  '/api/operators/profile': typeof ApiOperatorsProfileRoute
+  '/api/operators': typeof ApiOperatorsRouteWithChildren
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
@@ -610,6 +609,7 @@ export interface FileRoutesByFullPath {
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
+  '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
@@ -643,7 +643,7 @@ export interface FileRoutesByTo {
   '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/operators': typeof ApiOperatorsRoute
+  '/api/operators': typeof ApiOperatorsRouteWithChildren
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
@@ -698,6 +698,7 @@ export interface FileRoutesByTo {
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
+  '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
@@ -732,7 +733,7 @@ export interface FileRoutesById {
   '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/operators': typeof ApiOperatorsRoute
+  '/api/operators': typeof ApiOperatorsRouteWithChildren
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
@@ -787,6 +788,7 @@ export interface FileRoutesById {
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
+  '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
@@ -877,6 +879,7 @@ export interface FileRouteTypes {
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
+    | '/api/operators/profile'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
@@ -965,6 +968,7 @@ export interface FileRouteTypes {
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
+    | '/api/operators/profile'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
@@ -1053,6 +1057,7 @@ export interface FileRouteTypes {
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
+    | '/api/operators/profile'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
@@ -1087,7 +1092,7 @@ export interface RootRouteChildren {
   ApiEventsRoute: typeof ApiEventsRoute
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiHealthRoute: typeof ApiHealthRoute
-  ApiOperatorsRoute: typeof ApiOperatorsRoute
+  ApiOperatorsRoute: typeof ApiOperatorsRouteWithChildren
   ApiPushRoute: typeof ApiPushRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
   ApiSectorsRoute: typeof ApiSectorsRoute
@@ -1450,6 +1455,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSettingsRdCrmRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/operators/profile': {
+      id: '/api/operators/profile'
+      path: '/profile'
+      fullPath: '/api/operators/profile'
+      preLoaderRoute: typeof ApiOperatorsProfileRouteImport
+      parentRoute: typeof ApiOperatorsRoute
+    }
     '/api/livechat/visitors': {
       id: '/api/livechat/visitors'
       path: '/api/livechat/visitors'
@@ -1804,6 +1816,18 @@ const ApiContactsRouteWithChildren = ApiContactsRoute._addFileChildren(
   ApiContactsRouteChildren,
 )
 
+interface ApiOperatorsRouteChildren {
+  ApiOperatorsProfileRoute: typeof ApiOperatorsProfileRoute
+}
+
+const ApiOperatorsRouteChildren: ApiOperatorsRouteChildren = {
+  ApiOperatorsProfileRoute: ApiOperatorsProfileRoute,
+}
+
+const ApiOperatorsRouteWithChildren = ApiOperatorsRoute._addFileChildren(
+  ApiOperatorsRouteChildren,
+)
+
 interface ApiValentinaVoiceRouteChildren {
   ApiValentinaVoiceChatCompletionsRoute: typeof ApiValentinaVoiceChatCompletionsRoute
   ApiValentinaVoiceV1ChatCompletionsRoute: typeof ApiValentinaVoiceV1ChatCompletionsRoute
@@ -1852,8 +1876,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiEventsRoute: ApiEventsRoute,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiHealthRoute: ApiHealthRoute,
-  ApiOperatorsRoute: ApiOperatorsRoute,
-  ApiOperatorsProfileRoute: ApiOperatorsProfileRoute,
+  ApiOperatorsRoute: ApiOperatorsRouteWithChildren,
   ApiPushRoute: ApiPushRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
   ApiSectorsRoute: ApiSectorsRoute,

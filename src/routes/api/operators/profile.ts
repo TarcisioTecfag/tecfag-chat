@@ -20,7 +20,7 @@ const corsHeaders = {
  * dado de outro operador. Para essas operações, use POST /api/operators
  * (requer role admin).
  */
-export const Route = createFileRoute("/api/operators/profile" as any)({
+export const Route = createFileRoute("/api/operators/profile")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
