@@ -3,7 +3,7 @@ import { db } from "../../db/index.js";
 import { contacts, conversations, operators } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
-import { getAuthSession, validateTenantAccess } from "../../lib/auth-session.js";
+import { requireSession } from "../../lib/auth-session.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,23 +19,18 @@ export const Route = createFileRoute("/api/contacts")({
       },
       POST: async ({ request }) => {
         try {
-          const session = await getAuthSession(request);
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId; // SEMPRE da sessão — nunca do body
+
           const body = await request.json().catch(() => ({}));
           const { name, phone, email, cnpj, channel, operatorId, queueState, contactId, conversationId } = body;
 
-          const tenantId = session ? session.tenantId : body.tenantId;
-
-          if (!tenantId || !name) {
+          if (!name) {
             return new Response(
-              JSON.stringify({ error: "Sessão inválida ou campos obrigatórios ausentes (tenantId, name).", code: "UNAUTHORIZED" }),
+              JSON.stringify({ error: "Campo obrigatório ausente: name." }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          if (session && body.tenantId && body.tenantId !== session.tenantId) {
-            return new Response(
-              JSON.stringify({ error: "Não é permitido criar contatos para outro tenant.", code: "FORBIDDEN" }),
-              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 

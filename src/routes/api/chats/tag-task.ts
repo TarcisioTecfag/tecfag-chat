@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { conversations, contacts, messages } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { rdRequest, getCachedUsers, getCachedDeal } from "../../../lib/rdCrmService";
 import { requireSession } from "../../../lib/auth-session.js";
 
@@ -84,7 +84,7 @@ export const Route = createFileRoute("/api/chats/tag-task")({
           const [contact] = await db
             .select({ rdCrmDealId: contacts.rdCrmDealId, name: contacts.name })
             .from(contacts)
-            .where(eq(contacts.id, conv.contactId));
+            .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
 
           if (!contact?.rdCrmDealId) {
             return new Response(

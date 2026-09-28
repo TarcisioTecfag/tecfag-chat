@@ -87,58 +87,70 @@ export const Route = createFileRoute("/api/webhooks/meta")({
             });
           }
 
-          // 2. Identificação estrita do tenant pelo phoneNumberId (usa a primeira entry para lookup)
+          // 2. Identificação estrita do tenant — resolve phone_number_id de CADA change no lote.
+          // A Meta garante que um lote de webhook pertence a um único número, mas validamos
+          // explicitamente para rejeitar lotes inconsistentes antes de qualquer processamento.
+          //
+          // NUNCA usa ?tenantId= da URL como autoridade de lookup — apenas como verificação cruzada opcional.
           const url = new URL(request.url);
-          const queryTenantId = url.searchParams.get("tenantId");
+          const queryTenantId = url.searchParams.get("tenantId"); // apenas para log/verificação cruzada
 
-          const firstEntry = body?.entry?.[0];
-          const firstChange = firstEntry?.changes?.[0];
-          const firstValue = firstChange?.value;
-          const phoneNumberId = firstValue?.metadata?.phone_number_id;
+          const allPhoneNumberIds = new Set<string>();
+          for (const e of body?.entry ?? []) {
+            for (const c of e?.changes ?? []) {
+              const pid = c?.value?.metadata?.phone_number_id;
+              if (pid) allPhoneNumberIds.add(pid);
+            }
+          }
 
-          let matchedTenantId: string | null = null;
+          if (allPhoneNumberIds.size === 0) {
+            // Lote sem phone_number_id em nenhum change — pode ser evento de teste ou heartbeat da Meta
+            console.warn("[Meta Webhook] Lote sem phone_number_id identificável. Ignorado.");
+            return new Response(JSON.stringify({ ok: true, skipped: true }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
 
-          if (phoneNumberId) {
+          // Resolve tenantId para cada phoneNumberId único do lote e verifica consistência
+          const tenantsByPhone = new Map<string, string>();
+          for (const pid of allPhoneNumberIds) {
             const [cfg] = await db
               .select({ tenantId: channelConfigs.tenantId })
               .from(channelConfigs)
-              .where(eq(channelConfigs.metaPhoneNumberId, phoneNumberId));
-            if (cfg) {
-              matchedTenantId = cfg.tenantId;
+              .where(eq(channelConfigs.metaPhoneNumberId, pid));
+
+            if (!cfg) {
+              console.warn(`[Meta Webhook] Rejeitado: phone_number_id '${pid}' não cadastrado para nenhum tenant.`);
+              return new Response(
+                JSON.stringify({ error: `Not Found: phone_number_id '${pid}' não cadastrado` }),
+                { status: 404, headers: { "Content-Type": "application/json" } }
+              );
             }
+            tenantsByPhone.set(pid, cfg.tenantId);
           }
 
-          // Se a requisição veio com ?tenantId= na URL, ela DEVE bater com o tenant resolvido pelo phone_number_id
-          if (queryTenantId) {
-            if (matchedTenantId && matchedTenantId !== queryTenantId) {
-              console.warn(`[Meta Webhook] Conflito de tenant: queryTenantId '${queryTenantId}' != phone tenant '${matchedTenantId}'`);
-              return new Response(JSON.stringify({ error: "Tenant da URL não corresponde ao proprietário do phone_number_id" }), {
-                status: 403,
-                headers: { "Content-Type": "application/json" },
-              });
-            }
-            if (!matchedTenantId) {
-              // Verifica se o tenant da URL tem esse phone_number_id
-              const [cfg] = await db
-                .select({ tenantId: channelConfigs.tenantId, metaPhoneNumberId: channelConfigs.metaPhoneNumberId })
-                .from(channelConfigs)
-                .where(eq(channelConfigs.tenantId, queryTenantId));
-              if (cfg && (!cfg.metaPhoneNumberId || cfg.metaPhoneNumberId === phoneNumberId)) {
-                matchedTenantId = cfg.tenantId;
-              }
-            }
-          }
-
-          // Se NENHUM tenant foi localizado para este número, REJEITA imediatamente. NUNCA FAZ FALLBACK!
-          if (!matchedTenantId) {
-            console.warn(`[Meta Webhook] Rejeitado: phone_number_id '${phoneNumberId}' não cadastrado para nenhum tenant.`);
+          // Verifica que todos os phoneNumberIds do lote pertencem ao mesmo tenant
+          const uniqueTenants = new Set(tenantsByPhone.values());
+          if (uniqueTenants.size > 1) {
+            console.warn(`[Meta Webhook] Lote com números de tenants distintos: ${[...uniqueTenants].join(", ")}. Rejeitado.`);
             return new Response(
-              JSON.stringify({ error: "Not Found: Nenhum tenant configurado para este phone_number_id" }),
-              { status: 404, headers: { "Content-Type": "application/json" } }
+              JSON.stringify({ error: "Lote inválido: números de tenants distintos no mesmo payload." }),
+              { status: 400, headers: { "Content-Type": "application/json" } }
             );
           }
 
-          const tenantId = matchedTenantId;
+          const tenantId = [...uniqueTenants][0];
+
+          // Verificação cruzada: se veio ?tenantId= na URL, deve bater com o tenant resolvido pelo número
+          if (queryTenantId && queryTenantId !== tenantId) {
+            console.warn(`[Meta Webhook] Conflito: queryTenantId='${queryTenantId}' != tenant resolvido='${tenantId}'`);
+            return new Response(
+              JSON.stringify({ error: "Tenant da URL não corresponde ao proprietário do phone_number_id" }),
+              { status: 403, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
 
           // 3. Validação Criptográfica Obrigatória HMAC SHA-256
           const [channelCfg] = await db

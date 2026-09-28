@@ -60,13 +60,14 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             );
           }
 
-          // Verificar permissão: atendentes comuns só podem responder às suas próprias conversas
+          // Verificar permissão de escrita: admin e supervisor podem enviar para qualquer conversa do tenant.
+          // Atendentes comuns só podem enviar na conversa que lhes pertence (operatorId).
+          // canViewAllChats é permissão de LEITURA — não autoriza envio.
           const isAdmin = session.operator.role === "admin";
           const isSupervisor = session.operator.role === "supervisor";
           const isOwner = conv.operatorId === session.operator.id;
-          const canViewAll = session.permissions?.canViewAllChats === true;
 
-          if (!isAdmin && !isSupervisor && !isOwner && !canViewAll) {
+          if (!isAdmin && !isSupervisor && !isOwner) {
             return new Response(
               JSON.stringify({ error: "Sem permissão para responder nesta conversa.", code: "FORBIDDEN" }),
               { status: 403, headers: { "Content-Type": "application/json" } }

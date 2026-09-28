@@ -58,7 +58,8 @@ export type Operator = {
   email: string;
   avatar: string;
   status: "disponivel" | "pausa" | "desconectado";
-  passwordHash: string;
+  /** @deprecated NUNCA persista no localStorage nem envie ao servidor. Campo mantido para compatibilidade de tipo. */
+  passwordHash?: string;
   groupId: string;
   tenantId?: "tecfag" | "valem";
 };
@@ -286,14 +287,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return exists ? prev.map((o) => (o.id === data.operator.id ? data.operator : o)) : [data.operator, ...prev];
             });
 
-            // Sincronizar lista de operadores do tenant autenticado
-            fetch(`${BACKEND_URL}/api/operators?tenantId=${activeTenant}`, {
+            // Sincronizar lista de operadores do tenant autenticado — sem ?tenantId= na URL
+            fetch(`${BACKEND_URL}/api/operators`, {
               credentials: "include",
             })
               .then((res) => res.json())
               .then((opList) => {
                 if (Array.isArray(opList) && opList.length > 0) {
-                  setOperators(opList);
+                  setOperators(opList); // servidor já retorna sanitizado (sem passwordHash)
                 }
               })
               .catch((err) => console.error("Erro ao sincronizar operadores da sessão:", err));
@@ -311,22 +312,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Sincronizar grupos, setores, respostas rápidas e operadores do banco de dados quando o tenant mudar
+  // Sincronizar grupos, setores, respostas rápidas e operadores do banco de dados quando o tenant mudar.
+  // O tenantId não é mais enviado na URL — o servidor usa a sessão autenticada como autoridade.
   useEffect(() => {
     if (typeof window !== "undefined") {
-      fetch(`${BACKEND_URL}/api/operators?tenantId=${tenant}`)
+      fetch(`${BACKEND_URL}/api/operators`, { credentials: "include" })
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data) && data.length > 0) {
-            setOperators(data);
+            setOperators(data); // servidor já retorna sanitizado (sem passwordHash)
             try {
-              localStorage.setItem("rbac_operators", JSON.stringify(data));
+              const safeOps = data.map(({ passwordHash: _ph, ...rest }: any) => rest);
+              localStorage.setItem("rbac_operators", JSON.stringify(safeOps));
             } catch (e) {}
           }
         })
         .catch((err) => console.error("Erro ao sincronizar operadores do banco:", err));
 
-      fetch(`${BACKEND_URL}/api/groups?tenantId=${tenant}`)
+      fetch(`${BACKEND_URL}/api/groups`, { credentials: "include" })
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
@@ -335,7 +338,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch((err) => console.error("Erro ao sincronizar grupos do banco:", err));
 
-      fetch(`${BACKEND_URL}/api/sectors?tenantId=${tenant}`)
+      fetch(`${BACKEND_URL}/api/sectors`, { credentials: "include" })
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
@@ -344,7 +347,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch((err) => console.error("Erro ao sincronizar setores do banco:", err));
 
-      fetch(`${BACKEND_URL}/api/quick-responses?tenantId=${tenant}`)
+      fetch(`${BACKEND_URL}/api/quick-responses`, { credentials: "include" })
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
@@ -355,10 +358,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [tenant]);
 
-  // Sincronizar templates individuais do operador quando o tenant ou o operador ativo mudar
+  // Sincronizar templates individuais do operador quando o tenant ou o operador ativo mudar.
+  // tenantId e operatorId são resolvidos pelo servidor a partir da sessão autenticada.
   useEffect(() => {
     if (typeof window !== "undefined" && currentOperatorId) {
-      fetch(`${BACKEND_URL}/api/templates?tenantId=${tenant}&operatorId=${currentOperatorId}`)
+      fetch(`${BACKEND_URL}/api/templates`, { credentials: "include" })
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
@@ -387,11 +391,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [operators, currentOperatorId, tenant, isAuthenticated]);
 
-  // Persistir alterações apenas após o cliente estar pronto
+  // Persistir alterações apenas após o cliente estar pronto.
+  // passwordHash é explicitamente excluído — NUNCA deve ficar no localStorage.
   useEffect(() => {
     if (isClient && typeof window !== "undefined") {
       try {
-        localStorage.setItem("rbac_operators", JSON.stringify(operators));
+        const safeOperators = operators.map(({ passwordHash: _ph, ...rest }) => rest);
+        localStorage.setItem("rbac_operators", JSON.stringify(safeOperators));
       } catch (e) {
         console.error("Erro ao persistir rbac_operators no localStorage:", e);
       }
@@ -440,7 +446,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: "",
     avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop",
     status: "disponivel",
-    passwordHash: "123456",
     groupId: "group-admin",
   };
 
@@ -517,8 +522,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // CRUD Operators
   const createOperator = async (opData: Omit<Operator, "id" | "status" | "avatar">) => {
+    // Extrair passwordHash do opData — não deve entrar no estado React nem no localStorage
+    const { passwordHash, ...opFields } = opData;
+
     const newOp: Operator = {
-      ...opData,
+      ...opFields,
       id: `op-${Date.now()}`,
       status: "disponivel",
       avatar: `https://i.pravatar.cc/80?img=${Math.floor(Math.random() * 70)}`,
@@ -528,6 +536,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updated = [...prev, newOp];
       if (typeof window !== "undefined") {
         try {
+          // passwordHash já foi excluído de newOp — safe
           localStorage.setItem("rbac_operators", JSON.stringify(updated));
         } catch (e) {}
       }
@@ -537,8 +546,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await fetch(`${BACKEND_URL}/api/operators`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newOp),
+        // Envia 'password' em claro para o servidor fazer o hash; nunca envia passwordHash
+        body: JSON.stringify({ ...newOp, password: passwordHash }),
       });
     } catch (err) {
       console.error("Erro ao criar operador no DB:", err);
@@ -546,8 +557,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateOperator = async (id: string, fields: Partial<Operator>) => {
+    // Strippear passwordHash dos fields antes de aplicar ao estado local
+    const { passwordHash: _ph, ...safeFields } = fields;
+
     setOperators((prev) => {
-      const updated = prev.map((op) => (op.id === id ? { ...op, ...fields } : op));
+      const updated = prev.map((op) => (op.id === id ? { ...op, ...safeFields } : op));
       if (typeof window !== "undefined") {
         try {
           localStorage.setItem("rbac_operators", JSON.stringify(updated));
@@ -559,13 +573,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targetOp = operators.find((op) => op.id === id);
     if (targetOp) {
       try {
+        // Strippear passwordHash do payload — nunca enviar hash ao servidor via update
+        const { passwordHash: _hash, ...safeTarget } = targetOp;
         await fetch(`${BACKEND_URL}/api/operators`, {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...targetOp,
-            ...fields,
-          }),
+          body: JSON.stringify({ ...safeTarget, ...safeFields }),
         });
       } catch (err) {
         console.error("Erro ao atualizar operador no DB:", err);
@@ -587,8 +601,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/operators?id=${id}&tenantId=${tenant}`, {
+      // Sem ?tenantId= — o servidor usa a sessão autenticada como autoridade
+      const res = await fetch(`${BACKEND_URL}/api/operators?id=${id}`, {
         method: "DELETE",
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -615,25 +631,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
   const resetOperatorPassword = async (id: string, newPasswordHash: string) => {
-    setOperators((prev) => {
-      const updated = prev.map((op) => (op.id === id ? { ...op, passwordHash: newPasswordHash } : op));
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_operators", JSON.stringify(updated));
-        } catch (e) {}
-      }
-      return updated;
-    });
+    // NÃO salvar passwordHash no estado React/localStorage — o servidor faz o hash
+    // O estado local do operador permanece inalterado (sem campo de senha)
 
     const targetOp = operators.find((op) => op.id === id);
     if (targetOp) {
       try {
         await fetch(`${BACKEND_URL}/api/operators`, {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
+          // Envia como 'password' (texto plano) para o servidor fazer o hash
           body: JSON.stringify({
             ...targetOp,
-            passwordHash: newPasswordHash,
+            password: newPasswordHash,
           }),
         });
       } catch (err) {
@@ -694,8 +705,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setOperators((prev) => prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op)));
 
     try {
-      await fetch(`${BACKEND_URL}/api/groups?id=${id}&tenantId=${tenant}`, {
+      await fetch(`${BACKEND_URL}/api/groups?id=${id}`, {
         method: "DELETE",
+        credentials: "include",
       });
       toast.success("Grupo de acesso excluído com sucesso!");
     } catch (err) {
@@ -2587,14 +2599,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             document.title = matchedOp.tenantId === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
 
-            // Buscar operadores atualizados e sanitizados do tenant autenticado
-            fetch(`${BACKEND_URL}/api/operators?tenantId=${matchedOp.tenantId}`, {
+            // Buscar operadores atualizados e sanitizados do tenant autenticado — sem ?tenantId=
+            fetch(`${BACKEND_URL}/api/operators`, {
               credentials: "include",
             })
               .then((res) => res.json())
               .then((opList) => {
                 if (Array.isArray(opList) && opList.length > 0) {
-                  setOperators(opList);
+                  setOperators(opList); // servidor retorna sanitizado (sem passwordHash)
                 }
               })
               .catch((err) => console.error("Erro ao sincronizar operadores pós-login:", err));
