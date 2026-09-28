@@ -156,13 +156,13 @@
 >
 > 9. ⏳ **`SdrEngine` fallback de agentConfig** — Busca qualquer config de tipo `"sdr"` sem filtrar por tenant. Arquivo: `src/lib/valentina/sdr-engine.ts` linha ~127.
 >
-> 10. ⏳ **`useState("tecfag")` no frontend** — Tenant padrão antes do login deve ser `null`. Arquivo: `src/hooks/useChatState.tsx` linha 158.
+> 10. ✅ **`useState("tecfag")` no frontend** — Corrigido na Entrega 2: tenant padrão antes do login é `null` em `src/hooks/useChatState.tsx`.
 >
 > 11. ⏳ **Prompt de IA hardcoded para Valem** — `src/lib/valentina/sdr-engine.ts` linha ~294.
 >
-> 12. ⏳ **`recipientPhone` do body em `/api/whatsapp/send`** — Telefone de destino deve ser obtido do banco via `conversationId`. Entrega 2.
+> 12. ✅ **`recipientPhone` do body em `/api/whatsapp/send`** — Corrigido na Entrega 2: telefone de destino é obtido exclusivamente do banco via `conversationId`.
 >
-> 13. ⏳ **Webhook Meta processa apenas `entry[0].changes[0]`** — Eventos em lote são ignorados. Entrega 3.
+> 13. ✅ **Webhook Meta processa apenas `entry[0].changes[0]`** — Corrigido na Entrega 3: iteração completa sobre todas as entries e todos os changes do lote, com retenção de eventos órfãos.
 
 
 
