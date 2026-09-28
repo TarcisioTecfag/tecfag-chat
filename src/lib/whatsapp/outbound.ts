@@ -227,11 +227,24 @@ function isIdempotencyConflict(err: any): boolean {
     } catch (err: any) {
       console.error(`[OutboundQueue] Exceção crítica ao despachar mensagem ${messageId}:`, err);
 
+      const isUncertain =
+        err?.code === "ETIMEDOUT" ||
+        err?.code === "ECONNRESET" ||
+        err?.code === "UND_ERR_CONNECT_TIMEOUT" ||
+        err?.name === "AbortError" ||
+        err?.message?.toLowerCase().includes("timeout") ||
+        err?.message?.toLowerCase().includes("network");
+
+      const finalStatus = isUncertain ? "uncertain" : "failed";
+      const finalMsg = isUncertain
+        ? "Confirmação não recebida do provedor (estado incerto). Ação manual de reconciliação disponível."
+        : (err.message || "Erro desconhecido durante despacho");
+
       await db
         .update(messages)
         .set({
-          status: "failed",
-          errorMessage: err.message || "Erro desconhecido durante despacho",
+          status: finalStatus,
+          errorMessage: finalMsg,
           retryCount: 1,
           updatedAt: new Date(),
         })
@@ -240,8 +253,8 @@ function isIdempotencyConflict(err: any): boolean {
       return {
         success: false,
         messageId,
-        status: "failed",
-        error: err.message,
+        status: finalStatus as any,
+        error: finalMsg,
       };
     }
   }

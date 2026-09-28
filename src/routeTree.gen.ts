@@ -71,11 +71,17 @@ import { Route as ApiGestaoCostsRouteImport } from './routes/api/gestao/costs'
 import { Route as ApiGestaoContactsAnalyticsRouteImport } from './routes/api/gestao/contacts-analytics'
 import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
 import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
+import { Route as ApiCrmProductsRouteImport } from './routes/api/crm/products'
+import { Route as ApiCrmPipelinesRouteImport } from './routes/api/crm/pipelines'
+import { Route as ApiCrmInventoryRouteImport } from './routes/api/crm/inventory'
+import { Route as ApiCrmDealsRouteImport } from './routes/api/crm/deals'
+import { Route as ApiCrmAccountsRouteImport } from './routes/api/crm/accounts'
 import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
 import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/contacts/check-inactivity'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiChatsTagTaskRouteImport } from './routes/api/chats/tag-task'
+import { Route as ApiChatsReconcileMessageRouteImport } from './routes/api/chats/reconcile-message'
 import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
 import { Route as ApiBaileysStatusRouteImport } from './routes/api/baileys/status'
 import { Route as ApiBaileysSendMediaRouteImport } from './routes/api/baileys/send-media'
@@ -93,9 +99,17 @@ import { Route as ApiSettingsWhatsappActionsRouteImport } from './routes/api/set
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
 import { Route as ApiLivechatVisitorVisitorIdRouteImport } from './routes/api/livechat/visitor/$visitorId'
+import { Route as ApiCrmImportRdCrmRouteImport } from './routes/api/crm/import/rd-crm'
+import { Route as ApiCrmDealsDealIdRouteImport } from './routes/api/crm/deals/$dealId'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
+import { Route as ApiChatsConversationIdDealsRouteImport } from './routes/api/chats/$conversationId/deals'
 import { Route as ApiChatsChatIdMessagesRouteImport } from './routes/api/chats/$chatId/messages'
 import { Route as ApiValentinaVoiceV1ChatCompletionsRouteImport } from './routes/api/valentina-voice/v1/chat/completions'
+import { Route as ApiCrmDealsDealIdProposalsRouteImport } from './routes/api/crm/deals/$dealId/proposals'
+import { Route as ApiCrmDealsDealIdProductsRouteImport } from './routes/api/crm/deals/$dealId/products'
+import { Route as ApiCrmDealsDealIdEvidenceRouteImport } from './routes/api/crm/deals/$dealId/evidence'
+import { Route as ApiCrmDealsDealIdConversationsRouteImport } from './routes/api/crm/deals/$dealId/conversations'
+import { Route as ApiCrmDealsDealIdActivitiesRouteImport } from './routes/api/crm/deals/$dealId/activities'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -411,6 +425,31 @@ const ApiGestaoAlertsRoute = ApiGestaoAlertsRouteImport.update({
   path: '/api/gestao/alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmProductsRoute = ApiCrmProductsRouteImport.update({
+  id: '/api/crm/products',
+  path: '/api/crm/products',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmPipelinesRoute = ApiCrmPipelinesRouteImport.update({
+  id: '/api/crm/pipelines',
+  path: '/api/crm/pipelines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmInventoryRoute = ApiCrmInventoryRouteImport.update({
+  id: '/api/crm/inventory',
+  path: '/api/crm/inventory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmDealsRoute = ApiCrmDealsRouteImport.update({
+  id: '/api/crm/deals',
+  path: '/api/crm/deals',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmAccountsRoute = ApiCrmAccountsRouteImport.update({
+  id: '/api/crm/accounts',
+  path: '/api/crm/accounts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiContactsUpdateWalletRoute = ApiContactsUpdateWalletRouteImport.update({
   id: '/update-wallet',
   path: '/update-wallet',
@@ -437,6 +476,12 @@ const ApiChatsTagTaskRoute = ApiChatsTagTaskRouteImport.update({
   path: '/tag-task',
   getParentRoute: () => ApiChatsRoute,
 } as any)
+const ApiChatsReconcileMessageRoute =
+  ApiChatsReconcileMessageRouteImport.update({
+    id: '/reconcile-message',
+    path: '/reconcile-message',
+    getParentRoute: () => ApiChatsRoute,
+  } as any)
 const ApiBaileysSyncAvatarsRoute = ApiBaileysSyncAvatarsRouteImport.update({
   id: '/api/baileys/sync-avatars',
   path: '/api/baileys/sync-avatars',
@@ -526,11 +571,27 @@ const ApiLivechatVisitorVisitorIdRoute =
     path: '/api/livechat/visitor/$visitorId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiCrmImportRdCrmRoute = ApiCrmImportRdCrmRouteImport.update({
+  id: '/api/crm/import/rd-crm',
+  path: '/api/crm/import/rd-crm',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmDealsDealIdRoute = ApiCrmDealsDealIdRouteImport.update({
+  id: '/$dealId',
+  path: '/$dealId',
+  getParentRoute: () => ApiCrmDealsRoute,
+} as any)
 const ApiContactsContactIdRdDealRoute =
   ApiContactsContactIdRdDealRouteImport.update({
     id: '/rd-deal',
     path: '/rd-deal',
     getParentRoute: () => ApiContactsContactIdRoute,
+  } as any)
+const ApiChatsConversationIdDealsRoute =
+  ApiChatsConversationIdDealsRouteImport.update({
+    id: '/$conversationId/deals',
+    path: '/$conversationId/deals',
+    getParentRoute: () => ApiChatsRoute,
   } as any)
 const ApiChatsChatIdMessagesRoute = ApiChatsChatIdMessagesRouteImport.update({
   id: '/$chatId/messages',
@@ -542,6 +603,36 @@ const ApiValentinaVoiceV1ChatCompletionsRoute =
     id: '/v1/chat/completions',
     path: '/v1/chat/completions',
     getParentRoute: () => ApiValentinaVoiceRoute,
+  } as any)
+const ApiCrmDealsDealIdProposalsRoute =
+  ApiCrmDealsDealIdProposalsRouteImport.update({
+    id: '/proposals',
+    path: '/proposals',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
+const ApiCrmDealsDealIdProductsRoute =
+  ApiCrmDealsDealIdProductsRouteImport.update({
+    id: '/products',
+    path: '/products',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
+const ApiCrmDealsDealIdEvidenceRoute =
+  ApiCrmDealsDealIdEvidenceRouteImport.update({
+    id: '/evidence',
+    path: '/evidence',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
+const ApiCrmDealsDealIdConversationsRoute =
+  ApiCrmDealsDealIdConversationsRouteImport.update({
+    id: '/conversations',
+    path: '/conversations',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
+const ApiCrmDealsDealIdActivitiesRoute =
+  ApiCrmDealsDealIdActivitiesRouteImport.update({
+    id: '/activities',
+    path: '/activities',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -585,11 +676,17 @@ export interface FileRoutesByFullPath {
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
+  '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
+  '/api/crm/accounts': typeof ApiCrmAccountsRoute
+  '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
+  '/api/crm/inventory': typeof ApiCrmInventoryRoute
+  '/api/crm/pipelines': typeof ApiCrmPipelinesRoute
+  '/api/crm/products': typeof ApiCrmProductsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
@@ -625,12 +722,20 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
+  '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
+  '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRoute
+  '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
+  '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
+  '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
 export interface FileRoutesByTo {
@@ -674,11 +779,17 @@ export interface FileRoutesByTo {
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
+  '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
+  '/api/crm/accounts': typeof ApiCrmAccountsRoute
+  '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
+  '/api/crm/inventory': typeof ApiCrmInventoryRoute
+  '/api/crm/pipelines': typeof ApiCrmPipelinesRoute
+  '/api/crm/products': typeof ApiCrmProductsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
@@ -714,12 +825,20 @@ export interface FileRoutesByTo {
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
+  '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
+  '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRoute
+  '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
+  '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
+  '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
 export interface FileRoutesById {
@@ -764,11 +883,17 @@ export interface FileRoutesById {
   '/api/baileys/send-media': typeof ApiBaileysSendMediaRoute
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
+  '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
+  '/api/crm/accounts': typeof ApiCrmAccountsRoute
+  '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
+  '/api/crm/inventory': typeof ApiCrmInventoryRoute
+  '/api/crm/pipelines': typeof ApiCrmPipelinesRoute
+  '/api/crm/products': typeof ApiCrmProductsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
@@ -804,12 +929,20 @@ export interface FileRoutesById {
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
+  '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
+  '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRoute
+  '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
+  '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
+  '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
 }
 export interface FileRouteTypes {
@@ -855,11 +988,17 @@ export interface FileRouteTypes {
     | '/api/baileys/send-media'
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
+    | '/api/chats/reconcile-message'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
+    | '/api/crm/accounts'
+    | '/api/crm/deals'
+    | '/api/crm/inventory'
+    | '/api/crm/pipelines'
+    | '/api/crm/products'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
@@ -895,12 +1034,20 @@ export interface FileRouteTypes {
     | '/api/webhooks/meta'
     | '/api/whatsapp/send'
     | '/api/chats/$chatId/messages'
+    | '/api/chats/$conversationId/deals'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/crm/deals/$dealId'
+    | '/api/crm/import/rd-crm'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
+    | '/api/crm/deals/$dealId/activities'
+    | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/evidence'
+    | '/api/crm/deals/$dealId/products'
+    | '/api/crm/deals/$dealId/proposals'
     | '/api/valentina-voice/v1/chat/completions'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -944,11 +1091,17 @@ export interface FileRouteTypes {
     | '/api/baileys/send-media'
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
+    | '/api/chats/reconcile-message'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
+    | '/api/crm/accounts'
+    | '/api/crm/deals'
+    | '/api/crm/inventory'
+    | '/api/crm/pipelines'
+    | '/api/crm/products'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
@@ -984,12 +1137,20 @@ export interface FileRouteTypes {
     | '/api/webhooks/meta'
     | '/api/whatsapp/send'
     | '/api/chats/$chatId/messages'
+    | '/api/chats/$conversationId/deals'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/crm/deals/$dealId'
+    | '/api/crm/import/rd-crm'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
+    | '/api/crm/deals/$dealId/activities'
+    | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/evidence'
+    | '/api/crm/deals/$dealId/products'
+    | '/api/crm/deals/$dealId/proposals'
     | '/api/valentina-voice/v1/chat/completions'
   id:
     | '__root__'
@@ -1033,11 +1194,17 @@ export interface FileRouteTypes {
     | '/api/baileys/send-media'
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
+    | '/api/chats/reconcile-message'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
+    | '/api/crm/accounts'
+    | '/api/crm/deals'
+    | '/api/crm/inventory'
+    | '/api/crm/pipelines'
+    | '/api/crm/products'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
@@ -1073,12 +1240,20 @@ export interface FileRouteTypes {
     | '/api/webhooks/meta'
     | '/api/whatsapp/send'
     | '/api/chats/$chatId/messages'
+    | '/api/chats/$conversationId/deals'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/crm/deals/$dealId'
+    | '/api/crm/import/rd-crm'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
+    | '/api/crm/deals/$dealId/activities'
+    | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/evidence'
+    | '/api/crm/deals/$dealId/products'
+    | '/api/crm/deals/$dealId/proposals'
     | '/api/valentina-voice/v1/chat/completions'
   fileRoutesById: FileRoutesById
 }
@@ -1123,6 +1298,11 @@ export interface RootRouteChildren {
   ApiBaileysSendMediaRoute: typeof ApiBaileysSendMediaRoute
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
+  ApiCrmAccountsRoute: typeof ApiCrmAccountsRoute
+  ApiCrmDealsRoute: typeof ApiCrmDealsRouteWithChildren
+  ApiCrmInventoryRoute: typeof ApiCrmInventoryRoute
+  ApiCrmPipelinesRoute: typeof ApiCrmPipelinesRoute
+  ApiCrmProductsRoute: typeof ApiCrmProductsRoute
   ApiGestaoAlertsRoute: typeof ApiGestaoAlertsRoute
   ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
   ApiGestaoContactsAnalyticsRoute: typeof ApiGestaoContactsAnalyticsRoute
@@ -1156,6 +1336,7 @@ export interface RootRouteChildren {
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
   ApiWhatsappSendRoute: typeof ApiWhatsappSendRoute
+  ApiCrmImportRdCrmRoute: typeof ApiCrmImportRdCrmRoute
   ApiLivechatVisitorVisitorIdRoute: typeof ApiLivechatVisitorVisitorIdRoute
 }
 
@@ -1595,6 +1776,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGestaoAlertsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/products': {
+      id: '/api/crm/products'
+      path: '/api/crm/products'
+      fullPath: '/api/crm/products'
+      preLoaderRoute: typeof ApiCrmProductsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/pipelines': {
+      id: '/api/crm/pipelines'
+      path: '/api/crm/pipelines'
+      fullPath: '/api/crm/pipelines'
+      preLoaderRoute: typeof ApiCrmPipelinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/inventory': {
+      id: '/api/crm/inventory'
+      path: '/api/crm/inventory'
+      fullPath: '/api/crm/inventory'
+      preLoaderRoute: typeof ApiCrmInventoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/deals': {
+      id: '/api/crm/deals'
+      path: '/api/crm/deals'
+      fullPath: '/api/crm/deals'
+      preLoaderRoute: typeof ApiCrmDealsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/accounts': {
+      id: '/api/crm/accounts'
+      path: '/api/crm/accounts'
+      fullPath: '/api/crm/accounts'
+      preLoaderRoute: typeof ApiCrmAccountsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/contacts/update-wallet': {
       id: '/api/contacts/update-wallet'
       path: '/update-wallet'
@@ -1628,6 +1844,13 @@ declare module '@tanstack/react-router' {
       path: '/tag-task'
       fullPath: '/api/chats/tag-task'
       preLoaderRoute: typeof ApiChatsTagTaskRouteImport
+      parentRoute: typeof ApiChatsRoute
+    }
+    '/api/chats/reconcile-message': {
+      id: '/api/chats/reconcile-message'
+      path: '/reconcile-message'
+      fullPath: '/api/chats/reconcile-message'
+      preLoaderRoute: typeof ApiChatsReconcileMessageRouteImport
       parentRoute: typeof ApiChatsRoute
     }
     '/api/baileys/sync-avatars': {
@@ -1749,12 +1972,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLivechatVisitorVisitorIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/import/rd-crm': {
+      id: '/api/crm/import/rd-crm'
+      path: '/api/crm/import/rd-crm'
+      fullPath: '/api/crm/import/rd-crm'
+      preLoaderRoute: typeof ApiCrmImportRdCrmRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/deals/$dealId': {
+      id: '/api/crm/deals/$dealId'
+      path: '/$dealId'
+      fullPath: '/api/crm/deals/$dealId'
+      preLoaderRoute: typeof ApiCrmDealsDealIdRouteImport
+      parentRoute: typeof ApiCrmDealsRoute
+    }
     '/api/contacts/$contactId/rd-deal': {
       id: '/api/contacts/$contactId/rd-deal'
       path: '/rd-deal'
       fullPath: '/api/contacts/$contactId/rd-deal'
       preLoaderRoute: typeof ApiContactsContactIdRdDealRouteImport
       parentRoute: typeof ApiContactsContactIdRoute
+    }
+    '/api/chats/$conversationId/deals': {
+      id: '/api/chats/$conversationId/deals'
+      path: '/$conversationId/deals'
+      fullPath: '/api/chats/$conversationId/deals'
+      preLoaderRoute: typeof ApiChatsConversationIdDealsRouteImport
+      parentRoute: typeof ApiChatsRoute
     }
     '/api/chats/$chatId/messages': {
       id: '/api/chats/$chatId/messages'
@@ -1770,19 +2014,58 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiValentinaVoiceV1ChatCompletionsRouteImport
       parentRoute: typeof ApiValentinaVoiceRoute
     }
+    '/api/crm/deals/$dealId/proposals': {
+      id: '/api/crm/deals/$dealId/proposals'
+      path: '/proposals'
+      fullPath: '/api/crm/deals/$dealId/proposals'
+      preLoaderRoute: typeof ApiCrmDealsDealIdProposalsRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
+    '/api/crm/deals/$dealId/products': {
+      id: '/api/crm/deals/$dealId/products'
+      path: '/products'
+      fullPath: '/api/crm/deals/$dealId/products'
+      preLoaderRoute: typeof ApiCrmDealsDealIdProductsRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
+    '/api/crm/deals/$dealId/evidence': {
+      id: '/api/crm/deals/$dealId/evidence'
+      path: '/evidence'
+      fullPath: '/api/crm/deals/$dealId/evidence'
+      preLoaderRoute: typeof ApiCrmDealsDealIdEvidenceRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
+    '/api/crm/deals/$dealId/conversations': {
+      id: '/api/crm/deals/$dealId/conversations'
+      path: '/conversations'
+      fullPath: '/api/crm/deals/$dealId/conversations'
+      preLoaderRoute: typeof ApiCrmDealsDealIdConversationsRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
+    '/api/crm/deals/$dealId/activities': {
+      id: '/api/crm/deals/$dealId/activities'
+      path: '/activities'
+      fullPath: '/api/crm/deals/$dealId/activities'
+      preLoaderRoute: typeof ApiCrmDealsDealIdActivitiesRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
   }
 }
 
 interface ApiChatsRouteChildren {
+  ApiChatsReconcileMessageRoute: typeof ApiChatsReconcileMessageRoute
   ApiChatsTagTaskRoute: typeof ApiChatsTagTaskRoute
   ApiChatsUpdateQueueRoute: typeof ApiChatsUpdateQueueRoute
   ApiChatsChatIdMessagesRoute: typeof ApiChatsChatIdMessagesRoute
+  ApiChatsConversationIdDealsRoute: typeof ApiChatsConversationIdDealsRoute
 }
 
 const ApiChatsRouteChildren: ApiChatsRouteChildren = {
+  ApiChatsReconcileMessageRoute: ApiChatsReconcileMessageRoute,
   ApiChatsTagTaskRoute: ApiChatsTagTaskRoute,
   ApiChatsUpdateQueueRoute: ApiChatsUpdateQueueRoute,
   ApiChatsChatIdMessagesRoute: ApiChatsChatIdMessagesRoute,
+  ApiChatsConversationIdDealsRoute: ApiChatsConversationIdDealsRoute,
 }
 
 const ApiChatsRouteWithChildren = ApiChatsRoute._addFileChildren(
@@ -1841,6 +2124,37 @@ const ApiValentinaVoiceRouteChildren: ApiValentinaVoiceRouteChildren = {
 
 const ApiValentinaVoiceRouteWithChildren =
   ApiValentinaVoiceRoute._addFileChildren(ApiValentinaVoiceRouteChildren)
+
+interface ApiCrmDealsDealIdRouteChildren {
+  ApiCrmDealsDealIdActivitiesRoute: typeof ApiCrmDealsDealIdActivitiesRoute
+  ApiCrmDealsDealIdConversationsRoute: typeof ApiCrmDealsDealIdConversationsRoute
+  ApiCrmDealsDealIdEvidenceRoute: typeof ApiCrmDealsDealIdEvidenceRoute
+  ApiCrmDealsDealIdProductsRoute: typeof ApiCrmDealsDealIdProductsRoute
+  ApiCrmDealsDealIdProposalsRoute: typeof ApiCrmDealsDealIdProposalsRoute
+}
+
+const ApiCrmDealsDealIdRouteChildren: ApiCrmDealsDealIdRouteChildren = {
+  ApiCrmDealsDealIdActivitiesRoute: ApiCrmDealsDealIdActivitiesRoute,
+  ApiCrmDealsDealIdConversationsRoute: ApiCrmDealsDealIdConversationsRoute,
+  ApiCrmDealsDealIdEvidenceRoute: ApiCrmDealsDealIdEvidenceRoute,
+  ApiCrmDealsDealIdProductsRoute: ApiCrmDealsDealIdProductsRoute,
+  ApiCrmDealsDealIdProposalsRoute: ApiCrmDealsDealIdProposalsRoute,
+}
+
+const ApiCrmDealsDealIdRouteWithChildren =
+  ApiCrmDealsDealIdRoute._addFileChildren(ApiCrmDealsDealIdRouteChildren)
+
+interface ApiCrmDealsRouteChildren {
+  ApiCrmDealsDealIdRoute: typeof ApiCrmDealsDealIdRouteWithChildren
+}
+
+const ApiCrmDealsRouteChildren: ApiCrmDealsRouteChildren = {
+  ApiCrmDealsDealIdRoute: ApiCrmDealsDealIdRouteWithChildren,
+}
+
+const ApiCrmDealsRouteWithChildren = ApiCrmDealsRoute._addFileChildren(
+  ApiCrmDealsRouteChildren,
+)
 
 interface ApiSettingsRdCrmRouteChildren {
   ApiSettingsRdCrmCallbackRoute: typeof ApiSettingsRdCrmCallbackRoute
@@ -1907,6 +2221,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSendMediaRoute: ApiBaileysSendMediaRoute,
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
+  ApiCrmAccountsRoute: ApiCrmAccountsRoute,
+  ApiCrmDealsRoute: ApiCrmDealsRouteWithChildren,
+  ApiCrmInventoryRoute: ApiCrmInventoryRoute,
+  ApiCrmPipelinesRoute: ApiCrmPipelinesRoute,
+  ApiCrmProductsRoute: ApiCrmProductsRoute,
   ApiGestaoAlertsRoute: ApiGestaoAlertsRoute,
   ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
   ApiGestaoContactsAnalyticsRoute: ApiGestaoContactsAnalyticsRoute,
@@ -1940,6 +2259,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
   ApiWhatsappSendRoute: ApiWhatsappSendRoute,
+  ApiCrmImportRdCrmRoute: ApiCrmImportRdCrmRoute,
   ApiLivechatVisitorVisitorIdRoute: ApiLivechatVisitorVisitorIdRoute,
 }
 export const routeTree = rootRouteImport

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { outboundQueue } from "../../../lib/whatsapp/outbound";
 import { requireSession } from "../../../lib/auth-session";
 import { db } from "../../../db";
-import { conversations, contacts, mediaFiles } from "../../../db/schema";
+import { conversations, contacts, mediaFiles, channelConfigs } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
@@ -98,6 +98,24 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               JSON.stringify({ error: "conversationId é obrigatório" }),
               { status: 400, headers: { "Content-Type": "application/json" } }
             );
+          }
+
+          // Verificar se o canal está em transição ('switching') de provedor
+          if (!isInternalNote) {
+            const [channelConfig] = await db
+              .select({ connectionStatus: channelConfigs.connectionStatus })
+              .from(channelConfigs)
+              .where(eq(channelConfigs.tenantId, session.tenantId));
+
+            if (channelConfig?.connectionStatus === "switching") {
+              return new Response(
+                JSON.stringify({
+                  error: "O canal está alternando de provedor no momento. Aguarde alguns instantes e tente novamente.",
+                  code: "PROVIDER_SWITCHING",
+                }),
+                { status: 409, headers: { "Content-Type": "application/json" } }
+              );
+            }
           }
 
           // Buscar conversa verificando que pertence ao tenant da sessão

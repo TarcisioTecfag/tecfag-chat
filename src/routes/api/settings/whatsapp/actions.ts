@@ -41,17 +41,46 @@ export const Route = createFileRoute("/api/settings/whatsapp/actions")({
             const targetProvider = provider === "meta" ? "meta" : "baileys";
             const nextVersion = (config.connectionVersion || 1) + 1;
 
-            if (targetProvider === "meta" && (!config.metaPhoneNumberId || !config.metaAccessToken)) {
-              return new Response(
-                JSON.stringify({
-                  error: "Credenciais da Meta (Phone Number ID e Access Token) não configuradas. Configure-as antes de alternar para Meta.",
-                  code: "MISSING_META_CREDENTIALS",
-                }),
-                { status: 400, headers: { "Content-Type": "application/json" } }
-              );
+            if (targetProvider === "meta") {
+              if (!config.metaPhoneNumberId || !config.metaAccessToken) {
+                return new Response(
+                  JSON.stringify({
+                    error: "Credenciais da Meta (Phone Number ID e Access Token) não configuradas. Configure-as antes de alternar para Meta.",
+                    code: "MISSING_META_CREDENTIALS",
+                  }),
+                  { status: 400, headers: { "Content-Type": "application/json" } }
+                );
+              }
+
+              // Validação prévia e obrigatória com a Meta Graph API antes de ativar o provedor
+              const testRes = await metaAdapter.testCredentials(session.tenantId);
+              if (!testRes.valid) {
+                return new Response(
+                  JSON.stringify({
+                    error: `Não foi possível ativar a Meta WhatsApp API. Teste de conexão falhou: ${testRes.error}`,
+                    code: "META_VALIDATION_FAILED",
+                  }),
+                  { status: 400, headers: { "Content-Type": "application/json" } }
+                );
+              }
             }
 
-            // Se estava no Baileys e mudou para Meta, pausa o socket (SEM apagar chaves nem deslogar)
+            // 1. Marca estado transitório 'switching' para bloquear novos envios durante a migração
+            await db
+              .update(channelConfigs)
+              .set({
+                connectionStatus: "switching",
+                updatedAt: new Date(),
+              })
+              .where(eq(channelConfigs.tenantId, session.tenantId));
+
+            // Notifica operadores conectados que a transição está em andamento
+            SessionManager.getInstance().notifyPublic(session.tenantId, {
+              type: "status",
+              status: "switching",
+            });
+
+            // 2. Se estava no Baileys e mudou para Meta, pausa o socket (SEM apagar chaves nem deslogar)
             if (config.activeProvider === "baileys" && targetProvider === "meta") {
               try {
                 await baileysAdapter.pause(session.tenantId);
@@ -60,7 +89,7 @@ export const Route = createFileRoute("/api/settings/whatsapp/actions")({
               }
             }
 
-            // Se mudou para Baileys e já existem chaves salvas, retoma a sessão sem novo QR Code
+            // 3. Se mudou para Baileys e já existem chaves salvas, retoma a sessão sem novo QR Code
             if (targetProvider === "baileys" && config.baileysAuthKeys) {
               try {
                 SessionManager.getInstance().initSession(session.tenantId);
@@ -69,20 +98,23 @@ export const Route = createFileRoute("/api/settings/whatsapp/actions")({
               }
             }
 
+            // 4. Conclui a troca de provedor com o status definitivo validado
+            const finalStatus = targetProvider === "meta" ? "connected" : (config.baileysAuthKeys ? "connecting" : "disconnected");
+
             await db
               .update(channelConfigs)
               .set({
                 activeProvider: targetProvider,
                 connectionVersion: nextVersion,
-                connectionStatus: targetProvider === "meta" ? "connected" : (config.baileysAuthKeys ? "connecting" : "disconnected"),
+                connectionStatus: finalStatus,
                 updatedAt: new Date(),
               })
               .where(eq(channelConfigs.tenantId, session.tenantId));
 
-            // Notifica operadores conectados via SSE
+            // Notifica operadores com o status definitivo
             SessionManager.getInstance().notifyPublic(session.tenantId, {
               type: "status",
-              status: targetProvider === "meta" ? "connected" : "disconnected",
+              status: finalStatus,
             });
 
             return new Response(
@@ -91,6 +123,7 @@ export const Route = createFileRoute("/api/settings/whatsapp/actions")({
                 message: `Provedor alterado com sucesso para '${targetProvider.toUpperCase()}' (Versão ${nextVersion})`,
                 activeProvider: targetProvider,
                 connectionVersion: nextVersion,
+                connectionStatus: finalStatus,
               }),
               { status: 200, headers: { "Content-Type": "application/json" } }
             );

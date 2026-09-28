@@ -21,7 +21,7 @@ import { urlToBase64 } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { shouldIgnoreJid, ignoreReason } from "./jid-validator";
 
-export type SessionStatus = "disconnected" | "qr_ready" | "connected";
+export type SessionStatus = "disconnected" | "qr_ready" | "connecting" | "connected" | "switching";
 
 export type SessionEvent =
   | { type: "qr"; qr: string }

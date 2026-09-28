@@ -7,7 +7,7 @@ import {
   mediaFiles,
   operators,
 } from "../../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { UniversalInboundMessage } from "./types";
 import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
@@ -54,10 +54,24 @@ export class InboundProcessor {
       return { success: false, error: "Telefone de origem inválido" };
     }
 
-    // 1. Deduplicação durável em pending_inbounds
+    // Trava de concorrência atômica via pg_advisory_xact_lock quando há ID de evento externo
+    if (externalEventId) {
+      try {
+        await db.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${'inb:' + tenantId + ':' + externalEventId}))`
+        );
+      } catch (lockErr) {
+        // Advisory lock seguro — se o banco não suportar (ex: sqlite em mock), continua
+      }
+    }
+
+    // 1. Deduplicação durável em pending_inbounds & retomada sem INSERT duplicado
+    let targetInboundId = `inb-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    let isResuming = false;
+
     if (externalEventId) {
       const [existingEvent] = await db
-        .select({ id: pendingInbounds.id, status: pendingInbounds.status })
+        .select({ id: pendingInbounds.id, status: pendingInbounds.status, attempts: pendingInbounds.attempts })
         .from(pendingInbounds)
         .where(
           and(
@@ -71,39 +85,52 @@ export class InboundProcessor {
           console.log(`[InboundProcessor] Evento duplicado descartado: ${externalEventId}`);
           return { success: true, duplicate: true };
         }
+
+        // Retomada de evento pendente/em processamento: faz UPDATE em vez de tentar novo INSERT
+        targetInboundId = existingEvent.id;
+        isResuming = true;
+        await db
+          .update(pendingInbounds)
+          .set({
+            status: "processing",
+            attempts: (existingEvent.attempts || 1) + 1,
+            errorMessage: null,
+          })
+          .where(eq(pendingInbounds.id, existingEvent.id));
       }
     }
 
-    const inboundId = `inb-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    try {
-      await db.insert(pendingInbounds).values({
-        id: inboundId,
-        tenantId,
-        provider,
-        externalEventId: externalEventId || inboundId,
-        payload: rawPayload || { text, fromPhone },
-        status: "processing",
-        attempts: 1,
-        createdAt: new Date(),
-      });
-    } catch (insertErr: any) {
-      const code = insertErr?.code || insertErr?.cause?.code;
-      const constraint = insertErr?.constraint || insertErr?.cause?.constraint_name || insertErr?.cause?.constraint;
-      const msg = `${insertErr?.message || ""} ${insertErr?.cause?.message || ""} ${insertErr?.detail || ""} ${insertErr?.cause?.detail || ""}`;
-      const isDuplicate =
-        code === "23505" ||
-        constraint === "idx_pending_inbounds_tenant_event_uniq" ||
-        msg.includes("idx_pending_inbounds_tenant_event_uniq") ||
-        msg.includes("restrição de unicidade") ||
-        msg.includes("unique constraint");
+    if (!isResuming) {
+      try {
+        await db.insert(pendingInbounds).values({
+          id: targetInboundId,
+          tenantId,
+          provider,
+          externalEventId: externalEventId || targetInboundId,
+          payload: rawPayload || { text, fromPhone },
+          status: "processing",
+          attempts: 1,
+          createdAt: new Date(),
+        });
+      } catch (insertErr: any) {
+        const code = insertErr?.code || insertErr?.cause?.code;
+        const constraint = insertErr?.constraint || insertErr?.cause?.constraint_name || insertErr?.cause?.constraint;
+        const msg = `${insertErr?.message || ""} ${insertErr?.cause?.message || ""} ${insertErr?.detail || ""} ${insertErr?.cause?.detail || ""}`;
+        const isDuplicate =
+          code === "23505" ||
+          constraint === "idx_pending_inbounds_tenant_event_uniq" ||
+          msg.includes("idx_pending_inbounds_tenant_event_uniq") ||
+          msg.includes("restrição de unicidade") ||
+          msg.includes("unique constraint");
 
-      if (externalEventId && isDuplicate) {
-        console.log(
-          `[InboundProcessor] Evento duplicado concorrente descartado (23505): ${externalEventId}`
-        );
-        return { success: true, duplicate: true };
+        if (externalEventId && isDuplicate) {
+          console.log(
+            `[InboundProcessor] Evento duplicado concorrente descartado (23505): ${externalEventId}`
+          );
+          return { success: true, duplicate: true };
+        }
+        throw insertErr;
       }
-      throw insertErr;
     }
 
     try {
@@ -159,9 +186,10 @@ export class InboundProcessor {
         .limit(1);
 
       const aiPersona = getAiPersona(tenantId);
-      const isReopening = !activeConv || activeConv.queueState === "finalizados";
+      const lastTextPreview = text || (media ? `[Mídia: ${media.fileName || media.mimeType}]` : "");
 
-      if (isReopening) {
+      if (!activeConv) {
+        // 3a. Criação da primeira conversa para o contato
         const convId = `conv-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         let initialOperatorId: string | null = null;
         let initialQueueState = "fila";
@@ -184,7 +212,7 @@ export class InboundProcessor {
           }
         }
 
-        // Se não tem carteira e a empresa usa IA SDR (ex: Valem usa Valentina; Tecfag em MVP usa Fagner ou fila)
+        // Se não tem carteira e a empresa usa IA SDR
         if (!initialOperatorId) {
           if (tenantId === "valem") {
             initialQueueState = "automacao";
@@ -202,6 +230,7 @@ export class InboundProcessor {
             operatorId: initialOperatorId,
             queueState: initialQueueState,
             unreadCount: 1,
+            lastMessageText: lastTextPreview,
             version: 1,
             lastMessageTime: timestamp,
             createdAt: timestamp,
@@ -210,12 +239,65 @@ export class InboundProcessor {
           .returning();
 
         activeConv = createdConv;
+      } else if (activeConv.queueState === "finalizados") {
+        // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico
+        let reOpenOperatorId: string | null = activeConv.operatorId || null;
+        let reOpenQueueState = "fila";
+
+        if (contact.walletOperatorId) {
+          const [walletOp] = await db
+            .select({ id: operators.id, name: operators.name })
+            .from(operators)
+            .where(
+              and(
+                eq(operators.id, contact.walletOperatorId),
+                eq(operators.tenantId, tenantId)
+              )
+            );
+
+          if (walletOp) {
+            reOpenOperatorId = walletOp.id;
+            reOpenQueueState = "meus";
+          }
+        }
+
+        if (!reOpenOperatorId) {
+          if (tenantId === "valem") {
+            reOpenQueueState = "automacao";
+          } else {
+            reOpenQueueState = "fila";
+          }
+        }
+
+        const [reopenedConv] = await db
+          .update(conversations)
+          .set({
+            operatorId: reOpenOperatorId,
+            queueState: reOpenQueueState,
+            unreadCount: (activeConv.unreadCount || 0) + 1,
+            lastMessageText: lastTextPreview,
+            lastMessageTime: timestamp,
+            updatedAt: new Date(),
+            version: (activeConv.version || 1) + 1,
+          })
+          .where(and(eq(conversations.id, activeConv.id), eq(conversations.tenantId, tenantId)))
+          .returning();
+
+        activeConv = reopenedConv || {
+          ...activeConv,
+          operatorId: reOpenOperatorId,
+          queueState: reOpenQueueState,
+          unreadCount: (activeConv.unreadCount || 0) + 1,
+          lastMessageText: lastTextPreview,
+          lastMessageTime: timestamp,
+        };
       } else {
-        // Incrementa não lidas e atualiza timestamp
+        // 3c. Conversa já ativa: incrementa contador de não lidas e atualiza preview
         await db
           .update(conversations)
           .set({
             unreadCount: (activeConv.unreadCount || 0) + 1,
+            lastMessageText: lastTextPreview,
             lastMessageTime: timestamp,
             updatedAt: new Date(),
           })
@@ -272,7 +354,7 @@ export class InboundProcessor {
       await db
         .update(pendingInbounds)
         .set({ status: "processed", processedAt: new Date() })
-        .where(eq(pendingInbounds.id, inboundId));
+        .where(eq(pendingInbounds.id, targetInboundId));
 
       return {
         success: true,
@@ -281,7 +363,7 @@ export class InboundProcessor {
       };
 
     } catch (err: any) {
-      console.error(`[InboundProcessor] Erro ao processar inbound ${inboundId}:`, err);
+      console.error(`[InboundProcessor] Erro ao processar inbound ${targetInboundId}:`, err);
 
       await db
         .update(pendingInbounds)
@@ -289,7 +371,7 @@ export class InboundProcessor {
           status: "failed",
           errorMessage: err.message || "Erro desconhecido",
         })
-        .where(eq(pendingInbounds.id, inboundId));
+        .where(eq(pendingInbounds.id, targetInboundId));
 
       return {
         success: false,

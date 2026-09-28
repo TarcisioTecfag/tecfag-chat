@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { messages, conversations, pendingInbounds, channelConfigs } from "../../db/schema";
+import { messages, conversations, contacts, pendingInbounds, channelConfigs } from "../../db/schema";
 import { eq, and, lt, inArray, sql } from "drizzle-orm";
 import { metaAdapter } from "./adapters/meta";
 import { baileysAdapter } from "./adapters/baileys";
@@ -74,6 +74,18 @@ export class WhatsAppRecoveryService {
 
       for (const msg of stuckOutbounds) {
         try {
+          // Trava de concorrência atômica por mensagem para evitar duplo reenvio
+          try {
+            const [lockRes] = await db.execute<{ locked: boolean }>(
+              sql`SELECT pg_try_advisory_xact_lock(hashtext(${'outbound:' + msg.id})) as locked`
+            );
+            if (lockRes && lockRes.locked === false) {
+              continue; // outro processo ou worker já está processando
+            }
+          } catch {
+            // Suporte defensivo a ambientes de teste sem Postgres nativo
+          }
+
           const currentRetries = msg.retryCount || 0;
 
           if (currentRetries >= 3) {
@@ -104,8 +116,26 @@ export class WhatsAppRecoveryService {
               .from(channelConfigs)
               .where(eq(channelConfigs.tenantId, msg.tenantId));
 
+            // CRÍTICO: O reenvio DEVE usar o provedor original gravado na mensagem, NUNCA o ativo do canal
             const provider: WhatsAppProviderType =
-              (channelConfig?.activeProvider as WhatsAppProviderType) || (msg.provider as WhatsAppProviderType) || "baileys";
+              (msg.provider as WhatsAppProviderType) || (channelConfig?.activeProvider as WhatsAppProviderType) || "baileys";
+
+            // Resolver telefone de destino a partir do contato da conversa
+            let resolvedPhone = "";
+            if (msg.conversationId) {
+              const [conv] = await db
+                .select({ contactId: conversations.contactId })
+                .from(conversations)
+                .where(and(eq(conversations.id, msg.conversationId), eq(conversations.tenantId, msg.tenantId)));
+
+              if (conv?.contactId) {
+                const [contact] = await db
+                  .select({ phone: contacts.phone })
+                  .from(contacts)
+                  .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, msg.tenantId)));
+                if (contact?.phone) resolvedPhone = contact.phone;
+              }
+            }
 
             let dispatchResult: { externalId?: string; status: any; error?: string };
 
@@ -113,14 +143,14 @@ export class WhatsAppRecoveryService {
               dispatchResult = await metaAdapter.send(msg.tenantId, {
                 tenantId: msg.tenantId,
                 conversationId: msg.conversationId || "",
-                recipientPhone: "", // obtido se houver contato
+                recipientPhone: resolvedPhone,
                 text: msg.content || "",
               });
             } else {
               dispatchResult = await baileysAdapter.send(msg.tenantId, {
                 tenantId: msg.tenantId,
                 conversationId: msg.conversationId || "",
-                recipientPhone: "",
+                recipientPhone: resolvedPhone,
                 text: msg.content || "",
               });
             }
@@ -172,6 +202,18 @@ export class WhatsAppRecoveryService {
 
       for (const inb of stuckInbounds) {
         try {
+          // Trava de concorrência atômica por evento de entrada
+          try {
+            const [lockRes] = await db.execute<{ locked: boolean }>(
+              sql`SELECT pg_try_advisory_xact_lock(hashtext(${'inbound:' + inb.id})) as locked`
+            );
+            if (lockRes && lockRes.locked === false) {
+              continue; // outro processo já está processando
+            }
+          } catch {
+            // Suporte defensivo
+          }
+
           const attempts = inb.attempts || 0;
           if (attempts >= 3) {
             await db
