@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db/index.js";
 import { accessGroups, operators } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
-import { getAuthSession, validateTenantAccess } from "../../lib/auth-session.js";
+import { requireSession } from "../../lib/auth-session.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,29 +17,16 @@ export const Route = createFileRoute("/api/groups")({
         return new Response(null, { status: 204, headers: corsHeaders });
       },
       GET: async ({ request }) => {
-        const session = await getAuthSession(request);
-        const url = new URL(request.url);
-        const queryTenantId = url.searchParams.get("tenantId");
-
-        const effectiveTenantId = session ? session.tenantId : queryTenantId;
-
-        if (!effectiveTenantId) {
-          return new Response(
-            JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        if (session) {
-          const check = validateTenantAccess(session, queryTenantId);
-          if (check) return check;
-        }
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
         try {
           const list = await db
             .select()
             .from(accessGroups)
-            .where(eq(accessGroups.tenantId, effectiveTenantId));
+            .where(eq(accessGroups.tenantId, tenantId));
 
           return new Response(JSON.stringify(list), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -54,7 +41,19 @@ export const Route = createFileRoute("/api/groups")({
       },
       POST: async ({ request }) => {
         try {
-          const session = await getAuthSession(request);
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+
+          // Apenas admin pode criar/editar grupos de acesso
+          if (session.operator.role !== "admin") {
+            return new Response(
+              JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
           const body = await request.json().catch(() => ({}));
           const {
             id,
@@ -70,22 +69,6 @@ export const Route = createFileRoute("/api/groups")({
             canOverrideChat,
             permissions,
           } = body;
-
-          const tenantId = session ? session.tenantId : body.tenantId;
-
-          if (!tenantId) {
-            return new Response(
-              JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-              { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          if (session && body.tenantId && body.tenantId !== session.tenantId) {
-            return new Response(
-              JSON.stringify({ error: "Não é permitido manipular grupos de outro tenant.", code: "FORBIDDEN" }),
-              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
 
           if (!id || !name) {
             return new Response(
@@ -160,19 +143,21 @@ export const Route = createFileRoute("/api/groups")({
         }
       },
       DELETE: async ({ request }) => {
-        const session = await getAuthSession(request);
-        const url = new URL(request.url);
-        const id = url.searchParams.get("id");
-        const queryTenantId = url.searchParams.get("tenantId");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        const tenantId = session ? session.tenantId : queryTenantId;
-
-        if (!tenantId) {
+        // Apenas admin pode excluir grupos de acesso
+        if (session.operator.role !== "admin") {
           return new Response(
-            JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+
+        const url = new URL(request.url);
+        const id = url.searchParams.get("id");
 
         if (!id) {
           return new Response(JSON.stringify({ error: "id é obrigatório" }), {

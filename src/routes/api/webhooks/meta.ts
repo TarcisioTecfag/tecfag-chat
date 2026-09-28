@@ -19,7 +19,7 @@ export const Route = createFileRoute("/api/webhooks/meta")({
           const challenge = url.searchParams.get("hub.challenge");
           const queryTenantId = url.searchParams.get("tenantId");
 
-          console.log(`[Meta Webhook] Handshake GET recebido. mode=${mode}, token=${token}`);
+          console.log(`[Meta Webhook] Handshake GET recebido. mode=${mode}, token=[REDACTED]`);
 
           if (mode !== "subscribe" || !token) {
             return new Response("Modo ou token inválido", { status: 400 });
@@ -87,14 +87,14 @@ export const Route = createFileRoute("/api/webhooks/meta")({
             });
           }
 
-          // 2. Identificação estrita do tenant pelo phoneNumberId
+          // 2. Identificação estrita do tenant pelo phoneNumberId (usa a primeira entry para lookup)
           const url = new URL(request.url);
           const queryTenantId = url.searchParams.get("tenantId");
 
-          const entry = body?.entry?.[0];
-          const change = entry?.changes?.[0];
-          const value = change?.value;
-          const phoneNumberId = value?.metadata?.phone_number_id;
+          const firstEntry = body?.entry?.[0];
+          const firstChange = firstEntry?.changes?.[0];
+          const firstValue = firstChange?.value;
+          const phoneNumberId = firstValue?.metadata?.phone_number_id;
 
           let matchedTenantId: string | null = null;
 
@@ -175,88 +175,96 @@ export const Route = createFileRoute("/api/webhooks/meta")({
             });
           }
 
-          // 4. PERSISTÊNCIA SÍNCRONA & DURÁVEL (Garantia de não-perda de eventos antes de responder 200)
+          // 4. PERSISTÊNCIA SÍNCRONA & DURÁVEL — processa TODAS as entries e changes do lote
           let processedMessagesCount = 0;
           let processedStatusesCount = 0;
 
-          // 4.1. Mensagens recebidas
-          const incomingMessages = value?.messages;
-          if (Array.isArray(incomingMessages) && incomingMessages.length > 0) {
-            const contactProfile = value?.contacts?.[0]?.profile?.name;
+          for (const batchEntry of body?.entry ?? []) {
+            for (const batchChange of batchEntry?.changes ?? []) {
+              const value = batchChange?.value;
+              if (!value) continue;
 
-            for (const msg of incomingMessages) {
-              const messageId = msg.id;
-              const fromPhone = msg.from;
-              const timestamp = msg.timestamp
-                ? new Date(parseInt(msg.timestamp, 10) * 1000)
-                : new Date();
+              // 4.1. Mensagens recebidas
+              const incomingMessages = value?.messages;
+              if (Array.isArray(incomingMessages) && incomingMessages.length > 0) {
+                const contactProfile = value?.contacts?.[0]?.profile?.name;
 
-              let textContent: string | undefined;
-              let mediaInfo: any;
+                for (const msg of incomingMessages) {
+                  const messageId = msg.id;
+                  const fromPhone = msg.from;
+                  const timestamp = msg.timestamp
+                    ? new Date(parseInt(msg.timestamp, 10) * 1000)
+                    : new Date();
 
-              if (msg.type === "text") {
-                textContent = msg.text?.body;
-              } else if (msg.type === "image" || msg.type === "audio" || msg.type === "video" || msg.type === "document") {
-                const mediaObj = msg[msg.type];
-                textContent = mediaObj?.caption;
-                mediaInfo = {
-                  mimeType: mediaObj?.mime_type || "application/octet-stream",
-                  fileName: mediaObj?.filename || `${msg.type}_${messageId}`,
-                  fileSize: mediaObj?.file_size,
-                  url: `https://graph.facebook.com/v21.0/${mediaObj?.id}`,
-                };
+                  let textContent: string | undefined;
+                  let mediaInfo: any;
+
+                  if (msg.type === "text") {
+                    textContent = msg.text?.body;
+                  } else if (msg.type === "image" || msg.type === "audio" || msg.type === "video" || msg.type === "document") {
+                    const mediaObj = msg[msg.type];
+                    textContent = mediaObj?.caption;
+                    mediaInfo = {
+                      mimeType: mediaObj?.mime_type || "application/octet-stream",
+                      fileName: mediaObj?.filename || `${msg.type}_${messageId}`,
+                      fileSize: mediaObj?.file_size,
+                      url: `https://graph.facebook.com/v21.0/${mediaObj?.id}`,
+                    };
+                  }
+
+                  // Processamento SÍNCRONO: persistido em pending_inbounds e na tabela messages antes do 200
+                  const result = await inboundProcessor.process({
+                    externalEventId: `meta:${tenantId}:${messageId}`,
+                    tenantId,
+                    provider: "meta",
+                    fromPhone,
+                    senderName: contactProfile,
+                    text: textContent,
+                    media: mediaInfo,
+                    quotedExternalId: msg.context?.id,
+                    timestamp,
+                    rawPayload: msg,
+                  });
+
+                  if (result.success) {
+                    processedMessagesCount++;
+                  }
+                }
               }
 
-              // Processamento SÍNCRONO: persistido em pending_inbounds e na tabela messages antes do 200
-              const result = await inboundProcessor.process({
-                externalEventId: `meta:${tenantId}:${messageId}`,
-                tenantId,
-                provider: "meta",
-                fromPhone,
-                senderName: contactProfile,
-                text: textContent,
-                media: mediaInfo,
-                quotedExternalId: msg.context?.id,
-                timestamp,
-                rawPayload: msg,
-              });
+              // 4.2. Atualizações de Status de Mensagens Enviadas (statuses)
+              const statuses = value?.statuses;
+              if (Array.isArray(statuses) && statuses.length > 0) {
+                for (const statusObj of statuses) {
+                  const wamid = statusObj.id;
+                  const metaStatus = statusObj.status; // 'sent', 'delivered', 'read', 'failed'
 
-              if (result.success) {
-                processedMessagesCount++;
-              }
-            }
-          }
+                  let mappedStatus: "accepted" | "delivered" | "read" | "failed" = "accepted";
 
-          // 4.2. Atualizações de Status de Mensagens Enviadas (statuses)
-          const statuses = value?.statuses;
-          if (Array.isArray(statuses) && statuses.length > 0) {
-            for (const statusObj of statuses) {
-              const wamid = statusObj.id;
-              const metaStatus = statusObj.status; // 'sent', 'delivered', 'read', 'failed'
-              let mappedStatus: "accepted" | "delivered" | "read" | "failed" = "accepted";
+                  if (metaStatus === "delivered") mappedStatus = "delivered";
+                  else if (metaStatus === "read") mappedStatus = "read";
+                  else if (metaStatus === "failed") mappedStatus = "failed";
 
-              if (metaStatus === "delivered") mappedStatus = "delivered";
-              else if (metaStatus === "read") mappedStatus = "read";
-              else if (metaStatus === "failed") mappedStatus = "failed";
+                  // Atualização SÍNCRONA no banco
+                  await db
+                    .update(messages)
+                    .set({
+                      status: mappedStatus,
+                      errorMessage: statusObj.errors?.[0]?.message || null,
+                      updatedAt: new Date(),
+                    })
+                    .where(
+                      and(
+                        eq(messages.tenantId, tenantId),
+                        eq(messages.externalId, wamid)
+                      )
+                    );
 
-              // Atualização SÍNCRONA no banco
-              await db
-                .update(messages)
-                .set({
-                  status: mappedStatus,
-                  errorMessage: statusObj.errors?.[0]?.message || null,
-                  updatedAt: new Date(),
-                })
-                .where(
-                  and(
-                    eq(messages.tenantId, tenantId),
-                    eq(messages.externalId, wamid)
-                  )
-                );
-
-              processedStatusesCount++;
-            }
-          }
+                  processedStatusesCount++;
+                } // fim for statusObj
+              } // fim if statuses
+            } // fim for batchChange
+          } // fim for batchEntry
 
           // 5. Retorna 200 OK com confirmação de que os dados foram persistidos com segurança
           return new Response(

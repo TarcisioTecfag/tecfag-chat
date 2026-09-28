@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { conversations, contacts, messages } from "../../../db/schema";
 import { eq } from "drizzle-orm";
 import { rdRequest, getCachedUsers, getCachedDeal } from "../../../lib/rdCrmService";
+import { requireSession } from "../../../lib/auth-session.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,10 +27,15 @@ export const Route = createFileRoute("/api/chats/tag-task")({
 
       POST: async ({ request }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response; // retorna 401 automaticamente
+          const { session } = auth;
+          const tenantId = session.tenantId; // SEMPRE da sessão
+
+          // tenantId removido do body tipado — vem exclusivamente da sessão
           const body = await request.json() as {
             conversationId: string;
             tagName: string;
-            tenantId: string;
             operatorName?: string;
             taskType?: string;
             dueDate?: string;  // "YYYY-MM-DD"
@@ -37,22 +43,26 @@ export const Route = createFileRoute("/api/chats/tag-task")({
           };
 
           const {
-            conversationId, tagName, tenantId, operatorName,
+            conversationId, tagName,
             taskType = "task",
             dueDate,
             dueTime,
           } = body;
 
-          if (!conversationId || !tagName || !tenantId) {
+          // operatorName: usa o do body se fornecido, senão o nome do operador autenticado
+          const operatorName = body.operatorName ?? session.operator.name;
+
+          if (!conversationId || !tagName) {
             return new Response(
-              JSON.stringify({ error: "conversationId, tagName e tenantId sao obrigatorios" }),
+              JSON.stringify({ error: "conversationId e tagName sao obrigatorios" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 
           // 1. Buscar conversa + contato para obter rdCrmDealId
+          //    Inclui tenantId no select para verificar ownership do tenant da sessão
           const [conv] = await db
-            .select({ contactId: conversations.contactId })
+            .select({ contactId: conversations.contactId, tenantId: conversations.tenantId })
             .from(conversations)
             .where(eq(conversations.id, conversationId));
 
@@ -60,6 +70,14 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             return new Response(
               JSON.stringify({ skipped: true, reason: "Conversa nao encontrada" }),
               { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          // Verificar que a conversa pertence ao tenant da sessão
+          if (conv.tenantId !== tenantId) {
+            return new Response(
+              JSON.stringify({ error: "Conversa não encontrada.", code: "NOT_FOUND" }),
+              { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 

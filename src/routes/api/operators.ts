@@ -3,9 +3,8 @@ import { db } from "../../db/index.js";
 import { operators, conversations, internalMessages } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import {
-  getAuthSession,
+  requireSession,
   sanitizeOperator,
-  validateTenantAccess,
   revokeAllOperatorSessions,
 } from "../../lib/auth-session.js";
 import { hashPassword, needsPasswordMigration } from "../../lib/auth-crypto.js";
@@ -23,26 +22,12 @@ export const Route = createFileRoute("/api/operators")({
         return new Response(null, { status: 204, headers: corsHeaders });
       },
       GET: async ({ request }) => {
-        const session = await getAuthSession(request);
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         const url = new URL(request.url);
-        const queryTenantId = url.searchParams.get("tenantId");
-
-        // Se autenticado por sessão, a sessão é a autoridade
-        const effectiveTenantId = session ? session.tenantId : queryTenantId;
-
-        if (!effectiveTenantId) {
-          return new Response(
-            JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        // Se a sessão existe e solicitou outro tenant, rejeita com 404 (sem vazar dados)
-        if (session) {
-          const tenantCheck = validateTenantAccess(session, queryTenantId);
-          if (tenantCheck) return tenantCheck;
-        }
-
         const action = url.searchParams.get("action");
         const id = url.searchParams.get("id");
 
@@ -54,7 +39,7 @@ export const Route = createFileRoute("/api/operators")({
               .from(conversations)
               .where(
                 and(
-                  eq(conversations.tenantId, effectiveTenantId),
+                  eq(conversations.tenantId, tenantId),
                   eq(conversations.operatorId as any, id)
                 )
               );
@@ -75,7 +60,7 @@ export const Route = createFileRoute("/api/operators")({
           const list = await db
             .select()
             .from(operators)
-            .where(eq(operators.tenantId, effectiveTenantId));
+            .where(eq(operators.tenantId, tenantId));
 
           // NUNCA expor passwordHash em respostas da API!
           const sanitizedList = list.map((op) => sanitizeOperator(op));
@@ -93,26 +78,21 @@ export const Route = createFileRoute("/api/operators")({
       },
       POST: async ({ request }) => {
         try {
-          const session = await getAuthSession(request);
-          const body = await request.json().catch(() => ({}));
-          const { id, name, email, passwordHash, password, role, avatar, status, groupId } = body;
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
 
-          // Autoridade de tenant: sessão do servidor (ou body se bootstrap inicial)
-          const tenantId = session ? session.tenantId : body.tenantId;
-
-          if (!tenantId) {
+          // Apenas admin pode criar/editar operadores
+          if (session.operator.role !== "admin") {
             return new Response(
-              JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-              { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          if (session && body.tenantId && body.tenantId !== session.tenantId) {
-            return new Response(
-              JSON.stringify({ error: "Não é permitido manipular operadores de outro tenant.", code: "FORBIDDEN" }),
+              JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }),
               { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+
+          const body = await request.json().catch(() => ({}));
+          const { id, name, email, passwordHash, password, role, avatar, status, groupId } = body;
 
           if (!id || !name || !email) {
             return new Response(
@@ -171,15 +151,21 @@ export const Route = createFileRoute("/api/operators")({
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           } else {
-            // Criar novo operador vinculado incondicionalmente ao tenant da sessão
-            const newPassword = safePasswordHash || hashPassword("123456");
+            // Criar novo operador: senha obrigatória para novos registros
+            if (!safePasswordHash) {
+              return new Response(
+                JSON.stringify({ error: "password é obrigatório para criar um novo operador.", code: "BAD_REQUEST" }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
 
+            // Criar novo operador vinculado incondicionalmente ao tenant da sessão
             await db.insert(operators).values({
               id,
               tenantId,
               name,
               email: email.trim().toLowerCase(),
-              passwordHash: newPassword,
+              passwordHash: safePasswordHash,
               role: role || "agent",
               avatar: avatar || null,
               status: status || "disponivel",
@@ -203,19 +189,21 @@ export const Route = createFileRoute("/api/operators")({
         }
       },
       DELETE: async ({ request }) => {
-        const session = await getAuthSession(request);
-        const url = new URL(request.url);
-        const id = url.searchParams.get("id");
-        const queryTenantId = url.searchParams.get("tenantId");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        const tenantId = session ? session.tenantId : queryTenantId;
-
-        if (!tenantId) {
+        // Apenas admin pode excluir operadores
+        if (session.operator.role !== "admin") {
           return new Response(
-            JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+
+        const url = new URL(request.url);
+        const id = url.searchParams.get("id");
 
         if (!id) {
           return new Response(JSON.stringify({ error: "id é obrigatório" }), {

@@ -18,22 +18,24 @@
 >
 > Este projeto serve **dois clientes distintos** que compartilham o mesmo banco de dados PostgreSQL e o mesmo código, mas são **100% isolados em dados**:
 >
-> | Tenant | ID | Empresa | Canal | IA Persona | Status |
-> |--------|-----|---------|-------|------------|--------|
-> | Valem  | `"valem"`  | Valem Valvulas e Embalagens | **Baileys (WhatsApp)** | **Valentina** | 🟢 ATIVO em produção |
-> | Tecfag | `"tecfag"` | Tecfag Informática | **Meta API (WhatsApp Business)** | **Fagner** | 🔴 INATIVO — sem operação real ainda |
+> | Tenant | ID | Empresa | Canal padrão | IA Persona | Status |
+> |--------|-----|---------|-------------|------------|--------|
+> | Valem  | `"valem"`  | Valem Valvulas e Embalagens | **Baileys** (configurável via admin) | **Valentina** | 🟢 ATIVO em produção — não interromper |
+> | Tecfag | `"tecfag"` | Tecfag Informática | **Meta API** (configurável via admin) | **Fagner** | 🟡 EM IMPLANTAÇÃO — **prioridade atual de desenvolvimento** |
+>
+> **Decisão arquitetural (28/09/2026):** Tecfag é a prioridade de desenvolvimento. Valem deve permanecer operando sem interrupção durante toda a implantação. Canal é configurável por tenant via painel admin — não fixe Baileys para Valem nem Meta para Tecfag no código.
 >
 > ### ⛔ REGRAS ABSOLUTAS DE ISOLAMENTO:
 >
 > 1. **NUNCA** faça queries no banco sem filtrar por `tenantId`. Toda query que acesse `conversations`, `operators`, `contacts`, `agentConfigs`, `aiConversationAudits`, `tasks`, `sectors`, `accessGroups`, `quickResponses`, `templates` ou `internalMessages` **DEVE** ter `eq(table.tenantId, tenantId)` no `WHERE`.
 >
-> 2. **NUNCA** crie uma rota de API que retorne dados de múltiplos tenants misturados. Se `?tenantId=` não for fornecido, retorne `400 Bad Request` — **NUNCA** um fallback de dados.
+> 2. **NUNCA** aceite `tenantId` do cliente (query string ou body) como autoridade em rotas internas. O `tenantId` de rotas internas autenticadas DEVE vir **exclusivamente** da sessão do servidor (`session.tenantId` via `requireSession`). Rotas públicas (webhook, login, widget) têm validação própria explícita.
 >
 > 3. **NUNCA** use `"valem"` ou `"tecfag"` como string literal hardcoded em queries, engines de IA, ou rotas de API. **SEMPRE** use a variável `tenantId` recebida como parâmetro.
 >
-> 4. **Tecfag está INATIVO.** Não crie dados, seeds, ou funcionalidades que preencham o tenant `tecfag` com dados reais. Se o tecfag aparecer com dados no sistema, é um **vazamento a ser corrigido imediatamente**.
+> 4. **Tecfag está em implantação.** Não crie dados reais, seeds ou funcionalidades que preencham o tenant `tecfag` sem necessidade operacional real. Configurações de teste usam banco/credenciais de teste, não o banco de produção da Valem.
 >
-> 5. **Ordem de prioridade em caso de ambiguidade:** Valem > Tecfag. Se algo quebrar, Valem nunca pode ficar sem serviço. Tecfag pode aguardar.
+> 5. **Valem nunca pode ficar sem serviço.** Em caso de ambiguidade ou conflito, preserve a operação da Valem. Tecfag pode aguardar uma janela de manutenção.
 
 ---
 
@@ -103,43 +105,66 @@
 > [!WARNING]
 > **Antes de criar ou modificar qualquer rota em `src/routes/api/`**, verifique obrigatoriamente:
 >
-> - [ ] A rota recebe `?tenantId=` ou `tenantId` no body?
-> - [ ] Se não receber, retorna `400 Bad Request` (não um fallback com dados)?
+> - [ ] A rota é interna (requer operador logado)?
+> - [ ] Se sim: usa `requireSession` — NUNCA `getAuthSession` — e obtém `tenantId` de `session.tenantId`?
+> - [ ] A rota é pública (webhook/login/widget)? Tem validação própria e explícita?
 > - [ ] Todas as queries ao banco têm `eq(table.tenantId, tenantId)` no WHERE?
-> - [ ] Operações de DELETE/UPDATE verificam que o recurso pertence ao tenant?
+> - [ ] Operações de DELETE/UPDATE verificam ID **e** tenant antes de modificar?
+> - [ ] Ações admin (criar operador, alterar permissões) verificam `session.operator.role === "admin"`?
 > - [ ] Se a rota chama Vertex AI, passa `tenantId` e `feature` corretamente?
 >
-> **Padrão obrigatório para validação de tenantId:**
+> **Padrão obrigatório para rotas internas:**
 > ```typescript
-> const tenantId = url.searchParams.get("tenantId");
-> if (!tenantId) {
->   return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
->     status: 400,
->     headers: { "Content-Type": "application/json" }
+> const auth = await requireSession(request);
+> if ("response" in auth) return auth.response; // 401 automático se sem sessão
+> const { session } = auth;
+> const tenantId = session.tenantId; // SEMPRE da sessão — nunca do query ou body
+> ```
+>
+> **Padrão obrigatório para verificação admin:**
+> ```typescript
+> if (session.operator.role !== "admin") {
+>   return new Response(JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }), {
+>     status: 403, headers: { "Content-Type": "application/json" }
 >   });
 > }
 > ```
+
 
 ---
 
 ## 🐛 BUGS CONHECIDOS DE ISOLAMENTO (A CORRIGIR)
 
 > [!WARNING]
-> Os seguintes problemas foram identificados e estão pendentes de correção. **NÃO adicione código novo que dependa ou piore esses bugs:**
+> Os seguintes problemas foram identificados. Os marcados com ✅ foram corrigidos na Entrega 1 (28/09/2026):
 >
-> 1. **`SupervisorEngine.runChecks()`** — Query sem `WHERE tenantId`. Processa conversas de ambos os tenants juntos. Arquivo: `src/lib/valentina/supervisor-engine.ts` linha ~62.
+> 1. ✅ **`GET/POST/DELETE /api/operators` sem sessão obrigatória** — Corrigido: agora usa `requireSession`. Senha padrão `123456` eliminada.
 >
-> 2. **`SdrEngine` fallback de agentConfig** — Quando não encontra config por tenant, busca qualquer config de tipo `"sdr"` sem filtrar por tenant. Arquivo: `src/lib/valentina/sdr-engine.ts` linha ~127.
+> 2. ✅ **`GET/POST/DELETE /api/groups` sem sessão obrigatória** — Corrigido: agora usa `requireSession`.
 >
-> 3. **`GET /api/operators` sem tenantId obrigatório** — Retorna operadores de ambos os tenants. Arquivo: `src/routes/api/operators.ts`.
+> 3. ✅ **`GET/POST/DELETE /api/sectors` sem sessão obrigatória** — Corrigido.
 >
-> 4. **`DELETE /api/operators` e `DELETE /api/groups`** — Não verificam pertinência ao tenant do requisitante.
+> 4. ✅ **`GET/POST/DELETE /api/quick-responses` sem sessão obrigatória** — Corrigido.
 >
-> 5. **`useState("tecfag")` no frontend** — O tenant padrão antes do login é `tecfag`. Deve ser `null` até autenticação. Arquivo: `src/hooks/useChatState.tsx` linha 158.
+> 5. ✅ **`GET/POST/DELETE /api/templates` sem sessão obrigatória** — Corrigido.
 >
-> 6. **Prompt de IA hardcoded para Valem** — O prompt da Valentina/SDR menciona explicitamente "Valem Valvulas e Embalagens" e é usado sem verificar o tenant. Arquivo: `src/lib/valentina/sdr-engine.ts` linha ~294.
+> 6. ✅ **`POST /api/chats/tag-task` sem autenticação** — Corrigido: `requireSession` + verificação de tenant na conversa.
+>
+> 7. ✅ **`GET /api/gestao/overview` só com `?tenantId=`** — Corrigido: `requireSession`.
+>
+> 8. ⏳ **`SupervisorEngine.runChecks()`** — Query sem `WHERE tenantId`. Arquivo: `src/lib/valentina/supervisor-engine.ts` linha ~62.
+>
+> 9. ⏳ **`SdrEngine` fallback de agentConfig** — Busca qualquer config de tipo `"sdr"` sem filtrar por tenant. Arquivo: `src/lib/valentina/sdr-engine.ts` linha ~127.
+>
+> 10. ⏳ **`useState("tecfag")` no frontend** — Tenant padrão antes do login deve ser `null`. Arquivo: `src/hooks/useChatState.tsx` linha 158.
+>
+> 11. ⏳ **Prompt de IA hardcoded para Valem** — `src/lib/valentina/sdr-engine.ts` linha ~294.
+>
+> 12. ⏳ **`recipientPhone` do body em `/api/whatsapp/send`** — Telefone de destino deve ser obtido do banco via `conversationId`. Entrega 2.
+>
+> 13. ⏳ **Webhook Meta processa apenas `entry[0].changes[0]`** — Eventos em lote são ignorados. Entrega 3.
 
----
+
 
 ## 📱 Histórico e Backup do WhatsApp (Migração Valem)
 

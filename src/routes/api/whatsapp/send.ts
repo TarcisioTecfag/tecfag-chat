@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { outboundQueue } from "../../../lib/whatsapp/outbound";
 import { requireSession } from "../../../lib/auth-session";
+import { db } from "../../../db";
+import { conversations, contacts } from "../../../db/schema";
+import { eq, and } from "drizzle-orm";
 
 export const Route = createFileRoute("/api/whatsapp/send")({
   server: {
@@ -16,7 +19,6 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           const body = await request.json();
           const {
             conversationId,
-            recipientPhone,
             text,
             mediaUrl,
             mediaType,
@@ -26,18 +28,87 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             isInternalNote,
           } = body;
 
-          if (!conversationId || !recipientPhone) {
+          // conversationId é obrigatório — o recipientPhone é obtido do banco (não do cliente)
+          if (!conversationId) {
             return new Response(
-              JSON.stringify({ error: "conversationId e recipientPhone são obrigatórios" }),
+              JSON.stringify({ error: "conversationId é obrigatório" }),
               { status: 400, headers: { "Content-Type": "application/json" } }
             );
+          }
+
+          // Buscar conversa verificando que pertence ao tenant da sessão
+          const [conv] = await db
+            .select({
+              id: conversations.id,
+              contactId: conversations.contactId,
+              tenantId: conversations.tenantId,
+              operatorId: conversations.operatorId,
+              queueState: conversations.queueState,
+            })
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.id, conversationId),
+                eq(conversations.tenantId, session.tenantId)
+              )
+            );
+
+          if (!conv) {
+            return new Response(
+              JSON.stringify({ error: "Conversa não encontrada.", code: "NOT_FOUND" }),
+              { status: 404, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
+          // Verificar permissão: atendentes comuns só podem responder às suas próprias conversas
+          const isAdmin = session.operator.role === "admin";
+          const isSupervisor = session.operator.role === "supervisor";
+          const isOwner = conv.operatorId === session.operator.id;
+          const canViewAll = session.permissions?.canViewAllChats === true;
+
+          if (!isAdmin && !isSupervisor && !isOwner && !canViewAll) {
+            return new Response(
+              JSON.stringify({ error: "Sem permissão para responder nesta conversa.", code: "FORBIDDEN" }),
+              { status: 403, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
+          // Notas internas não precisam de telefone de destino
+          let recipientPhone: string | undefined;
+          if (!isInternalNote) {
+            // Obter telefone do contato no SERVIDOR — nunca confiar no body do cliente
+            if (!conv.contactId) {
+              return new Response(
+                JSON.stringify({ error: "Conversa sem contato associado." }),
+                { status: 400, headers: { "Content-Type": "application/json" } }
+              );
+            }
+
+            const [contact] = await db
+              .select({ phone: contacts.phone })
+              .from(contacts)
+              .where(
+                and(
+                  eq(contacts.id, conv.contactId),
+                  eq(contacts.tenantId, session.tenantId)
+                )
+              );
+
+            if (!contact?.phone) {
+              return new Response(
+                JSON.stringify({ error: "Contato sem número de telefone cadastrado." }),
+                { status: 400, headers: { "Content-Type": "application/json" } }
+              );
+            }
+
+            recipientPhone = contact.phone;
           }
 
           const result = await outboundQueue.enqueueAndSend({
             idempotencyKey: clientMessageId,
             tenantId: session.tenantId,
             conversationId,
-            recipientPhone,
+            recipientPhone: recipientPhone || "",
             text,
             mediaUrl,
             mediaType,

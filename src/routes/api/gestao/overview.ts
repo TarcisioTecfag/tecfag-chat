@@ -9,6 +9,7 @@ import {
 } from "../../../db/schema";
 import { eq, and, isNull, isNotNull, avg, count, ne, gte, lte, sum, inArray } from "drizzle-orm";
 import { getComercialOperatorIds } from "../../../lib/gestao-filter";
+import { requireSession } from "../../../lib/auth-session.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,14 +23,17 @@ export const Route = createFileRoute("/api/gestao/overview")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response; // retorna 401 automaticamente
+        const { session } = auth;
+        const tenantId = session.tenantId; // SEMPRE da sessão
 
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+        // Gestão é painel de supervisão: exige role supervisor ou admin
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas supervisores e administradores podem acessar o painel de gestão.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
         const today = new Date().toISOString().split("T")[0];

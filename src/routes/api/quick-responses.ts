@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db/index.js";
 import { quickResponses } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
-import { getAuthSession, validateTenantAccess } from "../../lib/auth-session.js";
+import { requireSession } from "../../lib/auth-session.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,29 +17,16 @@ export const Route = createFileRoute("/api/quick-responses")({
         return new Response(null, { status: 204, headers: corsHeaders });
       },
       GET: async ({ request }) => {
-        const session = await getAuthSession(request);
-        const url = new URL(request.url);
-        const queryTenantId = url.searchParams.get("tenantId");
-
-        const effectiveTenantId = session ? session.tenantId : queryTenantId;
-
-        if (!effectiveTenantId) {
-          return new Response(
-            JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        if (session) {
-          const check = validateTenantAccess(session, queryTenantId);
-          if (check) return check;
-        }
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response; // retorna 401 automaticamente
+        const { session } = auth;
+        const tenantId = session.tenantId; // SEMPRE da sessão
 
         try {
           const list = await db
             .select()
             .from(quickResponses)
-            .where(eq(quickResponses.tenantId, effectiveTenantId));
+            .where(eq(quickResponses.tenantId, tenantId));
 
           return new Response(JSON.stringify(list), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -54,25 +41,13 @@ export const Route = createFileRoute("/api/quick-responses")({
       },
       POST: async ({ request }) => {
         try {
-          const session = await getAuthSession(request);
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response; // retorna 401 automaticamente
+          const { session } = auth;
+          const tenantId = session.tenantId; // SEMPRE da sessão
+
           const body = await request.json().catch(() => ({}));
           const { id, shortcut, text, description } = body;
-
-          const tenantId = session ? session.tenantId : body.tenantId;
-
-          if (!tenantId) {
-            return new Response(
-              JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-              { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          if (session && body.tenantId && body.tenantId !== session.tenantId) {
-            return new Response(
-              JSON.stringify({ error: "Não é permitido manipular respostas de outro tenant.", code: "FORBIDDEN" }),
-              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
 
           if (!id || !shortcut || !text) {
             return new Response(
@@ -86,6 +61,7 @@ export const Route = createFileRoute("/api/quick-responses")({
           });
 
           if (existing) {
+            // Verificar que o recurso pertence ao tenant da sessão
             if (existing.tenantId !== tenantId) {
               return new Response(
                 JSON.stringify({ error: "Resposta rápida não encontrada neste tenant.", code: "NOT_FOUND" }),
@@ -124,19 +100,13 @@ export const Route = createFileRoute("/api/quick-responses")({
         }
       },
       DELETE: async ({ request }) => {
-        const session = await getAuthSession(request);
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response; // retorna 401 automaticamente
+        const { session } = auth;
+        const tenantId = session.tenantId; // SEMPRE da sessão
+
         const url = new URL(request.url);
         const id = url.searchParams.get("id");
-        const queryTenantId = url.searchParams.get("tenantId");
-
-        const tenantId = session ? session.tenantId : queryTenantId;
-
-        if (!tenantId) {
-          return new Response(
-            JSON.stringify({ error: "Sessão inválida ou tenantId ausente.", code: "UNAUTHORIZED" }),
-            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
 
         if (!id) {
           return new Response(JSON.stringify({ error: "id é obrigatório" }), {
@@ -146,6 +116,7 @@ export const Route = createFileRoute("/api/quick-responses")({
         }
 
         try {
+          // Verificar que o recurso pertence ao tenant da sessão antes de deletar
           const existing = await db.query.quickResponses.findFirst({
             where: and(eq(quickResponses.id, id), eq(quickResponses.tenantId, tenantId)),
           });
