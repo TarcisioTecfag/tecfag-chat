@@ -39,9 +39,11 @@ import {
   Star,
   Sparkles,
   Package,
+  Bookmark,
 } from "lucide-react";
 import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
 import { ProductCatalogPicker } from "./ProductCatalogPicker";
+import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
 import { io as socketIO, type Socket } from "socket.io-client";
 import {
   Tooltip,
@@ -523,6 +525,7 @@ export function ChatPanel() {
   const [showValentinaModal, setShowValentinaModal] = useState(false);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
   const [showFinishConfirmModal, setShowFinishConfirmModal] = useState(false);
+  const [markingEvidenceMsg, setMarkingEvidenceMsg] = useState<{ id: string; text: string; author?: string; time?: string } | null>(null);
 
   const handleApplyValentinaText = (newText: string, asInternalNote: boolean = false) => {
     if (asInternalNote) {
@@ -1796,6 +1799,13 @@ export function ChatPanel() {
                 >
                   <div className="flex items-center gap-2 max-w-[80%] justify-end">
                     <button
+                      onClick={() => setMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
+                      title="Marcar como evidência do negócio"
+                    >
+                      <Bookmark className="h-3.5 w-3.5" />
+                    </button>
+                    <button
                       onClick={() => setReplyingTo(m)}
                       className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
                       title="Responder"
@@ -1995,6 +2005,13 @@ export function ChatPanel() {
                       title="Responder"
                     >
                       <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
+                      title="Marcar como evidência do negócio"
+                    >
+                      <Bookmark className="h-3.5 w-3.5" />
                     </button>
                   </div>
 
@@ -2707,6 +2724,16 @@ export function ChatPanel() {
         operatorName={operatorProfile?.name || "Vendedor"}
         onApplyText={handleApplyValentinaText}
       />
+
+      {/* Modal de Marcação de Evidência Comercial */}
+      {activeChat && (
+        <MarkEvidenceModal
+          isOpen={!!markingEvidenceMsg}
+          onClose={() => setMarkingEvidenceMsg(null)}
+          message={markingEvidenceMsg}
+          conversationId={activeChat.id}
+        />
+      )}
 
       {/* Modal de Confirmação de Finalização de Atendimento */}
       <AnimatePresence>

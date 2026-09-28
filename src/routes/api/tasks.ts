@@ -3,11 +3,12 @@ import { db } from "../../db";
 import { contacts, conversations, tasks as dbTasks } from "../../db/schema";
 import { rdRequest, buildPhoneSearchTerms, getCachedDeal, getCachedContact, getCachedUsers } from "../../lib/rdCrmService";
 import { eq, and } from "drizzle-orm";
+import { requireSession } from "../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 // Cache do endpoint de listagem de tarefas para evitar múltiplos cliques rápidos (TTL: 15s)
@@ -20,23 +21,23 @@ export const Route = createFileRoute("/api/tasks")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       /**
-       * GET /api/tasks?tenantId=xxx&email=operator_email
+       * GET /api/tasks
        * 
-       * Lista tarefas do RD CRM para o operador (filtrado por e-mail)
-       * e enriquece com dados de contato e conversas do Valem Chat.
+       * Lista tarefas do RD CRM para o operador autenticado
+       * e enriquece com dados de contato do Valem Chat.
        * Salva e persiste os dados na tabela local 'tasks'.
        */
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        const email = url.searchParams.get("email"); // E-mail do operador logado
+        try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
 
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
+          const url = new URL(request.url);
+          // E-mail do operador: se fornecido e o operador for admin pode filtrar outro; senão usa o da sessão
+          const queryEmail = url.searchParams.get("email");
+          const email = (session.operator.role === "admin" && queryEmail) ? queryEmail : session.operator.email;
 
         const debug = url.searchParams.get("debug");
         if (debug === "true") {
@@ -197,22 +198,20 @@ export const Route = createFileRoute("/api/tasks")({
                 }
               }
 
-              // 5. Se temos telefone, buscar no banco local (contacts + conversations)
+              // 5. Se temos telefone, buscar no banco local com filtro estrito de tenant
+              // NOTA MANDATÓRIA (Fase 0): Tarefas importadas do RD com conversa desconhecida permanecem
+              // com chatConversationId = null até vinculação explícita. É proibido inferir conversas por telefone.
               if (clientPhone) {
                 const phoneTerms = buildPhoneSearchTerms(clientPhone);
                 try {
-                  // Busca contato local por qualquer variante do telefone
                   for (const term of phoneTerms) {
                     const localContact = await db.query.contacts.findFirst({
-                      where: eq(contacts.phone, term),
+                      where: and(eq(contacts.tenantId, tenantId), eq(contacts.phone, term)),
                     });
                     if (localContact) {
                       chatContactId = localContact.id;
-                      // Busca conversa ativa desse contato
-                      const conv = await db.query.conversations.findFirst({
-                        where: eq(conversations.contactId, localContact.id),
-                      });
-                      if (conv) chatConversationId = conv.id;
+                      // Mantém conversa sem vínculo até haver evidência explícita
+                      chatConversationId = null;
                       break;
                     }
                   }
@@ -303,24 +302,34 @@ export const Route = createFileRoute("/api/tasks")({
             });
           }
         }
-      },
+      } catch (fatalErr: any) {
+        console.error("[Tasks API] Erro fatal no GET:", fatalErr);
+        return new Response(JSON.stringify({ error: fatalErr.message || "Erro interno" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    },
 
       /**
        * PUT /api/tasks
        * 
-       * Atualiza o status de uma tarefa no RD CRM.
-       * Body: { tenantId, taskId, status: "done" | "pending" }
-       * 
-       * Segue o mesmo padrão rdRequest() com wrapper { data: body }.
+       * Atualiza o status de uma tarefa no RD CRM e na base local.
+       * Body: { taskId, status: "done" | "pending" }
        */
       PUT: async ({ request }) => {
         try {
-          const body = await request.json();
-          const { tenantId, taskId, status } = body;
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
 
-          if (!tenantId || !taskId || !status) {
+          const body = await request.json();
+          const { taskId, status } = body;
+
+          if (!taskId || !status) {
             return new Response(
-              JSON.stringify({ error: "tenantId, taskId e status são obrigatórios" }),
+              JSON.stringify({ error: "taskId e status são obrigatórios" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
@@ -329,6 +338,16 @@ export const Route = createFileRoute("/api/tasks")({
           const rdStatus = status === "done" ? "done" : "pending";
 
           await rdRequest(tenantId, "PUT", `/tasks/${taskId}`, { status: rdStatus });
+
+          // Atualiza também na base local com isolamento de tenant
+          try {
+            await db
+              .update(dbTasks)
+              .set({ status: rdStatus, updatedAt: new Date() })
+              .where(and(eq(dbTasks.id, taskId), eq(dbTasks.tenantId, tenantId)));
+          } catch (syncErr: any) {
+            console.warn(`[Tasks API] Aviso ao atualizar tarefa local ${taskId}:`, syncErr.message);
+          }
 
           return new Response(JSON.stringify({ success: true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

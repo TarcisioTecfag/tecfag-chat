@@ -2,18 +2,68 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-const connectionString = process.env.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/valemchat";
+function resolveConnectionString(): string {
+  // Em ambiente de teste (NODE_ENV=test ou IS_TEST=true), TEST_DATABASE_URL tem precedência absoluta
+  const isTest = process.env.NODE_ENV === "test" || process.env.IS_TEST === "true";
+  if (isTest && process.env.TEST_DATABASE_URL) {
+    return process.env.TEST_DATABASE_URL;
+  }
+  return process.env.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/valemchat";
+}
+
+const connectionString = resolveConnectionString();
 
 const isCloud = connectionString.includes("railway") || connectionString.includes("neon") || connectionString.includes("supabase") || connectionString.includes("render") || process.env.NODE_ENV === "production";
 
-// Client do PostgreSQL (pool principal)
-const client = postgres(connectionString, {
+// Client do PostgreSQL (pool principal exportado para inspeções e testes)
+export const client = postgres(connectionString, {
   max: 10,
   prepare: false,
   ssl: isCloud && !connectionString.includes("localhost") ? { rejectUnauthorized: false } : false,
 });
 
 export const db = drizzle(client, { schema });
+
+/**
+ * Retorna a string de conexão ativa (com credenciais mascaradas para logs)
+ */
+export function getActiveDatabaseInfo(): { urlMasked: string; isCloud: boolean } {
+  const masked = connectionString.replace(/:([^:@]+)@/, ":****@");
+  return { urlMasked: masked, isCloud };
+}
+
+/**
+ * Retorna o nome da base de dados ativa no PostgreSQL
+ */
+export async function getDatabaseName(): Promise<string> {
+  const [row] = await client`SELECT current_database() as db_name`;
+  return (row as any)?.db_name || "";
+}
+
+/**
+ * Validação mandatória de isolamento para suítes de teste.
+ * Garante que a conexão do sistema está comprovadamente ligada a um banco de teste
+ * e impede qualquer escrita em bases operacionais/produção.
+ */
+export async function assertTestDatabaseIsolation(): Promise<{ databaseName: string; serverIp: string }> {
+  const [row] = await client`SELECT current_database() as db_name, inet_server_addr()::text as server_ip`;
+  const dbName = ((row as any)?.db_name || "").toLowerCase();
+  const serverIp = (row as any)?.server_ip || "local";
+
+  if (!dbName.includes("test")) {
+    throw new Error(
+      `🛑 VIOLAÇÃO GRAVE DE ISOLAMENTO: O banco conectado '${dbName}' NÃO contém 'test' no nome! Execução abortada imediatamente.`
+    );
+  }
+
+  if (dbName === "valemchat" || dbName === "postgres" || dbName.includes("railway") || dbName.includes("prod")) {
+    throw new Error(
+      `🛑 VIOLAÇÃO GRAVE DE ISOLAMENTO: Tentativa de execução de testes contra a base operacional '${dbName}'! Execução abortada imediatamente.`
+    );
+  }
+
+  return { databaseName: dbName, serverIp };
+}
 
 // ── Verificação de Compatibilidade de Schema (Execução Controlada) ───────────
 // Não executa DDL silenciosamente na importação do módulo.

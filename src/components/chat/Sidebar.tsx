@@ -16,6 +16,7 @@ import {
   Wallet,
   Bot,
   PhoneCall,
+  Columns3,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -30,6 +31,7 @@ export function Sidebar() {
 
   const navItems = [
     { id: "chat", icon: Users, label: "Chat" },
+    { id: "crm", icon: Columns3, label: "Negociações" },
     { id: "tasks", icon: ClipboardCheck, label: "Tarefas" },
     { id: "contacts", icon: Contact, label: "Base de Clientes" },
     { id: "wallet", icon: Wallet, label: "Minha Carteira" },

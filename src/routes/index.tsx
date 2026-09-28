@@ -14,6 +14,7 @@ import { AnalyticsView } from "@/components/chat/AnalyticsView";
 import { TasksView } from "@/components/chat/TasksView";
 import { ValentinaView } from "@/components/valentina/ValentinaView";
 import { LigacoesView } from "@/components/voice/LigacoesView";
+import { CrmView } from "@/components/crm/CrmView";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { motion, AnimatePresence } from "framer-motion";
@@ -98,6 +99,17 @@ function Index() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+              </motion.div>
+            ) : activeView === "crm" ? (
+              <motion.div
+                key="crm"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full overflow-hidden"
+              >
+                <CrmView />
               </motion.div>
             ) : activeView === "contacts" ? (
               <motion.div

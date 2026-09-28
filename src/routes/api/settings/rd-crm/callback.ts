@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { exchangeCodeForTokens, clearTokenCache } from "../../../../lib/rdCrmService";
+import { verifySignedOAuthState } from "../../../../lib/auth-crypto";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,7 +16,7 @@ export const Route = createFileRoute("/api/settings/rd-crm/callback")({
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const code = url.searchParams.get("code");
-        const state = url.searchParams.get("state") || "valem"; // state preserva o tenantId
+        const state = url.searchParams.get("state");
 
         if (!code) {
           return new Response(
@@ -24,12 +25,30 @@ export const Route = createFileRoute("/api/settings/rd-crm/callback")({
           );
         }
 
+        if (!state) {
+          return new Response(
+            `<html><body><h2>Erro na conexão com o RD CRM</h2><p>Estado de autorização (state) não fornecido. Acesso recusado.</p><a href="/">Voltar</a></body></html>`,
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
+        // Validação criptográfica do estado assinado (sem fallback de tenant)
+        const verification = verifySignedOAuthState(state);
+        if (!verification.valid || !verification.tenantId) {
+          return new Response(
+            `<html><body><h2>Erro de Segurança no RD CRM</h2><p>${verification.error || "Estado de autorização inválido ou expirado."}</p><a href="/">Voltar</a></body></html>`,
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
+        const tenantId = verification.tenantId;
+
         try {
           // A redirect URI enviada na troca do token deve ser a mesma cadastrada e usada no login
           const redirectUri = `${url.origin}/api/settings/rd-crm/callback`;
           
-          await exchangeCodeForTokens(state, code, redirectUri);
-          clearTokenCache(state);
+          await exchangeCodeForTokens(tenantId, code, redirectUri);
+          clearTokenCache(tenantId);
 
           // Redireciona para o painel principal com query param de conectado
           return new Response(null, {

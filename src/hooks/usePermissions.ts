@@ -33,6 +33,7 @@ export function usePermissions() {
         views: {
           ...norm.views,
           chat: true,
+          crm: true,
           tasks: true,
           contacts: true,
           wallet: true,

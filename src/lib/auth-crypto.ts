@@ -61,3 +61,47 @@ export function generateSessionToken(): string {
 export function hashSessionToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
+
+/**
+ * Assina um estado OAuth para associar tenantId e operatorId de forma criptograficamente inviolável.
+ * Formato: <tenantId>.<operatorId>.<timestamp>.<hmacSignature>
+ */
+export function createSignedOAuthState(tenantId: string, operatorId: string): string {
+  const timestamp = Date.now().toString();
+  const payload = `${tenantId}.${operatorId}.${timestamp}`;
+  const secret = process.env.SESSION_SECRET || "valem-oauth-session-secret-key";
+  const signature = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return `${payload}.${signature}`;
+}
+
+/**
+ * Valida o estado OAuth assinado e recupera o tenantId e operatorId.
+ * Validade máxima: 15 minutos (900.000 ms).
+ */
+export function verifySignedOAuthState(state: string): { valid: boolean; tenantId?: string; operatorId?: string; error?: string } {
+  if (!state || typeof state !== "string") {
+    return { valid: false, error: "Estado de autorização ausente." };
+  }
+  const parts = state.split(".");
+  if (parts.length !== 4) {
+    return { valid: false, error: "Formato de estado de autorização inválido." };
+  }
+  const [tenantId, operatorId, timestampStr, providedSignature] = parts;
+  const timestamp = parseInt(timestampStr, 10);
+  if (isNaN(timestamp) || Date.now() - timestamp > 15 * 60 * 1000 || timestamp > Date.now() + 60 * 1000) {
+    return { valid: false, error: "Estado de autorização expirado (limite de 15 minutos)." };
+  }
+
+  const payload = `${tenantId}.${operatorId}.${timestampStr}`;
+  const secret = process.env.SESSION_SECRET || "valem-oauth-session-secret-key";
+  const expectedSignature = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+
+  const providedBuf = Buffer.from(providedSignature, "hex");
+  const expectedBuf = Buffer.from(expectedSignature, "hex");
+
+  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+    return { valid: false, error: "Assinatura do estado de autorização inválida." };
+  }
+
+  return { valid: true, tenantId, operatorId };
+}

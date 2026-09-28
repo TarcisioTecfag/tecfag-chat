@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { rdRequest } from "../../../../lib/rdCrmService";
+import { requireSession } from "../../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 export const Route = createFileRoute("/api/settings/rd-crm/fields")({
@@ -13,10 +14,20 @@ export const Route = createFileRoute("/api/settings/rd-crm/fields")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId") || "valem";
-
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+
+          if (session.operator.role !== "admin") {
+            return new Response(JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }), {
+              status: 403,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const tenantId = session.tenantId;
+
           // Busca campos customizados configurados no RD CRM percorrendo todas as páginas de forma segura
           const customFields: any[] = [];
           let pageNum = 1;

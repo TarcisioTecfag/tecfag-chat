@@ -44,12 +44,14 @@ export const Route = createFileRoute("/api/chats")({
             quotedMessageId?: string | null;
             quotedMessageSender?: string | null;
             quotedMessageContent?: string | null;
+            dealId?: string | null;
           };
 
           const {
             conversationId, senderType = "agent", senderName, senderEmail,
             content, isInternalNote = false,
             quotedMessageId, quotedMessageSender, quotedMessageContent,
+            dealId,
           } = body;
 
           if (!conversationId || !content) {
@@ -102,18 +104,12 @@ export const Route = createFileRoute("/api/chats")({
             .set({ lastMessageTime: now, updatedAt: now })
             .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId)));
 
-          // Se for nota interna e houver integração RD CRM (apenas Valem no MVP)
-          if (isInternalNote && session.tenantId === "valem") {
+          // Se for nota comercial vinculada explicitamente a um card/deal
+          // NOTA MANDATÓRIA (Fase 0): Nota geral permanece apenas na conversa.
+          // Envio ao CRM exige dealId explícito, sem presunção cega de card único no contato.
+          if (isInternalNote && dealId) {
             (async () => {
               try {
-                if (!conv.contactId) return;
-                const [contact] = await db
-                  .select({ rdCrmDealId: contacts.rdCrmDealId })
-                  .from(contacts)
-                  .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, session.tenantId)));
-
-                if (!contact?.rdCrmDealId) return;
-
                 let noteUserId: string | undefined;
                 if (senderEmail) {
                   try {
@@ -126,7 +122,7 @@ export const Route = createFileRoute("/api/chats")({
                 await rdRequest(
                   session.tenantId,
                   "POST",
-                  `/deals/${contact.rdCrmDealId}/activity_notes`,
+                  `/deals/${dealId}/activity_notes`,
                   {
                     activity_note: {
                       text: content,

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { fetchCnpjInfo, CnpjFullDetails } from "@/lib/valentina/cnpj-service";
 import { useChat } from "@/hooks/useChatState";
 import { RdCrmCard } from "./RdCrmCard";
+import { ConversationDealsPanel } from "@/components/crm/ConversationDealsPanel";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -225,6 +226,30 @@ export function SharedFiles() {
   const [taskCreating, setTaskCreating] = useState(false);
   const [taskTypeOpen, setTaskTypeOpen] = useState(false);
 
+  // Negócios vinculados à conversa ativa (Fase 3: Multi-card)
+  const [linkedDeals, setLinkedDeals] = useState<any[]>([]);
+  const [selectedTargetDealId, setSelectedTargetDealId] = useState<string>("");
+
+  useEffect(() => {
+    if (activeChat?.id && activeChat.id !== "valentina") {
+      fetch(`/api/chats/${activeChat.id}/deals`)
+        .then((res) => (res.ok ? res.json() : { deals: [] }))
+        .then((data) => {
+          const list = data.deals || [];
+          setLinkedDeals(list);
+          if (list.length === 1) {
+            setSelectedTargetDealId(list[0].id);
+          } else {
+            setSelectedTargetDealId("");
+          }
+        })
+        .catch(() => setLinkedDeals([]));
+    } else {
+      setLinkedDeals([]);
+      setSelectedTargetDealId("");
+    }
+  }, [activeChat?.id]);
+
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -338,8 +363,14 @@ export function SharedFiles() {
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!taskSubject.trim()) return;
-    setTaskCreating(true);
 
+    // Se houver mais de 1 negociação vinculada e o operador não selecionou nenhuma opção:
+    if (linkedDeals.length > 1 && !selectedTargetDealId) {
+      toast.error("Por favor, selecione a negociação comercial de destino para esta atividade.");
+      return;
+    }
+
+    setTaskCreating(true);
     const label = taskSubject.trim();
 
     // 1. Salvar como tag internamente (mantém compatibilidade com exibição e banco)
@@ -348,7 +379,31 @@ export function SharedFiles() {
       updateTags(activeChat.id, updated);
     }
 
-    // 2. Criar tarefa no RD CRM com todos os campos
+    // 2. Se houver card de destino selecionado (ou card único pré-selecionado), gravar em crm_deal_activities
+    const targetDealId = selectedTargetDealId && selectedTargetDealId !== "general"
+      ? selectedTargetDealId
+      : linkedDeals.length === 1
+        ? linkedDeals[0].id
+        : null;
+
+    if (targetDealId) {
+      try {
+        await fetch(`/api/crm/deals/${targetDealId}/activities`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: taskType,
+            title: label,
+            dueDate: `${taskDate}T${taskTime}:00`,
+            conversationId: activeChat.id,
+          }),
+        });
+      } catch (err) {
+        console.warn("[CRM Task] Erro ao gravar atividade no deal:", err);
+      }
+    }
+
+    // 3. Criar tarefa no RD CRM (legado) com todos os campos
     try {
       await fetch(`/api/chats/tag-task`, {
         method: "POST",
@@ -367,6 +422,9 @@ export function SharedFiles() {
     // Reset form
     setTaskSubject("");
     setTaskType("task");
+    if (linkedDeals.length !== 1) {
+      setSelectedTargetDealId("");
+    }
     const tmr = new Date(); tmr.setDate(tmr.getDate() + 1);
     setTaskDay(tmr.getDate()); setTaskMonth(tmr.getMonth()+1); setTaskYear(tmr.getFullYear());
     setTaskHour(9); setTaskMin(0);
@@ -719,6 +777,37 @@ export function SharedFiles() {
             {/* Formulário de nova tarefa */}
             <form onSubmit={handleCreateTask} className="space-y-2">
 
+              {/* Vínculo explícito de Card CRM (Fase 3: Multi-card) */}
+              {linkedDeals.length === 1 ? (
+                <div className="rounded-lg bg-primary/10 border border-primary/20 px-2.5 py-1.5 flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground font-medium">Negociação:</span>
+                  <span className="font-bold text-primary truncate max-w-[130px]" title={linkedDeals[0].title}>
+                    {linkedDeals[0].title}
+                  </span>
+                </div>
+              ) : linkedDeals.length > 1 ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[9px] font-bold text-muted-foreground uppercase">
+                    <span>Card de Destino</span>
+                    <span className="text-primary font-semibold">* Seleção obrigatória</span>
+                  </div>
+                  <select
+                    value={selectedTargetDealId}
+                    onChange={(e) => setSelectedTargetDealId(e.target.value)}
+                    className="w-full h-8 rounded-lg bg-muted px-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary cursor-pointer truncate"
+                    required
+                  >
+                    <option value="">Selecione o negócio comercial...</option>
+                    {linkedDeals.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title} {d.value ? `(R$ ${d.value})` : ""}
+                      </option>
+                    ))}
+                    <option value="general">Nenhuma (Tarefa Geral do Atendimento)</option>
+                  </select>
+                </div>
+              ) : null}
+
               {/* Nome da tarefa */}
               <input
                 type="text"
@@ -851,6 +940,15 @@ export function SharedFiles() {
               </button>
             </form>
           </div>
+
+          {/* Painel de Negociações CRM Multi-Card */}
+          {activeChat.id !== "valentina" && (
+            <ConversationDealsPanel
+              conversationId={activeChat.id}
+              contactId={activeChat.contactId || activeChat.id}
+              customerName={activeChat.name}
+            />
+          )}
 
           {/* RD Station CRM Card Integration */}
           {canManageRdCrm && activeChat.id !== "valentina" && (

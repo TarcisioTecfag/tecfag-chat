@@ -7,6 +7,7 @@ export type ChannelId = "whatsapp" | "instagram" | "messenger" | "livechat";
 
 export type ViewId =
   | "chat"
+  | "crm"
   | "tasks"
   | "contacts"
   | "wallet"
@@ -27,6 +28,7 @@ export type LigacoesTabId = "dashboard" | "agenda" | "historico" | "clientes" | 
 
 export interface ViewPermissions {
   chat: boolean;
+  crm: boolean;
   tasks: boolean;
   contacts: boolean;
   wallet: boolean;
@@ -134,6 +136,7 @@ export interface GroupPermissions {
 export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
   views: {
     chat: true,
+    crm: true,
     tasks: true,
     contacts: true,
     wallet: true,
@@ -232,6 +235,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: true,
+        crm: true,
         tasks: true,
         contacts: true,
         wallet: true,
@@ -275,6 +279,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: true,
+        crm: true,
         tasks: true,
         contacts: true,
         wallet: false,
@@ -365,6 +370,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: true,
+        crm: true,
         tasks: true,
         contacts: true,
         wallet: true,
@@ -455,6 +461,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: true,
+        crm: false,
         tasks: true,
         contacts: true,
         wallet: false,
@@ -545,6 +552,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: false,
+        crm: false,
         tasks: true,
         contacts: true,
         wallet: false,
@@ -663,6 +671,7 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
   return {
     views: {
       chat: existingPerms.views?.chat ?? baseFallback.views.chat,
+      crm: existingPerms.views?.crm ?? (isLegacyAdmin || Boolean(baseFallback.views.crm)),
       tasks: existingPerms.views?.tasks ?? baseFallback.views.tasks,
       contacts: existingPerms.views?.contacts ?? baseFallback.views.contacts,
       wallet: existingPerms.views?.wallet ?? baseFallback.views.wallet,

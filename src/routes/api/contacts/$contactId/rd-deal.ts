@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../../db";
 import { contacts } from "../../../../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { rdRequest } from "../../../../lib/rdCrmService";
+import { requireSession } from "../../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 // ============================================================================
@@ -29,13 +30,18 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       // GET — Recupera informações do deal do contato atual
-      GET: async ({ params }) => {
+      GET: async ({ request, params }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+
           const { contactId } = params as { contactId: string };
           const [contact] = await db
             .select()
             .from(contacts)
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
           if (!contact) {
             return new Response(JSON.stringify({ error: "Contato não encontrado" }), {
@@ -49,8 +55,6 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-
-          const tenantId = contact.tenantId;
 
           // Busca os campos customizados configurados oficialmente no RD CRM via API
           const rawFieldsRes = await rdRequest<any>(tenantId, "GET", "/custom_fields?limit=100").catch((err) => {
@@ -197,6 +201,11 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
       // POST — Vincula um negócio ao contato com base no link do deal
       POST: async ({ request, params }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+
           const { contactId } = params as { contactId: string };
           const body = (await request.json()) as { dealLink: string };
           const { dealLink } = body;
@@ -223,11 +232,11 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
 
           const dealId = match[1];
 
-          // Busca o contato para obter o tenantId
+          // Busca o contato dentro do tenant autenticado
           const [contact] = await db
             .select()
             .from(contacts)
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
           if (!contact) {
             return new Response(JSON.stringify({ error: "Contato não encontrado" }), {
@@ -235,8 +244,6 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-
-          const tenantId = contact.tenantId;
 
           // Valida a existência do deal na API do RD CRM
           let deal;
@@ -251,14 +258,14 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
             );
           }
 
-          // Salva no banco de dados local
+          // Salva no banco de dados local filtrado estritamente por tenant
           await db
             .update(contacts)
             .set({
               rdCrmDealId: dealId,
               rdCrmDealLink: dealLink,
             })
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
           return new Response(
             JSON.stringify({
@@ -282,6 +289,11 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
       // PATCH — Atualiza informações do deal no RD CRM
       PATCH: async ({ request, params }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+
           const { contactId } = params as { contactId: string };
           const body = (await request.json()) as {
             name: string;
@@ -294,7 +306,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
           const [contact] = await db
             .select()
             .from(contacts)
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
           if (!contact) {
             return new Response(JSON.stringify({ error: "Contato não encontrado" }), {
@@ -310,7 +322,6 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
             });
           }
 
-          const tenantId = contact.tenantId;
           const dealId = contact.rdCrmDealId;
 
           // 1. Atualiza a Empresa (Organization) no CRM, se id e nome estiverem presentes
@@ -352,14 +363,19 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
       },
 
       // DELETE — Remove o vínculo local com o deal do RD CRM
-      DELETE: async ({ params }) => {
+      DELETE: async ({ request, params }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+
           const { contactId } = params as { contactId: string };
 
           const [contact] = await db
             .select()
             .from(contacts)
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
           if (!contact) {
             return new Response(JSON.stringify({ error: "Contato não encontrado" }), {
@@ -368,14 +384,14 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
             });
           }
 
-          // Limpa os campos de vínculo no banco local
+          // Limpa os campos de vínculo no banco local filtrado por tenant
           await db
             .update(contacts)
             .set({
               rdCrmDealId: null,
               rdCrmDealLink: null,
             })
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
           return new Response(JSON.stringify({ success: true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

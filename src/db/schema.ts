@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, integer, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, boolean, jsonb, numeric, index, uniqueIndex } from "drizzle-orm/pg-core";
 
 // ─── 1. TENANTS (Empresas: Valem, Tecfag) ──────────────────────────────────
 export const tenants = pgTable("tenants", {
@@ -116,10 +116,36 @@ export const authSessions = pgTable("auth_sessions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── 3.5. CRM CONTAS (Clientes PF / PJ) ───────────────────────────────────
+export const crmAccounts = pgTable("crm_accounts", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  type: text("type").notNull(), // 'person' | 'company'
+  name: text("name").notNull(),
+  tradeName: text("trade_name"),
+  documentType: text("document_type"), // 'cpf' | 'cnpj' | 'foreign' | 'other'
+  document: text("document"), // Dígitos normalizados (sem pontuação)
+  email: text("email"),
+  phone: text("phone"),
+  website: text("website"),
+  address: jsonb("address").default({}).notNull(),
+  customFields: jsonb("custom_fields").default({}).notNull(),
+  notes: text("notes"),
+  rdOrganizationId: text("rd_organization_id"),
+  archivedAt: timestamp("archived_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantNameIdx: index("idx_crm_accounts_tenant_name").on(table.tenantId, table.name),
+  tenantDocIdx: uniqueIndex("idx_crm_accounts_tenant_doc_uniq").on(table.tenantId, table.document).where(sql`document IS NOT NULL AND document != ''`),
+}));
+
 // ─── 4. CONTATOS (Base de Clientes) ─────────────────────────────────────────
 export const contacts = pgTable("contacts", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  // Cliente principal atual do contato (1:N: uma conta compradora possui múltiplos contatos)
+  accountId: text("account_id").references(() => crmAccounts.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   phone: text("phone"),
   // JID completo do WhatsApp (ex: '5514981468232@s.whatsapp.net').
@@ -403,6 +429,256 @@ export const tasks = pgTable("tasks", {
   createdAt: timestamp("created_at"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💼 MÓDULO CONVERSAS + CRM (Fase 1: Fundação & Núcleo de Dados)
+// Isolamento mandatório por tenantId NOT NULL em 100% das entidades.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── 14.1. HISTÓRICO DE CLIENTE / CONTA DO CONTATO ──────────────────────────
+// Registra trocas de empresa de um contato sem reescrever dados históricos.
+export const crmContactAccountHistory = pgTable("crm_contact_account_history", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  contactId: text("contact_id").references(() => contacts.id, { onDelete: "cascade" }).notNull(),
+  accountId: text("account_id").references(() => crmAccounts.id, { onDelete: "set null" }),
+  reason: text("reason"),
+  changedByOperatorId: text("changed_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantContactIdx: index("idx_crm_contact_acc_hist_tenant_contact").on(table.tenantId, table.contactId),
+}));
+
+// ─── 14.2. VÍNCULO HISTÓRICO CONTA ↔ CONVERSA ───────────────────────────────
+// Permite contextualizar um atendimento à empresa compradora mesmo sem card criado.
+export const crmAccountConversations = pgTable("crm_account_conversations", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  accountId: text("account_id").references(() => crmAccounts.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  contextNote: text("context_note"),
+  createdByOperatorId: text("created_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantAccConvIdx: uniqueIndex("idx_crm_acc_conv_tenant_acc_conv_uniq").on(table.tenantId, table.accountId, table.conversationId),
+}));
+
+// ─── 14.3. FUNIS DE VENDAS (Pipelines) ──────────────────────────────────────
+export const crmPipelines = pgTable("crm_pipelines", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  orderIndex: integer("order_index").default(0).notNull(),
+  isDefault: boolean("is_default").default(false).notNull(),
+  color: text("color").default("#0284c7").notNull(),
+  coolingDays: integer("cooling_days").default(10).notNull(), // Alerta de estagnação / esfriando
+  rdPipelineId: text("rd_pipeline_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantOrderIdx: index("idx_crm_pipelines_tenant_order").on(table.tenantId, table.orderIndex),
+}));
+
+// ─── 14.4. ETAPAS DOS FUNIS (Stages) ────────────────────────────────────────
+export const crmStages = pgTable("crm_stages", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  pipelineId: text("pipeline_id").references(() => crmPipelines.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  orderIndex: integer("order_index").default(0).notNull(),
+  isWinStage: boolean("is_win_stage").default(false).notNull(),
+  isLossStage: boolean("is_loss_stage").default(false).notNull(),
+  requiredFields: jsonb("required_fields").$type<string[]>().default([]).notNull(),
+  rdStageId: text("rd_stage_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantPipelineOrderIdx: index("idx_crm_stages_tenant_pipeline_order").on(table.tenantId, table.pipelineId, table.orderIndex),
+}));
+
+// ─── 14.5. NEGOCIAÇÕES / CARDS (Deals) ───────────────────────────────────────
+export const crmDeals = pgTable("crm_deals", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  title: text("title").notNull(),
+  accountId: text("account_id").references(() => crmAccounts.id, { onDelete: "set null" }),
+  pipelineId: text("pipeline_id").references(() => crmPipelines.id, { onDelete: "cascade" }).notNull(),
+  stageId: text("stage_id").references(() => crmStages.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").default("open").notNull(), // 'open' | 'won' | 'lost' | 'paused'
+  value: numeric("value", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  currency: text("currency").default("BRL").notNull(),
+  expectedCloseDate: timestamp("expected_close_date"),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }), // Vendedor responsável
+  source: text("source"),
+  campaign: text("campaign"),
+  rating: integer("rating").default(0).notNull(), // 0 a 5 estrelas / qualificação
+  lossReason: text("loss_reason"),
+  pausedReason: text("paused_reason"),
+  rdDealId: text("rd_deal_id"),
+  rdDealUrl: text("rd_deal_url"),
+  customFields: jsonb("custom_fields").default({}).notNull(),
+  version: integer("version").default(1).notNull(), // Concorrência otimista
+  lastActivityAt: timestamp("last_activity_at").defaultNow().notNull(),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantPipelineStageIdx: index("idx_crm_deals_tenant_pipeline_stage").on(table.tenantId, table.pipelineId, table.stageId),
+  tenantStatusIdx: index("idx_crm_deals_tenant_status").on(table.tenantId, table.status),
+  tenantOperatorIdx: index("idx_crm_deals_tenant_operator").on(table.tenantId, table.operatorId),
+  tenantAccountIdx: index("idx_crm_deals_tenant_account").on(table.tenantId, table.accountId),
+  tenantRdDealIdx: index("idx_crm_deals_tenant_rd_deal").on(table.tenantId, table.rdDealId),
+  tenantIdUniqIdx: uniqueIndex("idx_crm_deals_tenant_id_uniq").on(table.tenantId, table.id),
+}));
+
+// ─── 14.6. PARTICIPANTES DA NEGOCIAÇÃO (Contatos N:N) ────────────────────────
+export const crmDealContacts = pgTable("crm_deal_contacts", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  contactId: text("contact_id").references(() => contacts.id, { onDelete: "cascade" }).notNull(),
+  role: text("role").default("buyer").notNull(), // 'buyer' | 'technical' | 'decision_maker' | 'user' | 'other'
+  isPrimary: boolean("is_primary").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealContactIdx: uniqueIndex("idx_crm_deal_contacts_tenant_deal_contact_uniq").on(table.tenantId, table.dealId, table.contactId),
+}));
+
+// ─── 14.7. VÍNCULO N:N CONVERSAS ↔ NEGOCIAÇÕES ─────────────────────────────
+// Uma conversa pode tratar de múltiplos negócios; um negócio pode reunir vários atendimentos.
+export const crmConversationDeals = pgTable("crm_conversation_deals", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  origin: text("origin").default("chat").notNull(), // 'chat' | 'crm' | 'auto_sdr'
+  createdByOperatorId: text("created_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  unlinkedAt: timestamp("unlinked_at"),
+  unlinkedByOperatorId: text("unlinked_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+}, (table) => ({
+  activeUniqIdx: uniqueIndex("idx_crm_conv_deals_active_uniq").on(table.tenantId, table.conversationId, table.dealId).where(sql`is_active = true`),
+  tenantConvIdx: index("idx_crm_conv_deals_tenant_conv").on(table.tenantId, table.conversationId),
+  tenantDealIdx: index("idx_crm_conv_deals_tenant_deal").on(table.tenantId, table.dealId),
+}));
+
+// ─── 14.8. ATIVIDADES DA NEGOCIAÇÃO (Tarefas, Notas, Reuniões) ───────────────
+export const crmDealActivities = pgTable("crm_deal_activities", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  type: text("type").notNull(), // 'task' | 'note' | 'call' | 'meeting' | 'system_event'
+  title: text("title").notNull(),
+  description: text("description"),
+  status: text("status").default("pending").notNull(), // 'pending' | 'completed' | 'cancelled'
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  assignedToOperatorId: text("assigned_to_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  rdTaskId: text("rd_task_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealIdx: index("idx_crm_deal_activities_tenant_deal").on(table.tenantId, table.dealId),
+  tenantStatusDueIdx: index("idx_crm_deal_activities_tenant_status_due").on(table.tenantId, table.status, table.dueDate),
+}));
+
+// ─── 14.9. EVIDÊNCIAS DE MENSAGENS EM ATIVIDADES/DEALS ──────────────────────
+export const crmActivityMessages = pgTable("crm_activity_messages", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  activityId: text("activity_id").references(() => crmDealActivities.id, { onDelete: "cascade" }),
+  messageId: text("message_id").references(() => messages.id, { onDelete: "cascade" }).notNull(),
+  markedByOperatorId: text("marked_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealIdx: index("idx_crm_activity_msgs_tenant_deal").on(table.tenantId, table.dealId),
+  tenantMsgIdx: index("idx_crm_activity_msgs_tenant_msg").on(table.tenantId, table.messageId),
+}));
+
+// ─── 14.10. AUDITORIA IMUTÁVEL DE EVENTOS COMERCIAIS ────────────────────────
+export const crmDealEvents = pgTable("crm_deal_events", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  eventType: text("event_type").notNull(), // 'created' | 'stage_changed' | 'status_changed' | 'value_changed' | 'operator_changed' | 'contact_linked' | 'contact_unlinked' | 'conversation_linked' | 'conversation_unlinked'
+  fromStageId: text("from_stage_id"),
+  toStageId: text("to_stage_id"),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status"),
+  metadata: jsonb("metadata").default({}).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealCreatedIdx: index("idx_crm_deal_events_tenant_deal_created").on(table.tenantId, table.dealId, table.createdAt),
+}));
+
+// ─── 14.11. PRODUTOS & CATÁLOGO COMERCIAL ─────────────────────────────────────
+export const crmProducts = pgTable("crm_products", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  sku: text("sku"),
+  description: text("description"),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  unit: text("unit").default("UN").notNull(), // 'UN' | 'MILHEIRO' | 'CX' | 'PC' | 'KG' | 'L'
+  category: text("category"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantActiveIdx: index("idx_crm_products_tenant_active").on(table.tenantId, table.isActive),
+  tenantSkuIdx: index("idx_crm_products_tenant_sku").on(table.tenantId, table.sku),
+  tenantIdUniqIdx: uniqueIndex("idx_crm_products_tenant_id_uniq").on(table.tenantId, table.id),
+}));
+
+// ─── 14.12. ITENS / PRODUTOS DA NEGOCIAÇÃO ───────────────────────────────────
+export const crmDealProducts = pgTable("crm_deal_products", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  productId: text("product_id").references(() => crmProducts.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 3 }).default("1.000").notNull(),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealIdx: index("idx_crm_deal_products_tenant_deal").on(table.tenantId, table.dealId),
+}));
+
+// ─── 14.13. PROPOSTAS & ORÇAMENTOS COMERCIAIS ────────────────────────────────
+export const crmProposals = pgTable("crm_proposals", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  proposalNumber: text("proposal_number").notNull(),
+  title: text("title").notNull(),
+  status: text("status").default("draft").notNull(), // 'draft' | 'copied' | 'sent' | 'accepted' | 'rejected' | 'expired'
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  discount: numeric("discount", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  total: numeric("total", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  paymentTerms: text("payment_terms"),
+  deliveryTerms: text("delivery_terms"),
+  validityDays: integer("validity_days").default(15).notNull(),
+  items: jsonb("items").default([]).notNull(),
+  notes: text("notes"),
+  createdOperatorId: text("created_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  sentAt: timestamp("sent_at"),
+  acceptedAt: timestamp("accepted_at"),
+  rejectedAt: timestamp("rejected_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealIdx: index("idx_crm_proposals_tenant_deal").on(table.tenantId, table.dealId),
+  tenantNumberIdx: uniqueIndex("idx_crm_proposals_tenant_number_uniq").on(table.tenantId, table.proposalNumber),
+}));
 
 // ── Valentina Agent Tables ─────────────────────────────────────────────
 
@@ -778,3 +1054,19 @@ export type LcMessage      = typeof lcMessages.$inferSelect;
 export type LcPageview     = typeof lcPageviews.$inferSelect;
 export type LcClickEvent   = typeof lcClickEvents.$inferSelect;
 export type LcTrayConfig   = typeof lcTrayConfig.$inferSelect;
+
+// ── Tipos do Módulo Conversas + CRM ──
+export type CrmAccount               = typeof crmAccounts.$inferSelect;
+export type CrmContactAccountHistory = typeof crmContactAccountHistory.$inferSelect;
+export type CrmAccountConversation   = typeof crmAccountConversations.$inferSelect;
+export type CrmPipeline              = typeof crmPipelines.$inferSelect;
+export type CrmStage                 = typeof crmStages.$inferSelect;
+export type CrmDeal                  = typeof crmDeals.$inferSelect;
+export type CrmDealContact           = typeof crmDealContacts.$inferSelect;
+export type CrmConversationDeal      = typeof crmConversationDeals.$inferSelect;
+export type CrmDealActivity          = typeof crmDealActivities.$inferSelect;
+export type CrmActivityMessage       = typeof crmActivityMessages.$inferSelect;
+export type CrmDealEvent             = typeof crmDealEvents.$inferSelect;
+export type CrmProduct               = typeof crmProducts.$inferSelect;
+export type CrmDealProduct           = typeof crmDealProducts.$inferSelect;
+export type CrmProposal              = typeof crmProposals.$inferSelect;

@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import { db } from "../src/db";
+import { db, assertTestDatabaseIsolation } from "../src/db";
 import { operators, authSessions } from "../src/db/schema";
 import { eq, inArray } from "drizzle-orm";
 
-const BASE_URL = "http://localhost:3333";
+const BASE_URL = process.env.TEST_SERVER_URL || "http://localhost:3333";
 const TEST_ID = `http_test_${Date.now()}`;
 
 let passed = 0;
@@ -25,6 +25,37 @@ async function main() {
   console.log(`  Alvo: ${BASE_URL}/api/operators/profile`);
   console.log(`  Identificador do teste: ${TEST_ID}`);
   console.log("=======================================================\n");
+
+  // -----------------------------------------------------------------
+  // 0. VERIFICAÇÃO MANDATÓRIA DE ISOLAMENTO LOCAL E REMOTO (HTTP)
+  // -----------------------------------------------------------------
+  console.log("0. Validando isolamento da base local e do servidor HTTP...");
+  const { databaseName: localDbName, serverIp } = await assertTestDatabaseIsolation();
+  console.log(`  Banco de Testes Local: '${localDbName}' (${serverIp})`);
+
+  // Verificar se o servidor HTTP alvo está ativo e conectado ao MESMO banco
+  let serverDbName: string | null = null;
+  try {
+    const healthRes = await fetch(`${BASE_URL}/api/health`);
+    if (!healthRes.ok) {
+      throw new Error(`Health check respondeu HTTP ${healthRes.status}`);
+    }
+    const healthData = await healthRes.json();
+    serverDbName = (healthData.dbName || "").toLowerCase();
+  } catch (netErr: any) {
+    console.error(`\n🛑 ERRO: Não foi possível conectar ao servidor de teste em ${BASE_URL}/api/health:`, netErr.message);
+    console.error("Inicie o servidor de teste antes de executar esta suíte (ex: NODE_ENV=test PORT=3333 npm run dev).\n");
+    process.exit(1);
+  }
+
+  if (serverDbName !== localDbName) {
+    console.error("\n🛑 ERRO CRÍTICO DE DIVERGÊNCIA DE BANCO:");
+    console.error(`  Cliente local de teste aponta para: '${localDbName}'`);
+    console.error(`  Servidor HTTP (${BASE_URL}) conectado em: '${serverDbName}'`);
+    console.error("  O servidor HTTP está rodando contra uma base diferente! Execução abortada.\n");
+    process.exit(1);
+  }
+  console.log(`✅ Conexão comprovada: Servidor HTTP e Cliente de Teste utilizam o banco '${localDbName}'.\n`);
 
   const cleanupIds = {
     operators: [] as string[],

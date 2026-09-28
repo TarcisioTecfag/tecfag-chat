@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
-import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
-import * as schema from "../src/db/schema";
+import {
+  db,
+  client,
+  assertTestDatabaseIsolation,
+  getActiveDatabaseInfo,
+} from "../src/db";
 import {
   tenants,
   operators,
@@ -36,20 +39,18 @@ if (!testDatabaseUrl) {
   process.exit(1);
 }
 
-// Validar que a URL realmente aponta para um banco de teste
+// Validar formato e nome da base na URL informada
 const parsedUrl = new URL(testDatabaseUrl.replace(/^postgres:/, "http:"));
-const dbName = parsedUrl.pathname.replace(/^\//, "");
-if (!dbName.toLowerCase().includes("test")) {
-  console.error(`\n🛑 ERRO CRÍTICO DE SEGURANÇA: O banco '${dbName}' NÃO parece ser um banco exclusivo de teste!`);
-  console.error("O nome da base de dados DEVE conter a palavra 'test' (ex: valemchat_test). Operação cancelada.\n");
+const expectedDbName = parsedUrl.pathname.replace(/^\//, "").toLowerCase();
+
+if (!expectedDbName.includes("test")) {
+  console.error(`\n🛑 ERRO CRÍTICO DE SEGURANÇA: O banco '${expectedDbName}' NÃO contém 'test' no nome! Operação cancelada.\n`);
   process.exit(1);
 }
 
-// Conectar exclusivamente à base de teste
-const sqlClient = postgres(testDatabaseUrl, { max: 5, prepare: false });
-const db = drizzle(sqlClient, { schema });
-
 const TEST_ID = `test_e1_${Date.now()}`;
+let passed = 0;
+let failed = 0;
 let passed = 0;
 let failed = 0;
 
@@ -89,9 +90,25 @@ async function createTestSession(tenantId: string, operatorId: string) {
 async function main() {
   console.log("\n=======================================================");
   console.log("  SUÍTE DE TESTES DE INTEGRAÇÃO FUNCIONAL — ENTREGA 1");
-  console.log(`  Banco de Testes: ${dbName} (${parsedUrl.host})`);
+  console.log(`  Banco Esperado: ${expectedDbName} (${parsedUrl.host})`);
   console.log(`  Lote de Execução: ${TEST_ID}`);
   console.log("=======================================================\n");
+
+  // -----------------------------------------------------------------
+  // VERIFICAÇÃO MANDATÓRIA DE CONVERGÊNCIA E ISOLAMENTO REAL
+  // -----------------------------------------------------------------
+  console.log("--- Checagem de Isolamento e Convergência de Conexão ---");
+  const { databaseName: connectedDbName, serverIp } = await assertTestDatabaseIsolation();
+
+  if (connectedDbName !== expectedDbName) {
+    console.error("\n🛑 ERRO CRÍTICO DE DIVERGÊNCIA DE BANCO:");
+    console.error(`  TEST_DATABASE_URL aponta para: '${expectedDbName}'`);
+    console.error(`  Instância 'db' conectada em:    '${connectedDbName}' (${serverIp})`);
+    console.error("  Os handlers importados e o setup utilizariam bancos distintos!");
+    console.error("  Execução abortada imediatamente antes de qualquer gravação.\n");
+    process.exit(1);
+  }
+  console.log(`✅ Conexão validada: Handlers e Setup utilizam comprovadamente o mesmo banco '${connectedDbName}'.\n`);
 
   const cleanupIds = {
     operators: [] as string[],
