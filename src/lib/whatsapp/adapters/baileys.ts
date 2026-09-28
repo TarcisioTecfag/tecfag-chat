@@ -1,8 +1,10 @@
 import { WhatsAppAdapter, UniversalOutboundMessage, DeliveryStatus, ChannelSettings } from "../types";
 import { SessionManager, resolveRealJid } from "../../baileys/session-manager";
 import { db } from "../../../db";
-import { contacts, conversations } from "../../../db/schema";
+import { contacts, conversations, mediaFiles } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
 
 export class BaileysAdapter implements WhatsAppAdapter {
   readonly provider = "baileys" as const;
@@ -76,18 +78,46 @@ export class BaileysAdapter implements WhatsAppAdapter {
           if (message.mediaUrl && message.mediaType) {
             // Envio com mídia
             const caption = message.text || undefined;
+
+            // Se a mediaUrl for local (/api/baileys/media?messageId=...) ou tiver cache em disco, envia direto o Buffer
+            let mediaBuffer: Buffer | null = null;
+            let mimeType = "application/octet-stream";
+            try {
+              const urlMatch = message.mediaUrl.match(/messageId=([^&]+)/);
+              const messageId = urlMatch ? urlMatch[1] : (message.mediaUrl.startsWith("media-") ? message.mediaUrl : null);
+              if (messageId) {
+                const localPath = path.join(process.cwd(), "media", messageId);
+                const mimePath = path.join(process.cwd(), "media", `${messageId}.mime`);
+                if (fs.existsSync(localPath)) {
+                  mediaBuffer = fs.readFileSync(localPath);
+                  if (fs.existsSync(mimePath)) mimeType = fs.readFileSync(mimePath, "utf-8").trim();
+                } else {
+                  // Fallback para o banco
+                  const [record] = await db.select().from(mediaFiles).where(eq(mediaFiles.id, messageId));
+                  if (record?.base64Data) {
+                    mediaBuffer = Buffer.from(record.base64Data, "base64");
+                    mimeType = record.mimeType;
+                  }
+                }
+              }
+            } catch (bufErr) {
+              console.warn("[BaileysAdapter] Não foi possível obter buffer local da mídia:", bufErr);
+            }
+
+            const mediaSource = mediaBuffer || { url: message.mediaUrl };
+
             if (message.mediaType === "image") {
-              sentMsg = await sock.sendMessage(jid, { image: { url: message.mediaUrl }, caption }, options);
+              sentMsg = await sock.sendMessage(jid, { image: mediaSource, caption }, options);
             } else if (message.mediaType === "audio") {
-              sentMsg = await sock.sendMessage(jid, { audio: { url: message.mediaUrl }, mimetype: "audio/mp4", ptt: true }, options);
+              sentMsg = await sock.sendMessage(jid, { audio: mediaSource, mimetype: mimeType.startsWith("audio/") ? mimeType : "audio/mp4", ptt: true }, options);
             } else if (message.mediaType === "video") {
-              sentMsg = await sock.sendMessage(jid, { video: { url: message.mediaUrl }, caption }, options);
+              sentMsg = await sock.sendMessage(jid, { video: mediaSource, caption }, options);
             } else {
               sentMsg = await sock.sendMessage(
                 jid,
                 {
-                  document: { url: message.mediaUrl },
-                  mimetype: "application/octet-stream",
+                  document: mediaSource,
+                  mimetype: mimeType,
                   fileName: message.fileName || "documento",
                   caption,
                 },
@@ -150,6 +180,17 @@ export class BaileysAdapter implements WhatsAppAdapter {
     };
   }
 
+  /**
+   * Pausa a conexão socket sem apagar credenciais nem efetuar logout no WhatsApp.
+   */
+  async pause(tenantId: string): Promise<void> {
+    const sessionManager = SessionManager.getInstance();
+    await sessionManager.pauseSession(tenantId);
+  }
+
+  /**
+   * Desconecta permanentemente e desvincula as chaves de sessão.
+   */
   async disconnect(tenantId: string): Promise<void> {
     const sessionManager = SessionManager.getInstance();
     await sessionManager.disconnectSession(tenantId);

@@ -2,8 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { outboundQueue } from "../../../lib/whatsapp/outbound";
 import { requireSession } from "../../../lib/auth-session";
 import { db } from "../../../db";
-import { conversations, contacts } from "../../../db/schema";
+import { conversations, contacts, mediaFiles } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
 
 export const Route = createFileRoute("/api/whatsapp/send")({
   server: {
@@ -16,17 +18,79 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           if ("response" in auth) return auth.response;
           const session = auth.session;
 
-          const body = await request.json();
-          const {
-            conversationId,
-            text,
-            mediaUrl,
-            mediaType,
-            fileName,
-            quotedMessageId,
-            clientMessageId,
-            isInternalNote,
-          } = body;
+          let conversationId: string | undefined;
+          let text: string | undefined;
+          let mediaUrl: string | undefined;
+          let mediaType: "document" | "image" | "video" | "audio" | undefined;
+          let fileName: string | undefined;
+          let quotedMessageId: string | undefined;
+          let clientMessageId: string | undefined;
+          let isInternalNote: boolean = false;
+
+          const contentType = request.headers.get("content-type") || "";
+          if (contentType.includes("multipart/form-data")) {
+            const formData = await request.formData();
+            conversationId = (formData.get("conversationId") as string) || undefined;
+            text = (formData.get("text") as string) || "";
+            clientMessageId = (formData.get("clientMessageId") as string) || undefined;
+            quotedMessageId = (formData.get("quotedMessageId") as string) || undefined;
+            isInternalNote = formData.get("isInternalNote") === "true";
+
+            const file = formData.get("file") as File | null;
+            if (file) {
+              const fileId = `media-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+              const mime = file.type || "application/octet-stream";
+              fileName = file.name || "arquivo";
+              const arrayBuffer = await file.arrayBuffer();
+              const buffer = Buffer.from(arrayBuffer);
+
+              const ext = fileName.split(".").pop()?.toLowerCase() || "";
+              if (mime.startsWith("image/")) mediaType = "image";
+              else if (mime.startsWith("audio/") || ["mp3","ogg","webm","m4a","aac","oga","opus","wav"].includes(ext)) mediaType = "audio";
+              else if (mime.startsWith("video/")) mediaType = "video";
+              else mediaType = "document";
+
+              // Salva no banco de dados (mediaFiles)
+              try {
+                await db.insert(mediaFiles).values({
+                  id: fileId,
+                  tenantId: session.tenantId,
+                  conversationId: conversationId || null,
+                  fileName,
+                  mimeType: mime,
+                  fileSize: buffer.length,
+                  base64Data: buffer.toString("base64"),
+                  createdAt: new Date(),
+                }).onConflictDoNothing();
+              } catch (dbErr) {
+                console.error("[WhatsApp Send] Erro ao persistir mídia no banco:", dbErr);
+              }
+
+              // Salva no cache em disco
+              try {
+                const mediaDir = path.join(process.cwd(), "media");
+                if (!fs.existsSync(mediaDir)) {
+                  fs.mkdirSync(mediaDir, { recursive: true });
+                }
+                fs.writeFileSync(path.join(mediaDir, fileId), buffer);
+                fs.writeFileSync(path.join(mediaDir, `${fileId}.mime`), mime);
+              } catch (fsErr) {
+                console.error("[WhatsApp Send] Erro ao salvar arquivo em disco:", fsErr);
+              }
+
+              mediaUrl = `/api/baileys/media?messageId=${fileId}`;
+            }
+          } else {
+            const body = await request.json();
+            conversationId = body.conversationId;
+            text = body.text;
+            mediaUrl = body.mediaUrl;
+            mediaType = body.mediaType as any;
+            fileName = body.fileName;
+            quotedMessageId = body.quotedMessageId;
+            clientMessageId = body.clientMessageId;
+            isInternalNote = !!body.isInternalNote;
+          }
 
           // conversationId é obrigatório — o recipientPhone é obtido do banco (não do cliente)
           if (!conversationId) {

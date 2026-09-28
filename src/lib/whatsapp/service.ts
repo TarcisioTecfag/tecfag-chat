@@ -70,4 +70,13 @@ export class WhatsAppService {
   }
 }
 
+export async function getActiveProvider(tenantId: string): Promise<WhatsAppProviderType> {
+  const [cfg] = await db
+    .select({ activeProvider: channelConfigs.activeProvider })
+    .from(channelConfigs)
+    .where(eq(channelConfigs.tenantId, tenantId));
+
+  return (cfg?.activeProvider as WhatsAppProviderType) || "baileys";
+}
+
 export const whatsAppService = WhatsAppService.getInstance();

@@ -24,13 +24,13 @@ export const Route = createFileRoute("/api/settings/whatsapp")({
             .where(eq(channelConfigs.tenantId, session.tenantId));
 
           if (!config) {
-            // Cria configuração inicial padrão se não existir
+            // Cria configuração inicial padrão se não existir (Baileys como padrão universal)
             const [created] = await db
               .insert(channelConfigs)
               .values({
                 id: `cfg-${session.tenantId}`,
                 tenantId: session.tenantId,
-                activeProvider: session.tenantId === "tecfag" ? "meta" : "baileys",
+                activeProvider: "baileys",
                 connectionStatus: "disconnected",
                 connectionVersion: 1,
               })
@@ -108,7 +108,25 @@ export const Route = createFileRoute("/api/settings/whatsapp")({
             updatedAt: new Date(),
           };
 
+          let [existing] = await db
+            .select()
+            .from(channelConfigs)
+            .where(eq(channelConfigs.tenantId, session.tenantId));
+
           if (activeProvider && (activeProvider === "baileys" || activeProvider === "meta")) {
+            if (activeProvider === "meta") {
+              const hasPhoneId = metaPhoneNumberId || existing?.metaPhoneNumberId;
+              const hasToken = metaAccessToken || existing?.metaAccessToken;
+              if (!hasPhoneId || !hasToken) {
+                return new Response(
+                  JSON.stringify({
+                    error: "Para ativar o provedor Meta, é necessário configurar o Phone Number ID e o Access Token.",
+                    code: "MISSING_META_CREDENTIALS",
+                  }),
+                  { status: 400, headers: { "Content-Type": "application/json" } }
+                );
+              }
+            }
             updates.activeProvider = activeProvider;
           }
           const targetPhone = baileysPairedPhone !== undefined ? baileysPairedPhone : baileysPhoneNumber;
@@ -118,11 +136,6 @@ export const Route = createFileRoute("/api/settings/whatsapp")({
           if (metaAccessToken) updates.metaAccessToken = metaAccessToken; // Só altera se fornecido novo
           if (metaVerifyToken !== undefined) updates.metaVerifyToken = metaVerifyToken;
           if (metaAppSecret) updates.metaAppSecret = metaAppSecret; // Só altera se fornecido novo
-
-          let [existing] = await db
-            .select()
-            .from(channelConfigs)
-            .where(eq(channelConfigs.tenantId, session.tenantId));
 
           if (existing) {
             updates.connectionVersion = (existing.connectionVersion || 1) + 1;

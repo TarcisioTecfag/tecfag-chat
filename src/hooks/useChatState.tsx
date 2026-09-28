@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import {
@@ -10,6 +10,7 @@ import {
   OperatorTemplate,
 } from "@/lib/mockData";
 import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
+import { getAiPersona } from "@/lib/ai-persona";
 
 export type MetaConfig = {
   businessAccountId: string;
@@ -84,8 +85,8 @@ type ChatContextType = {
   setSearchQuery: (query: string) => void;
   channelFilter: Channel | "all";
   setChannelFilter: (filter: Channel | "all") => void;
-  activeView: "chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes";
-  setActiveView: (view: "chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes") => void;
+  activeView: "chat" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes";
+  setActiveView: (view: "chat" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes") => void;
   rightSidebarOpen: boolean;
   setRightSidebarOpen: (open: boolean) => void;
   
@@ -140,6 +141,8 @@ type ChatContextType = {
   pinChat: (id: string) => void;
   
   // Configurations
+  activeProvider: "baileys" | "meta";
+  setActiveProvider: React.Dispatch<React.SetStateAction<"baileys" | "meta">>;
   metaConfig: MetaConfig;
   setMetaConfig: React.Dispatch<React.SetStateAction<MetaConfig>>;
   baileysConfig: BaileysConfig;
@@ -159,16 +162,27 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
+// Atualiza dinamicamente o título do documento sem fixar canal por tenant
+export const updateDocumentTitle = (currentTenant: string | null, provider: "baileys" | "meta") => {
+  if (typeof document === "undefined") return;
+  const tName = currentTenant === "tecfag" ? "Tecfag Chat" : "Valem Chat";
+  const pName = provider === "meta" ? "Meta API" : "Baileys";
+  document.title = `${tName} — ${pName}`;
+};
+
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Tenant ativo. Inicializar diretamente do localStorage se disponível (fallback 'valem')
-  const [tenant, setTenantState] = useState<"tecfag" | "valem">(() => {
+  // Provedor ativo de WhatsApp do tenant ('baileys' ou 'meta')
+  const [activeProvider, setActiveProvider] = useState<"baileys" | "meta">("baileys");
+
+  // Tenant ativo. Inicializado como null antes do login se não houver sessão salva no localStorage (regras do MVP)
+  const [tenant, setTenantState] = useState<"tecfag" | "valem" | null>(() => {
     if (typeof window !== "undefined") {
       const savedTenant = localStorage.getItem("chat_tenant");
       if (savedTenant === "valem" || savedTenant === "tecfag") {
         return savedTenant;
       }
     }
-    return "valem";
+    return null;
   });
   const [activeQueue, setActiveQueue] = useState<QueueType>(() => {
     if (typeof window !== "undefined") {
@@ -180,7 +194,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">(() => {
+  const [activeView, setActiveView] = useState<"chat" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">(() => {
     if (typeof window !== "undefined") {
       const savedView = localStorage.getItem("chat_active_view");
       if (savedView) return savedView as any;
@@ -276,10 +290,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return res.json();
         })
         .then((data) => {
-          if (data && data.authenticated && data.operator) {
+          if (data && (data.authenticated || data.success) && data.operator) {
             setIsAuthenticated(true);
-            const activeTenant = data.tenantId || "tecfag";
-            setTenantState(activeTenant);
+            const activeTenant = data.tenantId || (data.operator.tenantId as "tecfag" | "valem") || null;
+            if (activeTenant) {
+              setTenantState(activeTenant);
+            }
+            if (data.channelConfig?.activeProvider) {
+              setActiveProvider(data.channelConfig.activeProvider);
+              updateDocumentTitle(activeTenant, data.channelConfig.activeProvider);
+            } else if (activeTenant) {
+              updateDocumentTitle(activeTenant, "baileys");
+            }
             setCurrentOperatorId(data.operator.id);
 
             setOperators((prev) => {
@@ -539,7 +561,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: `op-${Date.now()}`,
       status: "disponivel",
       avatar: `https://i.pravatar.cc/80?img=${Math.floor(Math.random() * 70)}`,
-      tenantId: tenant,
+      tenantId: tenant ?? undefined,
     };
 
     try {
@@ -792,7 +814,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const newQr: QuickResponse = {
       ...qrData,
       id,
-      tenantId: tenant,
+      tenantId: tenant ?? undefined,
     };
 
     setQuickResponses((prev) => [...prev, newQr]);
@@ -822,7 +844,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({
             ...targetQr,
             ...fields,
-            tenantId: tenant,
+            tenantId: tenant ?? undefined,
           }),
         });
       } catch (err) {
@@ -849,7 +871,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const id = `tpl-${Date.now()}`;
     const newTpl: OperatorTemplate = {
       id,
-      tenantId: tenant,
+      tenantId: tenant || "valem",
       operatorId: currentOperatorId,
       title,
       text,
@@ -977,7 +999,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem("chat_tenant", targetTenant);
         } catch (e) {}
       }
-      document.title = targetTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+      updateDocumentTitle(targetTenant, activeProvider);
     } else {
       tenantSyncedRef.current = true;
     }
@@ -999,13 +1021,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error("Erro ao persistir chat_tenant no localStorage:", e);
       }
     }
-    document.title = newTenant === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+    updateDocumentTitle(newTenant, activeProvider);
+
+    // Carrega o provedor ativo do novo tenant
+    fetch(`${BACKEND_URL}/api/settings/whatsapp`, { credentials: "include" })
+      .then((res) => res.json())
+      .then((channelData) => {
+        if (channelData?.activeProvider) {
+          setActiveProvider(channelData.activeProvider);
+          updateDocumentTitle(newTenant, channelData.activeProvider);
+        }
+      })
+      .catch(() => {});
+
     toast.success(`Tenant alterado para ${newTenant === "tecfag" ? "Tecfag Chat" : "Valem Chat"}`);
   };
 
   // Carregar conversas persistidas no banco (Railway)
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/chats?tenantId=${tenant}`)
+    if (!isAuthenticated) return;
+    fetch(`${BACKEND_URL}/api/chats`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -1018,23 +1053,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error("Erro ao ler pinned_chats do localStorage:", e);
           }
 
+          const aiPersona = getAiPersona(tenant || "valem");
           const valentinaDefault: Conversation = {
             id: "valentina",
-            name: "Valentina",
-            avatar: "/valentina.png",
-            initials: "VL",
+            name: aiPersona.name,
+            avatar: aiPersona.name === "Valentina" ? "/valentina.png" : "/fagner.png",
+            initials: aiPersona.name.substring(0, 2).toUpperCase(),
             initialsBg: "var(--primary)",
             phone: "IA",
-            email: "valentina@valem.ai",
+            email: `${aiPersona.name.toLowerCase()}@${tenant || "valem"}.ai`,
             cnpj: "",
             cpf: "",
-            tags: ["IA", "Valem"],
+            tags: ["IA", aiPersona.company],
             channel: "whatsapp",
             queue: "meus",
             messages: [
               {
                 id: "val_welcome",
-                author: "Valentina",
+                author: aiPersona.name,
                 text: (() => {
                   const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
                     timeZone: "America/Sao_Paulo",
@@ -1057,7 +1093,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             walletOperatorId: currentOperatorId,
             sectorId: null,
             sectorName: null,
-            responsibleName: "Valentina IA",
+            responsibleName: `${aiPersona.name} IA`,
           };
           
           const chatsWithPinned = [valentinaDefault, ...data].map((c: any) => ({
@@ -1338,25 +1374,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        // Enviar anexos (independente de ter texto)
+        // Enviar anexos via endpoint unificado /api/whatsapp/send (funciona para Baileys e Meta)
         if (attachments && attachments.length > 0) {
           for (const file of attachments) {
             try {
               const formData = new FormData();
-              formData.append("tenantId", tenant);
-              formData.append("phone", targetPhone);
               formData.append("conversationId", selectedChatId);
-              formData.append("senderName", operatorProfile.name);
-              const safeName = (file as any).name || file.name || "audio.webm";
+              formData.append("clientMessageId", `${clientMessageId}-att-${Date.now()}`);
+              const safeName = (file as any).name || file.name || "arquivo";
               formData.append("file", file, safeName);
-              const mediaRes = await fetch(`${BACKEND_URL}/api/baileys/send-media`, {
+              if (quotedMessage?.id) {
+                formData.append("quotedMessageId", quotedMessage.id);
+              }
+
+              const mediaRes = await fetch(`${BACKEND_URL}/api/whatsapp/send`, {
                 method: "POST",
                 credentials: "include",
                 body: formData,
               });
               if (!mediaRes.ok) {
                 const errData = await mediaRes.json().catch(() => ({}));
-                console.error("Falha ao enviar anexo:", errData.error);
+                console.error("Falha ao enviar anexo pelo canal unificado:", errData.error);
+                toast.error(`Falha ao enviar anexo: ${errData.error || "Erro no envio"}`);
               }
             } catch (err) {
               console.error("Falha ao enviar anexo:", err);
@@ -2086,7 +2125,488 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => clearInterval(interval);
   }, []);
 
+  // ── Extração do processador de eventos SSE recebidos ─────────────────────
+  const handleIncomingSseEvent = useCallback((data: any) => {
+    try {
+      if (!data) return;
+
+      if (data.type === "status") {
+        if (activeProvider === "baileys") {
+          setBaileysConfig((prev) => ({
+            ...prev,
+            status: data.status,
+            pairedPhone: data.phone ? `+${data.phone}` : prev.pairedPhone,
+          }));
+
+          // Ao conectar, sincroniza fotos de contatos sem avatar em background
+          if (data.status === "connected") {
+            const tenantId = tenantRef.current;
+            fetch(`${BACKEND_URL}/api/baileys/sync-avatars`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tenantId }),
+            })
+              .then((r) => r.json())
+              .then((result) =>
+                console.log(`[sync-avatars] ${result.updated} fotos sincronizadas, ${result.failed} sem foto`)
+              )
+              .catch(() => {});
+          }
+        } else if (activeProvider === "meta") {
+          setMetaConfig((prev) => ({
+            ...prev,
+            status: data.status === "connected" ? "connected" : "disconnected",
+          }));
+        }
+      } else if (data.type === "channel_switched" && data.provider) {
+        console.log(`[SSE] Provedor alternado via servidor para '${data.provider}'`);
+        setActiveProvider(data.provider);
+        updateDocumentTitle(tenantRef.current, data.provider);
+      } else if (data.type === "qr" && activeProvider === "baileys") {
+        QRCode.toDataURL(data.qr, { width: 250, margin: 1, errorCorrectionLevel: "M" })
+          .then((qrUrl) => {
+            setBaileysConfig((prev) => ({
+              ...prev,
+              status: "qr_ready",
+              qrCodeUrl: qrUrl,
+            }));
+          })
+          .catch((err) => {
+            console.error("[QRCode] Erro ao gerar QR Code local:", err);
+          });
+      } else if (data.type === "contact_avatar") {
+        setConversations((prev) =>
+          prev.map((c) => {
+            const matchById = data.contactId && c.id.includes(data.contactId);
+            const matchByPhone = c.phone && data.phone &&
+              c.phone.replace(/\D/g, "").endsWith(data.phone.replace(/\D/g, "").slice(-8));
+            return matchById || matchByPhone
+              ? { ...c, avatar: data.avatar }
+              : c;
+          })
+        );
+      } else if (data.type === "chat_updated" && data.chat) {
+        const updatedChat = data.chat;
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id === updatedChat.id) {
+              return {
+                ...c,
+                queue: updatedChat.queue || c.queue,
+                operatorId: updatedChat.operatorId !== undefined ? updatedChat.operatorId : c.operatorId,
+                walletOperatorId: updatedChat.walletOperatorId !== undefined ? updatedChat.walletOperatorId : c.walletOperatorId,
+                responsibleName: updatedChat.responsibleName || c.responsibleName,
+              };
+            }
+            return c;
+          })
+        );
+      } else if (data.type === "presence_update" && data.id) {
+        const presenceId = data.id;
+        let lastState: string | undefined;
+
+        if (data.presences) {
+          const pObj = data.presences[presenceId] || Object.values(data.presences)[0];
+          if (pObj && typeof pObj === "object") {
+            lastState = (pObj as any).lastKnownPresence || (pObj as any).presence || (pObj as any).state;
+          }
+        }
+
+        setClientTypingStatus((prev) => {
+          const cleanPresence = presenceId.replace(/\D/g, "");
+          const targetConv = conversationsRef.current.find((c) => {
+            if (!c.phone) return false;
+            const cleanPhone = c.phone.replace(/\D/g, "");
+            if (!cleanPresence || !cleanPhone) return false;
+            const last8Presence = cleanPresence.slice(-8);
+            const last8Phone = cleanPhone.slice(-8);
+            return last8Presence === last8Phone || c.id === presenceId;
+          });
+
+          if (targetConv) {
+            if (lastState === "composing" || lastState === "recording") {
+              return { ...prev, [targetConv.id]: { status: lastState as "composing" | "recording", timestamp: Date.now() } };
+            } else {
+              return { ...prev, [targetConv.id]: null };
+            }
+          }
+          return prev;
+        });
+      } else if (data.type === "contact_updated" && data.contact) {
+        fetch(`${BACKEND_URL}/api/chats`, { credentials: "include" })
+          .then((res) => res.json())
+          .then((freshChats) => {
+            if (Array.isArray(freshChats)) {
+              setConversations((prev) => {
+                const map = new Map(freshChats.map((item: any) => [item.id, item]));
+                return prev.map((c) => {
+                  const fresh = map.get(c.id);
+                  return fresh ? { ...c, ...fresh, messages: c.messages } : c;
+                });
+              });
+            }
+          })
+          .catch(() => {});
+      } else if (data.type === "message") {
+        const { message } = data;
+
+        if (message?.conversationId) {
+          setClientTypingStatus((prev) => ({ ...prev, [message.conversationId]: null }));
+        }
+
+        const currentOperatorId = currentOperatorIdRef.current;
+        const selectedChatId = selectedChatIdRef.current;
+        const currentConvs = conversationsRef.current;
+
+        const existingConv = currentConvs.find((c) => c.id === message.conversationId);
+        const operatorId = message.operatorId !== undefined
+          ? message.operatorId
+          : (existingConv ? existingConv.operatorId : null);
+
+        const queueState = message.queue !== undefined
+          ? message.queue
+          : (existingConv ? existingConv.queue : null);
+
+        const walletOperatorId = message.walletOperatorId !== undefined
+          ? message.walletOperatorId
+          : (existingConv ? existingConv.walletOperatorId : null);
+
+        const isAssignedToMe = !!currentOperatorId && operatorId === currentOperatorId;
+        const isInMyWallet = !!currentOperatorId && walletOperatorId === currentOperatorId;
+
+        const isCapturedAndWithMe = isAssignedToMe && queueState === "meus";
+        const isFinalizedInMyWallet = isInMyWallet && queueState === "finalizados";
+
+        const shouldNotify = isCapturedAndWithMe || isFinalizedInMyWallet;
+        const isCurrentOpen = message.conversationId === selectedChatId;
+
+        if (shouldNotify && message.senderType === "client" && !isCurrentOpen) {
+          const clientName = existingConv?.name || message.senderName || "Cliente";
+          const clientAvatar = existingConv?.avatar || message.avatar || "";
+          const initials = clientName
+            .split(" ")
+            .map((w: string) => w[0])
+            .join("")
+            .toUpperCase()
+            .substring(0, 2) || "C";
+
+          let previewText = message.content || "";
+          if (previewText.startsWith("[LOCAL_MEDIA:") || previewText.startsWith("[MEDIA:")) {
+            if (previewText.includes("image")) previewText = "📷 Imagem";
+            else if (previewText.includes("video")) previewText = "🎥 Vídeo";
+            else if (previewText.includes("audio")) previewText = "🎵 Áudio";
+            else if (previewText.includes("sticker")) previewText = "🪄 Figurinha";
+            else if (previewText.includes("document")) {
+              const parts = previewText.split(":");
+              const rawName = parts[parts.length - 1] || "";
+              previewText = `📄 ${rawName.split("]")[0] || "Documento"}`;
+            }
+          }
+
+          const isTecfag = tenantRef.current === "tecfag";
+          const primaryColor = isTecfag ? "#df3d3d" : "#2dc4a0";
+          const primarySoftBg = isTecfag ? "#fde8e8" : "#d8f1ea";
+
+          toast.custom(
+            (t) => (
+              <div 
+                className="flex items-center gap-3 w-[340px] bg-card border border-border rounded-2xl p-3 shadow-lg animate-in slide-in-from-bottom-5 duration-200 border-l-4"
+                style={{ borderLeftColor: primaryColor }}
+              >
+                <div className="relative shrink-0">
+                  {clientAvatar ? (
+                    <img
+                      src={clientAvatar}
+                      alt={clientName}
+                      className="h-10 w-10 rounded-full object-cover border border-border"
+                    />
+                  ) : (
+                    <div 
+                      className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold border"
+                      style={{
+                        backgroundColor: primarySoftBg,
+                        borderColor: `${primaryColor}20`,
+                        color: primaryColor
+                      }}
+                    >
+                      {initials}
+                    </div>
+                  )}
+                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border border-card" />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-foreground truncate">{clientName}</p>
+                  <p className="text-[10px] text-muted-foreground truncate mt-0.5">{previewText}</p>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedChatId(message.conversationId);
+                      setActiveView("chat");
+                      markAsRead(message.conversationId);
+                      toast.dismiss(t);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg text-white text-[10px] font-bold transition duration-155 cursor-pointer shadow-sm hover:opacity-90"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    Abrir
+                  </button>
+                  <button
+                    onClick={() => toast.dismiss(t)}
+                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ),
+            { duration: 6000, position: "bottom-right" }
+          );
+        }
+        
+        setConversations((prev) => {
+          const exists = prev.some((c) => c.id === message.conversationId);
+          const timeStr = new Date(message.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const incomingMsg: Message = {
+            id: message.id,
+            author: message.senderName,
+            text: message.content,
+            time: timeStr,
+            side: message.senderType === "client" ? "in" : "out",
+            isInternalNote: !!message.isInternalNote,
+            senderType: message.senderType,
+            quotedMessageId: message.quotedMessageId || null,
+            quotedMessageSender: message.quotedMessageSender || null,
+            quotedMessageContent: message.quotedMessageContent || null,
+          };
+
+          if (exists) {
+            return prev.map((c) => {
+              if (c.id === message.conversationId) {
+                const isCurrentOpen = message.conversationId === selectedChatId;
+                const newUnread = message.senderType === "client"
+                  ? (isCurrentOpen ? 0 : c.unreadCount + 1)
+                  : c.unreadCount;
+
+                if (isCurrentOpen && message.senderType === "client") {
+                  fetch(`${BACKEND_URL}/api/chats`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ conversationId: c.id, unreadCount: 0 }),
+                  }).catch((e) => console.error("Erro ao marcar como lido via SSE:", e));
+                }
+
+                return {
+                  ...c,
+                  lastMessageTime: timeStr,
+                  unreadCount: newUnread,
+                  messages: c.messages.some((m) => m.id === incomingMsg.id)
+                    ? c.messages
+                    : [...c.messages, incomingMsg],
+                  phone: message.phone || c.phone,
+                  avatar: message.avatar || c.avatar,
+                  queue: message.queue || c.queue,
+                  operatorId: message.operatorId !== undefined ? message.operatorId : c.operatorId,
+                  walletOperatorId: message.walletOperatorId !== undefined ? message.walletOperatorId : c.walletOperatorId,
+                };
+              }
+              return c;
+            });
+          } else {
+            const initials = message.senderName
+              .split(" ")
+              .map((w: string) => w[0])
+              .join("")
+              .toUpperCase()
+              .substring(0, 2);
+            const initialsBg = "#a6d6f2";
+            
+            const isCurrentOpen = message.conversationId === selectedChatId;
+            const newUnread = isCurrentOpen ? 0 : 1;
+
+            if (isCurrentOpen && message.senderType === "client") {
+              fetch(`${BACKEND_URL}/api/chats`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ conversationId: message.conversationId, unreadCount: 0 }),
+              }).catch((e) => console.error("Erro ao marcar como lido via SSE para nova conversa:", e));
+            }
+
+            const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
+            let pinnedIds: string[] = [];
+            try {
+              const stored = localStorage.getItem(pinnedKey);
+              if (stored) pinnedIds = JSON.parse(stored);
+            } catch (e) {}
+            const isPinned = pinnedIds.includes(message.conversationId);
+
+            const newConv: Conversation = {
+              id: message.conversationId,
+              name: message.senderName,
+              avatar: message.avatar || "",
+              initials,
+              initialsBg,
+              phone: message.phone || "",
+              tags: ["WhatsApp Inbound"],
+              channel: "whatsapp",
+              queue: message.queue || "fila",
+              operatorId: message.operatorId || null,
+              walletOperatorId: message.walletOperatorId || null,
+              unreadCount: newUnread,
+              lastMessageTime: timeStr,
+              messages: [incomingMsg],
+              pinned: isPinned,
+            } as any;
+            return [newConv, ...prev];
+          }
+        });
+      } else if (data.type === "queue_update") {
+        const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
+
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              queue: queueState,
+              operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
+              sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
+              responsibleName: responsibleName !== undefined ? responsibleName : c.responsibleName,
+              version: version !== undefined ? version : (c.version ? c.version + 1 : 1),
+            };
+          })
+        );
+
+        const myId = currentOperatorIdRef.current;
+        const isCurrentlyViewing = selectedChatIdRef.current === conversationId;
+
+        if (isCurrentlyViewing) {
+          const chatFinalized = queueState === "finalizados";
+          const chatTransferredAway =
+            (queueState === "fila" || queueState === "automacao") ||
+            (queueState === "meus" && newOperatorId && newOperatorId !== myId);
+
+          if (chatFinalized || chatTransferredAway) {
+            setSelectedChatId(null);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao processar dados recebidos do SSE:", err);
+    }
+  }, [activeProvider, markAsRead, setActiveView, setConversations, setSelectedChatId]);
+
+  // ── Conexão SSE Universal (/api/events) com reconexão exponencial ──────────
+  const universalSseRef = useRef<EventSource | null>(null);
+  const sseRetryCountRef = useRef<number>(0);
+  const sseRetryTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      if (universalSseRef.current) {
+        universalSseRef.current.close();
+        universalSseRef.current = null;
+      }
+      if (sseRetryTimerRef.current) {
+        clearTimeout(sseRetryTimerRef.current);
+        sseRetryTimerRef.current = null;
+      }
+      sseRetryCountRef.current = 0;
+      return;
+    }
+
+    let isCurrentMount = true;
+
+    const connectUniversal = () => {
+      if (!isCurrentMount) return;
+      if (universalSseRef.current) {
+        universalSseRef.current.close();
+        universalSseRef.current = null;
+      }
+
+      const url = `${BACKEND_URL}/api/events`;
+      const es = new EventSource(url, { withCredentials: true });
+      universalSseRef.current = es;
+
+      es.onopen = () => {
+        console.log("[SSE Universal] Conectado ao stream /api/events");
+        const wasReconnecting = sseRetryCountRef.current > 0;
+        sseRetryCountRef.current = 0;
+
+        // Na reconexão, reconcilia conversas para garantir que nenhuma mensagem foi perdida
+        if (wasReconnecting) {
+          fetch(`${BACKEND_URL}/api/chats`, { credentials: "include" })
+            .then((r) => r.json())
+            .then((freshChats) => {
+              if (Array.isArray(freshChats)) {
+                setConversations((prev) => {
+                  const map = new Map(freshChats.map((c: any) => [c.id, c]));
+                  return prev.map((c) => {
+                    const f = map.get(c.id);
+                    return f ? { ...c, ...f, messages: c.messages } : c;
+                  });
+                });
+              }
+            })
+            .catch(() => {});
+        }
+      };
+
+      es.onmessage = (event) => {
+        try {
+          if (!event.data || event.data.trim() === "" || event.data.trim() === ": ping") return;
+          const data = JSON.parse(event.data);
+          handleIncomingSseEvent(data);
+        } catch (e) {
+          console.error("[SSE Universal] Erro ao analisar evento recebido:", e);
+        }
+      };
+
+      es.onerror = (err) => {
+        console.warn(`[SSE Universal] Queda no stream /api/events (tentativa ${sseRetryCountRef.current + 1}):`, err);
+        es.close();
+        universalSseRef.current = null;
+
+        // Backoff exponencial: 1s, 2s, 4s, 8s, 16s, máx 30s
+        const delay = Math.min(1000 * Math.pow(2, sseRetryCountRef.current), 30000);
+        sseRetryCountRef.current += 1;
+
+        if (sseRetryTimerRef.current) clearTimeout(sseRetryTimerRef.current);
+        sseRetryTimerRef.current = setTimeout(() => {
+          if (isCurrentMount) {
+            connectUniversal();
+          }
+        }, delay);
+      };
+    };
+
+    connectUniversal();
+
+    return () => {
+      isCurrentMount = false;
+      if (universalSseRef.current) {
+        universalSseRef.current.close();
+        universalSseRef.current = null;
+      }
+      if (sseRetryTimerRef.current) {
+        clearTimeout(sseRetryTimerRef.current);
+        sseRetryTimerRef.current = null;
+      }
+    };
+  }, [isAuthenticated, handleIncomingSseEvent, setConversations]);
+
+  // ── Conexão Baileys (habilitada apenas quando activeProvider === 'baileys') ─
   const connectBaileys = (forceNew: boolean = false) => {
+    if (activeProvider === "meta") {
+      console.info("[Baileys] Bloqueado: Provedor ativo é 'meta'. O chat opera via SSE universal.");
+      return;
+    }
+
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -2097,454 +2617,74 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       qrCodeUrl: "",
     }));
 
-    const url = `${BACKEND_URL}/api/baileys/connect?tenantId=${tenant}${forceNew ? "&force=true" : ""}`;
+    const targetTenant = tenant || "valem";
+    const url = `${BACKEND_URL}/api/baileys/connect?tenantId=${targetTenant}${forceNew ? "&force=true" : ""}`;
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("Evento recebido do Baileys SSE:", data);
-
-        if (data.type === "status") {
-          setBaileysConfig((prev) => ({
-            ...prev,
-            status: data.status,
-            pairedPhone: data.phone ? `+${data.phone}` : prev.pairedPhone,
-          }));
-
-          // Ao conectar, sincroniza fotos de contatos sem avatar em background
-          if (data.status === "connected") {
-            fetch(`${BACKEND_URL}/api/baileys/sync-avatars`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ tenantId: tenant }),
-            })
-              .then((r) => r.json())
-              .then((result) =>
-                console.log(`[sync-avatars] ${result.updated} fotos sincronizadas, ${result.failed} sem foto`)
-              )
-              .catch(() => {}); // Silencioso
-          }
-        } else if (data.type === "qr") {
-          // Gera o QR Code localmente como Data URL — sem dependência de serviço externo
-          QRCode.toDataURL(data.qr, { width: 250, margin: 1, errorCorrectionLevel: "M" })
-            .then((qrUrl) => {
-              setBaileysConfig((prev) => ({
-                ...prev,
-                status: "qr_ready",
-                qrCodeUrl: qrUrl,
-              }));
-            })
-            .catch((err) => {
-              console.error("[QRCode] Erro ao gerar QR Code local:", err);
-            });
-        } else if (data.type === "contact_avatar") {
-          setConversations((prev) =>
-            prev.map((c) => {
-              // Tenta match por contactId primeiro (mais preciso), depois phone
-              const matchById = data.contactId && c.id.includes(data.contactId);
-              const matchByPhone = c.phone && data.phone &&
-                c.phone.replace(/\D/g, "").endsWith(data.phone.replace(/\D/g, "").slice(-8));
-              return matchById || matchByPhone
-                ? { ...c, avatar: data.avatar }
-                : c;
-            })
-          );
-        } else if (data.type === "chat_updated" && data.chat) {
-          const updatedChat = data.chat;
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id === updatedChat.id) {
-                return {
-                  ...c,
-                  queue: updatedChat.queue || c.queue,
-                  operatorId: updatedChat.operatorId !== undefined ? updatedChat.operatorId : c.operatorId,
-                  walletOperatorId: updatedChat.walletOperatorId !== undefined ? updatedChat.walletOperatorId : c.walletOperatorId,
-                  responsibleName: updatedChat.responsibleName || c.responsibleName,
-                };
-              }
-              return c;
-            })
-          );
-        } else if (data.type === "presence_update" && data.id) {
-          const presenceId = data.id;
-          let lastState: string | undefined;
-
-          if (data.presences) {
-            const pObj = data.presences[presenceId] || Object.values(data.presences)[0];
-            if (pObj && typeof pObj === "object") {
-              lastState = pObj.lastKnownPresence || pObj.presence || pObj.state;
-            }
-          }
-
-          setClientTypingStatus((prev) => {
-            const cleanPresence = presenceId.replace(/\D/g, "");
-            const targetConv = conversationsRef.current.find((c) => {
-              if (!c.phone) return false;
-              const cleanPhone = c.phone.replace(/\D/g, "");
-              if (!cleanPresence || !cleanPhone) return false;
-              const last8Presence = cleanPresence.slice(-8);
-              const last8Phone = cleanPhone.slice(-8);
-              return last8Presence === last8Phone || c.id === presenceId;
-            });
-
-            if (targetConv) {
-              if (lastState === "composing" || lastState === "recording") {
-                return { ...prev, [targetConv.id]: { status: lastState as "composing" | "recording", timestamp: Date.now() } };
-              } else {
-                return { ...prev, [targetConv.id]: null };
-              }
-            }
-            return prev;
-          });
-        } else if (data.type === "contact_updated" && data.contact) {
-          const tenantId = tenantRef.current;
-          fetch(`${BACKEND_URL}/api/chats?tenantId=${tenantId}`)
-            .then((res) => res.json())
-            .then((freshChats) => {
-              if (Array.isArray(freshChats)) {
-                setConversations((prev) => {
-                  const map = new Map(freshChats.map((item: any) => [item.id, item]));
-                  return prev.map((c) => {
-                    const fresh = map.get(c.id);
-                    return fresh ? { ...c, ...fresh, messages: c.messages } : c;
-                  });
-                });
-              }
-            })
-            .catch(() => {});
-        } else if (data.type === "message") {
-          const { message } = data;
-
-          // Limpa o indicador de digitando quando a mensagem chega
-          if (message?.conversationId) {
-            setClientTypingStatus((prev) => ({ ...prev, [message.conversationId]: null }));
-          }
-
-          // Mostrar notificação Toast customizada
-          // Regra de Notificação:
-          // 1. Contato captado e conosco (queue === "meus" e operatorId === currentOperatorId)
-          // 2. OU contato encerrado (queue === "finalizados"), porém na carteira do vendedor logado (walletOperatorId === currentOperatorId)
-          const currentOperatorId = currentOperatorIdRef.current;
-          const selectedChatId = selectedChatIdRef.current;
-          const currentConvs = conversationsRef.current;
-
-          const existingConv = currentConvs.find((c) => c.id === message.conversationId);
-          const operatorId = message.operatorId !== undefined
-            ? message.operatorId
-            : (existingConv ? existingConv.operatorId : null);
-
-          const queueState = message.queue !== undefined
-            ? message.queue
-            : (existingConv ? existingConv.queue : null);
-
-          const walletOperatorId = message.walletOperatorId !== undefined
-            ? message.walletOperatorId
-            : (existingConv ? existingConv.walletOperatorId : null);
-
-          const isAssignedToMe = !!currentOperatorId && operatorId === currentOperatorId;
-          const isInMyWallet = !!currentOperatorId && walletOperatorId === currentOperatorId;
-
-          const isCapturedAndWithMe = isAssignedToMe && queueState === "meus";
-          const isFinalizedInMyWallet = isInMyWallet && queueState === "finalizados";
-
-          const shouldNotify = isCapturedAndWithMe || isFinalizedInMyWallet;
-          const isCurrentOpen = message.conversationId === selectedChatId;
-
-          if (shouldNotify && message.senderType === "client" && !isCurrentOpen) {
-            const clientName = existingConv?.name || message.senderName || "Cliente";
-            const clientAvatar = existingConv?.avatar || message.avatar || "";
-            const initials = clientName
-              .split(" ")
-              .map((w: string) => w[0])
-              .join("")
-              .toUpperCase()
-              .substring(0, 2) || "C";
-
-            // Formatar visualmente se for mídia
-            let previewText = message.content || "";
-            if (previewText.startsWith("[LOCAL_MEDIA:") || previewText.startsWith("[MEDIA:")) {
-              if (previewText.includes("image")) previewText = "📷 Imagem";
-              else if (previewText.includes("video")) previewText = "🎥 Vídeo";
-              else if (previewText.includes("audio")) previewText = "🎵 Áudio";
-              else if (previewText.includes("sticker")) previewText = "🪄 Figurinha";
-              else if (previewText.includes("document")) {
-                const parts = previewText.split(":");
-                const rawName = parts[parts.length - 1] || "";
-                previewText = `📄 ${rawName.split("]")[0] || "Documento"}`;
-              }
-            }
-
-            const isTecfag = tenantRef.current === "tecfag";
-            const primaryColor = isTecfag ? "#df3d3d" : "#2dc4a0";
-            const primarySoftBg = isTecfag ? "#fde8e8" : "#d8f1ea";
-
-            toast.custom(
-              (t) => (
-                <div 
-                  className="flex items-center gap-3 w-[340px] bg-card border border-border rounded-2xl p-3 shadow-lg animate-in slide-in-from-bottom-5 duration-200 border-l-4"
-                  style={{ borderLeftColor: primaryColor }}
-                >
-                  {/* Client Avatar */}
-                  <div className="relative shrink-0">
-                    {clientAvatar ? (
-                      <img
-                        src={clientAvatar}
-                        alt={clientName}
-                        className="h-10 w-10 rounded-full object-cover border border-border"
-                      />
-                    ) : (
-                      <div 
-                        className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold border"
-                        style={{
-                          backgroundColor: primarySoftBg,
-                          borderColor: `${primaryColor}20`,
-                          color: primaryColor
-                        }}
-                      >
-                        {initials}
-                      </div>
-                    )}
-                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border border-card" />
-                  </div>
-
-                  {/* Message Details */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-foreground truncate">{clientName}</p>
-                    <p className="text-[10px] text-muted-foreground truncate mt-0.5">{previewText}</p>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setSelectedChatId(message.conversationId);
-                        setActiveView("chat");
-                        markAsRead(message.conversationId);
-                        toast.dismiss(t);
-                      }}
-                      className="px-2.5 py-1.5 rounded-lg text-white text-[10px] font-bold transition duration-155 cursor-pointer shadow-sm hover:opacity-90"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      Abrir
-                    </button>
-                    <button
-                      onClick={() => toast.dismiss(t)}
-                      className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
-                    >
-                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ),
-              {
-                duration: 6000,
-                position: "bottom-right",
-              }
-            );
-          }
-          
-          setConversations((prev) => {
-            const exists = prev.some((c) => c.id === message.conversationId);
-            const timeStr = new Date(message.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-            const incomingMsg: Message = {
-              id: message.id,
-              author: message.senderName,
-              text: message.content,
-              time: timeStr,
-              side: message.senderType === "client" ? "in" : "out",
-              isInternalNote: !!message.isInternalNote,
-              senderType: message.senderType,
-              quotedMessageId: message.quotedMessageId || null,
-              quotedMessageSender: message.quotedMessageSender || null,
-              quotedMessageContent: message.quotedMessageContent || null,
-            };
-
-            if (exists) {
-              return prev.map((c) => {
-                if (c.id === message.conversationId) {
-                  const isCurrentOpen = message.conversationId === selectedChatId;
-                  const newUnread = message.senderType === "client"
-                    ? (isCurrentOpen ? 0 : c.unreadCount + 1)
-                    : c.unreadCount;
-
-                  if (isCurrentOpen && message.senderType === "client") {
-                    // Marcar como lido no banco de dados de forma assíncrona
-                    fetch(`${BACKEND_URL}/api/chats`, {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ conversationId: c.id, unreadCount: 0 }),
-                    }).catch((e) => console.error("Erro ao marcar como lido via SSE:", e));
-                  }
-
-                  return {
-                    ...c,
-                    lastMessageTime: timeStr,
-                    unreadCount: newUnread,
-                    // Deduplicação: não adiciona a mensagem se ela já existe no array (ex: reconexão SSE)
-                    messages: c.messages.some((m) => m.id === incomingMsg.id)
-                      ? c.messages
-                      : [...c.messages, incomingMsg],
-                    phone: message.phone || c.phone,
-                    avatar: message.avatar || c.avatar,
-                    queue: message.queue || c.queue,
-                    operatorId: message.operatorId !== undefined ? message.operatorId : c.operatorId,
-                    walletOperatorId: message.walletOperatorId !== undefined ? message.walletOperatorId : c.walletOperatorId,
-                  };
-                }
-                return c;
-              });
-            } else {
-              const initials = message.senderName
-                .split(" ")
-                .map((w: string) => w[0])
-                .join("")
-                .toUpperCase()
-                .substring(0, 2);
-              const initialsBg = "#a6d6f2";
-              
-              const isCurrentOpen = message.conversationId === selectedChatId;
-              const newUnread = isCurrentOpen ? 0 : 1;
-
-              if (isCurrentOpen && message.senderType === "client") {
-                // Marcar como lido no banco de dados de forma assíncrona
-                fetch(`${BACKEND_URL}/api/chats`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ conversationId: message.conversationId, unreadCount: 0 }),
-                }).catch((e) => console.error("Erro ao marcar como lido via SSE para nova conversa:", e));
-              }
-
-              // Verificar se está fixada no localStorage
-              const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
-              let pinnedIds: string[] = [];
-              try {
-                const stored = localStorage.getItem(pinnedKey);
-                if (stored) pinnedIds = JSON.parse(stored);
-              } catch (e) {}
-              const isPinned = pinnedIds.includes(message.conversationId);
-
-              const newConv: Conversation = {
-                id: message.conversationId,
-                name: message.senderName,
-                avatar: message.avatar || "",
-                initials,
-                initialsBg,
-                phone: message.phone || "",
-                tags: ["WhatsApp Inbound"],
-                channel: "whatsapp",
-                queue: message.queue || "fila",
-                operatorId: message.operatorId || null,
-                walletOperatorId: message.walletOperatorId || null,
-                unreadCount: newUnread,
-                lastMessageTime: timeStr,
-                messages: [incomingMsg],
-                pinned: isPinned,
-              } as any;
-              return [newConv, ...prev];
-            }
-          });
-        } else if (data.type === "queue_update") {
-          // Evento de atualização de fila: captura, transferência ou finalização.
-          // Atualiza APENAS os campos de estado da conversa — sem criar balão de mensagem,
-          // sem incrementar unreadCount, sem tocar som de notificação.
-          const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
-
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== conversationId) return c;
-              return {
-                ...c,
-                queue: queueState,
-                operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
-                sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
-                responsibleName: responsibleName !== undefined ? responsibleName : c.responsibleName,
-                version: version !== undefined ? version : (c.version ? c.version + 1 : 1),
-              };
-            })
-          );
-
-          // ── Auto-deselect ────────────────────────────────────────────────────
-          // Se o chat que mudou é o que está selecionado AGORA e:
-          //   a) o chat saiu do domínio do operador atual (foi transferido para outro), OU
-          //   b) o chat foi finalizado
-          // → deseleciona o chat para que o painel mostre estado neutro imediatamente,
-          //   impedindo que o operador anterior continue enviando mensagens.
-          const myId = currentOperatorIdRef.current;
-          const isCurrentlyViewing = selectedChatIdRef.current === conversationId;
-
-          if (isCurrentlyViewing) {
-            const chatWasOwnedByMe = (() => {
-              // Peek at the current conversations to check the previous owner
-              // We can't read state directly here, so use the newOperatorId from the event
-              return newOperatorId !== myId; // the new owner is NOT me
-            })();
-
-            const chatFinalized = queueState === "finalizados";
-            const chatTransferredAway =
-              (queueState === "fila" || queueState === "automacao") ||
-              (queueState === "meus" && newOperatorId && newOperatorId !== myId);
-
-            if (chatFinalized || chatTransferredAway) {
-              // Deselect immediately so the previous owner's panel refreshes
-              setSelectedChatId(null);
-            }
-          }
-        }
-
+        handleIncomingSseEvent(data);
       } catch (err) {
-        console.error("Erro ao processar dados recebidos do SSE:", err);
+        console.error("[Baileys SSE] Erro ao processar dados recebidos:", err);
       }
     };
 
-    // Controle de tentativas de reconexão automática do SSE
     let sseErrorCount = 0;
     eventSource.onerror = (err) => {
       sseErrorCount++;
-      console.warn(`[SSE] Erro/queda na conexão SSE (tentativa ${sseErrorCount}). O navegador tentará reconectar automaticamente.`, err);
+      console.warn(`[Baileys SSE] Queda na conexão Baileys (tentativa ${sseErrorCount}).`, err);
 
-      // Após 3 erros consecutivos sem reconexão bem-sucedida, alertar o usuário
       if (sseErrorCount === 3) {
         setBaileysConfig((prev) => ({
           ...prev,
           status: "disconnected",
         }));
-        console.warn("[SSE] Muitas falhas consecutivas — marcando como desconectado.");
       }
     };
 
-    // Quando o SSE reconectar após uma queda, resetar contador de erros
     eventSource.onopen = () => {
       if (sseErrorCount > 0) {
-        console.log("[SSE] Conexão SSE restaurada após erro.");
+        console.log("[Baileys SSE] Conexão Baileys restaurada.");
         sseErrorCount = 0;
       }
     };
   };
 
-  // Buscar status inicial do Baileys e limpar SSE ao desmontar
+  // Buscar status inicial do Baileys apenas quando activeProvider === 'baileys'
   useEffect(() => {
-    // Sempre abre o canal SSE para acordar a sessão e receber novas mensagens/status do tenant ativo
-    connectBaileys();
+    if (!isAuthenticated) return;
 
-    fetch(`${BACKEND_URL}/api/baileys/status?tenantId=${tenant}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && data.status) {
-          setBaileysConfig((prev) => ({
-            ...prev,
-            status: data.status,
-            pairedPhone: data.pairedPhone ? `+${data.pairedPhone}` : data.pairedPhone || "",
-            // Não usar api.qrserver.com — QR é gerado localmente via biblioteca qrcode
-          }));
-        }
-      })
-      .catch((err) => console.error("Erro ao verificar status do Baileys:", err));
-  }, [tenant]);
+    if (activeProvider === "baileys") {
+      connectBaileys();
+
+      const targetTenant = tenant || "valem";
+      fetch(`${BACKEND_URL}/api/baileys/status?tenantId=${targetTenant}`, { credentials: "include" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.status) {
+            setBaileysConfig((prev) => ({
+              ...prev,
+              status: data.status,
+              pairedPhone: data.pairedPhone ? `+${data.pairedPhone}` : data.pairedPhone || "",
+            }));
+          }
+        })
+        .catch((err) => console.error("Erro ao verificar status do Baileys:", err));
+    } else {
+      // Se estiver em modo Meta, fecha qualquer conexão Baileys remanescente
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      setBaileysConfig({
+        status: "disconnected",
+        pairedPhone: "",
+        qrCodeUrl: "",
+      });
+    }
+  }, [tenant, isAuthenticated, activeProvider]);
 
   useEffect(() => {
     return () => {
@@ -2608,7 +2748,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 localStorage.removeItem("rbac_operators");
               } catch (e) {}
             }
-            document.title = matchedOp.tenantId === "tecfag" ? "Tec Chat — Meta API" : "Valem Chat — Baileys API";
+            updateDocumentTitle(matchedOp.tenantId, activeProvider);
 
             // Buscar operadores atualizados e sanitizados do tenant autenticado — sem ?tenantId=
             fetch(`${BACKEND_URL}/api/operators`, {
@@ -2621,6 +2761,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
               })
               .catch((err) => console.error("Erro ao sincronizar operadores pós-login:", err));
+
+            // Sincronizar o activeProvider configurado para o canal
+            fetch(`${BACKEND_URL}/api/settings/whatsapp`, { credentials: "include" })
+              .then((res) => res.json())
+              .then((cfgData) => {
+                if (cfgData?.activeProvider) {
+                  setActiveProvider(cfgData.activeProvider);
+                  updateDocumentTitle(matchedOp.tenantId, cfgData.activeProvider);
+                }
+              })
+              .catch(() => {});
           }
 
           setIsAuthenticated(true);
@@ -2647,10 +2798,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error("Erro ao efetuar logout no servidor:", e);
     } finally {
       setIsAuthenticated(false);
+      setTenantState(null);
       setCurrentOperatorId("");
       setSelectedChatId(null);
+      if (universalSseRef.current) {
+        universalSseRef.current.close();
+        universalSseRef.current = null;
+      }
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
       if (typeof window !== "undefined") {
         try {
+          localStorage.removeItem("chat_tenant");
           localStorage.removeItem("chat_is_authenticated");
           localStorage.removeItem("rbac_current_operator_id");
           localStorage.removeItem("rbac_operators");
@@ -2664,7 +2825,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <ChatContext.Provider
       value={{
-        tenant,
+        tenant: (tenant || "valem") as "tecfag" | "valem",
         setTenant,
         activeQueue,
         setActiveQueue,
@@ -2729,6 +2890,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setMetaConfig,
         baileysConfig,
         setBaileysConfig,
+        activeProvider,
+        setActiveProvider,
         clientTypingStatus,
         isValentinaTyping,
         disconnectBaileys,

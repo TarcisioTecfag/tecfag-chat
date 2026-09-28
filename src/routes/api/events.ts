@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getAuthSession } from "../../lib/auth-session";
+import { requireSession } from "../../lib/auth-session";
 import { SessionManager } from "../../lib/baileys/session-manager";
 
 export const Route = createFileRoute("/api/events")({
@@ -8,14 +8,9 @@ export const Route = createFileRoute("/api/events")({
       OPTIONS: async () => new Response(null, { status: 204 }),
 
       GET: async ({ request }) => {
-        const session = await getAuthSession(request);
-        if (!session) {
-          return new Response(JSON.stringify({ error: "Sessão inválida ou não autenticada" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const session = auth.session;
         const tenantId = session.tenantId;
 
         // Inicia stream SSE persistente

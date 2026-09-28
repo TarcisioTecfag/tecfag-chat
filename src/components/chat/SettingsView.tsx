@@ -483,10 +483,17 @@ export function SettingsView() {
 
                 <div className="flex items-center gap-2">
                   {whatsappChannel.activeProvider === "meta" ? (
-                    <div className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-3.5 py-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                      Meta Ativo
-                    </div>
+                    (whatsappChannel.hasMetaAccessToken && whatsappChannel.metaPhoneNumberId) || whatsappChannel.connectionStatus === "connected" ? (
+                      <div className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-3.5 py-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        Meta WhatsApp API (Conectado)
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 rounded-full bg-amber-500/10 px-3.5 py-1.5 text-xs font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                        <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                        Configuração incompleta
+                      </div>
+                    )
                   ) : (
                     <div className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-bold border ${
                       baileysConfig.status === "connected"

@@ -422,8 +422,23 @@ export class SessionManager {
         } catch (e) { console.error("Erro ao salvar status disconnected:", e); }
 
         if (shouldReconnect) {
-          console.log(`[SessionManager] Reconectando tenant ${tenantId} em 3s...`);
-          setTimeout(() => this.initSession(tenantId), 3000);
+          // Checar se o provedor ativo do tenant ainda é Baileys antes de reconectar!
+          // Se o tenant foi alternado para Meta, NÃO deve restabelecer socket do Baileys.
+          try {
+            const [cfg] = await db
+              .select({ activeProvider: channelConfigs.activeProvider })
+              .from(channelConfigs)
+              .where(eq(channelConfigs.tenantId, tenantId));
+            if (cfg?.activeProvider === "meta") {
+              console.log(`[SessionManager] Tenant '${tenantId}' configurado para Meta API — auto-reconexão Baileys cancelada.`);
+            } else {
+              console.log(`[SessionManager] Reconectando tenant ${tenantId} em 3s...`);
+              setTimeout(() => this.initSession(tenantId), 3000);
+            }
+          } catch (cfgErr) {
+            console.warn(`[SessionManager] Falha ao verificar activeProvider do tenant ${tenantId}, agendando reconexão padrão:`, cfgErr);
+            setTimeout(() => this.initSession(tenantId), 3000);
+          }
         } else {
           console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
         }
@@ -552,6 +567,38 @@ export class SessionManager {
     sock.ev.on("contacts.update", handleContactsSync);
 
     return sock;
+  }
+
+  /**
+   * Pausa a sessão Baileys (fecha socket) SEM dar logout e SEM limpar as credenciais/chaves do banco.
+   * Usado na troca de canal para Meta, permitindo retorno posterior a Baileys sem re-leitura de QR Code.
+   */
+  public async pauseSession(tenantId: string) {
+    const sock = this.sessions.get(tenantId);
+    if (sock) {
+      try {
+        sock.end(undefined);
+      } catch (e) {
+        console.error(`[SessionManager] Erro ao fechar conexão socket para pausa no tenant '${tenantId}':`, e);
+      }
+      this.sessions.delete(tenantId);
+    }
+
+    this.sessionStatuses.set(tenantId, "disconnected");
+    this.sessionQrs.delete(tenantId);
+    this.notify(tenantId, { type: "status", status: "disconnected" });
+
+    try {
+      await db
+        .update(channelConfigs)
+        .set({ 
+          baileysSessionStatus: "disconnected", 
+          updatedAt: new Date() 
+        })
+        .where(eq(channelConfigs.tenantId, tenantId));
+    } catch (e) {
+      console.error(`[SessionManager] Erro ao atualizar status para disconnected no DB (pausa) no tenant '${tenantId}':`, e);
+    }
   }
 
   public async disconnectSession(tenantId: string) {

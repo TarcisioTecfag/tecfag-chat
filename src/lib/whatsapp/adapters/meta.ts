@@ -1,7 +1,9 @@
 import { WhatsAppAdapter, UniversalOutboundMessage, DeliveryStatus, ChannelSettings } from "../types";
 import { db } from "../../../db";
-import { channelConfigs } from "../../../db/schema";
+import { channelConfigs, mediaFiles } from "../../../db/schema";
 import { eq } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
 
 const META_GRAPH_VERSION = "v21.0";
 const META_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
@@ -23,6 +25,40 @@ export class MetaAdapter implements WhatsAppAdapter {
       phoneNumberId: config.metaPhoneNumberId,
       accessToken: config.metaAccessToken,
     };
+  }
+
+  private async uploadMediaToMeta(
+    phoneNumberId: string,
+    accessToken: string,
+    buffer: Buffer,
+    fileName: string,
+    mimeType: string
+  ): Promise<string> {
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
+    formData.append("file", blob, fileName);
+    formData.append("type", mimeType);
+    formData.append("messaging_product", "whatsapp");
+
+    const uploadRes = await fetch(`${META_BASE_URL}/${phoneNumberId}/media`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      body: formData,
+    });
+
+    if (!uploadRes.ok) {
+      const errJson = await uploadRes.json().catch(() => ({}));
+      throw new Error(`Falha no upload de mídia para Meta API: ${errJson?.error?.message || uploadRes.statusText}`);
+    }
+
+    const uploadData = await uploadRes.json();
+    if (!uploadData?.id) {
+      throw new Error("Meta API não retornou ID de mídia válido no upload");
+    }
+
+    return uploadData.id;
   }
 
   async send(tenantId: string, message: UniversalOutboundMessage): Promise<{
@@ -59,7 +95,48 @@ export class MetaAdapter implements WhatsAppAdapter {
       }
       // 2. Mídia (Imagem, Áudio, Vídeo, Documento)
       else if (message.mediaUrl && message.mediaType) {
-        const mediaPayload: Record<string, any> = { link: message.mediaUrl };
+        let mediaPayload: Record<string, any>;
+
+        // Verifica se a mediaUrl é pública (https://) e não é localhost
+        const isPublicUrl = message.mediaUrl.startsWith("https://") && !message.mediaUrl.includes("localhost") && !message.mediaUrl.includes("127.0.0.1");
+
+        if (isPublicUrl) {
+          mediaPayload = { link: message.mediaUrl };
+        } else {
+          // Mídia local ou relativa: obter buffer e subir para a Meta Media API
+          let mediaBuffer: Buffer | null = null;
+          let mimeType = "application/octet-stream";
+          const fileName = message.fileName || `arquivo-${Date.now()}`;
+
+          try {
+            const urlMatch = message.mediaUrl.match(/messageId=([^&]+)/);
+            const messageId = urlMatch ? urlMatch[1] : (message.mediaUrl.startsWith("media-") ? message.mediaUrl : null);
+            if (messageId) {
+              const localPath = path.join(process.cwd(), "media", messageId);
+              const mimePath = path.join(process.cwd(), "media", `${messageId}.mime`);
+              if (fs.existsSync(localPath)) {
+                mediaBuffer = fs.readFileSync(localPath);
+                if (fs.existsSync(mimePath)) mimeType = fs.readFileSync(mimePath, "utf-8").trim();
+              } else {
+                const [record] = await db.select().from(mediaFiles).where(eq(mediaFiles.id, messageId));
+                if (record?.base64Data) {
+                  mediaBuffer = Buffer.from(record.base64Data, "base64");
+                  mimeType = record.mimeType;
+                }
+              }
+            }
+          } catch (readErr) {
+            console.warn("[MetaAdapter] Erro ao ler mídia local:", readErr);
+          }
+
+          if (mediaBuffer) {
+            const metaMediaId = await this.uploadMediaToMeta(phoneNumberId, accessToken, mediaBuffer, fileName, mimeType);
+            mediaPayload = { id: metaMediaId };
+          } else {
+            mediaPayload = { link: message.mediaUrl };
+          }
+        }
+
         if (message.text) mediaPayload.caption = message.text;
         if (message.fileName) mediaPayload.filename = message.fileName;
 

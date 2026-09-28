@@ -41,12 +41,31 @@ export const Route = createFileRoute("/api/settings/whatsapp/actions")({
             const targetProvider = provider === "meta" ? "meta" : "baileys";
             const nextVersion = (config.connectionVersion || 1) + 1;
 
-            // Se estava no Baileys e mudou para Meta, desconecta o socket do Baileys
+            if (targetProvider === "meta" && (!config.metaPhoneNumberId || !config.metaAccessToken)) {
+              return new Response(
+                JSON.stringify({
+                  error: "Credenciais da Meta (Phone Number ID e Access Token) não configuradas. Configure-as antes de alternar para Meta.",
+                  code: "MISSING_META_CREDENTIALS",
+                }),
+                { status: 400, headers: { "Content-Type": "application/json" } }
+              );
+            }
+
+            // Se estava no Baileys e mudou para Meta, pausa o socket (SEM apagar chaves nem deslogar)
             if (config.activeProvider === "baileys" && targetProvider === "meta") {
               try {
-                await baileysAdapter.disconnect(session.tenantId);
+                await baileysAdapter.pause(session.tenantId);
               } catch (e) {
-                console.warn("[Switch Provider] Erro ao desconectar Baileys:", e);
+                console.warn("[Switch Provider] Erro ao pausar Baileys:", e);
+              }
+            }
+
+            // Se mudou para Baileys e já existem chaves salvas, retoma a sessão sem novo QR Code
+            if (targetProvider === "baileys" && config.baileysAuthKeys) {
+              try {
+                SessionManager.getInstance().initSession(session.tenantId);
+              } catch (e) {
+                console.warn("[Switch Provider] Erro ao retomar sessão Baileys:", e);
               }
             }
 
@@ -55,7 +74,7 @@ export const Route = createFileRoute("/api/settings/whatsapp/actions")({
               .set({
                 activeProvider: targetProvider,
                 connectionVersion: nextVersion,
-                connectionStatus: targetProvider === "meta" ? "connected" : "disconnected",
+                connectionStatus: targetProvider === "meta" ? "connected" : (config.baileysAuthKeys ? "connecting" : "disconnected"),
                 updatedAt: new Date(),
               })
               .where(eq(channelConfigs.tenantId, session.tenantId));

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { requireSession } from "../../../lib/auth-session";
+import { getActiveProvider } from "../../../lib/whatsapp";
 
 export const Route = createFileRoute("/api/baileys/connect")({
   server: {
@@ -37,6 +38,20 @@ export const Route = createFileRoute("/api/baileys/connect")({
         }
 
         const tenantId = session.tenantId;
+
+        // Se o tenant estiver configurado para Meta, não permite conexão Baileys
+        const activeProvider = await getActiveProvider(tenantId);
+        if (activeProvider === "meta") {
+          return new Response(
+            JSON.stringify({
+              error: "Este tenant está configurado para operar via Meta WhatsApp Business API. Conexão Baileys não aplicável.",
+              activeProvider: "meta",
+              code: "INACTIVE_PROVIDER",
+            }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const force = url.searchParams.get("force") === "true";
 
         const sessionManager = SessionManager.getInstance();
