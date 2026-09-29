@@ -1,10 +1,12 @@
 // src/routes/api/voice-agenda.ts
-// API endpoints para listagem, agendamento, reagendamento e gestao da Agenda de Ligacoes da Valentina
+// API endpoints para listagem, agendamento, reagendamento e gestao da Agenda de Ligacoes de Voz
 
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { voiceAgenda } from "../../db/schema";
 import { eq, and, asc } from "drizzle-orm";
+import { requireSession } from "../../lib/auth-session";
+import { getAiPersona } from "../../lib/ai-persona";
 
 const corsHeaders = { "Content-Type": "application/json" };
 function json(data: unknown, status = 200) {
@@ -17,10 +19,12 @@ export const Route = createFileRoute("/api/voice-agenda")({
 
       // ── GET — lista agendamentos do tenant ──────────────────────────────────
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
+        const url = new URL(request.url);
         const statusFilter = url.searchParams.get("status");
         const typeFilter = url.searchParams.get("type");
 
@@ -47,10 +51,15 @@ export const Route = createFileRoute("/api/voice-agenda")({
 
       // ── POST — cria agendamento(s) ──────────────────────────────────────────
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+        const persona = getAiPersona(tenantId);
+
         try {
           const body = await request.json();
-          const { tenantId, items, ...singleItem } = body;
-          if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
+          const { items, ...singleItem } = body;
 
           // Insercao em lote (importacao de lista Excel)
           if (Array.isArray(items) && items.length > 0) {
@@ -66,7 +75,7 @@ export const Route = createFileRoute("/api/voice-agenda")({
               priority: it.priority || "normal",
               notes: it.notes || "Importado via planilha",
               campaignName: it.campaignName || "Lista Excel",
-              assignedAgent: "Valentina",
+              assignedAgent: persona.name,
               createdAt: new Date(),
               updatedAt: new Date(),
             }));
@@ -88,7 +97,7 @@ export const Route = createFileRoute("/api/voice-agenda")({
             priority: singleItem.priority || "normal",
             notes: singleItem.notes || "",
             campaignName: singleItem.campaignName,
-            assignedAgent: singleItem.assignedAgent || "Valentina",
+            assignedAgent: singleItem.assignedAgent || persona.name,
             createdAt: new Date(),
             updatedAt: new Date(),
           };
@@ -103,10 +112,14 @@ export const Route = createFileRoute("/api/voice-agenda")({
 
       // ── PUT — atualiza agendamento ──────────────────────────────────────────
       PUT: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         try {
           const body = await request.json();
-          const { tenantId, id, ...updates } = body;
-          if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
+          const { id, ...updates } = body;
           if (!id) return json({ error: "id e obrigatorio" }, 400);
 
           const dbUpdates: any = { ...updates, updatedAt: new Date() };
@@ -128,11 +141,13 @@ export const Route = createFileRoute("/api/voice-agenda")({
 
       // ── DELETE — remove agendamento ─────────────────────────────────────────
       DELETE: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         try {
           const url = new URL(request.url);
-          const tenantId = url.searchParams.get("tenantId");
-          if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
-
           const id = url.searchParams.get("id");
           if (!id) return json({ error: "id e obrigatorio" }, 400);
 

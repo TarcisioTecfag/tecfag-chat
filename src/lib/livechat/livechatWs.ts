@@ -27,6 +27,7 @@ import { calculateIntentScore, scoreToTemperature, isAtacadoQualificado } from "
 import { searchProducts, extractSearchTermFromUrl } from "./trayCatalogService";
 import { LiveChatDebouncer } from "./livechatDebouncer";
 import { extractMediaContent } from "./livechatDocumentReader";
+import { getAuthSessionByToken } from "../auth-session";
 
 const uuid = () => crypto.randomUUID();
 
@@ -83,15 +84,25 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
 
     // ── Conexão de OPERADOR ────────────────────────────────────────────────
     if (operatorToken) {
-      const operatorId = `op_${operatorToken.slice(0, 8)}`;
-      const conn: LcConnection = { ws, type: "operator", tenantId, operatorId };
+      const session = await getAuthSessionByToken(operatorToken);
+      if (!session) {
+        ws.close(1008, "Sessão de operador inválida ou expirada");
+        return;
+      }
+      if (session.tenantId !== tenantId) {
+        ws.close(1008, "Acesso não autorizado para este tenant");
+        return;
+      }
+
+      const operatorId = session.operator.id;
+      const conn: LcConnection = { ws, type: "operator", tenantId: session.tenantId, operatorId };
       operatorConnections.set(operatorId, conn);
 
-      console.log(`[LC WS] Operador ${operatorId} conectado (tenant: ${tenantId})`);
+      console.log(`[LC WS] Operador ${session.operator.name} (${operatorId}) conectado (tenant: ${session.tenantId})`);
 
       // Envia snapshot dos visitantes ativos
       try {
-        const visitors = await getActiveVisitors(tenantId);
+        const visitors = await getActiveVisitors(session.tenantId);
         send(ws, { type: "visitors_snapshot", visitors });
       } catch (e) {
         console.error("[LC WS] Erro ao carregar visitantes:", e);

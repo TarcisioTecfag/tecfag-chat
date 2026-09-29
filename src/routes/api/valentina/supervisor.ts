@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { internalMessages, operators } from "../../../db/schema";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,20 +16,25 @@ export const Route = createFileRoute("/api/valentina/supervisor")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem acessar os dados do supervisor.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const tenantId = session.tenantId;
+
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
         // Filtros de data opcionais (ISO string)
         const dateFrom = url.searchParams.get("dateFrom");
         const dateTo   = url.searchParams.get("dateTo");
         // Filtro de tipo opcional (ex: "sla_alert,sentiment_alert")
-        const typeFilter = url.searchParams.get("types"); // CSV ou null para todos
-
-        if (!tenantId) {
-          return new Response(
-            JSON.stringify({ error: "tenantId é obrigatório" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
+        const typeFilter = url.searchParams.get("types");
 
         try {
           const now = new Date();

@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { knowledgeFiles } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,8 +35,12 @@ export const Route = createFileRoute("/api/valentina/catalog-images")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId") || "valem";
         const action = url.searchParams.get("action");
         const fileId = url.searchParams.get("fileId");
         const search = (url.searchParams.get("search") || "").trim().toLowerCase();
@@ -46,7 +51,7 @@ export const Route = createFileRoute("/api/valentina/catalog-images")({
             const [file] = await db
               .select({ id: knowledgeFiles.id, name: knowledgeFiles.name, content: knowledgeFiles.content })
               .from(knowledgeFiles)
-              .where(eq(knowledgeFiles.id, fileId));
+              .where(and(eq(knowledgeFiles.id, fileId), eq(knowledgeFiles.tenantId, tenantId)));
 
             if (!file) {
               return new Response("Imagem não encontrada", { status: 404, headers: corsHeaders });
@@ -105,7 +110,7 @@ export const Route = createFileRoute("/api/valentina/catalog-images")({
             const [file] = await db
               .select({ id: knowledgeFiles.id, name: knowledgeFiles.name, content: knowledgeFiles.content })
               .from(knowledgeFiles)
-              .where(eq(knowledgeFiles.id, fileId));
+              .where(and(eq(knowledgeFiles.id, fileId), eq(knowledgeFiles.tenantId, tenantId)));
 
             if (!file) {
               return new Response(JSON.stringify({ error: "Arquivo não encontrado" }), {
@@ -192,7 +197,7 @@ export const Route = createFileRoute("/api/valentina/catalog-images")({
               name: f.name,
               sku,
               mediaUrl: `/knowledge-media/${safeFileName}`,
-              thumbnailUrl: `/api/valentina/catalog-images?tenantId=${tenantId}&action=rawImage&fileId=${f.id}`,
+              thumbnailUrl: `/api/valentina/catalog-images?action=rawImage&fileId=${f.id}`,
               mimeType,
               size: f.size || "100 KB",
               type: f.type || "image",

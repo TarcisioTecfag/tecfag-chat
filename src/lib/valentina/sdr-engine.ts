@@ -1,7 +1,7 @@
 
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts } from "../../db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, and } from "drizzle-orm";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
@@ -171,6 +171,12 @@ export class SdrEngine {
         return false;
       }
 
+      // 🛑 REGRA ARQUITETURAL (AGENTS.md): SDR desativado para tecfag até go-live oficial
+      if (tenantId !== "valem") {
+        console.log(`[SdrEngine] SDR desativado para tenant "${tenantId}". Recurso restrito ao tenant "valem" até ativação.`);
+        return false;
+      }
+
       const isEnabled = dbConfig ? dbConfig.enabled === 1 : true;
       const configData = (dbConfig?.config as Record<string, any>) || {};
 
@@ -201,13 +207,13 @@ export class SdrEngine {
         });
 
         flowState = await db.query.agentFlowStates.findFirst({
-          where: (t, { eq: dEq }) => dEq(t.id, newFlowId),
+          where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, newFlowId), dEq(t.tenantId, tenantId)),
         });
       }
 
       // 🛑 TRAVA DE OPERADOR: Se a conversa possui um operador humano alocado, está na aba 'meus'/'finalizados' ou a triagem terminou/parou, Valentina SILENCIA IMEDIATAMENTE!
       const convCheck = await db.query.conversations.findFirst({
-        where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+        where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
       });
 
       if (
@@ -226,7 +232,12 @@ export class SdrEngine {
       const historyMsgs = await db
         .select()
         .from(messages)
-        .where(eq(messages.conversationId, conversationId))
+        .where(
+          and(
+            eq(messages.tenantId, tenantId),
+            eq(messages.conversationId, conversationId)
+          )
+        )
         .orderBy(asc(messages.sentAt))
         .limit(80);
 
@@ -271,6 +282,8 @@ export class SdrEngine {
       // 5. Montar Prompt Estruturado para o Gemini 2.5 Pro
       const existingCollectedData = (flowState?.collectedData as Record<string, any>) || {};
 
+      const aiPersona = getAiPersona(tenantId);
+
       const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
         timeZone: "America/Sao_Paulo",
         hour: "numeric",
@@ -294,12 +307,12 @@ export class SdrEngine {
       if (isFirstMessage && flowState) {
         await db.update(agentFlowStates)
           .set({ metadata: { ...metaState, greetingDone: true } })
-          .where(eq(agentFlowStates.id, flowState.id));
+          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)));
       }
 
       const firstMessageRule = isFirstMessage
         ? `🟢 ATENÇÃO — PRIMEIRA MENSAGEM DO ATENDIMENTO:
-   - A saudação e apresentação ("${greeting}" + "Eu sou a Valentina, da Valem Valvulas e Embalagens 😊") JÁ SERÃO ENVIADAS AUTOMATICAMENTE PELO SISTEMA antes da sua resposta.
+   - A saudação e apresentação ("${greeting}" + "Eu sou ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}, da ${aiPersona.company} 😊") JÁ SERÃO ENVIADAS AUTOMATICAMENTE PELO SISTEMA antes da sua resposta.
    - 🛑 NÃO inclua a saudação nem a apresentação em "messagesToSend" — o sistema cuida disso.
    - Sua resposta começa DIRETO no contexto do cliente, a partir do que ele disse:
      ✅ Se o cliente APENAS SAUDOU: balão 1 = "Como posso te ajudar?"
@@ -357,7 +370,6 @@ INSTRUÇÕES OBRIGATÓRIAS:
 
       const knowledgeContext = await getKnowledgeBaseContext(tenantId);
 
-      const aiPersona = getAiPersona(tenantId);
       const promptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) da ${aiPersona.company} (${aiPersona.segment}).
 ${knowledgeContext}
 
@@ -389,7 +401,7 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - Fale de forma autêntica e sem rigidez de livro. Quando for checar algo com a equipe, use termos humanos reais como: "Se não me engano...", "Deixa eu confirmar aqui com o pessoal...", "Puts, me pegou agora, deixa eu dar uma olhada".
 
 4. REGRA ESTRITA DE EMOJIS:
-   - Valentina pode usar NO MÁXIMO 1 EMOJI em todo o atendimento.
+   - ${aiPersona.name} pode usar NO MÁXIMO 1 EMOJI em todo o atendimento.
    - O histórico da conversa já contém emoji enviado? ${hasPreviousEmoji ? "SIM (PROIBIDO ENVIAR QUALQUER EMOJI AGORA!)" : "NÃO (Pode usar no máximo 1 emoji empático se for apropriado)"}.
    - NUNCA repita um emoji já enviado!
 
@@ -418,13 +430,13 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
      * 🛑 NUNCA afirme que é humana
      * 🛑 NUNCA afirme que é robô, IA ou bot
      * ✅ Explique apenas sua função: você é uma assistente que faz o primeiro contato e coleta as informações do cliente antes de passar para o especialista — isso agiliza muito o atendimento.
-     * Exemplo: "Sou a assistente de primeiro contato aqui da Valem! Faço esse processo de coleta das informações pra quando o especialista entrar, ele já chegar sabendo tudo que você precisa — muito mais rápido assim!"
+     * Exemplo: "Sou ${aiPersona.gender === "female" ? "a" : "o"} assistente de primeiro contato aqui da ${aiPersona.company}! Faço esse processo de coleta das informações pra quando o especialista entrar, ele já chegar sabendo tudo que você precisa — muito mais rápido assim!"
      * Se insistirem, repita a explicação de função sem confirmar nem negar a natureza.
 
 4.4 REGRA DE ESTOQUE E PREÇO — NUNCA CONFIRME DISPONIBILIDADE NEM VALOR EXATO:
-   - Valentina PODE confirmar se um produto EXISTE no portfólio/catálogo da Valem.
-   - Valentina NUNCA pode afirmar que tem o produto EM ESTOQUE com disponibilidade garantida.
-   - Valentina NUNCA pode confirmar preço exato como definitivo.
+   - ${aiPersona.name} PODE confirmar se um produto EXISTE no portfólio/catálogo da ${aiPersona.company}.
+   - ${aiPersona.name} NUNCA pode afirmar que tem o produto EM ESTOQUE com disponibilidade garantida.
+   - ${aiPersona.name} NUNCA pode confirmar preço exato como definitivo.
    - Quando o cliente perguntar sobre estoque ou preço, use:
      * "A gente tem esse modelo no portfólio sim — o especialista confirma disponibilidade e prazo certinho quando entrar."
      * "Esse produto faz parte da nossa linha, mas valores e estoque o consultor te passa com precisão."
@@ -440,7 +452,7 @@ REGRAS RÍGIDAS DE QUALIDADE E HUMANIZAÇÃO:
    - NUNCA pergunte "Qual o nome da sua empresa?". Pergunte APENAS o CNPJ (ou CPF).
    - Quando o cliente enviar o CNPJ, sua única pergunta de confirmação deve ser: "Sua empresa é a [Nome da Empresa], certo?".
    - 🛑 ATENÇÃO CRÍTICA SOBRE CONFIRMAÇÃO: Quando você perguntar "Sua empresa é a [Nome da Empresa], certo?", MANTENHA \`isCompleted: false\`! Você É OBRIGADA a aguardar o cliente responder confirmando ("Sim", "Certo", "Correto") ou corrigindo antes de concluir o atendimento!
-   - 🛑 PROIBIÇÃO ABSOLUTA DE COBRANÇA OU QUESTIONAMENTO DE RAMO DA EMPRESA: Se o cliente responder confirmando ("Sim", "Certo", "Correto"), ACEITE A RESPOSTA IMEDIATAMENTE SEM DAR OPINIÃO E SEM QUESTIONAR! NUNCA demonstre estranheza, dúvida ou peça justificativas sobre a relação entre o ramo da empresa (ex: pagamentos, TI, serviços, comércio, holding) e o produto a ser comprado (ex: válvulas, frascos, body splash). Valentina NÃO TEM O DIREITO de cobrar explicações ou opinar sobre o negócio do cliente!
+   - 🛑 PROIBIÇÃO ABSOLUTA DE COBRANÇA OU QUESTIONAMENTO DE RAMO DA EMPRESA: Se o cliente responder confirmando ("Sim", "Certo", "Correto"), ACEITE A RESPOSTA IMEDIATAMENTE SEM DAR OPINIÃO E SEM QUESTIONAR! NUNCA demonstre estranheza, dúvida ou peça justificativas sobre a relação entre o ramo da empresa e o produto a ser comprado. ${aiPersona.name} NÃO TEM O DIREITO de cobrar explicações ou opinar sobre o negócio do cliente!
    - 🛑 REGRA DE TELEFONE / LIGAÇÃO: É ESTRITAMENTE PROIBIDO pedir o número de telefone com DDD ao cliente! A pergunta sobre ligação DEVE ser sempre exatamente: "Posso te ligar nesse número mesmo do Whats?" (ou "O ideal é que a gente te ligue com a cotação já prontinha, posso te ligar nesse número do Whats mesmo?").
    - Se o cliente responder que o nome não é esse ou corrigir, aceite o nome digitado pelo cliente IMEDIATAMENTE com muita elegância humana: "Ah, me desculpe pelo equívoco! Qual é o nome correto da sua empresa para eu registrar aqui?".
    - Se o CNPJ for inválido ou tiver erro nos dígitos, diga educadamente: "Ops, parece que esse CNPJ tem algum dígito incorreto ou faltando. Consegue me enviar novamente por favor?". NUNCA invente nome de empresa nem preencha CNPJ inválido.
@@ -971,7 +983,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             completedAt: isCompleted ? (flowState.completedAt || now) : null,
             outcome: isCompleted ? (wasAlreadyCompleted ? flowState.outcome : "transferred") : "in_progress",
           })
-          .where(eq(agentFlowStates.id, flowState.id));
+          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)));
 
         // Sincronizar o Contato no DB local (Nome, CNPJ, CPF, Receita Federal) e notificar a interface
         if (convCheck?.contactId) {
@@ -988,7 +1000,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           await db
             .update(messages)
             .set({ mediaInterpretation: aiResult.mediaDescription } as any)
-            .where(eq(messages.id, mediaItem.messageId || ""));
+            .where(and(eq(messages.id, mediaItem.messageId || ""), eq(messages.tenantId, tenantId)));
           console.log(`[SdrEngine] 📸 Interpretação de mídia salva na mensagem ${mediaItem.messageId}: "${aiResult.mediaDescription.slice(0, 60)}..."`);
         } catch (mediaErr: any) {
           // Não é crítico — falha silenciosa para não bloquear o fluxo
@@ -1019,7 +1031,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const numericQuantity = parseInt(String(quantityVal).replace(/\D/g, ""), 10);
       const isVip = !isNaN(numericQuantity) && numericQuantity >= 50000;
 
-      if (!meta.callTriggered && (isFrustrated || wantsCall || isVip) && !signal?.aborted) {
+      if (tenantId === "valem" && !meta.callTriggered && (isFrustrated || wantsCall || isVip) && !signal?.aborted) {
         let callReason = "";
         let announceText = "";
 
@@ -1039,7 +1051,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         // Marcar que a ligação foi disparada para não repetir
         if (flowState) {
           const newMeta = { ...meta, callTriggered: true, callReason };
-          await db.update(agentFlowStates).set({ metadata: newMeta }).where(eq(agentFlowStates.id, flowState.id));
+          await db.update(agentFlowStates).set({ metadata: newMeta }).where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)));
         }
 
         // 1. Enviar aviso de áudio dinâmico (ElevenLabs) anunciando a ligação
@@ -1079,7 +1091,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         // Verificar se DB já tem mensagens bot para esta conversa
         const existingBotMsg = await db.select({ id: messages.id })
           .from(messages)
-          .where(eq(messages.conversationId, conversationId))
+          .where(
+            and(
+              eq(messages.tenantId, tenantId),
+              eq(messages.conversationId, conversationId)
+            )
+          )
           .limit(1);
         const botAlreadyResponded = existingBotMsg.length > 0;
 
@@ -1129,7 +1146,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         const aiPersonaForGreeting = getAiPersona(tenantId);
         const greetingMessages = [
           greeting,
-          `Eu sou a ${aiPersonaForGreeting.name}, da ${aiPersonaForGreeting.company} 😊`,
+          `Eu sou ${aiPersonaForGreeting.gender === "female" ? "a" : "o"} ${aiPersonaForGreeting.name}, da ${aiPersonaForGreeting.company} 😊`,
         ];
         console.log(`[SdrEngine] 👋 Injetando greeting via código (isFirstMessage=true): ${JSON.stringify(greetingMessages)}`);
         await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal);
@@ -1328,12 +1345,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         createdAt: new Date(),
       }).onConflictDoNothing();
 
+      const persona = getAiPersona(tenantId);
+      const botSenderName = `${persona.name} (SDR)`;
+
       await db.insert(messages).values({
         id: botMessageId,
         tenantId,
         conversationId,
         senderType: "bot",
-        senderName: "Valentina (SDR)",
+        senderName: botSenderName,
         content: `[MEDIA:audio]${botMessageId}`,
         mediaInterpretation: cleanText, // 👈 MEMÓRIA EXATA DO QUE A VALENTINA DISSE NO ÁUDIO!
         isInternalNote: false,
@@ -1342,14 +1362,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       await db.update(conversations)
         .set({ lastMessageText: displayContent, lastMessageTime: new Date() })
-        .where(eq(conversations.id, conversationId));
+        .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
 
       // Persistir buffer de áudio em mediaFiles para tocar na interface web
       try {
         const { mediaFiles } = await import("../../db/schema");
         await db.insert(mediaFiles).values({
           id: botMessageId,
-          fileName: "valentina_audio.ogg",
+          tenantId,
+          fileName: `${persona.name.toLowerCase()}_audio.ogg`,
           mimeType: pttResult.mimeType,
           base64Data: pttResult.buffer.toString("base64"),
           createdAt: new Date(),
@@ -1357,7 +1378,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       } catch { /* não crítico */ }
 
       const currentConv = await db.query.conversations.findFirst({
-        where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
       });
 
       SessionManager.getInstance().notifyPublic(tenantId, {
@@ -1366,7 +1388,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           id: botMessageId,
           conversationId,
           senderType: "bot",
-          senderName: "Valentina (SDR)",
+          senderName: botSenderName,
           content: `[MEDIA:audio]${botMessageId}`,
           sentAt: new Date(),
           queue: currentConv?.queueState || "automacao",
@@ -1397,6 +1419,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     }
 
     const realJid = await resolveRealJid(sock, phone);
+    const persona = getAiPersona(tenantId);
+    const botSenderName = `${persona.name} (SDR)`;
 
     // Resolver a mensagem a ser citada no WhatsApp (Quoted Reply)
     let finalQuoteObj: any = null;
@@ -1406,7 +1430,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         const [dbMsg] = await db
           .select()
           .from(messages)
-          .where(eq(messages.id, targetQuoteMessageId));
+          .where(and(eq(messages.id, targetQuoteMessageId), eq(messages.tenantId, tenantId)));
 
         if (dbMsg) {
           finalQuoteObj = {
@@ -1419,7 +1443,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               conversation: dbMsg.content,
             },
           };
-          console.log(`[SdrEngine] 💬 Citação configurada para a mensagem ${dbMsg.id} (${dbMsg.senderType === "bot" ? "Valentina" : "Cliente"}): "${dbMsg.content.slice(0, 35)}..."`);
+          console.log(`[SdrEngine] 💬 Citação configurada para a mensagem ${dbMsg.id} (${dbMsg.senderType === "bot" ? persona.name : "Cliente"}): "${dbMsg.content.slice(0, 35)}..."`);
         }
       } catch (err: any) {
         console.warn("[SdrEngine] Falha ao buscar mensagem citada no banco:", err?.message);
@@ -1501,7 +1525,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         tenantId,
         conversationId,
         senderType: "bot",
-        senderName: "Valentina (SDR)",
+        senderName: botSenderName,
         content: fragmentText,
         isInternalNote: false,
         quotedMessageId: quotedMsgId,
@@ -1512,7 +1536,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // Buscar dados atualizados da conversa e do contato para enviar no SSE
       const currentConv = await db.query.conversations.findFirst({
-        where: (t, { eq: dEq }) => dEq(t.id, conversationId),
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
       });
 
       let currentWalletOpId: string | null = null;
@@ -1520,7 +1545,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       let currentRdCrmDealLink: string | null = null;
 
       if (currentConv?.contactId) {
-        const [cnt] = await db.select().from(contacts).where(eq(contacts.id, currentConv.contactId));
+        const [cnt] = await db
+          .select()
+          .from(contacts)
+          .where(and(eq(contacts.id, currentConv.contactId), eq(contacts.tenantId, tenantId)));
         if (cnt) {
           currentWalletOpId = cnt.walletOperatorId || null;
           currentRdCrmDealId = cnt.rdCrmDealId || null;
@@ -1534,7 +1562,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           id: botMessageId,
           conversationId,
           senderType: "bot",
-          senderName: "Valentina (SDR)",
+          senderName: botSenderName,
           content: fragmentText,
           sentAt: new Date(),
           quotedMessageId: quotedMsgId,

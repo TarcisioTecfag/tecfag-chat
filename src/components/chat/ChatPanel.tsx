@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
+import { getAiPersona } from "@/lib/ai-persona";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -490,6 +491,8 @@ export function ChatPanel() {
     clientTypingStatus,
     isValentinaTyping,
   } = useChat();
+
+  const aiPersona = getAiPersona(tenant || "valem");
 
   const activeTyping = activeChat ? clientTypingStatus[activeChat.id] : null;
 
@@ -2347,7 +2350,7 @@ export function ChatPanel() {
               className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1 text-primary hover:opacity-85"
             >
               <Sparkles className="h-3 w-3" />
-              <span>Valentina</span>
+              <span>{aiPersona.name}</span>
             </button>
             {canSendInternalNotes && (
               <button

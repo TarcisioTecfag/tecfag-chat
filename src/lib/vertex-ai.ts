@@ -62,7 +62,7 @@ async function logAiUsage(data: {
     const cost = calculateVertexCost(data.model, data.promptTokens, data.completionTokens);
     await db.insert(aiUsageLogs).values({
       id: uuidv4(),
-      tenantId: data.tenantId || "valem",
+      tenantId: data.tenantId,
       feature: data.feature || "general",
       model: data.model,
       promptTokens: data.promptTokens,
@@ -203,7 +203,10 @@ class VertexAiService {
     const startTime = Date.now();
     const accessToken = await this.getAccessToken();
     const model = modelName || this.defaultModelName;
-    const tenantId = context?.tenantId || "valem";
+    const tenantId = context?.tenantId;
+    if (!tenantId) {
+      throw new Error("[VertexAI] Violação arquitetural de isolamento: tenantId é estritamente obrigatório em todas as chamadas Vertex AI (AGENTS.md).");
+    }
     const feature = context?.feature || "general";
 
     if (!accessToken) {
@@ -326,6 +329,11 @@ class VertexAiService {
   ): AsyncGenerator<string, void, unknown> {
     const accessToken = await this.getAccessToken();
     if (!accessToken) throw new Error("[VertexAI Stream] Sem token de acesso");
+
+    const tenantId = context?.tenantId;
+    if (!tenantId) {
+      throw new Error("[VertexAI Stream] Violação arquitetural de isolamento: tenantId é estritamente obrigatório em todas as chamadas Vertex AI (AGENTS.md).");
+    }
 
     const model = modelName || this.defaultModelName;
     const url =

@@ -4,12 +4,36 @@ import postgres from "postgres";
 
 const migrations = [
   {
+    name: "0009_crm_core_foundation",
+    url: new URL("../src/db/migrations/0009_crm_core_foundation.sql", import.meta.url),
+  },
+  {
+    name: "0010_crm_products_proposals",
+    url: new URL("../src/db/migrations/0010_crm_products_proposals.sql", import.meta.url),
+  },
+  {
     name: "0011_platform_access",
     url: new URL("../src/db/migrations/0011_platform_access.sql", import.meta.url),
   },
   {
     name: "bootstrap_platform_manager_existing_operator",
     url: new URL("./migrations/bootstrap-platform-manager-existing-operator.sql", import.meta.url),
+  },
+  {
+    name: "0012_crm_deal_value_nullable",
+    url: new URL("../src/db/migrations/0012_crm_deal_value_nullable.sql", import.meta.url),
+  },
+  {
+    name: "0013_platform_access",
+    url: new URL("../src/db/migrations/0013_platform_access.sql", import.meta.url),
+  },
+  {
+    name: "0014_crm_migration_and_sync_policy",
+    url: new URL("../src/db/migrations/0014_crm_migration_and_sync_policy.sql", import.meta.url),
+  },
+  {
+    name: "0015_crm_extended_parity",
+    url: new URL("../src/db/migrations/0015_crm_extended_parity.sql", import.meta.url),
   },
 ];
 const databaseUrl = process.env.DATABASE_URL;

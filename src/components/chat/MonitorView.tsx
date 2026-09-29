@@ -2155,7 +2155,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   Atendimento em Triagem
                 </h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  <strong className="text-foreground">{valentinaPending.contactName}</strong> está em triagem com a Valentina SDR.
+                  <strong className="text-foreground">{valentinaPending.contactName}</strong> está em triagem com {aiPersona.gender === 'female' ? 'a' : 'o'} {aiPersona.name} SDR.
                   <br />
                   Gostaria de ver esse atendimento?
                 </p>
@@ -3170,7 +3170,9 @@ export function CostsTab({ tenant }: { tenant: string }) {
               <SelectItem value="all" className="cursor-pointer text-xs">Todas Funcionalidades</SelectItem>
               <SelectItem value="sdr_agent" className="cursor-pointer text-xs">SDR Bot (Triagem)</SelectItem>
               <SelectItem value="conversation_audit" className="cursor-pointer text-xs">Auditoria QA</SelectItem>
-              <SelectItem value="supervisor_chat" className="cursor-pointer text-xs">Valentina Chat</SelectItem>
+              <SelectItem value="supervisor_chat" className="cursor-pointer text-xs">Supervisor Chat</SelectItem>
+              <SelectItem value="valentina_chat" className="cursor-pointer text-xs">Valentina Chat</SelectItem>
+              <SelectItem value="fagner_chat" className="cursor-pointer text-xs">Fagner Chat</SelectItem>
               <SelectItem value="sla_advisor" className="cursor-pointer text-xs">Análise SLA</SelectItem>
             </SelectContent>
           </Select>
@@ -3421,10 +3423,15 @@ export function CostsTab({ tenant }: { tenant: string }) {
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${
                           log.feature === "sdr_agent" ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20" :
                           log.feature === "conversation_audit" ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" :
-                          log.feature === "supervisor_chat" ? "bg-primary/10 text-primary border border-primary/20" :
+                          log.feature === "supervisor_chat" || log.feature === "valentina_chat" || log.feature === "fagner_chat" ? "bg-primary/10 text-primary border border-primary/20" :
                           "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                         }`}>
-                          {log.feature === "sdr_agent" ? "SDR Bot" : log.feature === "conversation_audit" ? "Auditoria QA" : log.feature === "supervisor_chat" ? "Valentina Chat" : "SLA Engine"}
+                          {log.feature === "sdr_agent" ? "SDR Bot" :
+                           log.feature === "conversation_audit" ? "Auditoria QA" :
+                           log.feature === "supervisor_chat" ? "Supervisor Chat" :
+                           log.feature === "valentina_chat" ? "Valentina Chat" :
+                           log.feature === "fagner_chat" ? "Fagner Chat" :
+                           log.feature === "sla_advisor" ? "Análise SLA" : log.feature}
                         </span>
                       </td>
                       <td className="py-2 px-3.5 font-semibold text-[11px] text-foreground">

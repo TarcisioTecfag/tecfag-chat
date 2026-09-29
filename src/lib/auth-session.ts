@@ -129,11 +129,9 @@ export function extractSessionToken(request: Request): string | null {
 }
 
 /**
- * Obtém e valida a sessão do servidor a partir da requisição.
- * Retorna o contexto completo com operador sanitizado e permissões, ou null se não autenticado.
+ * Obtém e valida a sessão a partir de um token bruto de sessão.
  */
-export async function getAuthSession(request: Request): Promise<AuthSessionContext | null> {
-  const token = extractSessionToken(request);
+export async function getAuthSessionByToken(token: string): Promise<AuthSessionContext | null> {
   if (!token) return null;
 
   const tokenHash = hashSessionToken(token);
@@ -206,6 +204,16 @@ export async function getAuthSession(request: Request): Promise<AuthSessionConte
     permissions,
     expiresAt: sessionRow.expiresAt,
   };
+}
+
+/**
+ * Obtém e valida a sessão do servidor a partir da requisição.
+ * Retorna o contexto completo com operador sanitizado e permissões, ou null se não autenticado.
+ */
+export async function getAuthSession(request: Request): Promise<AuthSessionContext | null> {
+  const token = extractSessionToken(request);
+  if (!token) return null;
+  return getAuthSessionByToken(token);
 }
 
 /**

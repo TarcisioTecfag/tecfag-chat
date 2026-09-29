@@ -1,8 +1,9 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { db } from "@/db";
 import { lcTrayConfig } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
+import { requireSession } from "@/lib/auth-session";
 
 const uuid = () => crypto.randomUUID();
 
@@ -19,14 +20,11 @@ export const Route = createFileRoute("/api/livechat/tray-config")({
         return new Response(null, { status: 204, headers: corsHeaders });
       },
       GET: async ({ request }: { request: Request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         try {
           const [config] = await db.select().from(lcTrayConfig).where(eq(lcTrayConfig.tenantId, tenantId)).limit(1);
           if (!config) {
@@ -48,10 +46,22 @@ export const Route = createFileRoute("/api/livechat/tray-config")({
         }
       },
       POST: async ({ request }: { request: Request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+
+        if (session.operator.role !== "admin") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores podem configurar a integração Tray.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const tenantId = session.tenantId;
+
         try {
           const body = (await request.json()) as any;
           const {
-            tenantId,
             apiAddress,
             consumerKey,
             consumerSecret,
@@ -60,12 +70,7 @@ export const Route = createFileRoute("/api/livechat/tray-config")({
             sessionTtlHours,
             attackQualifyScore,
           } = body;
-          if (!tenantId) {
-            return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
+
           if (!apiAddress) {
             return new Response(JSON.stringify({ error: "apiAddress é obrigatório" }), {
               status: 400,
@@ -80,7 +85,7 @@ export const Route = createFileRoute("/api/livechat/tray-config")({
               .set({
                 apiAddress,
                 consumerKey,
-                consumerSecret,
+                consumerSecret: consumerSecret || existing[0].consumerSecret,
                 proactiveMessage,
                 proactiveDelaySec,
                 sessionTtlHours,

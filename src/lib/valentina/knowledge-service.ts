@@ -3,6 +3,7 @@ import { knowledgeFiles, knowledgeFolders } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getAiPersona } from "../ai-persona";
 
 // Diretório físico onde as mídias de Formato Real são salvas.
 // Usa import.meta.url (igual ao knowledge.ts) para resolver corretamente
@@ -43,7 +44,7 @@ const VALEM_CORE_COMMERCIAL_POLICIES = `
    - SELADORAS E MÁQUINAS:
      * Seladoras manuais, contínuas, a vácuo e embaladoras industriais.
 
-3. REGRAS DE CONDUTA DA VALENTINA:
+3. REGRAS DE CONDUTA DA ATENDENTE:
    - Se o cliente mandar foto ou pedir um item (ex: Pote de Vidro Âmbar 10ml), confirme com entusiasmo e apresente os detalhes reais do produto.
    - Se o cliente pedir quantidade < 50 un (ex: 10 unidades), oriente com carinho que o mínimo no site é 50 unidades (ou indique o Mercado Livre para 10 unidades).
    - Se o cliente disser que NÃO quer mais um item ou que não pediu (ex: "não pedi trigger", "esquece isso"), desconsidere imediatamente e foque no produto atual.
@@ -105,7 +106,14 @@ export async function getRealMediaFiles(tenantId: string): Promise<RealMediaFile
  * Busca o contexto consolidado de todos os arquivos da base de conhecimento
  * salvos para alimentar o prompt do Gemini (SDR e Supervisor) e ligações (Twilio/ElevenLabs).
  */
-export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promise<string> {
+export async function getKnowledgeBaseContext(tenantId: string): Promise<string> {
+  if (!tenantId) {
+    throw new Error("[knowledge-service] tenantId é obrigatório ao buscar contexto da base de conhecimento (AGENTS.md).");
+  }
+
+  const persona = getAiPersona(tenantId);
+  const corePolicies = tenantId === "valem" ? VALEM_CORE_COMMERCIAL_POLICIES : "";
+
   try {
     const files = await db
       .select()
@@ -126,34 +134,26 @@ export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promi
         && f.format !== "real" // Arquivos Formato Real não entram no RAG de texto
     );
 
-    // Compila catálogo de fotos reais disponíveis para a Valentina.
-    // Agrupa por produto (código SKU entre colchetes no nome do arquivo) —
-    // mantém apenas a Foto 1 de cada produto para não inflar o prompt.
-    // Ex: "[180013] Frasco Plástico Branco Airless PET 30ml - Foto 1.jpg" e "Foto 2.jpg"
-    //     → inclui só a Foto 1 no catálogo
+    // Compila catálogo de fotos reais disponíveis.
     const seenSkus = new Set<string>();
     const realMediaFiles = files
       .filter(f => f.format === "real" && f.content)
       .map(f => {
-        // Separa o prefixo "[FORMATO_REAL:url]" do resto (que pode conter base64 enorme)
         const contentPrefix = (f.content || "").split("[BASE64:")[0];
         const match = contentPrefix.match(REAL_MEDIA_PATTERN);
         if (!match) {
           console.log(`[KnowledgeService] ⚠️ REAL_MEDIA_PATTERN não encontrou match no arquivo: name="${f.name}" | contentPrefix="${contentPrefix.substring(0, 100)}"`);
           return null;
         }
-        // Extrai SKU do nome (ex: "[180013]" ou "180013") para deduplicação
         const skuMatch = f.name.match(/^\[?(\d{5,})\]?/);
         const sku = skuMatch ? skuMatch[1] : f.name;
-        // Inclui só a primeira foto de cada produto no catálogo
         if (seenSkus.has(sku)) return null;
         seenSkus.add(sku);
         return `  - "${f.name}" → URL: ${match[1]}`;
       })
       .filter(Boolean);
 
-    // 🔍 Diagnóstico: logar catálogo construído
-    console.log(`[KnowledgeService] 📸 Catálogo Formato Real: ${realMediaFiles.length} foto(s) no prompt | Entradas: ${JSON.stringify(realMediaFiles)}`);
+    console.log(`[KnowledgeService] 📸 Catálogo Formato Real (${tenantId}): ${realMediaFiles.length} foto(s)`);
 
     let additionalDocs = "";
     if (activeFiles.length > 0) {
@@ -169,25 +169,24 @@ export async function getKnowledgeBaseContext(tenantId: string = "valem"): Promi
       ? `\n\n📸 FOTOS REAIS DISPONÍVEIS PARA ENVIO (Formato Real):
 Você pode enviar essas fotos ao cliente durante o atendimento usando a tag [SEND_IMAGE:URL].
 Exemplos de uso:
-  - Cliente pede "válvula pump" → identifique o produto na lista abaixo e emita [SEND_IMAGE:URL] antes da mensagem de confirmação.
+  - Cliente pede fotos do produto → identifique o produto na lista abaixo e emita [SEND_IMAGE:URL] antes da mensagem de confirmação.
   - Fluxo obrigatório: 1. Envie a imagem com [SEND_IMAGE:URL]. 2. Pergunte: "Esse seria o modelo que você está procurando?" 3. Se SIM → prossiga. Se NÃO → peça mais detalhes ou foto de referência. NÃO insista.
 Lista de fotos cadastradas:
 ${realMediaFiles.join("\n")}`
       : "";
 
-    return `\n\n📚 BASE DE CONHECIMENTO, REGRAS COMERCIAIS E CATÁLOGO OFICIAL VALEMPACK:
-${VALEM_CORE_COMMERCIAL_POLICIES}
+    return `\n\n📚 BASE DE CONHECIMENTO & DIRETRIZES (${persona.company}):
+${corePolicies}
 
 ${additionalDocs ? `DOCUMENTOS ADICIONAIS DA BASE:\n${additionalDocs}\n` : ""}
 ${realMediaSection}
 
 DIRETRIZ CRÍTICA DE USO DA BASE DE CONHECIMENTO:
-1. Você tem autoridade total para usar as informações e regras fiscais/comerciais acima para responder com precisão matemática e comercial a qualquer dúvida do cliente.
-2. NUNCA contradiga as regras de pedido mínimo (1.000 un atacado WhatsApp CNPJ; 50 un site para CPF ou volumes menores).
-3. Responda sempre com segurança, precisão técnica e simpatia comercial humana antes de prosseguir com a qualificação.`;
+1. Você tem autoridade total para usar as informações e regras técnicas/comerciais acima para responder com precisão e segurança a qualquer dúvida do cliente.
+2. Responda sempre com segurança, precisão técnica e empatia antes de prosseguir com a qualificação.`;
   } catch (err: any) {
     console.warn("[knowledge-service] Aviso ao carregar contexto da base de conhecimento:", err?.message);
-    return `\n\n📚 BASE DE CONHECIMENTO & REGRAS VALEMPACK:\n${VALEM_CORE_COMMERCIAL_POLICIES}`;
+    return `\n\n📚 BASE DE CONHECIMENTO (${persona.company}):\n${corePolicies}`;
   }
 }
 

@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getAiPersona } from "@/lib/ai-persona";
 
 interface ValentinaAssistantModalProps {
   isOpen: boolean;
@@ -37,31 +38,37 @@ interface ActionCard {
   requiresDraft?: boolean;
 }
 
-const ACTION_CARDS: ActionCard[] = [
-  {
-    id: "best_response",
-    title: "Melhor Resposta",
-    description:
-      "Lê o histórico recente e sugere uma resposta comercial rápida, objetiva e natural para o WhatsApp.",
-    icon: Sparkles,
-    badge: "Mais Rápido",
-  },
-  {
-    id: "grammar_fix",
-    title: "Corretor Gramatical",
-    description:
-      "Corrige pontuação, acentuação e expande abreviações (ex: vc → você, mt → muito) no seu rascunho.",
-    icon: CheckCircle2,
-    requiresDraft: true,
-  },
-  {
-    id: "lead_summary",
-    title: "Resumo do Lead",
-    description:
-      "Gera uma síntese estruturada da conversa (necessidade, perfil e próximo passo) para anotação interna.",
-    icon: FileText,
-  },
-];
+function getActionCards(aiPersonaName: string): ActionCard[] {
+  return [
+    {
+      id: "best_response",
+      title: "Melhor Resposta",
+      description:
+        aiPersonaName === "Valentina"
+          ? "Lê o histórico recente e sugere uma resposta comercial rápida, objetiva e natural para o WhatsApp."
+          : "Lê o histórico recente e sugere uma orientação técnica clara, rápida e objetiva para o atendimento.",
+      icon: Sparkles,
+      badge: "Mais Rápido",
+    },
+    {
+      id: "grammar_fix",
+      title: "Corretor Gramatical",
+      description:
+        "Corrige pontuação, acentuação e expande abreviações (ex: vc → você, mt → muito) no seu rascunho.",
+      icon: CheckCircle2,
+      requiresDraft: true,
+    },
+    {
+      id: "lead_summary",
+      title: aiPersonaName === "Valentina" ? "Resumo do Lead" : "Resumo do Atendimento",
+      description:
+        aiPersonaName === "Valentina"
+          ? "Gera uma síntese estruturada da conversa (necessidade, perfil e próximo passo) para anotação interna."
+          : "Gera uma síntese estruturada do atendimento (necessidade técnica, ambiente e próximo passo) para anotação interna.",
+      icon: FileText,
+    },
+  ];
+}
 
 export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = ({
   isOpen,
@@ -74,6 +81,8 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
   operatorName = "Vendedor",
   onApplyText,
 }) => {
+  const aiPersona = getAiPersona(tenantId || "valem");
+  const actionCards = getActionCards(aiPersona.name);
   const [selectedAction, setSelectedAction] = useState<AssistantAction | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [generatedText, setGeneratedText] = useState<string>("");
@@ -110,14 +119,14 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Erro ao consultar a Valentina");
+        throw new Error(data.error || `Erro ao consultar ${aiPersona.name}`);
       }
 
       setGeneratedText(data.text);
     } catch (err: any) {
       console.error("[ValentinaAssistantModal] Erro:", err);
       setErrorMessage(err.message || "Não foi possível gerar a resposta no momento.");
-      toast.error(err.message || "Erro ao gerar resposta com a Valentina");
+      toast.error(err.message || `Erro ao gerar resposta com ${aiPersona.name}`);
     } finally {
       setIsLoading(false);
     }
@@ -164,13 +173,17 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-foreground">Assistente Valentina</h3>
+                <h3 className="text-sm font-bold text-foreground">Assistente {aiPersona.name}</h3>
                 <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary border border-primary/20">
-                  IA Comercial
+                  {aiPersona.name === "Valentina" ? "IA Comercial" : "IA Técnica"}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                {contactName ? `Atendimento: ${contactName}` : "Suporte inteligente para o vendedor"}
+                {contactName
+                  ? `Atendimento: ${contactName}`
+                  : aiPersona.name === "Valentina"
+                  ? "Suporte inteligente para o vendedor"
+                  : "Suporte inteligente para o consultor técnico"}
               </p>
             </div>
           </div>
@@ -193,7 +206,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
               </div>
 
               <div className="grid gap-2.5">
-                {ACTION_CARDS.map((card) => {
+                {actionCards.map((card) => {
                   const Icon = card.icon;
                   const isGrammarDisabled =
                     card.requiresDraft && (!currentDraftText || !currentDraftText.trim());
@@ -261,15 +274,19 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
               </div>
               <div className="text-center space-y-1">
                 <h4 className="text-sm font-bold text-foreground">
-                  Valentina analisando a conversa...
+                  {aiPersona.name} analisando a conversa...
                 </h4>
                 <p className="text-xs text-muted-foreground max-w-sm">
                   {selectedAction === "best_response" &&
-                    "Lendo o histórico e formulando a melhor proposta comercial..."}
+                    (aiPersona.name === "Valentina"
+                      ? "Lendo o histórico e formulando a melhor proposta comercial..."
+                      : "Lendo o histórico e formulando a melhor orientação técnica...")}
                   {selectedAction === "grammar_fix" &&
                     "Revisando ortografia, pontuação e gramática em português..."}
                   {selectedAction === "lead_summary" &&
-                    "Consolidando necessidade, perfil e próximos passos do atendimento..."}
+                    (aiPersona.name === "Valentina"
+                      ? "Consolidando necessidade, perfil e próximos passos do atendimento..."
+                      : "Consolidando necessidade técnica e próximos passos do chamado...")}
                 </p>
               </div>
             </div>

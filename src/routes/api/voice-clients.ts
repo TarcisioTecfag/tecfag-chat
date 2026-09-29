@@ -1,10 +1,11 @@
 // src/routes/api/voice-clients.ts
-// Agrega clientes únicos das ligações cruzando voice_calls e ElevenLabs com contacts pelo número de telefone
+// Agrega clientes únicos das ligações cruzando voice_calls com contacts pelo número de telefone
 
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { voiceCalls, contacts } from "../../db/schema";
 import { eq, desc } from "drizzle-orm";
+import { requireSession } from "../../lib/auth-session";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -66,19 +67,13 @@ export const Route = createFileRoute("/api/voice-clients")({
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
 
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-
-        // Validação obrigatória do tenantId
-        const tenantId = url.searchParams.get("tenantId");
-        if (!tenantId) {
-          return new Response(
-            JSON.stringify({ error: "tenantId é obrigatório" }),
-            { status: 400, headers: CORS_HEADERS }
-          );
-        }
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
         try {
-          // 1. Busca todas as ligações locais do banco
+          // 1. Busca todas as ligações locais do banco deste tenant
           let callsList: any[] = [];
           try {
             callsList = await db
@@ -88,7 +83,7 @@ export const Route = createFileRoute("/api/voice-clients")({
               .orderBy(desc(voiceCalls.createdAt))
               .limit(500);
           } catch {
-            // Tabela pode estar vazia ou recém criada
+            // Tabela pode estar vazia
           }
 
           // 2. Busca todos os contatos do tenant
@@ -102,7 +97,7 @@ export const Route = createFileRoute("/api/voice-clients")({
             // Ignora se tabela vazia
           }
 
-          // 3. Busca conversas do ElevenLabs para garantir que nenhuma ligação fique de fora
+          // 3. Busca conversas externas da ElevenLabs (se configurado)
           const apiKey = process.env.ELEVENLABS_API_KEY;
           const agentId = process.env.ELEVENLABS_AGENT_ID;
           let elevenConversations: any[] = [];
@@ -186,19 +181,24 @@ export const Route = createFileRoute("/api/voice-clients")({
             }
           }
 
-          // Processa conversas da ElevenLabs
+          // Processa conversas da ElevenLabs vinculando apenas aquelas comprovadas no tenant
           for (const conv of elevenConversations) {
             const convId = conv.conversation_id;
+            const matchedLocal = callsList.find(c => c.campaignId === convId || c.id === convId);
+
+            // Não processa chamadas de outros tenants sem vínculo local
+            if (!matchedLocal) continue;
+
             const startUnix = Number(conv.start_time_unix_secs || 0);
             const callDate = startUnix ? new Date(startUnix * 1000).toISOString() : new Date().toISOString();
             const meta = conv.metadata || {};
             const sentLabel = meta.sentiment_analysis?.overall_label || "neutral";
 
-            // Procura se já está nas chamadas locais
-            const matchedLocal = callsList.find(c => c.campaignId === convId || c.id === convId);
-            const rawPhone = matchedLocal
-              ? (matchedLocal.toNumber && matchedLocal.toNumber !== "Valem Line" ? matchedLocal.toNumber : matchedLocal.fromNumber)
-              : "14998364338"; // Telefone principal de teste / operação
+            const rawPhone = matchedLocal.toNumber && matchedLocal.toNumber !== "Valem Line"
+              ? matchedLocal.toNumber
+              : matchedLocal.fromNumber;
+
+            if (!rawPhone) continue;
 
             const cleanPhone = cleanPhoneDigits(rawPhone);
             const keyPhone = cleanPhone.slice(-9) || cleanPhone;
@@ -216,7 +216,7 @@ export const Route = createFileRoute("/api/voice-clients")({
 
             if (clientMap.has(keyPhone)) {
               const existing = clientMap.get(keyPhone)!;
-              if (!existing.calls.some(c => c.id === convId || (matchedLocal && c.id === matchedLocal.id))) {
+              if (!existing.calls.some(c => c.id === convId || c.id === matchedLocal.id)) {
                 existing.calls.push(callEntry);
                 existing.totalCalls += 1;
                 if (callDate > existing.lastCallDate) {
@@ -230,7 +230,7 @@ export const Route = createFileRoute("/api/voice-clients")({
             } else {
               clientMap.set(keyPhone, {
                 phone: rawPhone,
-                contactId: matchedLocal?.contactId || null,
+                contactId: matchedLocal.contactId || null,
                 name: formatPhoneDisplay(rawPhone),
                 avatar: null,
                 rdCrmDealLink: null,
@@ -248,7 +248,7 @@ export const Route = createFileRoute("/api/voice-clients")({
             }
           }
 
-          // 5. Cruza com os contatos da tabela contacts do WhatsApp
+          // 5. Cruza com os contatos da tabela contacts do WhatsApp deste tenant
           for (const [keyPhone, clientData] of clientMap.entries()) {
             const cleanTarget = cleanPhoneDigits(clientData.phone);
             const suffix8 = cleanTarget.slice(-8);
@@ -297,4 +297,3 @@ export const Route = createFileRoute("/api/voice-clients")({
     },
   },
 });
-

@@ -1,5 +1,6 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { getActiveVisitors } from "@/lib/livechat/livechatStorage";
+import { requireSession } from "@/lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,14 +15,11 @@ export const Route = createFileRoute("/api/livechat/visitors")({
         return new Response(null, { status: 204, headers: corsHeaders });
       },
       GET: async ({ request }: { request: Request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         try {
           const visitors = await getActiveVisitors(tenantId);
           return new Response(JSON.stringify({ visitors }), {

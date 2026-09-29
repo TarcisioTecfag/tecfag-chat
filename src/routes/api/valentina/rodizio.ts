@@ -4,6 +4,7 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import { RodizioEngine } from "../../../lib/valentina/rodizio-engine";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,10 +18,12 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
-        try {
-          const url = new URL(request.url);
-          const tenantId = url.searchParams.get("tenantId") || "valem";
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
+        try {
           const operators = await RodizioEngine.getRodizioState(tenantId);
 
           return new Response(JSON.stringify({ operators }), {
@@ -37,9 +40,22 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
       },
 
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+
+        if (session.operator.role !== "admin") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores podem gerenciar o rodízio.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const tenantId = session.tenantId;
+
         try {
           const body = await request.json();
-          const { action, tenantId = "valem", operators: updatedOps } = body;
+          const { action, operators: updatedOps } = body;
 
           if (action === "reset") {
             const resetOps = await RodizioEngine.resetRodizioCounters(tenantId);

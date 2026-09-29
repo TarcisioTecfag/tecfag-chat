@@ -20,10 +20,13 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
+import { getAiPersona } from "@/lib/ai-persona";
+
 export function Sidebar() {
   const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, setIsProfileModalOpen, currentGroup } = useChat();
   const { canAccessView } = usePermissions();
   const [showDropdown, setShowDropdown] = useState(false);
+  const persona = getAiPersona(tenant || "valem");
 
   const navItems = [
     { id: "chat", icon: Users, label: "Chat" },
@@ -34,7 +37,7 @@ export function Sidebar() {
   ].filter((item) => canAccessView(item.id as any));
 
   const decorativeItems = [
-    { id: "valentina", icon: Bot,      label: "Valentina",           isAvailable: true },
+    { id: "valentina", icon: Bot,      label: persona.name,          isAvailable: true },
     { id: "ligacoes",  icon: PhoneCall, label: "Ligações",           isAvailable: true },
     { id: "monitor",   icon: Eye,       label: "Monitorar",          isAvailable: true },
     { id: "analytics", icon: BarChart2, label: "Estatísticas",       isAvailable: true },

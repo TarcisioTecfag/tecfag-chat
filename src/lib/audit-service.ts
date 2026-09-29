@@ -131,7 +131,12 @@ export class AuditService {
     await db
       .update(aiConversationAudits)
       .set({ status: "processing" })
-      .where(eq(aiConversationAudits.id, auditId));
+      .where(
+        and(
+          eq(aiConversationAudits.id, auditId),
+          eq(aiConversationAudits.tenantId, tenantId)
+        )
+      );
 
     try {
       // 1. Coleta a transcrição completa
@@ -144,7 +149,12 @@ export class AuditService {
           isInternalNote: messages.isInternalNote,
         })
         .from(messages)
-        .where(eq(messages.conversationId, conversationId))
+        .where(
+          and(
+            eq(messages.tenantId, tenantId),
+            eq(messages.conversationId, conversationId)
+          )
+        )
         .orderBy(messages.sentAt);
 
       // Filtra apenas mensagens visíveis (sem notas internas)
@@ -158,7 +168,12 @@ export class AuditService {
             status: "error",
             errorMessage: "Transcrição muito curta para auditoria (menos de 3 mensagens visíveis).",
           })
-          .where(eq(aiConversationAudits.id, auditId));
+          .where(
+            and(
+              eq(aiConversationAudits.id, auditId),
+              eq(aiConversationAudits.tenantId, tenantId)
+            )
+          );
         return;
       }
 
@@ -171,6 +186,7 @@ export class AuditService {
         .from(responseTimeLogs)
         .where(
           and(
+            eq(responseTimeLogs.tenantId, tenantId),
             eq(responseTimeLogs.conversationId, conversationId),
             isNotNull(responseTimeLogs.responseTimeSeconds)
           )
@@ -225,7 +241,12 @@ export class AuditService {
           rawAiResponse: result as any,
           auditedAt: new Date(),
         })
-        .where(eq(aiConversationAudits.id, auditId));
+        .where(
+          and(
+            eq(aiConversationAudits.id, auditId),
+            eq(aiConversationAudits.tenantId, tenantId)
+          )
+        );
 
       console.log(
         `[AuditService] ✓ Auditoria ${auditId} concluída — Score: ${result.performanceScore}/100`
@@ -243,7 +264,12 @@ export class AuditService {
           status: "error",
           errorMessage: e.message?.slice(0, 500) ?? "Erro desconhecido",
         })
-        .where(eq(aiConversationAudits.id, auditId));
+        .where(
+          and(
+            eq(aiConversationAudits.id, auditId),
+            eq(aiConversationAudits.tenantId, tenantId)
+          )
+        );
     }
   }
 
@@ -334,12 +360,17 @@ export class AuditService {
           frustratedCount: m.frustratedCount + (result.clientSentiment === "frustrado" ? 1 : 0),
           updatedAt: new Date(),
         })
-        .where(eq(operatorDailyMetrics.id, existing[0].id));
+        .where(
+          and(
+            eq(operatorDailyMetrics.id, existing[0].id),
+            eq(operatorDailyMetrics.tenantId, tenantId)
+          )
+        );
     } else {
       const op = await db
         .select({ name: operators.name })
         .from(operators)
-        .where(eq(operators.id, operatorId))
+        .where(and(eq(operators.id, operatorId), eq(operators.tenantId, tenantId)))
         .limit(1);
 
       await db.insert(operatorDailyMetrics).values({
@@ -369,11 +400,22 @@ export class AuditService {
     operatorId: string | null;
     contactName: string | null;
   }) {
-    // Verifica se já existe uma auditoria para essa conversa
+    // REGRA ARQUITETURAL (AGENTS.md): Auditorias de IA ativas apenas para valem até go-live do tecfag
+    if (params.tenantId !== "valem") {
+      console.log(`[AuditService] Auditoria ignorada para tenant "${params.tenantId}" (recurso desativado até go-live).`);
+      return;
+    }
+
+    // Verifica se já existe uma auditoria para essa conversa no mesmo tenant
     const existing = await db
       .select({ id: aiConversationAudits.id })
       .from(aiConversationAudits)
-      .where(eq(aiConversationAudits.conversationId, params.conversationId))
+      .where(
+        and(
+          eq(aiConversationAudits.tenantId, params.tenantId),
+          eq(aiConversationAudits.conversationId, params.conversationId)
+        )
+      )
       .limit(1);
 
     if (existing.length > 0) return; // Já enfileirada — ignora
@@ -388,7 +430,7 @@ export class AuditService {
       createdAt: new Date(),
     });
 
-    console.log(`[AuditService] Auditoria enfileirada para conversa ${params.conversationId}`);
+    console.log(`[AuditService] Auditoria enfileirada para conversa ${params.conversationId} (tenant: ${params.tenantId})`);
   }
 }
 

@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { agentConfigs, agentFlowStates } from "../../../db/schema";
 import { eq, and, count } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
+import { getAiPersona } from "../../../lib/ai-persona";
 
 // ── Headers CORS padrão ────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -10,28 +12,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-// ── Definição fixa dos 3 agentes Valentina ─────────────────────────────────────
-const AGENT_DEFINITIONS = [
-  {
-    agentType: "sdr",
-    name: "Valentina SDR",
-    description: "Qualifica leads automaticamente, coleta dados iniciais e agenda com vendedores",
-    icon: "Headset",
-  },
-  {
-    agentType: "supervisor",
-    name: "Valentina Supervisor",
-    description: "Monitora desempenho, sugere melhorias e responde dúvidas dos operadores",
-    icon: "Brain",
-  },
-  {
-    agentType: "vendedor",
-    name: "Valentina Vendedor",
-    description: "Auxilia vendedores com scripts, objeções e recomendações em tempo real",
-    icon: "TrendingUp",
-  },
-];
-
 export const Route = createFileRoute("/api/valentina/agents")({
   server: {
     handlers: {
@@ -39,18 +19,36 @@ export const Route = createFileRoute("/api/valentina/agents")({
 
       // ── GET: Status e métricas de todos os agentes ─────────────────────────
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        if (!tenantId) {
-          return new Response(
-            JSON.stringify({ error: "tenantId é obrigatório" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
+        const persona = getAiPersona(tenantId);
+
+        const agentDefinitions = [
+          {
+            agentType: "sdr",
+            name: `${persona.name} SDR`,
+            description: `Qualifica leads automaticamente da ${persona.company}, coleta dados iniciais e agenda com vendedores`,
+            icon: "Headset",
+          },
+          {
+            agentType: "supervisor",
+            name: `${persona.name} Supervisor`,
+            description: "Monitora desempenho, sugere melhorias e responde dúvidas dos operadores",
+            icon: "Brain",
+          },
+          {
+            agentType: "vendedor",
+            name: `${persona.name} Consultor`,
+            description: "Auxilia atendentes com scripts, respostas técnicas e recomendações em tempo real",
+            icon: "TrendingUp",
+          },
+        ];
 
         try {
-          // Buscar configs reais do banco (se existirem)
+          // Buscar configs reais do banco
           let configs: any[] = [];
           try {
             configs = await db
@@ -64,7 +62,7 @@ export const Route = createFileRoute("/api/valentina/agents")({
           // Contar fluxos ativos por tipo de agente
           let flowCounts: Record<string, number> = {};
           try {
-            for (const def of AGENT_DEFINITIONS) {
+            for (const def of agentDefinitions) {
               const result = await db
                 .select({ count: count() })
                 .from(agentFlowStates)
@@ -80,12 +78,11 @@ export const Route = createFileRoute("/api/valentina/agents")({
             // Tabela pode não existir ainda
           }
 
-          // Montar resposta com definições + dados reais ou mock
-          const agents = AGENT_DEFINITIONS.map((def) => {
+          // Montar resposta com definições parametrizadas por persona + dados reais
+          const agents = agentDefinitions.map((def) => {
             const dbConfig = configs.find((c) => c.agentType === def.agentType);
             const activeFlows = flowCounts[def.agentType] ?? 0;
 
-            // Métricas mock — serão substituídas por dados reais quando o engine estiver ativo
             const mockMetrics: Record<string, any> = {
               sdr: {
                 leadsQualificados: 47,

@@ -1,7 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { db } from '../../db'
 import { voiceCalls, contacts } from '../../db/schema'
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, and, or } from 'drizzle-orm'
+import { requireSession } from '../../lib/auth-session'
+import { getAiPersona } from '../../lib/ai-persona'
 
 const BASE = 'https://api.elevenlabs.io/v1/convai'
 
@@ -52,6 +54,11 @@ export const Route = createFileRoute('/api/elevenlabs-conversations')({
         }),
 
       GET: async ({ request }: { request: Request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         const apiKey = process.env.ELEVENLABS_API_KEY
         const agentId = process.env.ELEVENLABS_AGENT_ID
 
@@ -64,18 +71,30 @@ export const Route = createFileRoute('/api/elevenlabs-conversations')({
         }
 
         const url = new URL(request.url)
-
-        const tenantId = url.searchParams.get('tenantId')
-        if (!tenantId) {
-          return errorResponse('tenantId e obrigatorio', 400)
-        }
-
         const id = url.searchParams.get('id')
         const audio = url.searchParams.get('audio')
 
         const elevenHeaders = {
           'xi-api-key': apiKey,
           'Content-Type': 'application/json',
+        }
+
+        // Validação estrita: se buscar chamada específica ou áudio, comprovar pertinência ao tenant
+        if (id) {
+          const [callRecord] = await db
+            .select({ id: voiceCalls.id })
+            .from(voiceCalls)
+            .where(
+              and(
+                eq(voiceCalls.tenantId, tenantId),
+                or(eq(voiceCalls.id, id), eq(voiceCalls.campaignId, id))
+              )
+            )
+            .limit(1);
+
+          if (!callRecord) {
+            return errorResponse('Chamada não encontrada para este tenant', 404);
+          }
         }
 
         if (id && audio === 'true') {
@@ -157,7 +176,7 @@ export const Route = createFileRoute('/api/elevenlabs-conversations')({
           ? raw
           : (raw.conversations ?? [])
 
-        // 2. Busca contatos e voice_calls locais para enriquecer dados
+        // 2. Busca contatos e voice_calls locais estritamente do tenant
         let dbCalls: any[] = []
         let dbContacts: any[] = []
 
@@ -181,46 +200,35 @@ export const Route = createFileRoute('/api/elevenlabs-conversations')({
           // Ignora se tabela estiver vazia
         }
 
-        // 3. Mapeia e cruza com a base de clientes do WhatsApp
+        const persona = getAiPersona(tenantId)
+
+        // 3. Mapeia e cruza com a base de clientes comprovados do tenant
         const mapped = rawConversations
-          .map((c: Record<string, unknown>, index: number) => {
+          .map((c: Record<string, unknown>) => {
             const convId = String(c.conversation_id || '')
             const startUnix = Number(c.start_time_unix_secs || 0)
             const meta = (c.metadata as Record<string, unknown>) || {}
             const callSummary = (meta.call_summary_title as string) || null
 
-            // Tenta achar voiceCall por campaignId/convId ou por ordem temporal
-            let matchedCall = dbCalls.find(
+            // Apenas vincula chamadas com ID comprovado no banco deste tenant
+            const matchedCall = dbCalls.find(
               (dc) => dc.campaignId === convId || dc.id === convId,
             )
 
-            // Fallback por proximidade temporal (+/- 5 minutos)
-            if (!matchedCall && startUnix > 0) {
-              const convDateMs = startUnix * 1000
-              matchedCall = dbCalls.find((dc) => {
-                const callDateMs = new Date(dc.startedAt || dc.createdAt).getTime()
-                return Math.abs(callDateMs - convDateMs) < 5 * 60 * 1000
-              })
+            // Se não houver correspondência exata, não vaza chamadas externas entre tenants
+            if (!matchedCall) {
+              return null
             }
 
-            // Se ainda não achou mas temos chamadas registradas
-            if (!matchedCall && dbCalls.length > 0 && index < dbCalls.length) {
-              matchedCall = dbCalls[index]
-            }
-
-            // Identifica o telefone
-            const targetPhone = matchedCall
-              ? (matchedCall.toNumber && matchedCall.toNumber !== 'Valem Line'
-                  ? matchedCall.toNumber
-                  : matchedCall.fromNumber)
-              : '14998364338'
+            const targetPhone = matchedCall.toNumber && matchedCall.toNumber !== 'Valem Line'
+              ? matchedCall.toNumber
+              : (matchedCall.fromNumber || '')
 
             const cleanTarget = cleanPhoneDigits(targetPhone)
             const suffixTarget = cleanTarget.slice(-8)
 
-            // Tenta encontrar contato pelo contactId ou pelo telefone
             let matchedContact = null
-            if (matchedCall?.contactId) {
+            if (matchedCall.contactId) {
               matchedContact = dbContacts.find((ct) => ct.id === matchedCall.contactId)
             }
             if (!matchedContact && suffixTarget) {
@@ -230,7 +238,6 @@ export const Route = createFileRoute('/api/elevenlabs-conversations')({
               })
             }
 
-            // Título amigável
             let displayTitle = ''
             let clientName = ''
             let clientPhone = formatPhoneDisplay(targetPhone)
@@ -245,7 +252,7 @@ export const Route = createFileRoute('/api/elevenlabs-conversations')({
             } else if (callSummary && callSummary.trim()) {
               displayTitle = callSummary
             } else {
-              displayTitle = 'Ligação de Voz (Valentina)'
+              displayTitle = `Ligação de Voz (${persona.name})`
             }
 
             return {
@@ -262,10 +269,11 @@ export const Route = createFileRoute('/api/elevenlabs-conversations')({
               client_contact_id: matchedContact?.id ?? null,
               rd_crm_deal_link: matchedContact?.rdCrmDealLink ?? null,
               is_system_contact: !!matchedContact,
-              direction: c.direction ?? (matchedCall?.direction || 'outbound'),
+              direction: c.direction ?? (matchedCall.direction || 'outbound'),
               termination_reason: c.termination_reason ?? null,
             }
           })
+          .filter((item): item is NonNullable<typeof item> => item !== null)
           .sort(
             (a, b) =>
               (b.start_time_unix_secs as number) - (a.start_time_unix_secs as number),
@@ -276,4 +284,3 @@ export const Route = createFileRoute('/api/elevenlabs-conversations')({
     },
   },
 })
-

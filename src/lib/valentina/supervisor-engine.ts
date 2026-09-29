@@ -97,16 +97,25 @@ export class SupervisorEngine {
       );
 
     const operatorLoads = new Map<string, number>();
+    const operatorTenantMap = new Map<string, string>();
 
     for (const conv of activeConvs) {
       if (conv.operatorId) {
         operatorLoads.set(conv.operatorId, (operatorLoads.get(conv.operatorId) || 0) + 1);
+        if (conv.tenantId) {
+          operatorTenantMap.set(conv.operatorId, conv.tenantId);
+        }
       }
 
       const lastMsgs = await db
         .select()
         .from(messages)
-        .where(eq(messages.conversationId, conv.id))
+        .where(
+          and(
+            eq(messages.tenantId, conv.tenantId),
+            eq(messages.conversationId, conv.id)
+          )
+        )
         .orderBy(desc(messages.sentAt))
         .limit(1);
 
@@ -130,7 +139,10 @@ export class SupervisorEngine {
 
     for (const [operatorId, count] of operatorLoads.entries()) {
       if (count > 5) {
-        await this.notifyOperatorLoad(operatorId, count);
+        const opTenantId = operatorTenantMap.get(operatorId);
+        if (opTenantId) {
+          await this.notifyOperatorLoad(opTenantId, operatorId, count);
+        }
       }
     }
   }
@@ -185,7 +197,7 @@ export class SupervisorEngine {
   /**
    * Gera notificação para sobrecarga de operador
    */
-  private async notifyOperatorLoad(operatorId: string, count: number) {
+  private async notifyOperatorLoad(tenantId: string, operatorId: string, count: number) {
     const now = Date.now();
     const key = `op-load-${operatorId}`;
     const lastTime = this.lastNotified.get(key) || 0;
@@ -196,7 +208,7 @@ export class SupervisorEngine {
     const opRows = await db
       .select({ name: operators.name, tenantId: operators.tenantId })
       .from(operators)
-      .where(eq(operators.id, operatorId))
+      .where(and(eq(operators.tenantId, tenantId), eq(operators.id, operatorId)))
       .limit(1);
 
     if (opRows.length === 0) return;
@@ -234,12 +246,13 @@ export class SupervisorEngine {
   ) {
     try {
       const operatorExists = await db.query.operators.findFirst({
-        where: eq(operators.id, operatorId),
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.id, operatorId), dEq(t.tenantId, tenantId)),
         columns: { id: true },
       });
 
       if (!operatorExists) {
-        console.warn(`[SupervisorEngine] Operador ${operatorId} não encontrado — notificação descartada.`);
+        console.warn(`[SupervisorEngine] Operador ${operatorId} não encontrado no tenant "${tenantId}" — notificação descartada.`);
         return;
       }
 
@@ -271,7 +284,7 @@ export class SupervisorEngine {
         await db
           .update(internalMessages)
           .set({ repeatCount: newCount, lastFiredAt: new Date(), content })
-          .where(eq(internalMessages.id, existing[0].id));
+          .where(and(eq(internalMessages.id, existing[0].id), eq(internalMessages.tenantId, tenantId)));
 
         console.log(`[SupervisorEngine] Alerta agrupado (${alertType} ×${newCount}) conv=${convId ?? "N/A"}`);
       } else {

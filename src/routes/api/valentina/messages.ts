@@ -14,6 +14,7 @@ import {
 import { eq, and, desc, sql, gte, isNull, ne, count } from "drizzle-orm";
 import crypto from "crypto";
 import { getAiPersona } from "../../../lib/ai-persona";
+import { requireSession } from "../../../lib/auth-session";
 
 // ── Headers CORS padrão ──────────────────────────────────────────────────────
 const corsHeaders = {
@@ -457,18 +458,20 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
       // ── GET: Carrega histórico de mensagens ────────────────────────────────
       GET: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        const operatorId = url.searchParams.get("operatorId");
-
-        if (!tenantId || !operatorId) {
-          return new Response(
-            JSON.stringify({ error: "tenantId e operatorId são obrigatórios" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
+        const reqOperatorId = url.searchParams.get("operatorId");
         const scope = url.searchParams.get("scope") || "operator";
+
+        // Operador comum só visualiza as próprias mensagens
+        let operatorId = session.operator.id;
+        if ((session.operator.role === "admin" || session.operator.role === "supervisor") && reqOperatorId) {
+          operatorId = reqOperatorId;
+        }
 
         try {
           const msgs = await db
@@ -499,16 +502,16 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
       // ── POST: Envia mensagem e obtém resposta da IA ────────────────────────
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+        const operatorId = session.operator.id;
+
         try {
           const body = await request.json();
-          const { tenantId, operatorId, content, scope = "operator", knowledgeBase, attachment, imageBase64 } = body;
+          const { content, scope = "operator", attachment, imageBase64 } = body;
 
-          if (!tenantId || !operatorId) {
-            return new Response(
-              JSON.stringify({ error: "tenantId e operatorId são obrigatórios" }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
           if (!content && !attachment && !imageBase64) {
             return new Response(
               JSON.stringify({ error: "content, attachment ou imageBase64 são obrigatórios" }),
@@ -517,21 +520,16 @@ export const Route = createFileRoute("/api/valentina/messages")({
           }
 
           // ── Detecta se é Supervisora ou Colega ─────────────────────────────
-          // scope "admin" → Valentina Supervisora (Módulo Valentina, só gestores)
-          // scope "operator" → Valentina Colega (Módulo Chat, todos os operadores)
+          // scope "admin" → Supervisora (Módulo IA Gestão, só gestores)
+          // scope "operator" → Colega (Módulo Chat, todos os operadores)
           const isSupervisor = scope === "admin";
-
-          // Double-check pelo role do operador no banco por segurança
-          const opRole = await getOperatorRole(operatorId);
-          const isActuallyAdmin = opRole === "admin";
-
-          // Se scope é "admin" mas o operador não é admin, trata como colega
+          const isActuallyAdmin = session.operator.role === "admin" || session.operator.role === "supervisor";
           const useManagerContext = isSupervisor && isActuallyAdmin;
 
           const now = new Date();
           const persona = getAiPersona(tenantId);
-          const operatorName = await getOperatorName(operatorId);
-          const contextTenantId = knowledgeBase === "all" ? tenantId : (knowledgeBase || tenantId);
+          const operatorName = session.operator.name || await getOperatorName(operatorId);
+          const contextTenantId = tenantId;
 
           // ── Salva mensagem do usuário no banco ─────────────────────────────
           const userMsgId = `val-msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -545,7 +543,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             metadata: {
               isChat: true,
               scope,
-              knowledgeBase,
+              knowledgeBase: tenantId,
               attachedFileInfo: attachment ? { name: attachment.name, mimeType: attachment.mimeType } : undefined,
               attachedImageInfo: imageBase64 ? { name: "Imagem", dataUrl: imageBase64 } : undefined,
             },
@@ -570,7 +568,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             : buildColeaguePrompt(persona, operatorName, operationalContext, fileContext);
 
           // ── Feature key para rastreamento de custos ─────────────────────────
-          const featureKey = useManagerContext ? "supervisor_chat" : "valentina_chat";
+          const featureKey = useManagerContext ? "supervisor_chat" : persona.chatFeatureKey;
 
           // ── Chama o Vertex AI ───────────────────────────────────────────────
           let fragments: { text: string; delay?: number; blocks?: any[] }[] = [];

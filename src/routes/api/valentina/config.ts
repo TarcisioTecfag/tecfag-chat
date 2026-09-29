@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { agentConfigs } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 // ── Headers CORS padrão ────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -16,18 +17,15 @@ export const Route = createFileRoute("/api/valentina/config")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       // ── GET: Buscar configurações dos agentes ──────────────────────────────
-      // Query params: tenantId (obrigatório), agentType (opcional — filtra um agente específico)
+      // Escopo estrito: tenantId vem exclusivamente da sessão autenticada
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        const agentType = url.searchParams.get("agentType");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        if (!tenantId) {
-          return new Response(
-            JSON.stringify({ error: "tenantId é obrigatório" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
+        const url = new URL(request.url);
+        const agentType = url.searchParams.get("agentType");
 
         try {
           let results;
@@ -73,27 +71,44 @@ export const Route = createFileRoute("/api/valentina/config")({
       },
 
       // ── POST: Criar ou atualizar configuração de um agente ─────────────────
-      // Body: { id, tenantId, agentType, enabled, config }
-      // Usa upsert: se o ID já existe, atualiza; senão, cria.
+      // Apenas administradores do tenant autenticado podem alterar
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+
+        if (session.operator.role !== "admin") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores podem alterar configurações.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const tenantId = session.tenantId;
+
         try {
           const body = await request.json();
-          const { id, tenantId, agentType, enabled, config } = body;
+          const { id, agentType, enabled, config } = body;
 
-          if (!id || !tenantId || !agentType) {
+          if (!id || !agentType) {
             return new Response(
-              JSON.stringify({ error: "id, tenantId e agentType são obrigatórios" }),
+              JSON.stringify({ error: "id e agentType são obrigatórios" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 
           const now = new Date();
 
-          // Verificar se já existe
+          // Verificar se já existe dentro do tenant
           const existing = await db
             .select()
             .from(agentConfigs)
-            .where(eq(agentConfigs.id, id))
+            .where(
+              and(
+                eq(agentConfigs.id, id),
+                eq(agentConfigs.tenantId, tenantId)
+              )
+            )
             .limit(1);
 
           if (existing.length > 0) {
@@ -106,7 +121,12 @@ export const Route = createFileRoute("/api/valentina/config")({
                 config: config ?? existing[0].config,
                 updatedAt: now,
               })
-              .where(eq(agentConfigs.id, id));
+              .where(
+                and(
+                  eq(agentConfigs.id, id),
+                  eq(agentConfigs.tenantId, tenantId)
+                )
+              );
           } else {
             // Criar nova config
             await db.insert(agentConfigs).values({

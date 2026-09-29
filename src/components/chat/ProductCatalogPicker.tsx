@@ -13,6 +13,7 @@ import {
   Square,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useChat } from "@/hooks/useChatState";
 
 export interface CatalogImageItem {
   id: string;
@@ -33,10 +34,12 @@ interface ProductCatalogPickerProps {
 }
 
 export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
-  tenantId = "valem",
+  tenantId: propTenantId,
   onAttachFiles,
   onClose,
 }) => {
+  const { tenant } = useChat();
+  const tenantId = propTenantId || tenant || "valem";
   const [images, setImages] = useState<CatalogImageItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");

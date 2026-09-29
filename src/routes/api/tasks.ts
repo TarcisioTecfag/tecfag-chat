@@ -103,12 +103,9 @@ export const Route = createFileRoute("/api/tasks")({
         };
 
         try {
-          // 2. Mapeia o e-mail do operador local para o correspondente no CRM (caso haja divergência)
+          // 2. E-mail do operador local para busca correspondente no CRM
           const localEmail = email ? email.toLowerCase() : "";
-          const emailMapping: Record<string, string> = {
-            "tarcisio@valem.com.br": "suporte2@tecfag.com.br",
-          };
-          const crmTargetEmail = emailMapping[localEmail] || localEmail;
+          const crmTargetEmail = localEmail;
 
           // Mapeia o e-mail para o ID de usuário do RD Station CRM
           let crmUserId: string | null = null;

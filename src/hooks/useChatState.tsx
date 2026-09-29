@@ -1133,7 +1133,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (rows.length > 0) {
           const mappedMessages: Message[] = rows.map((r) => ({
             id: r.id,
-            author: r.direction === "to_agent" ? "Você" : "Valentina",
+            author: r.direction === "to_agent" ? "Você" : getAiPersona(tenant || "valem").name,
             text: r.content,
             time: new Date(r.createdAt || Date.now()).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
             side: r.direction === "to_agent" ? "out" : "in",
@@ -1212,6 +1212,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Chamar API real /api/valentina/messages (com signal de cancelamento)
       (async () => {
         setIsValentinaTyping(true);
+        const currentPersona = getAiPersona(tenant || "valem");
         try {
           const res = await fetch("/api/valentina/messages", {
             method: "POST",
@@ -1257,7 +1258,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
             const valentinaMsg: Message = {
               id: frag.id || `msg-val-${Date.now()}-${i}`,
-              author: "Valentina",
+              author: currentPersona.name,
               text: frag.content || frag.text || "",
               time: respTime,
               side: "in",
@@ -1284,7 +1285,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
             const alertMsg: Message = {
               id: `msg-alert-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              author: "Valentina",
+              author: currentPersona.name,
               text: `${alert.type === "sla_warning" ? "⚠️" : "🔔"} ${alert.clientName || "Cliente"} está aguardando há ${alert.waitMinutes || "?"} minutos`,
               time: respTime,
               side: "in",
@@ -1320,7 +1321,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const fallbackTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
           const fallbackMsg: Message = {
             id: `msg-val-fallback-${Date.now()}`,
-            author: "Valentina",
+            author: currentPersona.name,
             text: "Ops, tive um problema ao processar sua mensagem. Pode tentar de novo? 😅",
             time: fallbackTime,
             side: "in",

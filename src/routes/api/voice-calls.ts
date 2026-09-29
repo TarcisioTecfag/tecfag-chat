@@ -4,28 +4,28 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { voiceCalls, voiceCallMessages } from "../../db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
+import { requireSession } from "../../lib/auth-session";
 
 export const Route = createFileRoute("/api/voice-calls")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400, headers: { "Content-Type": "application/json" }
-          });
-        }
         const callId = url.searchParams.get("id");
 
         try {
           if (callId) {
-            // Retorna chamada específica com seu transcript completo
+            // Retorna chamada específica validando estritamente pertinência ao tenant
             const [call] = await db
               .select()
               .from(voiceCalls)
-              .where(eq(voiceCalls.id, callId));
+              .where(and(eq(voiceCalls.id, callId), eq(voiceCalls.tenantId, tenantId)));
 
             if (!call) {
               return new Response(JSON.stringify({ error: "Chamada não encontrada" }), { status: 404 });
@@ -34,7 +34,7 @@ export const Route = createFileRoute("/api/voice-calls")({
             const messagesList = await db
               .select()
               .from(voiceCallMessages)
-              .where(eq(voiceCallMessages.callId, callId))
+              .where(and(eq(voiceCallMessages.callId, callId), eq(voiceCallMessages.tenantId, tenantId)))
               .orderBy(voiceCallMessages.timestamp);
 
             return new Response(JSON.stringify({ call, messages: messagesList }), {

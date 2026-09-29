@@ -5,6 +5,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { voiceCampaigns, voiceCampaignLeads } from "../../db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { requireSession } from "../../lib/auth-session";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -16,11 +17,13 @@ export const Route = createFileRoute("/api/voice-campaigns")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        const campaignId = url.searchParams.get("id");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        if (!tenantId) return json({ error: "tenantId é obrigatório" }, 400);
+        const url = new URL(request.url);
+        const campaignId = url.searchParams.get("id");
 
         try {
           if (campaignId) {
@@ -65,11 +68,19 @@ export const Route = createFileRoute("/api/voice-campaigns")({
       },
 
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return json({ error: "Permissão insuficiente para criar campanhas.", code: "FORBIDDEN" }, 403);
+        }
+
+        const tenantId = session.tenantId;
+
         try {
           const body = await request.json();
-          const { tenantId, name, intervalSeconds = 30, leads = [], objectiveId } = body;
-
-          if (!tenantId) return json({ error: "tenantId é obrigatório" }, 400);
+          const { name, intervalSeconds = 30, leads = [], objectiveId } = body;
 
           if (!name || !Array.isArray(leads) || leads.length === 0) {
             return json({ error: "Nome e lista de leads são obrigatórios" }, 400);
@@ -114,11 +125,19 @@ export const Route = createFileRoute("/api/voice-campaigns")({
       },
 
       PATCH: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return json({ error: "Permissão insuficiente para alterar campanhas.", code: "FORBIDDEN" }, 403);
+        }
+
+        const tenantId = session.tenantId;
+
         try {
           const body = await request.json();
-          const { tenantId, campaignId, status, leadId, leadStatus } = body;
-
-          if (!tenantId) return json({ error: "tenantId é obrigatório" }, 400);
+          const { campaignId, status, leadId, leadStatus } = body;
 
           // Atualizar status da campanha
           if (campaignId && status) {

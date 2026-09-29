@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { agentConfigs, agentFlowStates, conversations, contacts, messages } from "../../../db/schema";
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,10 +69,12 @@ export const Route = createFileRoute('/api/valentina/sdr')({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
-      // ── GET: Configurações do SDR + Lista de Triagens Reais do Banco (100% Fail-Safe) ─────────
+      // ── GET: Configurações do SDR + Lista de Triagens Reais do Banco ─────────
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId") || "valem";
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
         let config = {
           enabled: true,
@@ -82,7 +85,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
 
         // 1. Tentar buscar Config do SDR no banco de forma segura
         try {
-          let dbConfig = await db.query.agentConfigs.findFirst({
+          const dbConfig = await db.query.agentConfigs.findFirst({
             where: (table, { eq: dEq, and: dAnd }) =>
               dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
           });
@@ -92,15 +95,13 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               enabled: dbConfig.enabled === 1,
             };
           }
-          // Se não encontrar config para o tenant, retorna config padrão segura
-          // NUNCA busca config de outro tenant como fallback.
         } catch (err) {
-          console.warn("[api/valentina/sdr] Erro ao buscar agentConfigs (usando fallback seguro):", err);
+          console.warn("[api/valentina/sdr] Erro ao buscar agentConfigs:", err);
         }
 
-        // 2. Tentar buscar sessões registradas em agentFlowStates do banco (todos os tenants ativos)
+        // 2. Buscar sessões registradas em agentFlowStates do tenant
         try {
-          let flowStates = await db.select()
+          const flowStates = await db.select()
             .from(agentFlowStates)
             .where(eq(agentFlowStates.tenantId, tenantId))
             .orderBy(desc(agentFlowStates.lastInteractionAt))
@@ -111,19 +112,19 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               addedConvIds.add(fs.conversationId);
 
               const conv = await db.query.conversations.findFirst({
-                where: (t, { eq: dEq }) => dEq(t.id, fs.conversationId),
+                where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, fs.conversationId), dEq(t.tenantId, tenantId)),
               });
 
               const contact = conv
                 ? await db.query.contacts.findFirst({
-                    where: (t, { eq: dEq }) => dEq(t.id, conv.contactId),
+                    where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conv.contactId), dEq(t.tenantId, tenantId)),
                   })
                 : null;
 
               const realMsgs = await db
                 .select()
                 .from(messages)
-                .where(eq(messages.conversationId, fs.conversationId))
+                .where(and(eq(messages.conversationId, fs.conversationId), eq(messages.tenantId, tenantId)))
                 .orderBy(asc(messages.sentAt))
                 .limit(100);
 
@@ -148,11 +149,11 @@ export const Route = createFileRoute('/api/valentina/sdr')({
 
               const operator = conv?.operatorId
                 ? await db.query.operators.findFirst({
-                    where: (t, { eq: dEq }) => dEq(t.id, conv.operatorId!),
+                    where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conv.operatorId!), dEq(t.tenantId, tenantId)),
                   })
                 : null;
 
-              let responsibleName = "Valentina IA (Em Triagem)";
+              let responsibleName = "IA (Em Triagem)";
               if (status === "completed") {
                 responsibleName = operator?.name || "Vendedor Alocado (Rodízio)";
               } else if (fs.outcome === "stopped") {
@@ -184,16 +185,16 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao buscar agentFlowStates:", err);
         }
 
-        // 3. Tentar buscar todas as conversas ativas reais do banco (excluindo apenas dados mock de teste tec-1/tec-2)
+        // 3. Buscar conversas ativas reais do tenant (excluindo apenas dados mock de teste)
         try {
           const allConvs = await db
             .select()
             .from(conversations)
+            .where(eq(conversations.tenantId, tenantId))
             .orderBy(desc(conversations.lastMessageTime))
             .limit(50);
 
           for (const c of allConvs) {
-            // Ignorar dados de seed mock antigos (tec-1, tec-2)
             if (c.id === "tec-1" || c.id === "tec-2") continue;
 
             if (!addedConvIds.has(c.id)) {
@@ -201,19 +202,19 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 addedConvIds.add(c.id);
 
                 const contact = await db.query.contacts.findFirst({
-                  where: (t, { eq: dEq }) => dEq(t.id, c.contactId),
+                  where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, c.contactId), dEq(t.tenantId, tenantId)),
                 });
 
                 const operator = c.operatorId
                   ? await db.query.operators.findFirst({
-                      where: (t, { eq: dEq }) => dEq(t.id, c.operatorId!),
+                      where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, c.operatorId!), dEq(t.tenantId, tenantId)),
                     })
                   : null;
 
                 const realMsgs = await db
                   .select()
                   .from(messages)
-                  .where(eq(messages.conversationId, c.id))
+                  .where(and(eq(messages.conversationId, c.id), eq(messages.tenantId, tenantId)))
                   .orderBy(asc(messages.sentAt))
                   .limit(100);
 
@@ -242,7 +243,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   startedAt: safeFormatIso(c.createdAt),
                   status: "active",
                   outcome: "in_progress",
-                  responsibleName: operator?.name || "Valentina IA (Em Triagem)",
+                  responsibleName: operator?.name || "IA (Em Triagem)",
                   messages: formattedMessages.length > 0 ? formattedMessages : [
                     { sender: "bot", text: "Atendimento iniciado...", time: "Agora" }
                   ],
@@ -256,21 +257,38 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao buscar conversations:", err);
         }
 
-        // Garantia absoluta: Nunca retorna 500 para o navegador
         return new Response(JSON.stringify({ config, sessions }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       },
 
-      // ── POST: Salvar configurações do SDR ou Interromper Valentina ──
+      // ── POST: Salvar configurações do SDR ou Interromper IA ──
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
         try {
           const body = await request.json();
-          const { action, conversationId, tenantId = "valem", enabled, testMode, whitelistPhone } = body;
+          const { action, conversationId, enabled, testMode, whitelistPhone } = body;
 
-          // Ação de Parar a Valentina instantaneamente para um contato específico
+          // Ação de Parar a IA instantaneamente para uma conversa específica do tenant
           if (action === "stop" && conversationId) {
+            const [conv] = await db
+              .select({ id: conversations.id })
+              .from(conversations)
+              .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+              .limit(1);
+
+            if (!conv) {
+              return new Response(
+                JSON.stringify({ error: "Conversa não encontrada ou não pertence a este tenant.", code: "NOT_FOUND" }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
             try {
               const { SdrDebouncer } = await import("../../../lib/valentina/sdr-debouncer");
               SdrDebouncer.getInstance().clearSession(conversationId);
@@ -285,18 +303,26 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 currentStep: "Interrompido Manualmente",
                 lastInteractionAt: new Date(),
               })
-              .where(eq(agentFlowStates.conversationId, conversationId));
+              .where(and(eq(agentFlowStates.conversationId, conversationId), eq(agentFlowStates.tenantId, tenantId)));
 
             await db
               .update(conversations)
               .set({
                 queueState: "fila",
               })
-              .where(eq(conversations.id, conversationId));
+              .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
 
-            return new Response(JSON.stringify({ success: true, message: "Valentina interrompida para esta conversa." }), {
+            return new Response(JSON.stringify({ success: true, message: "IA de triagem interrompida para esta conversa." }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
+          }
+
+          // Apenas administradores podem salvar/alterar configurações globais de SDR
+          if (session.operator.role !== "admin") {
+            return new Response(
+              JSON.stringify({ error: "Permissão insuficiente. Apenas administradores podem alterar configurações do SDR.", code: "FORBIDDEN" }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
           const existingConfig = await db.query.agentConfigs.findFirst({
@@ -319,10 +345,10 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 config: updatedJson,
                 updatedAt: new Date(),
               })
-              .where(eq(agentConfigs.id, existingConfig.id));
+              .where(and(eq(agentConfigs.id, existingConfig.id), eq(agentConfigs.tenantId, tenantId)));
           } else {
             await db.insert(agentConfigs).values({
-              id: `cfg-sdr-${Date.now()}`,
+              id: `cfg-sdr-${tenantId}-${Date.now()}`,
               tenantId,
               agentType: "sdr",
               enabled: enabled !== undefined ? (enabled ? 1 : 0) : 1,

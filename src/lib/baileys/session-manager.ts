@@ -20,6 +20,7 @@ import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { urlToBase64 } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { shouldIgnoreJid, ignoreReason } from "./jid-validator";
+import { getAiPersona } from "../ai-persona";
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connecting" | "connected" | "switching";
 
@@ -554,7 +555,7 @@ export class SessionManager {
             if (Object.keys(updates).length > 0) {
               await db.update(contacts)
                 .set(updates)
-                .where(eq(contacts.id, contact.id));
+                .where(and(eq(contacts.id, contact.id), eq(contacts.tenantId, tenantId)));
             }
           }
         } catch (e: any) {
@@ -749,7 +750,8 @@ export class SessionManager {
       if (quotedMessageId) {
         try {
           foundQuotedMsg = await db.query.messages.findFirst({
-            where: (t, { eq: dEq }) => dEq(t.id, quotedMessageId as string)
+            where: (t, { eq: dEq, and: dAnd }) =>
+              dAnd(dEq(t.id, quotedMessageId as string), dEq(t.tenantId, tenantId))
           });
         } catch (e) {
           console.error("Erro ao buscar mensagem citada no DB:", e);
@@ -855,6 +857,7 @@ export class SessionManager {
               const base64Data = buffer.toString("base64");
               await db.insert(mediaFiles).values({
                 id: messageId,
+                tenantId,
                 fileName: fileName || null,
                 mimeType: mime,
                 base64Data,
@@ -916,7 +919,7 @@ export class SessionManager {
         if (Object.keys(updates).length > 0) {
           await db.update(contacts)
             .set(updates)
-            .where(eq(contacts.id, contactId));
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
         }
       }
 
@@ -967,7 +970,7 @@ export class SessionManager {
               const avatarToSave = base64Avatar || picUrl;
               db.update(contacts)
                 .set({ avatar: avatarToSave })
-                .where(eq(contacts.id, contactId))
+                .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
                 .then(() => {
                   this.notify(tenantId, {
                     type: "contact_avatar",
@@ -1005,7 +1008,9 @@ export class SessionManager {
         SdrDebouncer.getInstance().clearSession(convId);
 
         // 2. Apagar apenas o estado de fluxo da triagem anterior (preserva mensagens e contatos)
-        await db.delete(agentFlowStates).where(eq(agentFlowStates.conversationId, convId));
+        await db
+          .delete(agentFlowStates)
+          .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
 
         // 3. Resetar status da conversa no DB para 'automacao' sem operador
         if (conversation) {
@@ -1019,7 +1024,7 @@ export class SessionManager {
               lastMessageTime: new Date(),
               updatedAt: new Date(),
             })
-            .where(eq(conversations.id, convId));
+            .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
         }
 
         // 4. Criar novo agentFlowState limpo
@@ -1044,7 +1049,7 @@ export class SessionManager {
           queueState: "automacao",
           operatorId: null,
           sectorId: null,
-          responsibleName: "Valentina IA",
+          responsibleName: `${getAiPersona(tenantId).name} IA`,
         });
 
         // 6. Responder no WhatsApp confirmando o reinício da triagem
@@ -1053,7 +1058,7 @@ export class SessionManager {
           try {
             const realJid = await resolveRealJid(sock, phone);
             await sock.sendMessage(realJid, {
-              text: "🔄 Fluxo de triagem reiniciado com sucesso! A Valentina está pronta para um novo atendimento.",
+              text: `🔄 Fluxo de triagem reiniciado com sucesso! A persona ${getAiPersona(tenantId).name} está pronta para um novo atendimento.`,
             });
           } catch (err: any) {
             console.error("[Baileys/Reset] Erro ao enviar resposta no WA:", err?.message);
@@ -1112,7 +1117,7 @@ export class SessionManager {
             queueState: targetQueue,
             operatorId: targetOperatorId,
           })
-          .where(eq(conversations.id, convId));
+          .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
       }
 
       const finalSenderType = isFromMe ? "agent" : "client";
@@ -1165,7 +1170,13 @@ export class SessionManager {
           const openLog = await db
             .select()
             .from(responseTimeLogs)
-            .where(and(eq(responseTimeLogs.conversationId, convId), isNull(responseTimeLogs.agentResponseId)))
+            .where(
+              and(
+                eq(responseTimeLogs.tenantId, tenantId),
+                eq(responseTimeLogs.conversationId, convId),
+                isNull(responseTimeLogs.agentResponseId)
+              )
+            )
             .orderBy(desc(responseTimeLogs.clientMessageAt))
             .limit(1);
 
@@ -1175,13 +1186,23 @@ export class SessionManager {
             await db
               .update(responseTimeLogs)
               .set({ agentResponseId: messageId, agentResponseAt: now, responseTimeSeconds: deltaSeconds })
-              .where(eq(responseTimeLogs.id, log.id));
+              .where(
+                and(
+                  eq(responseTimeLogs.id, log.id),
+                  eq(responseTimeLogs.tenantId, tenantId)
+                )
+              );
 
             // Atualiza métricas diárias do operador associado à conversa
             const convRow = await db
               .select({ operatorId: conversations.operatorId })
               .from(conversations)
-              .where(eq(conversations.id, convId))
+              .where(
+                and(
+                  eq(conversations.id, convId),
+                  eq(conversations.tenantId, tenantId)
+                )
+              )
               .limit(1);
 
             if (convRow[0]?.operatorId) {
@@ -1233,7 +1254,8 @@ export class SessionManager {
       // ── Processar mensagem no SdrDebouncer (Valentina SDR / 15s Debounce & Multimodal) ─────
       // 🛑 TRAVA DE OPERADOR: Valentina só atende clientes não captados por operadores humanos
       const currentFlow = await db.query.agentFlowStates.findFirst({
-        where: (t, { eq: dEq }) => dEq(t.conversationId, convId)
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.conversationId, convId), dEq(t.tenantId, tenantId))
       });
 
       const isHandledByOperator = Boolean(
@@ -1246,7 +1268,8 @@ export class SessionManager {
         currentFlow?.outcome === "stopped"
       );
 
-      if (finalSenderType === "client" && !isHandledByOperator) {
+      // 🛑 REGRA ARQUITETURAL (AGENTS.md): SDR ativo exclusivamente para valem até go-live do tecfag
+      if (tenantId === "valem" && finalSenderType === "client" && !isHandledByOperator) {
         let mediaType: "text" | "image" | "audio" | "document" = "text";
         let mediaBase64: string | undefined = undefined;
         let mimeType: string | undefined = undefined;
