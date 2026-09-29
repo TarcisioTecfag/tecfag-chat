@@ -11,6 +11,7 @@ interface PipelineBoardProps {
     stages: PipelineStageData[];
   };
   deals: DealCardData[];
+  stageSettings?: Record<string, { coolingEnabled: boolean; coolingDays: number }>;
   stagesSummaryMap?: Map<string, PipelineStageSummary>;
   operatorsMap: Map<string, string>;
   onDealClick: (deal: DealCardData) => void;
@@ -26,6 +27,7 @@ interface PipelineBoardProps {
 export function PipelineBoard({
   pipeline,
   deals,
+  stageSettings,
   stagesSummaryMap,
   operatorsMap,
   onDealClick,
@@ -122,7 +124,8 @@ export function PipelineBoard({
               stage={stage}
               deals={dealsByStage.get(stage.id) || []}
               summary={stagesSummaryMap?.get(stage.id)}
-              coolingDays={pipeline.coolingDays ?? 10}
+              coolingDays={stageSettings?.[stage.id]?.coolingDays ?? pipeline.coolingDays ?? 10}
+              coolingEnabled={stageSettings?.[stage.id]?.coolingEnabled ?? true}
               operatorsMap={operatorsMap}
               allStages={allStages}
               onDealClick={onDealClick}

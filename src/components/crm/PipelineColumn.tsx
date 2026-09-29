@@ -23,6 +23,7 @@ interface PipelineColumnProps {
   deals: DealCardData[];
   summary?: PipelineStageSummary;
   coolingDays?: number;
+  coolingEnabled?: boolean;
   operatorsMap: Map<string, string>;
   allStages: Array<{ id: string; name: string }>;
   onDealClick: (deal: DealCardData) => void;
@@ -35,6 +36,7 @@ export function PipelineColumn({
   deals,
   summary,
   coolingDays = 10,
+  coolingEnabled = true,
   operatorsMap,
   allStages,
   onDealClick,
@@ -150,6 +152,7 @@ export function PipelineColumn({
                 key={deal.id}
                 deal={deal}
                 coolingDays={coolingDays}
+                coolingEnabled={coolingEnabled}
                 operatorName={(deal.operatorId || deal.ownerId) ? operatorsMap.get((deal.operatorId || deal.ownerId)!) : undefined}
                 onClick={onDealClick}
                 onQuickMove={onDropDeal}

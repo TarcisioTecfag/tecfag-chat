@@ -62,6 +62,7 @@ export interface DealCardData {
 interface DealCardProps {
   deal: DealCardData;
   coolingDays?: number;
+  coolingEnabled?: boolean;
   operatorName?: string;
   onClick: (deal: DealCardData) => void;
   onQuickMove?: (dealId: string, newStageId: string, currentVersion: number) => void;
@@ -73,6 +74,7 @@ interface DealCardProps {
 export function DealCard({
   deal,
   coolingDays = 10,
+  coolingEnabled = true,
   operatorName,
   onClick,
   onQuickMove,
@@ -89,7 +91,7 @@ export function DealCard({
     : new Date(deal.updatedAt || deal.createdAt);
   const now = new Date();
   const diffDays = Math.max(0, Math.floor((now.getTime() - lastActiveDate.getTime()) / (1000 * 60 * 60 * 24)));
-  const isCooling = deal.status === "open" && diffDays >= coolingDays;
+  const isCooling = coolingEnabled && deal.status === "open" && diffDays >= coolingDays;
 
   // Formatação de valor: distinção estrita entre null (não informado) e zero (R$ 0,00)
   const isNullValue = deal.value === null || deal.value === undefined;

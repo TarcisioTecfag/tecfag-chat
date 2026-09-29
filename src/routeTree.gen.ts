@@ -73,6 +73,7 @@ import { Route as ApiGestaoCostsRouteImport } from './routes/api/gestao/costs'
 import { Route as ApiGestaoContactsAnalyticsRouteImport } from './routes/api/gestao/contacts-analytics'
 import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
 import { Route as ApiGestaoAlertsRouteImport } from './routes/api/gestao/alerts'
+import { Route as ApiCrmStageSettingsRouteImport } from './routes/api/crm/stage-settings'
 import { Route as ApiCrmProductsRouteImport } from './routes/api/crm/products'
 import { Route as ApiCrmPipelinesRouteImport } from './routes/api/crm/pipelines'
 import { Route as ApiCrmInventoryRouteImport } from './routes/api/crm/inventory'
@@ -454,6 +455,11 @@ const ApiGestaoAlertsRoute = ApiGestaoAlertsRouteImport.update({
   path: '/api/gestao/alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmStageSettingsRoute = ApiCrmStageSettingsRouteImport.update({
+  id: '/api/crm/stage-settings',
+  path: '/api/crm/stage-settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmProductsRoute = ApiCrmProductsRouteImport.update({
   id: '/api/crm/products',
   path: '/api/crm/products',
@@ -813,6 +819,7 @@ export interface FileRoutesByFullPath {
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
   '/api/crm/products': typeof ApiCrmProductsRoute
+  '/api/crm/stage-settings': typeof ApiCrmStageSettingsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
@@ -935,6 +942,7 @@ export interface FileRoutesByTo {
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
   '/api/crm/products': typeof ApiCrmProductsRoute
+  '/api/crm/stage-settings': typeof ApiCrmStageSettingsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
@@ -1058,6 +1066,7 @@ export interface FileRoutesById {
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
   '/api/crm/products': typeof ApiCrmProductsRoute
+  '/api/crm/stage-settings': typeof ApiCrmStageSettingsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
@@ -1182,6 +1191,7 @@ export interface FileRouteTypes {
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
     | '/api/crm/products'
+    | '/api/crm/stage-settings'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
@@ -1304,6 +1314,7 @@ export interface FileRouteTypes {
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
     | '/api/crm/products'
+    | '/api/crm/stage-settings'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
@@ -1426,6 +1437,7 @@ export interface FileRouteTypes {
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
     | '/api/crm/products'
+    | '/api/crm/stage-settings'
     | '/api/gestao/alerts'
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
@@ -1543,6 +1555,7 @@ export interface RootRouteChildren {
   ApiCrmInventoryRoute: typeof ApiCrmInventoryRoute
   ApiCrmPipelinesRoute: typeof ApiCrmPipelinesRouteWithChildren
   ApiCrmProductsRoute: typeof ApiCrmProductsRoute
+  ApiCrmStageSettingsRoute: typeof ApiCrmStageSettingsRoute
   ApiGestaoAlertsRoute: typeof ApiGestaoAlertsRoute
   ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
   ApiGestaoContactsAnalyticsRoute: typeof ApiGestaoContactsAnalyticsRoute
@@ -2031,6 +2044,13 @@ declare module '@tanstack/react-router' {
       path: '/api/gestao/alerts'
       fullPath: '/api/gestao/alerts'
       preLoaderRoute: typeof ApiGestaoAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/stage-settings': {
+      id: '/api/crm/stage-settings'
+      path: '/api/crm/stage-settings'
+      fullPath: '/api/crm/stage-settings'
+      preLoaderRoute: typeof ApiCrmStageSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/crm/products': {
@@ -2692,6 +2712,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCrmInventoryRoute: ApiCrmInventoryRoute,
   ApiCrmPipelinesRoute: ApiCrmPipelinesRouteWithChildren,
   ApiCrmProductsRoute: ApiCrmProductsRoute,
+  ApiCrmStageSettingsRoute: ApiCrmStageSettingsRoute,
   ApiGestaoAlertsRoute: ApiGestaoAlertsRoute,
   ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
   ApiGestaoContactsAnalyticsRoute: ApiGestaoContactsAnalyticsRoute,

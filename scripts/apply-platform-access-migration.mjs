@@ -35,6 +35,10 @@ const migrations = [
     name: "0015_crm_extended_parity",
     url: new URL("../src/db/migrations/0015_crm_extended_parity.sql", import.meta.url),
   },
+  {
+    name: "0016_crm_stage_settings",
+    url: new URL("../src/db/migrations/0016_crm_stage_settings.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

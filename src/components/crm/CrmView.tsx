@@ -41,6 +41,9 @@ export function CrmView() {
 
   // Resumo de Etapas (Agregação Real do Servidor)
   const [stagesSummary, setStagesSummary] = useState<any[]>([]);
+  const [stageSettings, setStageSettings] = useState<
+    Record<string, { coolingEnabled: boolean; coolingDays: number }>
+  >({});
 
   // Operadores
   const [operators, setOperators] = useState<Array<{ id: string; name: string }>>([]);
@@ -150,7 +153,7 @@ export function CrmView() {
       toast.error("Falha ao carregar funis comerciais.");
       setLoading(false);
     }
-  }, [selectedPipelineId]);
+  }, [selectedPipelineId, tenant]);
 
   // Carrega operadores
   const fetchOperators = useCallback(async () => {
@@ -164,6 +167,22 @@ export function CrmView() {
       console.warn("[CrmView] Falha ao listar operadores:", e);
     }
   }, []);
+
+  const fetchStageSettings = useCallback(async () => {
+    setStageSettings({});
+    try {
+      const response = await fetch("/api/crm/stage-settings");
+      if (!response.ok) return;
+      const data = await response.json();
+      const settings: Array<{ stageId: string; coolingEnabled: boolean; coolingDays: number }> = data.settings || [];
+      setStageSettings(Object.fromEntries(settings.map((item) => [
+        item.stageId,
+        { coolingEnabled: item.coolingEnabled, coolingDays: item.coolingDays },
+      ])));
+    } catch (error) {
+      console.warn("[CrmView] Falha ao carregar configurações das etapas:", error);
+    }
+  }, [tenant]);
 
   // Carrega resumo de etapas (agregação real no servidor)
   const fetchStagesSummary = useCallback(async () => {
@@ -219,9 +238,16 @@ export function CrmView() {
 
   // Inicialização
   useEffect(() => {
+    setDeals([]);
+    setStageSettings({});
+    setSelectedPipelineId("");
+  }, [tenant]);
+
+  useEffect(() => {
     fetchPipelines();
     fetchOperators();
-  }, [fetchPipelines, fetchOperators]);
+    fetchStageSettings();
+  }, [fetchPipelines, fetchOperators, fetchStageSettings]);
 
   useEffect(() => {
     fetchDeals();
@@ -380,6 +406,7 @@ export function CrmView() {
           <PipelineBoard
             pipeline={activePipeline}
             deals={deals}
+            stageSettings={stageSettings}
             stagesSummaryMap={stagesSummaryMap}
             operatorsMap={operatorsMap}
             onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
@@ -461,6 +488,7 @@ export function CrmView() {
           fetchPipelines();
           fetchStagesSummary();
           fetchDeals();
+          fetchStageSettings();
         }}
         selectedPipelineId={selectedPipelineId}
       />

@@ -526,6 +526,21 @@ export const crmStages = pgTable("crm_stages", {
   tenantPipelineOrderIdx: index("idx_crm_stages_tenant_pipeline_order").on(table.tenantId, table.pipelineId, table.orderIndex),
 }));
 
+// Configurações editoriais e de esfriamento por etapa. Tabela separada para que
+// a leitura operacional dos funis continue válida durante a migração aditiva.
+export const crmStageSettings = pgTable("crm_stage_settings", {
+  stageId: text("stage_id").primaryKey().references(() => crmStages.id, { onDelete: "cascade" }),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  abbreviation: text("abbreviation"),
+  objective: text("objective"),
+  description: text("description"),
+  coolingEnabled: boolean("cooling_enabled").default(true).notNull(),
+  coolingDays: integer("cooling_days").default(10).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantStageIdx: index("idx_crm_stage_settings_tenant_stage").on(table.tenantId, table.stageId),
+}));
+
 // ─── 14.5. NEGOCIAÇÕES / CARDS (Deals) ───────────────────────────────────────
 export const crmDeals = pgTable("crm_deals", {
   id: text("id").primaryKey(),
