@@ -7,6 +7,7 @@ import {
   operatorDailyMetrics,
 } from "../../../db/schema";
 import { eq, and, isNull, isNotNull, avg, count, ne, gte, lte } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,16 +21,25 @@ export const Route = createFileRoute("/api/gestao/my-metrics")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
-        const operatorId = url.searchParams.get("operatorId");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        if (!tenantId || !operatorId) {
+        const url = new URL(request.url);
+        const queryTenantId = url.searchParams.get("tenantId");
+        if (queryTenantId && queryTenantId !== tenantId) {
           return new Response(
-            JSON.stringify({ error: "tenantId e operatorId são obrigatórios" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+
+        const requestedOperatorId = url.searchParams.get("operatorId");
+        // Operadores comuns só podem ver suas próprias métricas; admins e supervisores podem ver de outros
+        const operatorId = (session.operator.role === "admin" || session.operator.role === "supervisor")
+          ? (requestedOperatorId || session.operator.id)
+          : session.operator.id;
 
         const today = new Date().toISOString().split("T")[0];
         const todayStart = new Date(today + "T00:00:00.000Z");
