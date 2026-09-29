@@ -5,6 +5,7 @@ import { PipelineBoard } from "./PipelineBoard";
 import { DealList } from "./DealList";
 import { DealCardData } from "./DealCard";
 import { CreateDealDialog } from "./CreateDealDialog";
+import { CrmQuickCreateDialog, CrmQuickCreateKind } from "./CrmQuickCreateDialog";
 import { PipelineSettingsModal } from "./PipelineSettingsModal";
 import { AdvancedFiltersModal, AdvancedFiltersState } from "./AdvancedFiltersModal";
 import { toast } from "sonner";
@@ -46,6 +47,7 @@ export function CrmView() {
 
   // Modais de Ação
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [quickCreateKind, setQuickCreateKind] = useState<CrmQuickCreateKind | null>(null);
   const [createAtStageId, setCreateAtStageId] = useState<string | undefined>(undefined);
 
   // Mapas para consulta rápida
@@ -338,6 +340,9 @@ export function CrmView() {
           setCreateAtStageId(undefined);
           setIsCreateDialogOpen(true);
         }}
+        onCreateCompanyClick={() => setQuickCreateKind("company")}
+        onCreateContactClick={() => setQuickCreateKind("contact")}
+        onCreateTaskClick={() => setQuickCreateKind("task")}
         onManagePipelinesClick={() => setIsPipelineSettingsOpen(true)}
       />
 
@@ -437,6 +442,14 @@ export function CrmView() {
         operators={operators}
         defaultPipelineId={selectedPipelineId}
         defaultStageId={createAtStageId}
+        currentOperatorId={currentOperatorId}
+      />
+
+      <CrmQuickCreateDialog
+        kind={quickCreateKind}
+        onClose={() => setQuickCreateKind(null)}
+        onCreated={() => { fetchDeals(); fetchStagesSummary(); }}
+        operators={operators}
         currentOperatorId={currentOperatorId}
       />
 

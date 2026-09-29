@@ -46,6 +46,65 @@ export const Route = createFileRoute("/api/crm/contacts")({
 
         return Response.json({ contacts: results });
       },
+      POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+        const permissionError = requireCrmPermission(session, "canCreateDeals");
+        if (permissionError) return permissionError;
+
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return Response.json({ error: "Dados inválidos." }, { status: 400 });
+        }
+        if (!body || typeof body !== "object") {
+          return Response.json({ error: "Dados inválidos." }, { status: 400 });
+        }
+        const input = body as Record<string, unknown>;
+        const name = typeof input.name === "string" ? input.name.trim() : "";
+        const phone = typeof input.phone === "string" ? input.phone.trim() : "";
+        const email = typeof input.email === "string" ? input.email.trim() : "";
+        if (!name || name.length > 200) {
+          return Response.json(
+            { error: "Informe um nome de até 200 caracteres." },
+            { status: 400 },
+          );
+        }
+        if (
+          phone.length > 40 ||
+          /[@]/.test(phone) ||
+          email.length > 254 ||
+          (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        ) {
+          return Response.json({ error: "Telefone ou e-mail inválido." }, { status: 400 });
+        }
+
+        try {
+          const [contact] = await db
+            .insert(contacts)
+            .values({
+              id: `cont-${crypto.randomUUID()}`,
+              tenantId,
+              name,
+              phone: phone || null,
+              email: email || null,
+              mainChannel: "whatsapp",
+            })
+            .returning({
+              id: contacts.id,
+              name: contacts.name,
+              phone: contacts.phone,
+              email: contacts.email,
+            });
+          return Response.json({ contact }, { status: 201 });
+        } catch (error) {
+          console.error("[CRM Contacts API] Erro ao criar contato:", error);
+          return Response.json({ error: "Não foi possível criar o contato." }, { status: 500 });
+        }
+      },
     },
   },
 });

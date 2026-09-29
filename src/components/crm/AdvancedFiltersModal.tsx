@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -116,16 +116,16 @@ export function AdvancedFiltersModal({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base font-bold">
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent side="right" className="grid w-full max-w-[400px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-card p-0 sm:max-w-[400px]">
+        <SheetHeader className="border-b border-border px-5 py-5">
+          <SheetTitle className="flex items-center gap-2 text-base font-bold">
             <Filter className="h-4 w-4 text-primary" />
-            <span>Filtros Avançados de Negociações</span>
-          </DialogTitle>
-        </DialogHeader>
+            <span>Filtros</span>
+          </SheetTitle>
+        </SheetHeader>
 
-        <div className="space-y-5 py-2 text-xs">
+        <div className="space-y-5 overflow-y-auto px-5 py-5 text-xs">
           {/* 1. Etapas do Funil */}
           {stages.length > 0 && (
             <div className="space-y-2">
@@ -261,7 +261,7 @@ export function AdvancedFiltersModal({
           </div>
         </div>
 
-        <DialogFooter className="flex items-center justify-between gap-2 pt-3 border-t border-border">
+        <SheetFooter className="flex items-center justify-between gap-2 border-t border-border px-5 py-4">
           <Button
             type="button"
             variant="ghost"
@@ -293,8 +293,8 @@ export function AdvancedFiltersModal({
               Aplicar Filtros
             </Button>
           </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

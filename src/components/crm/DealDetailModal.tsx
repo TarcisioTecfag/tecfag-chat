@@ -1227,20 +1227,20 @@ export function DealDetailModal({
                   {deal.status === "open" && (
                     <>
                       <button
+                        onClick={() => setShowLossPrompt(true)}
+                        className="flex h-8 items-center gap-1.5 rounded-xl bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                        title="Marcar como Perdido"
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                        <span>Marcar perda</span>
+                      </button>
+                      <button
                         onClick={() => setShowWinPrompt(true)}
                         className="flex h-8 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
                         title="Marcar como Ganho"
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
-                        <span>Ganho</span>
-                      </button>
-                      <button
-                        onClick={() => setShowLossPrompt(true)}
-                        className="flex h-8 items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-500/10 px-3 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
-                        title="Marcar como Perdido"
-                      >
-                        <XCircle className="h-3.5 w-3.5" />
-                        <span>Perdido</span>
+                        <span>Marcar venda</span>
                       </button>
                       <button
                         onClick={() => setShowPausePrompt(true)}
