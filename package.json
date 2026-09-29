@@ -12,10 +12,11 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
-    "start": "node .output/server/index.mjs",
+    "start": "npm run db:migrate:platform && node .output/server/index.mjs",
     "db:seed": "tsx src/db/cleanup.ts && tsx src/db/seed.ts",
     "db:reset-data": "tsx src/db/reset-data.ts",
     "db:migrate": "bun run src/db/migrate.ts",
+    "db:migrate:platform": "node scripts/apply-platform-access-migration.mjs",
     "db:push": "tsx src/db/cleanup.ts && drizzle-kit push",
     "lint": "eslint .",
     "format": "prettier --write ."

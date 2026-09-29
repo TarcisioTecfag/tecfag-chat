@@ -10,7 +10,7 @@
 
 ## Ativação
 
-1. Aplicar a migração `0011_platform_access.sql` antes de iniciar o código novo. A migração é aditiva e não altera os dados de atendimento.
+1. No Railway, `npm run start` aplica `0011_platform_access.sql` antes de iniciar o servidor, após a etapa existente de sincronização do esquema e seed. A execução usa uma transação e registra a migração aplicada, permitindo novos deploys sem repetir a concessão inicial. Se a migração falhar, o servidor não inicia. Para execução manual controlada: `npm run db:migrate:platform` com `DATABASE_URL` configurada.
 2. A migração cadastra `suporte2@tecfag.com.br` como primeiro gestor multiempresa e promove **somente o operador já existente no tenant correspondente ao domínio** para `admin`. Se esse operador ainda não existir, criá-lo como administrador pelo fluxo normal antes de usar a gestão multiempresa.
 3. Entrar com essa conta no tenant de origem, abrir **Grupos de Acesso → Acesso multiempresa**, criar um grupo com Valem e Tecfag e adicionar a própria conta. Escolher o papel e o grupo local no destino. A gestão global fica disponível na sessão de origem do administrador indicado.
 4. A partir daí, o seletor da barra lateral troca a sessão e recarrega o sistema inteiro. O gestor pode incluir ou retirar outros operadores pela mesma tela.
