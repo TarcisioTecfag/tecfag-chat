@@ -12,6 +12,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { aiReports, aiReportVersions, aiReportFeedback } from "../../../db/schema";
 import { eq, desc, and, ne } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,34 +32,37 @@ export const Route = createFileRoute("/api/gestao/reports-v2")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        let tenantId = url.searchParams.get("tenantId");
-        const action = url.searchParams.get("action");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        if (!tenantId || tenantId === "undefined" || tenantId === "null" || tenantId === "all") {
-          tenantId = "valem";
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem acessar relatórios.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
+        const url = new URL(request.url);
+        const queryTenantId = url.searchParams.get("tenantId");
+        if (queryTenantId && queryTenantId !== tenantId) {
+          return new Response(
+            JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const action = url.searchParams.get("action");
+
         try {
-          // ── 0. Auto-seed se o banco estiver vazio para este tenant ───────
-          let baseReports = await db
+          // Busca apenas relatórios reais persistidos no banco para este tenant
+          const baseReports = await db
             .select()
             .from(aiReports)
             .where(eq(aiReports.tenantId, tenantId))
             .orderBy(desc(aiReports.generatedAt))
             .limit(200);
-
-          if (baseReports.length === 0) {
-            console.log(`[reports-v2] Banco sem relatórios para tenant '${tenantId}'. Executando auto-seed mock...`);
-            await autoSeedMockReports(tenantId);
-
-            baseReports = await db
-              .select()
-              .from(aiReports)
-              .where(eq(aiReports.tenantId, tenantId))
-              .orderBy(desc(aiReports.generatedAt))
-              .limit(200);
-          }
 
           // ─── COVERAGE ──────────────────────────────────────────────────
           if (action === "coverage") {

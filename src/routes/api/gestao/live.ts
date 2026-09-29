@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { operators, conversations, contacts, messages } from "../../../db/schema";
 import { eq, and, ne, desc, inArray, gte } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,18 +16,30 @@ export const Route = createFileRoute("/api/gestao/live")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem visualizar o painel ao vivo.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
+        const queryTenantId = url.searchParams.get("tenantId");
+        if (queryTenantId && queryTenantId !== tenantId) {
+          return new Response(
+            JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const dateFilter = url.searchParams.get("date");      // YYYY-MM-DD opcional
         const opIdFilter = url.searchParams.get("opId");      // operatorId opcional
         const search = url.searchParams.get("search");        // busca por nome/telefone
-
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
 
         try {
           const now = new Date();

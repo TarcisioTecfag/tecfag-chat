@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { aiUsageLogs } from "../../../db/schema";
 import { eq, and, desc, gte } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,8 +16,27 @@ export const Route = createFileRoute("/api/gestao/costs")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem visualizar custos.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
+        const queryTenantId = url.searchParams.get("tenantId");
+        if (queryTenantId && queryTenantId !== tenantId) {
+          return new Response(
+            JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const period = url.searchParams.get("period") || "7d";
         const selectedFeature = url.searchParams.get("feature");
         const selectedModel = url.searchParams.get("model");
@@ -32,8 +52,7 @@ export const Route = createFileRoute("/api/gestao/costs")({
             startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
           }
 
-          const filters: any[] = [];
-          if (tenantId) filters.push(eq(aiUsageLogs.tenantId, tenantId));
+          const filters: any[] = [eq(aiUsageLogs.tenantId, tenantId)];
           if (selectedFeature && selectedFeature !== "all") filters.push(eq(aiUsageLogs.feature, selectedFeature));
           if (selectedModel && selectedModel !== "all") filters.push(eq(aiUsageLogs.model, selectedModel));
           if (startDate) filters.push(gte(aiUsageLogs.createdAt, startDate));
@@ -42,7 +61,7 @@ export const Route = createFileRoute("/api/gestao/costs")({
           const logs = await db
             .select()
             .from(aiUsageLogs)
-            .where(filters.length > 0 ? and(...filters) : undefined)
+            .where(and(...filters))
             .orderBy(desc(aiUsageLogs.createdAt))
             .limit(500);
 

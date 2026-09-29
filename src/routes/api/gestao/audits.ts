@@ -4,6 +4,7 @@ import { aiConversationAudits, operators } from "../../../db/schema";
 import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
 import { AuditService } from "../../../lib/audit-service";
 import { getComercialOperatorIds } from "../../../lib/gestao-filter";
+import { requireSession } from "../../../lib/auth-session";
 
 // Inicia o serviço de auditoria ao carregar esta rota
 AuditService.getInstance().start();
@@ -20,21 +21,33 @@ export const Route = createFileRoute("/api/gestao/audits")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem visualizar auditorias.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
+        const queryTenantId = url.searchParams.get("tenantId");
+        if (queryTenantId && queryTenantId !== tenantId) {
+          return new Response(
+            JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const date = url.searchParams.get("date");           // 'YYYY-MM-DD', opcional
         const operatorId = url.searchParams.get("operatorId"); // opcional
         const statusParam = url.searchParams.get("status") ?? "done"; // 'done' | 'pending' | 'processing' | 'error' | 'all'
         const includeAll = url.searchParams.get("includeAll") === "true"; // se true, remove filtro de setor Comercial
         const limitParam = url.searchParams.get("limit") ?? "30";
         const limit = Math.min(parseInt(limitParam), 100);
-
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
 
         try {
           // 0. IDs dos operadores do setor Comercial (regra de negócio)
@@ -130,19 +143,31 @@ export const Route = createFileRoute("/api/gestao/audits")({
       PATCH: async ({ request }) => {
         /**
          * Reseta auditorias com erro de volta para 'pending' para reprocessamento.
-         * Body: { auditId?: string, action?: 'retry_all', tenantId: string }
+         * Body: { auditId?: string, action?: 'retry_all', tenantId?: string }
          * - auditId: reseta uma auditoria específica
          * - action='retry_all': reseta TODAS as auditorias com erro do tenant
          */
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem reprocessar auditorias.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         try {
           const body = await request.json() as { auditId?: string; action?: string; tenantId?: string };
-          const { auditId, action, tenantId } = body;
+          const { auditId, action, tenantId: bodyTenantId } = body;
 
-          if (!tenantId) {
-            return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+          if (bodyTenantId && bodyTenantId !== tenantId) {
+            return new Response(
+              JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
           if (action === "retry_all") {
