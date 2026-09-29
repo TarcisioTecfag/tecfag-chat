@@ -152,8 +152,9 @@ export const Route = createFileRoute("/api/gestao/reports-v2")({
   },
 });
 
-// Helper para auto-seed de relatórios mock caso a tabela esteja vazia
-async function autoSeedMockReports(tenantId: string) {
+// Helper desativado: auto-seed de relatórios mock descontinuado por segurança multi-tenant
+async function autoSeedMockReports(_tenantId: string) {
+  return;
   const pad = (n: number) => String(n).padStart(2, "0");
   const MONTH_NAMES = [
     "janeiro", "fevereiro", "março", "abril", "maio", "junho",
