@@ -57,6 +57,10 @@ export const channelConfigs = pgTable("channel_configs", {
   rdCrmAccessToken: text("rd_crm_access_token"),
   rdCrmRefreshToken: text("rd_crm_refresh_token"),
   rdCrmTokenExpiresAt: text("rd_crm_token_expires_at"), // timestamp ms como string
+  rdCrmSourceOfTruth: text("rd_crm_source_of_truth").default("rd_primary").notNull(), // 'rd_primary' | 'local_primary'
+  rdCrmSyncPolicy: text("rd_crm_sync_policy").default("manual").notNull(), // 'manual' | 'import_only' | 'bidirectional'
+  rdCrmLastSyncAt: timestamp("rd_crm_last_sync_at"),
+  rdCrmLastReport: jsonb("rd_crm_last_report").default({}).notNull(),
 
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -531,7 +535,7 @@ export const crmDeals = pgTable("crm_deals", {
   pipelineId: text("pipeline_id").references(() => crmPipelines.id, { onDelete: "cascade" }).notNull(),
   stageId: text("stage_id").references(() => crmStages.id, { onDelete: "cascade" }).notNull(),
   status: text("status").default("open").notNull(), // 'open' | 'won' | 'lost' | 'paused'
-  value: numeric("value", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  value: numeric("value", { precision: 12, scale: 2 }),
   currency: text("currency").default("BRL").notNull(),
   expectedCloseDate: timestamp("expected_close_date"),
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }), // Vendedor responsável
@@ -544,6 +548,10 @@ export const crmDeals = pgTable("crm_deals", {
   rdDealUrl: text("rd_deal_url"),
   customFields: jsonb("custom_fields").default({}).notNull(),
   version: integer("version").default(1).notNull(), // Concorrência otimista
+  aiPriorityScore: integer("ai_priority_score"),
+  aiPriorityLevel: text("ai_priority_level"), // 'baixa' | 'media' | 'alta' | 'critica'
+  aiPriorityReason: text("ai_priority_reason"),
+  aiPriorityUpdatedAt: timestamp("ai_priority_updated_at"),
   lastActivityAt: timestamp("last_activity_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -704,6 +712,79 @@ export const crmProposals = pgTable("crm_proposals", {
 }, (table) => ({
   tenantDealIdx: index("idx_crm_proposals_tenant_deal").on(table.tenantId, table.dealId),
   tenantNumberIdx: uniqueIndex("idx_crm_proposals_tenant_number_uniq").on(table.tenantId, table.proposalNumber),
+}));
+
+// ─── 14.13. EXECUÇÕES DE MIGRAÇÃO E RECONCILIAÇÃO CRM (RD Station / Legado) ───
+export const crmMigrationRuns = pgTable("crm_migration_runs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  triggeredByOperatorId: text("triggered_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  source: text("source").default("rd_station_v2").notNull(),
+  status: text("status").default("running").notNull(), // 'running' | 'completed' | 'failed' | 'partial'
+  sourceOfTruth: text("source_of_truth").default("rd_primary").notNull(),
+  report: jsonb("report").default({}).notNull(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+}, (table) => ({
+  tenantStartedIdx: index("idx_crm_migration_runs_tenant_started").on(table.tenantId, table.startedAt),
+}));
+
+export type CrmMigrationRun = typeof crmMigrationRuns.$inferSelect;
+export type NewCrmMigrationRun = typeof crmMigrationRuns.$inferInsert;
+
+// ─── 14.14. ARQUIVOS E DOCUMENTOS DA NEGOCIAÇÃO ─────────────────────────────
+export const crmDealFiles = pgTable("crm_deal_files", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  uploadedByOperatorId: text("uploaded_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  fileName: text("file_name").notNull(),
+  fileSize: integer("file_size").notNull(),
+  mimeType: text("mime_type").notNull(),
+  storagePath: text("storage_path").notNull(),
+  metadata: jsonb("metadata").default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealIdx: index("idx_crm_deal_files_tenant_deal").on(table.tenantId, table.dealId),
+  tenantConvIdx: index("idx_crm_deal_files_tenant_conv").on(table.tenantId, table.conversationId),
+}));
+
+// ─── 14.15. QUESTIONÁRIOS E BRIEFINGS DA NEGOCIAÇÃO ─────────────────────────
+export const crmDealQuestionnaires = pgTable("crm_deal_questionnaires", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  contactId: text("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  formTitle: text("form_title").notNull(),
+  version: integer("version").default(1).notNull(),
+  answers: jsonb("answers").default([]).notNull(),
+  filledByOperatorId: text("filled_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealIdx: index("idx_crm_deal_quest_tenant_deal").on(table.tenantId, table.dealId),
+}));
+
+// ─── 14.16. E-MAILS DA NEGOCIAÇÃO ───────────────────────────────────────────
+export const crmDealEmails = pgTable("crm_deal_emails", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  direction: text("direction").default("outbound").notNull(), // 'outbound' | 'inbound'
+  fromAddress: text("from_address").notNull(),
+  toAddress: text("to_address").notNull(),
+  ccAddresses: jsonb("cc_addresses").default([]).notNull(),
+  subject: text("subject").notNull(),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  isVerified: boolean("is_verified").default(true).notNull(),
+  metadata: jsonb("metadata").default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealIdx: index("idx_crm_deal_emails_tenant_deal").on(table.tenantId, table.dealId),
 }));
 
 // ── Valentina Agent Tables ─────────────────────────────────────────────
@@ -1096,3 +1177,6 @@ export type CrmDealEvent             = typeof crmDealEvents.$inferSelect;
 export type CrmProduct               = typeof crmProducts.$inferSelect;
 export type CrmDealProduct           = typeof crmDealProducts.$inferSelect;
 export type CrmProposal              = typeof crmProposals.$inferSelect;
+export type CrmDealFile              = typeof crmDealFiles.$inferSelect;
+export type CrmDealQuestionnaire     = typeof crmDealQuestionnaires.$inferSelect;
+export type CrmDealEmail             = typeof crmDealEmails.$inferSelect;

@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   Info,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 interface RdCrmCardProps {
   contactId: string;
@@ -315,38 +317,42 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
             <div className="flex items-center gap-1">
               {isEditing ? (
                 <>
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className="p-1 rounded-lg hover:bg-muted text-muted-foreground transition cursor-pointer"
-                    title="Cancelar"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="p-1 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-500/10 text-emerald-600 transition cursor-pointer disabled:opacity-55"
-                    title="Salvar"
-                  >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                  </button>
+                  <SystemTooltip content="Cancelar">
+                    <button
+                      onClick={() => setIsEditing(false)}
+                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground transition cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </SystemTooltip>
+                  <SystemTooltip content="Salvar">
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="p-1 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-500/10 text-emerald-600 transition cursor-pointer disabled:opacity-55"
+                    >
+                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                    </button>
+                  </SystemTooltip>
                 </>
               ) : (
                 <>
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    className="p-1 rounded-lg hover:bg-muted text-muted-foreground transition cursor-pointer"
-                    title="Editar Informações"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={handleUnlink}
-                    className="p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-500 transition cursor-pointer"
-                    title="Desvincular do CRM"
-                  >
-                    <Unlink className="h-3.5 w-3.5" />
-                  </button>
+                  <SystemTooltip content="Editar Informações">
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground transition cursor-pointer"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </SystemTooltip>
+                  <SystemTooltip content="Desvincular do CRM">
+                    <button
+                      onClick={handleUnlink}
+                      className="p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-500 transition cursor-pointer"
+                    >
+                      <Unlink className="h-3.5 w-3.5" />
+                    </button>
+                  </SystemTooltip>
                 </>
               )}
             </div>
@@ -401,26 +407,31 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
                         {field.label}
                       </label>
                       {field.type === "select" || field.type === "multiple_choice" || field.type === "option" ? (
-                        <select
-                          value={form.customFields[field.id] || ""}
-                          onChange={(e) =>
+                        <Select
+                          value={form.customFields[field.id] || "__none__"}
+                          onValueChange={(val) =>
                             setForm({
                               ...form,
-                              customFields: { ...form.customFields, [field.id]: e.target.value },
+                              customFields: { ...form.customFields, [field.id]: val === "__none__" ? "" : val },
                             })
                           }
-                          className="h-8 w-full rounded-lg bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                         >
-                          <option value="">Selecione uma opção...</option>
-                          {(field.options || field.custom_field_options)?.map((opt: any) => {
-                            const val = typeof opt === "string" ? opt : opt.value;
-                            return (
-                              <option key={val} value={val}>
-                                {val}
-                              </option>
-                            );
-                          })}
-                        </select>
+                          <SelectTrigger className="h-8 w-full bg-card text-xs">
+                            <SelectValue placeholder="Selecione uma opção..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Selecione uma opção...</SelectItem>
+                            {(field.options || field.custom_field_options)?.map((opt: any) => {
+                              const val = typeof opt === "string" ? opt : opt.value;
+                              if (!val) return null;
+                              return (
+                                <SelectItem key={val} value={val}>
+                                  {val}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
                       ) : (
                         // Textarea para Informações Complementares, input para o resto
                         key === "infoComplementar" ? (

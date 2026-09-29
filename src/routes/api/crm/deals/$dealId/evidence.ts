@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
-import { crmService } from "../../../../../lib/crm/crm-service";
+import { requireCrmPermission } from "../../../../../lib/rbac";
+import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/evidence")({
       /**
        * GET /api/crm/deals/:dealId/evidence
        * Lista mensagens marcadas como evidência comercial para esta negociação.
+       * Exige permissão canViewCrm.
        */
       GET: async ({ request, params }) => {
         try {
@@ -23,6 +25,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/evidence")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
 
           const { dealId } = params as { dealId: string };
           const evidences = await crmService.getDealEvidenceMessages(tenantId, dealId);
@@ -32,16 +37,14 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/evidence")({
           });
         } catch (err: any) {
           console.error("[CRM Deal Evidence API] Erro no GET:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
       /**
        * POST /api/crm/deals/:dealId/evidence
        * Marca uma mensagem como evidência comercial na negociação.
+       * Exige permissão canEditDeals.
        */
       POST: async ({ request, params }) => {
         try {
@@ -50,12 +53,15 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/evidence")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
+          const permError = requireCrmPermission(session, "canEditDeals");
+          if (permError) return permError;
+
           const { dealId } = params as { dealId: string };
           const body = await request.json();
 
           if (!body.messageId) {
             return new Response(
-              JSON.stringify({ error: "ID da mensagem (messageId) é obrigatório." }),
+              JSON.stringify({ error: "ID da mensagem (messageId) é obrigatório.", code: "BAD_REQUEST" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
@@ -75,16 +81,14 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/evidence")({
           });
         } catch (err: any) {
           console.error("[CRM Deal Evidence API] Erro no POST:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
       /**
        * DELETE /api/crm/deals/:dealId/evidence
        * Remove marcação de evidência comercial.
+       * Exige permissão canEditDeals.
        */
       DELETE: async ({ request, params }) => {
         try {
@@ -92,6 +96,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/evidence")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canEditDeals");
+          if (permError) return permError;
 
           const { dealId } = params as { dealId: string };
           const url = new URL(request.url);
@@ -105,7 +112,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/evidence")({
 
           if (!evidenceId) {
             return new Response(
-              JSON.stringify({ error: "ID da evidência (evidenceId) é obrigatório." }),
+              JSON.stringify({ error: "ID da evidência (evidenceId) é obrigatório.", code: "BAD_REQUEST" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
@@ -122,10 +129,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/evidence")({
           });
         } catch (err: any) {
           console.error("[CRM Deal Evidence API] Erro no DELETE:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
     },

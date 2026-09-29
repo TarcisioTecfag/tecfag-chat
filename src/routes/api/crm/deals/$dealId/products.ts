@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
-import { crmService } from "../../../../../lib/crm/crm-service";
+import { requireCrmPermission } from "../../../../../lib/rbac";
+import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { db } from "../../../../../db";
 import { crmDeals, crmProducts } from "../../../../../db/schema";
 import { eq, and } from "drizzle-orm";
@@ -19,6 +20,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
       /**
        * GET /api/crm/deals/:dealId/products
        * Lista os itens de produtos vinculados a uma negociação com validação de tenant.
+       * Exige permissão canViewCrm.
        */
       GET: async ({ request, params }) => {
         try {
@@ -26,6 +28,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
 
           const { dealId } = params as { dealId: string };
 
@@ -68,6 +73,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canEditDeals");
+          if (permError) return permError;
 
           const { dealId } = params as { dealId: string };
           const body = await request.json();
@@ -153,10 +161,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
           });
         } catch (err: any) {
           console.error("[CRM Deal Products API] Erro no POST:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
@@ -170,6 +175,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canEditDeals");
+          if (permError) return permError;
 
           const { dealId } = params as { dealId: string };
           const url = new URL(request.url);
@@ -201,10 +209,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
           });
         } catch (err: any) {
           console.error("[CRM Deal Products API] Erro no DELETE:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
     },

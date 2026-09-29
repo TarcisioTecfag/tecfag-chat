@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
-import { crmService } from "../../../../lib/crm/crm-service";
+import { requireCrmPermission } from "../../../../lib/rbac";
+import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
 import { db } from "../../../../db";
-import { conversations, contacts } from "../../../../db/schema";
+import { conversations, contacts, crmAccounts } from "../../../../db/schema";
 import { eq, and } from "drizzle-orm";
 
 const corsHeaders = {
@@ -18,7 +19,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
 
       /**
        * GET /api/chats/:conversationId/deals
-       * Lista as negociações ativas vinculadas a esta conversa (relação N:N).
+       * Lista as negociações ativas vinculadas a esta conversa (relação N:N) e metadados de contato/conta.
        */
       GET: async ({ request, params }) => {
         try {
@@ -26,6 +27,9 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
 
           const { conversationId } = params as { conversationId: string };
 
@@ -45,15 +49,45 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
 
           const deals = await crmService.getConversationDeals(tenantId, conversationId);
 
-          return new Response(JSON.stringify({ deals }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          const [contact] = await db
+            .select({
+              id: contacts.id,
+              name: contacts.name,
+              accountId: contacts.accountId,
+            })
+            .from(contacts)
+            .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)))
+            .limit(1);
+
+          let accountName: string | null = null;
+          if (contact?.accountId) {
+            const [acc] = await db
+              .select({ name: crmAccounts.name })
+              .from(crmAccounts)
+              .where(and(eq(crmAccounts.id, contact.accountId), eq(crmAccounts.tenantId, tenantId)))
+              .limit(1);
+            accountName = acc?.name || null;
+          }
+
+          return new Response(
+            JSON.stringify({
+              deals,
+              contact: contact
+                ? {
+                    id: contact.id,
+                    name: contact.name,
+                    accountId: contact.accountId,
+                    accountName,
+                  }
+                : null,
+            }),
+            {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
         } catch (err: any) {
           console.error("[Chat Deals API] Erro no GET:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
@@ -87,8 +121,11 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
 
           const body = await request.json();
 
-          // Caso 1: Vincular card existente
+          // Caso 1: Vincular card existente (exige canEditDeals)
           if (body.dealId) {
+            const permError = requireCrmPermission(session, "canEditDeals");
+            if (permError) return permError;
+
             const link = await crmService.linkConversationDeal(
               tenantId,
               conversationId,
@@ -101,7 +138,10 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
             });
           }
 
-          // Caso 2: Criar novo card a partir do chat
+          // Caso 2: Criar novo card a partir do chat (exige canCreateDeals)
+          const permError = requireCrmPermission(session, "canCreateDeals");
+          if (permError) return permError;
+
           if (!body.title || !body.pipelineId || !body.stageId) {
             return new Response(
               JSON.stringify({ error: "Para criar um novo card, informe title, pipelineId e stageId.", code: "BAD_REQUEST" }),
@@ -133,10 +173,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           });
         } catch (err: any) {
           console.error("[Chat Deals API] Erro no POST:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
@@ -151,6 +188,9 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canEditDeals");
+          if (permError) return permError;
 
           const { conversationId } = params as { conversationId: string };
           const url = new URL(request.url);
@@ -182,10 +222,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           });
         } catch (err: any) {
           console.error("[Chat Deals API] Erro no DELETE:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
     },

@@ -29,6 +29,7 @@ import {
   Check,
   Download,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1176,16 +1177,20 @@ export function AgendaTab() {
 
               <div>
                 <label className="block font-bold text-foreground mb-1">Origem / Motivo do Agendamento</label>
-                <select
+                <Select
                   value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value as VoiceAgendaItem["type"] })}
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-xs focus:ring-2 focus:ring-primary/30 outline-none"
+                  onValueChange={(val) => setFormData({ ...formData, type: val as VoiceAgendaItem["type"] })}
                 >
-                  <option value="follow_up">Follow-up pós-conversa</option>
-                  <option value="customer_request">Solicitação Direta do Cliente ("Ligar no horário X")</option>
-                  <option value="excel_list">Lista de Ligações Excel</option>
-                  <option value="sdr_outreach">Prospecção Ativa SDR</option>
-                </select>
+                  <SelectTrigger className="w-full rounded-xl bg-background border border-border text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="follow_up">Follow-up pós-conversa</SelectItem>
+                    <SelectItem value="customer_request">Solicitação Direta do Cliente ("Ligar no horário X")</SelectItem>
+                    <SelectItem value="excel_list">Lista de Ligações Excel</SelectItem>
+                    <SelectItem value="sdr_outreach">Prospecção Ativa SDR</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>

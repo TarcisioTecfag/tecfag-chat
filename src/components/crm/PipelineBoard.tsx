@@ -1,6 +1,7 @@
-import React from "react";
-import { PipelineColumn, PipelineStageData } from "./PipelineColumn";
+import React, { useState } from "react";
+import { PipelineColumn, PipelineStageData, PipelineStageSummary } from "./PipelineColumn";
 import { DealCardData } from "./DealCard";
+import { StageTerminalConfirmDialog } from "./StageTerminalConfirmDialog";
 
 interface PipelineBoardProps {
   pipeline: {
@@ -10,15 +11,22 @@ interface PipelineBoardProps {
     stages: PipelineStageData[];
   };
   deals: DealCardData[];
+  stagesSummaryMap?: Map<string, PipelineStageSummary>;
   operatorsMap: Map<string, string>;
   onDealClick: (deal: DealCardData) => void;
-  onMoveDeal: (dealId: string, newStageId: string, currentVersion: number) => void;
+  onMoveDeal: (
+    dealId: string,
+    newStageId: string,
+    currentVersion: number,
+    terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null }
+  ) => void;
   onNewDealAtStage?: (stageId: string) => void;
 }
 
 export function PipelineBoard({
   pipeline,
   deals,
+  stagesSummaryMap,
   operatorsMap,
   onDealClick,
   onMoveDeal,
@@ -29,6 +37,17 @@ export function PipelineBoard({
 
   // Mapeamento simplificado para select de troca de etapas
   const allStages = sortedStages.map((s) => ({ id: s.id, name: s.name }));
+
+  // Estado para diálogo de confirmação em etapa terminal (Ganho/Perda)
+  const [terminalConfirm, setTerminalConfirm] = useState<{
+    dealId: string;
+    version: number;
+    targetStageId: string;
+    targetStageName: string;
+    dealTitle: string;
+    currentValue?: string | number | null;
+    type: "win" | "loss";
+  } | null>(null);
 
   // Agrupa deals por stageId
   const dealsByStage = new Map<string, DealCardData[]>();
@@ -49,32 +68,91 @@ export function PipelineBoard({
     }
   }
 
+  // Intercepta movimentação para verificar etapa terminal
+  const handleInterceptMove = (dealId: string, newStageId: string, version: number) => {
+    const targetStage = sortedStages.find((s) => s.id === newStageId);
+    const deal = deals.find((d) => d.id === dealId);
+
+    if (targetStage?.isWinStage) {
+      setTerminalConfirm({
+        dealId,
+        version,
+        targetStageId: newStageId,
+        targetStageName: targetStage.name,
+        dealTitle: deal?.title || "Negociação",
+        currentValue: deal?.value,
+        type: "win",
+      });
+      return;
+    }
+
+    if (targetStage?.isLossStage) {
+      setTerminalConfirm({
+        dealId,
+        version,
+        targetStageId: newStageId,
+        targetStageName: targetStage.name,
+        dealTitle: deal?.title || "Negociação",
+        currentValue: deal?.value,
+        type: "loss",
+      });
+      return;
+    }
+
+    // Etapa padrão não terminal
+    onMoveDeal(dealId, newStageId, version);
+  };
+
   return (
-    <div className="flex h-full w-full gap-4 overflow-x-auto pb-4 pt-1 px-1 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
-      {sortedStages.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border/80 p-8 text-center">
-          <div>
-            <h4 className="text-sm font-bold text-foreground">Nenhuma etapa cadastrada</h4>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Este funil não possui etapas configuradas para exibir o quadro Kanban.
-            </p>
+    <>
+      <div className="flex h-full w-full gap-4 overflow-x-auto pb-4 pt-1 px-1 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+        {sortedStages.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border/80 p-8 text-center">
+            <div>
+              <h4 className="text-sm font-bold text-foreground">Nenhuma etapa cadastrada</h4>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Este funil não possui etapas configuradas para exibir o quadro Kanban.
+              </p>
+            </div>
           </div>
-        </div>
-      ) : (
-        sortedStages.map((stage) => (
-          <PipelineColumn
-            key={stage.id}
-            stage={stage}
-            deals={dealsByStage.get(stage.id) || []}
-            coolingDays={pipeline.coolingDays ?? 10}
-            operatorsMap={operatorsMap}
-            allStages={allStages}
-            onDealClick={onDealClick}
-            onDropDeal={onMoveDeal}
-            onNewDealAtStage={onNewDealAtStage}
-          />
-        ))
+        ) : (
+          sortedStages.map((stage) => (
+            <PipelineColumn
+              key={stage.id}
+              stage={stage}
+              deals={dealsByStage.get(stage.id) || []}
+              summary={stagesSummaryMap?.get(stage.id)}
+              coolingDays={pipeline.coolingDays ?? 10}
+              operatorsMap={operatorsMap}
+              allStages={allStages}
+              onDealClick={onDealClick}
+              onDropDeal={handleInterceptMove}
+              onNewDealAtStage={onNewDealAtStage}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Confirmação explícita de Ganho / Perda em Etapas Terminais */}
+      {terminalConfirm && (
+        <StageTerminalConfirmDialog
+          isOpen={true}
+          type={terminalConfirm.type}
+          stageName={terminalConfirm.targetStageName}
+          dealTitle={terminalConfirm.dealTitle}
+          currentValue={terminalConfirm.currentValue}
+          onConfirm={(data) => {
+            onMoveDeal(
+              terminalConfirm.dealId,
+              terminalConfirm.targetStageId,
+              terminalConfirm.version,
+              data
+            );
+            setTerminalConfirm(null);
+          }}
+          onCancel={() => setTerminalConfirm(null)}
+        />
       )}
-    </div>
+    </>
   );
 }

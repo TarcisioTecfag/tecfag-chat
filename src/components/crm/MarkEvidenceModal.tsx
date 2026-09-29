@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { X, Bookmark, CheckCircle2, Loader2, Columns3 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface MarkEvidenceModalProps {
   isOpen: boolean;
@@ -123,19 +130,18 @@ export function MarkEvidenceModal({
                 Esta conversa não possui nenhuma negociação vinculada ainda. Crie ou vincule uma negociação no painel lateral antes de marcar evidências.
               </div>
             ) : (
-              <div className="relative">
-                <select
-                  value={selectedDealId}
-                  onChange={(e) => setSelectedDealId(e.target.value)}
-                  className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold outline-none cursor-pointer"
-                >
+              <Select value={selectedDealId} onValueChange={setSelectedDealId}>
+                <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
+                  <SelectValue placeholder="Selecione uma negociação..." />
+                </SelectTrigger>
+                <SelectContent>
                   {deals.map((d) => (
-                    <option key={d.id} value={d.id}>
+                    <SelectItem key={d.id} value={d.id} className="text-xs font-medium">
                       {d.title} {d.value ? `(R$ ${Number(d.value).toLocaleString("pt-BR")})` : ""}
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
-              </div>
+                </SelectContent>
+              </Select>
             )}
           </div>
 

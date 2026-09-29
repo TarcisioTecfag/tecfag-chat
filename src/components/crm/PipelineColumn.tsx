@@ -10,9 +10,18 @@ export interface PipelineStageData {
   isLossStage?: boolean;
 }
 
+export interface PipelineStageSummary {
+  stageId: string;
+  dealsCount: number;
+  knownValueDealsCount: number;
+  totalValue: number;
+  formattedTotalValue: string;
+}
+
 interface PipelineColumnProps {
   stage: PipelineStageData;
   deals: DealCardData[];
+  summary?: PipelineStageSummary;
   coolingDays?: number;
   operatorsMap: Map<string, string>;
   allStages: Array<{ id: string; name: string }>;
@@ -24,6 +33,7 @@ interface PipelineColumnProps {
 export function PipelineColumn({
   stage,
   deals,
+  summary,
   coolingDays = 10,
   operatorsMap,
   allStages,
@@ -33,7 +43,7 @@ export function PipelineColumn({
 }: PipelineColumnProps) {
   const [isOver, setIsOver] = useState(false);
 
-  // Soma de valores conhecidos (sem inventar zero)
+  // Soma de valores: prioriza agregação do servidor se disponível
   let totalKnownValue = 0;
   let hasKnownValue = false;
 
@@ -47,9 +57,12 @@ export function PipelineColumn({
     }
   }
 
-  const formattedTotal = hasKnownValue
+  const localFormattedTotal = hasKnownValue
     ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(totalKnownValue)
     : "-";
+
+  const displayCount = summary ? summary.dealsCount : deals.length;
+  const displayFormattedTotal = summary ? summary.formattedTotalValue : localFormattedTotal;
 
   // Drag over / drop handlers
   const handleDragOver = (e: React.DragEvent) => {
@@ -96,8 +109,11 @@ export function PipelineColumn({
             <h3 className="text-xs font-bold text-foreground truncate">
               {stage.name}
             </h3>
-            <span className="flex h-5 items-center justify-center rounded-full bg-muted px-2 text-[10px] font-extrabold text-muted-foreground">
-              {deals.length}
+            <span
+              title={`${displayCount} negociações no total nesta etapa`}
+              className="flex h-5 items-center justify-center rounded-full bg-muted px-2 text-[10px] font-extrabold text-muted-foreground"
+            >
+              {displayCount}
             </span>
           </div>
 
@@ -115,7 +131,7 @@ export function PipelineColumn({
         {/* Totalizador Financeiro da Etapa */}
         <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
           <span>Total conhecido:</span>
-          <span className="font-bold text-foreground/80">{formattedTotal}</span>
+          <span className="font-bold text-foreground/80">{displayFormattedTotal}</span>
         </div>
       </div>
 
@@ -128,16 +144,25 @@ export function PipelineColumn({
             </p>
           </div>
         ) : (
-          deals.map((deal) => (
-            <DealCard
-              key={deal.id}
-              deal={deal}
-              coolingDays={coolingDays}
-              operatorName={deal.ownerId ? operatorsMap.get(deal.ownerId) : undefined}
-              onClick={onDealClick}
-              allStages={allStages}
-            />
-          ))
+          <>
+            {deals.map((deal) => (
+              <DealCard
+                key={deal.id}
+                deal={deal}
+                coolingDays={coolingDays}
+                operatorName={(deal.operatorId || deal.ownerId) ? operatorsMap.get((deal.operatorId || deal.ownerId)!) : undefined}
+                onClick={onDealClick}
+                onQuickMove={onDropDeal}
+                allStages={allStages}
+              />
+            ))}
+
+            {summary && summary.dealsCount > deals.length && (
+              <div className="py-2 text-center text-[10px] text-muted-foreground/70 border-t border-dashed border-border/60">
+                Mostrando {deals.length} de {summary.dealsCount} negociações
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

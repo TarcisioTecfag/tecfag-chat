@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Tenant = { id: string; name: string };
 type GlobalGroup = { id: string; name: string; allowedTenants: string[] };
@@ -162,27 +164,31 @@ export function MultiTenantAccessPanel() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] items-end">
-        <label className="text-xs font-semibold">
-          Grupo global
-          <select
-            className="mt-1 w-full rounded-lg border bg-card p-2"
-            value={groupId}
-            onChange={(event) => {
-              const id = event.target.value;
+        <div className="space-y-1">
+          <label className="text-xs font-semibold block">Grupo global</label>
+          <Select
+            value={groupId || "__new__"}
+            onValueChange={(val) => {
+              const id = val === "__new__" ? "" : val;
               const group = data.groups.find((item) => item.id === id);
               setGroupId(id);
               setGroupName(group?.name ?? "");
               setGroupTenants(group?.allowedTenants ?? []);
             }}
           >
-            <option value="">Novo grupo</option>
-            {data.groups.map((group) => (
-              <option key={group.id} value={group.id}>
-                {group.name}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger className="w-full bg-card">
+              <SelectValue placeholder="Novo grupo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__new__">Novo grupo</SelectItem>
+              {data.groups.map((group) => (
+                <SelectItem key={group.id} value={group.id}>
+                  {group.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <label className="text-xs font-semibold">
           Nome do grupo
           <input
@@ -202,13 +208,12 @@ export function MultiTenantAccessPanel() {
       </div>
       <div className="flex flex-wrap gap-4">
         {data.tenants.map((item) => (
-          <label key={item.id} className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
+          <label key={item.id} className="flex items-center gap-2 text-xs cursor-pointer">
+            <Checkbox
               checked={groupTenants.includes(item.id)}
-              onChange={(event) =>
+              onCheckedChange={(checked) =>
                 setGroupTenants((current) =>
-                  event.target.checked
+                  checked
                     ? [...current, item.id]
                     : current.filter((id) => id !== item.id),
                 )
@@ -222,61 +227,79 @@ export function MultiTenantAccessPanel() {
       {selectedGroup && selectedGroup.allowedTenants.includes(tenant) && (
         <div className="space-y-3 border-t pt-4">
           <h4 className="text-xs font-bold">Adicionar ou alterar uma pessoa neste grupo</h4>
-          <select
-            className="w-full rounded-lg border bg-card p-2 text-xs"
-            value={operatorId}
-            onChange={(event) => setOperatorId(event.target.value)}
+          <Select
+            value={operatorId || "__none__"}
+            onValueChange={(val) => setOperatorId(val === "__none__" ? "" : val)}
           >
-            <option value="">Selecione um usuário de {tenant}</option>
-            {operators.map((operator) => (
-              <option key={operator.id} value={operator.id}>
-                {operator.name} — {operator.email}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full bg-card text-xs">
+              <SelectValue placeholder={`Selecione um usuário de ${tenant}`} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Selecione um usuário de {tenant}</SelectItem>
+              {operators.map((operator) => (
+                <SelectItem key={operator.id} value={operator.id}>
+                  {operator.name} — {operator.email}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {targets.map((targetTenant) => (
             <div key={targetTenant} className="grid gap-2 md:grid-cols-2">
-              <label className="text-xs">
-                Papel em {targetTenant}
-                <select
-                  className="mt-1 w-full rounded-lg border bg-card p-2"
-                  value={targetRoles[targetTenant] || ""}
-                  onChange={(event) =>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold block">Papel em {targetTenant}</label>
+                <Select
+                  value={targetRoles[targetTenant] || "__none__"}
+                  onValueChange={(val) =>
                     setTargetRoles((current) => ({
                       ...current,
-                      [targetTenant]: event.target.value,
+                      [targetTenant]: val === "__none__" ? "" : val,
                     }))
                   }
                 >
-                  <option value="">Manter atual; novo operador</option>
-                  <option value="agent">Operador</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </label>
-              <label className="text-xs">
-                Grupo local em {targetTenant}
-                <select
-                  className="mt-1 w-full rounded-lg border bg-card p-2"
-                  value={localGroupIds[targetTenant] || ""}
-                  onChange={(event) =>
+                  <SelectTrigger className="w-full bg-card text-xs">
+                    <SelectValue placeholder="Manter atual; novo operador" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Manter atual; novo operador</SelectItem>
+                    <SelectItem value="agent">Operador</SelectItem>
+                    <SelectItem value="admin">Administrador</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold block">Grupo local em {targetTenant}</label>
+                <Select
+                  value={localGroupIds[targetTenant] || "__none__"}
+                  onValueChange={(val) =>
                     setLocalGroupIds((current) => ({
                       ...current,
-                      [targetTenant]: event.target.value,
+                      [targetTenant]: val === "__none__" ? "" : val,
                     }))
                   }
                 >
-                  <option value="">
-                    {targetRoles[targetTenant] === "admin"
-                      ? "Permissões de administrador"
-                      : "Selecione um grupo local"}
-                  </option>
-                  {(data.localGroups[targetTenant] || []).map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <SelectTrigger className="w-full bg-card text-xs">
+                    <SelectValue
+                      placeholder={
+                        targetRoles[targetTenant] === "admin"
+                          ? "Permissões de administrador"
+                          : "Selecione um grupo local"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      {targetRoles[targetTenant] === "admin"
+                        ? "Permissões de administrador"
+                        : "Selecione um grupo local"}
+                    </SelectItem>
+                    {(data.localGroups[targetTenant] || []).map((group) => (
+                      <SelectItem key={group.id} value={group.id}>
+                        {group.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           ))}
           <button

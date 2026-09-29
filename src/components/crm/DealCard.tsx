@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Building2,
   User,
@@ -10,7 +10,10 @@ import {
   XCircle,
   PauseCircle,
   MoreVertical,
+  Plus,
 } from "lucide-react";
+import { toast } from "sonner";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 export interface DealCardData {
   id: string;
@@ -21,6 +24,7 @@ export interface DealCardData {
   value: string | number | null;
   currency?: string;
   rating?: number | null;
+  operatorId?: string | null;
   ownerId?: string | null;
   accountId?: string | null;
   version: number;
@@ -31,18 +35,27 @@ export interface DealCardData {
   account?: {
     id: string;
     name: string;
-    legalName?: string | null;
-    cnpj?: string | null;
-    cpf?: string | null;
-    isCompany?: boolean;
+    tradeName?: string | null;
+    type?: "person" | "company";
+    document?: string | null;
+    documentType?: string | null;
+    email?: string | null;
+    phone?: string | null;
     city?: string | null;
     state?: string | null;
   } | null;
   conversationsCount?: number;
   contactsCount?: number;
   nextTask?: {
+    id?: string;
     title: string;
+    type?: string;
     dueDate?: string | Date | null;
+    isOverdue?: boolean;
+    isToday?: boolean;
+    isFuture?: boolean;
+    hasNoDueDate?: boolean;
+    responsibleName?: string | null;
   } | null;
 }
 
@@ -52,6 +65,8 @@ interface DealCardProps {
   operatorName?: string;
   onClick: (deal: DealCardData) => void;
   onQuickMove?: (dealId: string, newStageId: string, currentVersion: number) => void;
+  onTaskCompleted?: (dealId: string, activityId: string) => void;
+  onCreateTaskClick?: (deal: DealCardData) => void;
   allStages?: Array<{ id: string; name: string }>;
 }
 
@@ -61,8 +76,13 @@ export function DealCard({
   operatorName,
   onClick,
   onQuickMove,
+  onTaskCompleted,
+  onCreateTaskClick,
   allStages = [],
 }: DealCardProps) {
+  const [completingTask, setCompletingTask] = useState(false);
+  const [showQuickMenu, setShowQuickMenu] = useState(false);
+
   // Cálculo de estagnação ("Esfriando há X dias")
   const lastActiveDate = deal.lastActivityAt
     ? new Date(deal.lastActivityAt)
@@ -71,15 +91,16 @@ export function DealCard({
   const diffDays = Math.max(0, Math.floor((now.getTime() - lastActiveDate.getTime()) / (1000 * 60 * 60 * 24)));
   const isCooling = deal.status === "open" && diffDays >= coolingDays;
 
-  // Formatação de valor
-  const rawValue = deal.value ? Number(deal.value) : null;
+  // Formatação de valor: distinção estrita entre null (não informado) e zero (R$ 0,00)
+  const isNullValue = deal.value === null || deal.value === undefined;
+  const rawValue = !isNullValue ? Number(deal.value) : null;
   const formattedValue = rawValue !== null && !isNaN(rawValue)
     ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(rawValue)
     : null;
 
-  // Status visual
+  // Status visual com estado "Em andamento" visível
   const statusBadge = {
-    open: null,
+    open: { label: "Em andamento", color: "text-blue-700 dark:text-blue-400 bg-blue-500/10 border-blue-500/30", icon: Clock },
     won: { label: "Vendido", color: "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30", icon: CheckCircle2 },
     lost: { label: "Perdido", color: "text-red-700 dark:text-red-400 bg-red-500/10 border-red-500/30", icon: XCircle },
     paused: { label: "Pausado", color: "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30", icon: PauseCircle },
@@ -114,30 +135,104 @@ export function DealCard({
         </div>
       )}
 
-      {/* Topo do Card: Título + Badge de Status */}
+      {/* Topo do Card: Título + Badge de Status + Menu Rápido */}
       <div className="flex items-start justify-between gap-2">
-        <h4 className="text-xs font-bold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+        <h4 className="text-xs font-bold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors flex-1">
           {deal.title}
         </h4>
-        {statusBadge && (
-          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${statusBadge.color}`}>
-            <statusBadge.icon className="h-2.5 w-2.5" />
-            {statusBadge.label}
-          </span>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          {statusBadge && (
+            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${statusBadge.color}`}>
+              <statusBadge.icon className="h-2.5 w-2.5" />
+              {statusBadge.label}
+            </span>
+          )}
+
+          {/* Menu Rápido de Ações */}
+          <div className="relative">
+            <SystemTooltip content="Ações rápidas">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowQuickMenu(!showQuickMenu);
+                }}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-70 group-hover:opacity-100 cursor-pointer"
+              >
+                <MoreVertical className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
+
+            {showQuickMenu && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 top-6 z-30 w-44 rounded-xl border border-border bg-popover p-1.5 shadow-xl text-[11px] font-medium text-popover-foreground animate-in fade-in zoom-in-95"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickMenu(false);
+                    onClick(deal);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                >
+                  <span>✏️</span>
+                  <span>Editar Negociação</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickMenu(false);
+                    onCreateTaskClick ? onCreateTaskClick(deal) : onClick(deal);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                >
+                  <span>📋</span>
+                  <span>Criar Tarefa</span>
+                </button>
+
+                {allStages.length > 1 && onQuickMove && (
+                  <div className="border-t border-border/60 my-1 pt-1">
+                    <p className="px-2 py-0.5 text-[9px] font-bold text-muted-foreground uppercase">
+                      Mover para etapa:
+                    </p>
+                    {allStages
+                      .filter((s) => s.id !== deal.stageId)
+                      .slice(0, 4)
+                      .map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setShowQuickMenu(false);
+                            onQuickMove(deal.id, s.id, deal.version);
+                          }}
+                          className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[10px] hover:bg-accent truncate cursor-pointer transition-colors"
+                        >
+                          <span>➡️</span>
+                          <span className="truncate">{s.name}</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Identificação do Cliente / Empresa */}
       <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {deal.account ? (
           <>
-            {deal.account.isCompany ? (
+            {deal.account.type === "company" ? (
               <Building2 className="h-3 w-3 text-primary/70 shrink-0" />
             ) : (
               <User className="h-3 w-3 text-primary/70 shrink-0" />
             )}
             <span className="truncate font-medium text-foreground/80">
-              {deal.account.name || deal.account.legalName}
+              {deal.account.name || deal.account.tradeName}
             </span>
           </>
         ) : (
@@ -169,46 +264,153 @@ export function DealCard({
 
       {/* Rodapé do Card: Valor Comercial + Vendedor + Contador de Conversas */}
       <div className="flex items-center justify-between gap-1 text-[11px]">
-        {/* Valor Comercial */}
+        {/* Valor Comercial ou "Adicionar valor" */}
         <div>
-          {formattedValue ? (
+          {formattedValue !== null ? (
             <span className="font-extrabold text-foreground tracking-tight text-xs">
               {formattedValue}
             </span>
           ) : (
-            <span className="text-[10px] font-medium text-muted-foreground/60 hover:text-primary transition-colors">
-              Sem valor
-            </span>
+            <SystemTooltip content="Clique para adicionar valor">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClick(deal);
+                }}
+                className="text-[10px] font-semibold text-primary/80 hover:text-primary hover:underline transition-colors cursor-pointer"
+              >
+                + Adicionar valor
+              </button>
+            </SystemTooltip>
           )}
         </div>
 
         {/* Informações da Direita: Conversas + Vendedor */}
         <div className="flex items-center gap-2">
-          {/* Contador de conversas */}
+          {/* Contador de conversas clicável */}
           {(deal.conversationsCount || 0) > 0 && (
-            <span
-              title={`${deal.conversationsCount} conversas vinculadas`}
-              className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary"
-            >
-              <MessageSquare className="h-2.5 w-2.5" />
-              {deal.conversationsCount}
-            </span>
+            <SystemTooltip content={`${deal.conversationsCount} conversas vinculadas (clique para abrir ficha)`}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClick(deal);
+                }}
+                className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+              >
+                <MessageSquare className="h-2.5 w-2.5" />
+                {deal.conversationsCount}
+              </button>
+            </SystemTooltip>
           )}
 
           {/* Vendedor / Responsável */}
           {operatorName ? (
-            <span
-              title={`Responsável: ${operatorName}`}
-              className="inline-flex h-5 max-w-[70px] truncate items-center rounded-full bg-muted px-2 text-[9px] font-semibold text-muted-foreground"
-            >
-              {operatorName}
-            </span>
+            <SystemTooltip content={`Responsável: ${operatorName}`}>
+              <span className="inline-flex h-5 max-w-[70px] truncate items-center rounded-full bg-muted px-2 text-[9px] font-semibold text-muted-foreground">
+                {operatorName}
+              </span>
+            </SystemTooltip>
           ) : (
             <span className="text-[9px] text-muted-foreground/50">
               Sem resp.
             </span>
           )}
         </div>
+      </div>
+
+      {/* ── FAIXA DA PRÓXIMA AÇÃO COMERCIAL (Estilo RD Station) ── */}
+      <div className="mt-2.5 pt-2 border-t border-border/50">
+        {deal.nextTask ? (
+          <div
+            className={`flex items-center justify-between gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium border transition-colors ${
+              deal.nextTask.isOverdue
+                ? "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/25"
+                : deal.nextTask.isToday
+                ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/25"
+                : "bg-muted/50 text-foreground/80 border-border/60"
+            }`}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Clock
+                className={`h-3 w-3 shrink-0 ${
+                  deal.nextTask.isOverdue
+                    ? "text-red-600 dark:text-red-400"
+                    : deal.nextTask.isToday
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground"
+                }`}
+              />
+              <span className="truncate">
+                {deal.nextTask.isOverdue && (
+                  <strong className="font-extrabold mr-1 text-red-600 dark:text-red-400">
+                    Atrasada:
+                  </strong>
+                )}
+                {deal.nextTask.isToday && (
+                  <strong className="font-extrabold mr-1 text-amber-600 dark:text-amber-400">
+                    Hoje:
+                  </strong>
+                )}
+                {deal.nextTask.title}
+                {deal.nextTask.dueDate && (
+                  <span className="opacity-70 ml-1">
+                    ({new Date(deal.nextTask.dueDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })})
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {deal.nextTask.id && (
+                <SystemTooltip content="Concluir tarefa rapidamente">
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!deal.nextTask?.id || completingTask) return;
+                      setCompletingTask(true);
+                      try {
+                        const res = await fetch(`/api/crm/deals/${deal.id}/activities/${deal.nextTask.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: "completed" }),
+                        });
+                        if (!res.ok) {
+                          const err = await res.json();
+                          throw new Error(err.error || "Erro ao concluir tarefa.");
+                        }
+                        toast.success("Tarefa concluída!");
+                        onTaskCompleted?.(deal.id, deal.nextTask.id);
+                      } catch (err: any) {
+                        toast.error(err.message || "Erro ao concluir tarefa.");
+                      } finally {
+                        setCompletingTask(false);
+                      }
+                    }}
+                    disabled={completingTask}
+                    className="shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-primary transition cursor-pointer"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 hover:scale-110 transition-transform" />
+                  </button>
+                </SystemTooltip>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground/60 px-1 py-0.5">
+            <span>Sem tarefas pendentes</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateTaskClick ? onCreateTaskClick(deal) : onClick(deal);
+              }}
+              className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
+            >
+              + Tarefa
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

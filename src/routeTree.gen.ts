@@ -76,6 +76,7 @@ import { Route as ApiCrmProductsRouteImport } from './routes/api/crm/products'
 import { Route as ApiCrmPipelinesRouteImport } from './routes/api/crm/pipelines'
 import { Route as ApiCrmInventoryRouteImport } from './routes/api/crm/inventory'
 import { Route as ApiCrmDealsRouteImport } from './routes/api/crm/deals'
+import { Route as ApiCrmCalendarRouteImport } from './routes/api/crm/calendar'
 import { Route as ApiCrmAccountsRouteImport } from './routes/api/crm/accounts'
 import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
 import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/contacts/check-inactivity'
@@ -101,17 +102,31 @@ import { Route as ApiSettingsWhatsappActionsRouteImport } from './routes/api/set
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
 import { Route as ApiLivechatVisitorVisitorIdRouteImport } from './routes/api/livechat/visitor/$visitorId'
+import { Route as ApiCrmStagesStageIdRouteImport } from './routes/api/crm/stages/$stageId'
+import { Route as ApiCrmPipelinesPipelineIdRouteImport } from './routes/api/crm/pipelines/$pipelineId'
 import { Route as ApiCrmImportRdCrmRouteImport } from './routes/api/crm/import/rd-crm'
+import { Route as ApiCrmDealsBulkRouteImport } from './routes/api/crm/deals/bulk'
 import { Route as ApiCrmDealsDealIdRouteImport } from './routes/api/crm/deals/$dealId'
+import { Route as ApiCrmAccountsAccountIdRouteImport } from './routes/api/crm/accounts/$accountId'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
+import { Route as ApiContactsContactIdAccountHistoryRouteImport } from './routes/api/contacts/$contactId/account-history'
 import { Route as ApiChatsConversationIdDealsRouteImport } from './routes/api/chats/$conversationId/deals'
 import { Route as ApiChatsChatIdMessagesRouteImport } from './routes/api/chats/$chatId/messages'
 import { Route as ApiValentinaVoiceV1ChatCompletionsRouteImport } from './routes/api/valentina-voice/v1/chat/completions'
+import { Route as ApiCrmPipelinesPipelineIdStagesSummaryRouteImport } from './routes/api/crm/pipelines/$pipelineId/stages-summary'
+import { Route as ApiCrmPipelinesPipelineIdStagesRouteImport } from './routes/api/crm/pipelines/$pipelineId/stages'
+import { Route as ApiCrmDealsDealIdQuestionnairesRouteImport } from './routes/api/crm/deals/$dealId/questionnaires'
 import { Route as ApiCrmDealsDealIdProposalsRouteImport } from './routes/api/crm/deals/$dealId/proposals'
 import { Route as ApiCrmDealsDealIdProductsRouteImport } from './routes/api/crm/deals/$dealId/products'
+import { Route as ApiCrmDealsDealIdFilesRouteImport } from './routes/api/crm/deals/$dealId/files'
 import { Route as ApiCrmDealsDealIdEvidenceRouteImport } from './routes/api/crm/deals/$dealId/evidence'
+import { Route as ApiCrmDealsDealIdEmailsRouteImport } from './routes/api/crm/deals/$dealId/emails'
 import { Route as ApiCrmDealsDealIdConversationsRouteImport } from './routes/api/crm/deals/$dealId/conversations'
+import { Route as ApiCrmDealsDealIdContactsRouteImport } from './routes/api/crm/deals/$dealId/contacts'
+import { Route as ApiCrmDealsDealIdAiPriorityRouteImport } from './routes/api/crm/deals/$dealId/ai-priority'
 import { Route as ApiCrmDealsDealIdActivitiesRouteImport } from './routes/api/crm/deals/$dealId/activities'
+import { Route as ApiCrmAccountsAccountIdConversationsRouteImport } from './routes/api/crm/accounts/$accountId/conversations'
+import { Route as ApiCrmDealsDealIdActivitiesActivityIdRouteImport } from './routes/api/crm/deals/$dealId/activities/$activityId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -452,6 +467,11 @@ const ApiCrmDealsRoute = ApiCrmDealsRouteImport.update({
   path: '/api/crm/deals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmCalendarRoute = ApiCrmCalendarRouteImport.update({
+  id: '/api/crm/calendar',
+  path: '/api/crm/calendar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmAccountsRoute = ApiCrmAccountsRouteImport.update({
   id: '/api/crm/accounts',
   path: '/api/crm/accounts',
@@ -583,20 +603,47 @@ const ApiLivechatVisitorVisitorIdRoute =
     path: '/api/livechat/visitor/$visitorId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiCrmStagesStageIdRoute = ApiCrmStagesStageIdRouteImport.update({
+  id: '/api/crm/stages/$stageId',
+  path: '/api/crm/stages/$stageId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmPipelinesPipelineIdRoute =
+  ApiCrmPipelinesPipelineIdRouteImport.update({
+    id: '/$pipelineId',
+    path: '/$pipelineId',
+    getParentRoute: () => ApiCrmPipelinesRoute,
+  } as any)
 const ApiCrmImportRdCrmRoute = ApiCrmImportRdCrmRouteImport.update({
   id: '/api/crm/import/rd-crm',
   path: '/api/crm/import/rd-crm',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmDealsBulkRoute = ApiCrmDealsBulkRouteImport.update({
+  id: '/bulk',
+  path: '/bulk',
+  getParentRoute: () => ApiCrmDealsRoute,
 } as any)
 const ApiCrmDealsDealIdRoute = ApiCrmDealsDealIdRouteImport.update({
   id: '/$dealId',
   path: '/$dealId',
   getParentRoute: () => ApiCrmDealsRoute,
 } as any)
+const ApiCrmAccountsAccountIdRoute = ApiCrmAccountsAccountIdRouteImport.update({
+  id: '/$accountId',
+  path: '/$accountId',
+  getParentRoute: () => ApiCrmAccountsRoute,
+} as any)
 const ApiContactsContactIdRdDealRoute =
   ApiContactsContactIdRdDealRouteImport.update({
     id: '/rd-deal',
     path: '/rd-deal',
+    getParentRoute: () => ApiContactsContactIdRoute,
+  } as any)
+const ApiContactsContactIdAccountHistoryRoute =
+  ApiContactsContactIdAccountHistoryRouteImport.update({
+    id: '/account-history',
+    path: '/account-history',
     getParentRoute: () => ApiContactsContactIdRoute,
   } as any)
 const ApiChatsConversationIdDealsRoute =
@@ -616,6 +663,24 @@ const ApiValentinaVoiceV1ChatCompletionsRoute =
     path: '/v1/chat/completions',
     getParentRoute: () => ApiValentinaVoiceRoute,
   } as any)
+const ApiCrmPipelinesPipelineIdStagesSummaryRoute =
+  ApiCrmPipelinesPipelineIdStagesSummaryRouteImport.update({
+    id: '/stages-summary',
+    path: '/stages-summary',
+    getParentRoute: () => ApiCrmPipelinesPipelineIdRoute,
+  } as any)
+const ApiCrmPipelinesPipelineIdStagesRoute =
+  ApiCrmPipelinesPipelineIdStagesRouteImport.update({
+    id: '/stages',
+    path: '/stages',
+    getParentRoute: () => ApiCrmPipelinesPipelineIdRoute,
+  } as any)
+const ApiCrmDealsDealIdQuestionnairesRoute =
+  ApiCrmDealsDealIdQuestionnairesRouteImport.update({
+    id: '/questionnaires',
+    path: '/questionnaires',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
 const ApiCrmDealsDealIdProposalsRoute =
   ApiCrmDealsDealIdProposalsRouteImport.update({
     id: '/proposals',
@@ -628,16 +693,38 @@ const ApiCrmDealsDealIdProductsRoute =
     path: '/products',
     getParentRoute: () => ApiCrmDealsDealIdRoute,
   } as any)
+const ApiCrmDealsDealIdFilesRoute = ApiCrmDealsDealIdFilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => ApiCrmDealsDealIdRoute,
+} as any)
 const ApiCrmDealsDealIdEvidenceRoute =
   ApiCrmDealsDealIdEvidenceRouteImport.update({
     id: '/evidence',
     path: '/evidence',
     getParentRoute: () => ApiCrmDealsDealIdRoute,
   } as any)
+const ApiCrmDealsDealIdEmailsRoute = ApiCrmDealsDealIdEmailsRouteImport.update({
+  id: '/emails',
+  path: '/emails',
+  getParentRoute: () => ApiCrmDealsDealIdRoute,
+} as any)
 const ApiCrmDealsDealIdConversationsRoute =
   ApiCrmDealsDealIdConversationsRouteImport.update({
     id: '/conversations',
     path: '/conversations',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
+const ApiCrmDealsDealIdContactsRoute =
+  ApiCrmDealsDealIdContactsRouteImport.update({
+    id: '/contacts',
+    path: '/contacts',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
+const ApiCrmDealsDealIdAiPriorityRoute =
+  ApiCrmDealsDealIdAiPriorityRouteImport.update({
+    id: '/ai-priority',
+    path: '/ai-priority',
     getParentRoute: () => ApiCrmDealsDealIdRoute,
   } as any)
 const ApiCrmDealsDealIdActivitiesRoute =
@@ -645,6 +732,18 @@ const ApiCrmDealsDealIdActivitiesRoute =
     id: '/activities',
     path: '/activities',
     getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
+const ApiCrmAccountsAccountIdConversationsRoute =
+  ApiCrmAccountsAccountIdConversationsRouteImport.update({
+    id: '/conversations',
+    path: '/conversations',
+    getParentRoute: () => ApiCrmAccountsAccountIdRoute,
+  } as any)
+const ApiCrmDealsDealIdActivitiesActivityIdRoute =
+  ApiCrmDealsDealIdActivitiesActivityIdRouteImport.update({
+    id: '/$activityId',
+    path: '/$activityId',
+    getParentRoute: () => ApiCrmDealsDealIdActivitiesRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -695,10 +794,11 @@ export interface FileRoutesByFullPath {
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
-  '/api/crm/accounts': typeof ApiCrmAccountsRoute
+  '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
+  '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
-  '/api/crm/pipelines': typeof ApiCrmPipelinesRoute
+  '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
   '/api/crm/products': typeof ApiCrmProductsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -737,20 +837,34 @@ export interface FileRoutesByFullPath {
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
+  '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
+  '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
+  '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
+  '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
-  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRoute
+  '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
+  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
+  '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
+  '/api/crm/deals/$dealId/contacts': typeof ApiCrmDealsDealIdContactsRoute
   '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRoute
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
+  '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRoute
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
+  '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
+  '/api/crm/pipelines/$pipelineId/stages': typeof ApiCrmPipelinesPipelineIdStagesRoute
+  '/api/crm/pipelines/$pipelineId/stages-summary': typeof ApiCrmPipelinesPipelineIdStagesSummaryRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
+  '/api/crm/deals/$dealId/activities/$activityId': typeof ApiCrmDealsDealIdActivitiesActivityIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -800,10 +914,11 @@ export interface FileRoutesByTo {
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
-  '/api/crm/accounts': typeof ApiCrmAccountsRoute
+  '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
+  '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
-  '/api/crm/pipelines': typeof ApiCrmPipelinesRoute
+  '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
   '/api/crm/products': typeof ApiCrmProductsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -842,20 +957,34 @@ export interface FileRoutesByTo {
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
+  '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
+  '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
+  '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
+  '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
-  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRoute
+  '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
+  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
+  '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
+  '/api/crm/deals/$dealId/contacts': typeof ApiCrmDealsDealIdContactsRoute
   '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRoute
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
+  '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRoute
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
+  '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
+  '/api/crm/pipelines/$pipelineId/stages': typeof ApiCrmPipelinesPipelineIdStagesRoute
+  '/api/crm/pipelines/$pipelineId/stages-summary': typeof ApiCrmPipelinesPipelineIdStagesSummaryRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
+  '/api/crm/deals/$dealId/activities/$activityId': typeof ApiCrmDealsDealIdActivitiesActivityIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -906,10 +1035,11 @@ export interface FileRoutesById {
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
-  '/api/crm/accounts': typeof ApiCrmAccountsRoute
+  '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
+  '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
-  '/api/crm/pipelines': typeof ApiCrmPipelinesRoute
+  '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
   '/api/crm/products': typeof ApiCrmProductsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -948,20 +1078,34 @@ export interface FileRoutesById {
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
+  '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
+  '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
+  '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
+  '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
+  '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
-  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRoute
+  '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
+  '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
+  '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
+  '/api/crm/deals/$dealId/contacts': typeof ApiCrmDealsDealIdContactsRoute
   '/api/crm/deals/$dealId/conversations': typeof ApiCrmDealsDealIdConversationsRoute
+  '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRoute
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
+  '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRoute
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
+  '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
+  '/api/crm/pipelines/$pipelineId/stages': typeof ApiCrmPipelinesPipelineIdStagesRoute
+  '/api/crm/pipelines/$pipelineId/stages-summary': typeof ApiCrmPipelinesPipelineIdStagesSummaryRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
+  '/api/crm/deals/$dealId/activities/$activityId': typeof ApiCrmDealsDealIdActivitiesActivityIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -1014,6 +1158,7 @@ export interface FileRouteTypes {
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
+    | '/api/crm/calendar'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1055,20 +1200,34 @@ export interface FileRouteTypes {
     | '/api/whatsapp/send'
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deals'
+    | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/crm/accounts/$accountId'
     | '/api/crm/deals/$dealId'
+    | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
+    | '/api/crm/pipelines/$pipelineId'
+    | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
+    | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
+    | '/api/crm/deals/$dealId/ai-priority'
+    | '/api/crm/deals/$dealId/contacts'
     | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
+    | '/api/crm/deals/$dealId/files'
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
+    | '/api/crm/deals/$dealId/questionnaires'
+    | '/api/crm/pipelines/$pipelineId/stages'
+    | '/api/crm/pipelines/$pipelineId/stages-summary'
     | '/api/valentina-voice/v1/chat/completions'
+    | '/api/crm/deals/$dealId/activities/$activityId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1119,6 +1278,7 @@ export interface FileRouteTypes {
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
+    | '/api/crm/calendar'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1160,20 +1320,34 @@ export interface FileRouteTypes {
     | '/api/whatsapp/send'
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deals'
+    | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/crm/accounts/$accountId'
     | '/api/crm/deals/$dealId'
+    | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
+    | '/api/crm/pipelines/$pipelineId'
+    | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
+    | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
+    | '/api/crm/deals/$dealId/ai-priority'
+    | '/api/crm/deals/$dealId/contacts'
     | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
+    | '/api/crm/deals/$dealId/files'
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
+    | '/api/crm/deals/$dealId/questionnaires'
+    | '/api/crm/pipelines/$pipelineId/stages'
+    | '/api/crm/pipelines/$pipelineId/stages-summary'
     | '/api/valentina-voice/v1/chat/completions'
+    | '/api/crm/deals/$dealId/activities/$activityId'
   id:
     | '__root__'
     | '/'
@@ -1224,6 +1398,7 @@ export interface FileRouteTypes {
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
+    | '/api/crm/calendar'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1265,20 +1440,34 @@ export interface FileRouteTypes {
     | '/api/whatsapp/send'
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deals'
+    | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
+    | '/api/crm/accounts/$accountId'
     | '/api/crm/deals/$dealId'
+    | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
+    | '/api/crm/pipelines/$pipelineId'
+    | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
     | '/api/valentina-voice/chat/completions'
+    | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
+    | '/api/crm/deals/$dealId/ai-priority'
+    | '/api/crm/deals/$dealId/contacts'
     | '/api/crm/deals/$dealId/conversations'
+    | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
+    | '/api/crm/deals/$dealId/files'
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
+    | '/api/crm/deals/$dealId/questionnaires'
+    | '/api/crm/pipelines/$pipelineId/stages'
+    | '/api/crm/pipelines/$pipelineId/stages-summary'
     | '/api/valentina-voice/v1/chat/completions'
+    | '/api/crm/deals/$dealId/activities/$activityId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1323,10 +1512,11 @@ export interface RootRouteChildren {
   ApiBaileysSendMediaRoute: typeof ApiBaileysSendMediaRoute
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
-  ApiCrmAccountsRoute: typeof ApiCrmAccountsRoute
+  ApiCrmAccountsRoute: typeof ApiCrmAccountsRouteWithChildren
+  ApiCrmCalendarRoute: typeof ApiCrmCalendarRoute
   ApiCrmDealsRoute: typeof ApiCrmDealsRouteWithChildren
   ApiCrmInventoryRoute: typeof ApiCrmInventoryRoute
-  ApiCrmPipelinesRoute: typeof ApiCrmPipelinesRoute
+  ApiCrmPipelinesRoute: typeof ApiCrmPipelinesRouteWithChildren
   ApiCrmProductsRoute: typeof ApiCrmProductsRoute
   ApiGestaoAlertsRoute: typeof ApiGestaoAlertsRoute
   ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
@@ -1363,6 +1553,7 @@ export interface RootRouteChildren {
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
   ApiWhatsappSendRoute: typeof ApiWhatsappSendRoute
   ApiCrmImportRdCrmRoute: typeof ApiCrmImportRdCrmRoute
+  ApiCrmStagesStageIdRoute: typeof ApiCrmStagesStageIdRoute
   ApiLivechatVisitorVisitorIdRoute: typeof ApiLivechatVisitorVisitorIdRoute
 }
 
@@ -1837,6 +2028,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmDealsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/calendar': {
+      id: '/api/crm/calendar'
+      path: '/api/crm/calendar'
+      fullPath: '/api/crm/calendar'
+      preLoaderRoute: typeof ApiCrmCalendarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/crm/accounts': {
       id: '/api/crm/accounts'
       path: '/api/crm/accounts'
@@ -2012,12 +2210,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLivechatVisitorVisitorIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/stages/$stageId': {
+      id: '/api/crm/stages/$stageId'
+      path: '/api/crm/stages/$stageId'
+      fullPath: '/api/crm/stages/$stageId'
+      preLoaderRoute: typeof ApiCrmStagesStageIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/pipelines/$pipelineId': {
+      id: '/api/crm/pipelines/$pipelineId'
+      path: '/$pipelineId'
+      fullPath: '/api/crm/pipelines/$pipelineId'
+      preLoaderRoute: typeof ApiCrmPipelinesPipelineIdRouteImport
+      parentRoute: typeof ApiCrmPipelinesRoute
+    }
     '/api/crm/import/rd-crm': {
       id: '/api/crm/import/rd-crm'
       path: '/api/crm/import/rd-crm'
       fullPath: '/api/crm/import/rd-crm'
       preLoaderRoute: typeof ApiCrmImportRdCrmRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/deals/bulk': {
+      id: '/api/crm/deals/bulk'
+      path: '/bulk'
+      fullPath: '/api/crm/deals/bulk'
+      preLoaderRoute: typeof ApiCrmDealsBulkRouteImport
+      parentRoute: typeof ApiCrmDealsRoute
     }
     '/api/crm/deals/$dealId': {
       id: '/api/crm/deals/$dealId'
@@ -2026,11 +2245,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmDealsDealIdRouteImport
       parentRoute: typeof ApiCrmDealsRoute
     }
+    '/api/crm/accounts/$accountId': {
+      id: '/api/crm/accounts/$accountId'
+      path: '/$accountId'
+      fullPath: '/api/crm/accounts/$accountId'
+      preLoaderRoute: typeof ApiCrmAccountsAccountIdRouteImport
+      parentRoute: typeof ApiCrmAccountsRoute
+    }
     '/api/contacts/$contactId/rd-deal': {
       id: '/api/contacts/$contactId/rd-deal'
       path: '/rd-deal'
       fullPath: '/api/contacts/$contactId/rd-deal'
       preLoaderRoute: typeof ApiContactsContactIdRdDealRouteImport
+      parentRoute: typeof ApiContactsContactIdRoute
+    }
+    '/api/contacts/$contactId/account-history': {
+      id: '/api/contacts/$contactId/account-history'
+      path: '/account-history'
+      fullPath: '/api/contacts/$contactId/account-history'
+      preLoaderRoute: typeof ApiContactsContactIdAccountHistoryRouteImport
       parentRoute: typeof ApiContactsContactIdRoute
     }
     '/api/chats/$conversationId/deals': {
@@ -2054,6 +2287,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiValentinaVoiceV1ChatCompletionsRouteImport
       parentRoute: typeof ApiValentinaVoiceRoute
     }
+    '/api/crm/pipelines/$pipelineId/stages-summary': {
+      id: '/api/crm/pipelines/$pipelineId/stages-summary'
+      path: '/stages-summary'
+      fullPath: '/api/crm/pipelines/$pipelineId/stages-summary'
+      preLoaderRoute: typeof ApiCrmPipelinesPipelineIdStagesSummaryRouteImport
+      parentRoute: typeof ApiCrmPipelinesPipelineIdRoute
+    }
+    '/api/crm/pipelines/$pipelineId/stages': {
+      id: '/api/crm/pipelines/$pipelineId/stages'
+      path: '/stages'
+      fullPath: '/api/crm/pipelines/$pipelineId/stages'
+      preLoaderRoute: typeof ApiCrmPipelinesPipelineIdStagesRouteImport
+      parentRoute: typeof ApiCrmPipelinesPipelineIdRoute
+    }
+    '/api/crm/deals/$dealId/questionnaires': {
+      id: '/api/crm/deals/$dealId/questionnaires'
+      path: '/questionnaires'
+      fullPath: '/api/crm/deals/$dealId/questionnaires'
+      preLoaderRoute: typeof ApiCrmDealsDealIdQuestionnairesRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
     '/api/crm/deals/$dealId/proposals': {
       id: '/api/crm/deals/$dealId/proposals'
       path: '/proposals'
@@ -2068,11 +2322,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmDealsDealIdProductsRouteImport
       parentRoute: typeof ApiCrmDealsDealIdRoute
     }
+    '/api/crm/deals/$dealId/files': {
+      id: '/api/crm/deals/$dealId/files'
+      path: '/files'
+      fullPath: '/api/crm/deals/$dealId/files'
+      preLoaderRoute: typeof ApiCrmDealsDealIdFilesRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
     '/api/crm/deals/$dealId/evidence': {
       id: '/api/crm/deals/$dealId/evidence'
       path: '/evidence'
       fullPath: '/api/crm/deals/$dealId/evidence'
       preLoaderRoute: typeof ApiCrmDealsDealIdEvidenceRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
+    '/api/crm/deals/$dealId/emails': {
+      id: '/api/crm/deals/$dealId/emails'
+      path: '/emails'
+      fullPath: '/api/crm/deals/$dealId/emails'
+      preLoaderRoute: typeof ApiCrmDealsDealIdEmailsRouteImport
       parentRoute: typeof ApiCrmDealsDealIdRoute
     }
     '/api/crm/deals/$dealId/conversations': {
@@ -2082,12 +2350,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmDealsDealIdConversationsRouteImport
       parentRoute: typeof ApiCrmDealsDealIdRoute
     }
+    '/api/crm/deals/$dealId/contacts': {
+      id: '/api/crm/deals/$dealId/contacts'
+      path: '/contacts'
+      fullPath: '/api/crm/deals/$dealId/contacts'
+      preLoaderRoute: typeof ApiCrmDealsDealIdContactsRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
+    '/api/crm/deals/$dealId/ai-priority': {
+      id: '/api/crm/deals/$dealId/ai-priority'
+      path: '/ai-priority'
+      fullPath: '/api/crm/deals/$dealId/ai-priority'
+      preLoaderRoute: typeof ApiCrmDealsDealIdAiPriorityRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
     '/api/crm/deals/$dealId/activities': {
       id: '/api/crm/deals/$dealId/activities'
       path: '/activities'
       fullPath: '/api/crm/deals/$dealId/activities'
       preLoaderRoute: typeof ApiCrmDealsDealIdActivitiesRouteImport
       parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
+    '/api/crm/accounts/$accountId/conversations': {
+      id: '/api/crm/accounts/$accountId/conversations'
+      path: '/conversations'
+      fullPath: '/api/crm/accounts/$accountId/conversations'
+      preLoaderRoute: typeof ApiCrmAccountsAccountIdConversationsRouteImport
+      parentRoute: typeof ApiCrmAccountsAccountIdRoute
+    }
+    '/api/crm/deals/$dealId/activities/$activityId': {
+      id: '/api/crm/deals/$dealId/activities/$activityId'
+      path: '/$activityId'
+      fullPath: '/api/crm/deals/$dealId/activities/$activityId'
+      preLoaderRoute: typeof ApiCrmDealsDealIdActivitiesActivityIdRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdActivitiesRoute
     }
   }
 }
@@ -2113,10 +2409,13 @@ const ApiChatsRouteWithChildren = ApiChatsRoute._addFileChildren(
 )
 
 interface ApiContactsContactIdRouteChildren {
+  ApiContactsContactIdAccountHistoryRoute: typeof ApiContactsContactIdAccountHistoryRoute
   ApiContactsContactIdRdDealRoute: typeof ApiContactsContactIdRdDealRoute
 }
 
 const ApiContactsContactIdRouteChildren: ApiContactsContactIdRouteChildren = {
+  ApiContactsContactIdAccountHistoryRoute:
+    ApiContactsContactIdAccountHistoryRoute,
   ApiContactsContactIdRdDealRoute: ApiContactsContactIdRdDealRoute,
 }
 
@@ -2165,20 +2464,73 @@ const ApiValentinaVoiceRouteChildren: ApiValentinaVoiceRouteChildren = {
 const ApiValentinaVoiceRouteWithChildren =
   ApiValentinaVoiceRoute._addFileChildren(ApiValentinaVoiceRouteChildren)
 
+interface ApiCrmAccountsAccountIdRouteChildren {
+  ApiCrmAccountsAccountIdConversationsRoute: typeof ApiCrmAccountsAccountIdConversationsRoute
+}
+
+const ApiCrmAccountsAccountIdRouteChildren: ApiCrmAccountsAccountIdRouteChildren =
+  {
+    ApiCrmAccountsAccountIdConversationsRoute:
+      ApiCrmAccountsAccountIdConversationsRoute,
+  }
+
+const ApiCrmAccountsAccountIdRouteWithChildren =
+  ApiCrmAccountsAccountIdRoute._addFileChildren(
+    ApiCrmAccountsAccountIdRouteChildren,
+  )
+
+interface ApiCrmAccountsRouteChildren {
+  ApiCrmAccountsAccountIdRoute: typeof ApiCrmAccountsAccountIdRouteWithChildren
+}
+
+const ApiCrmAccountsRouteChildren: ApiCrmAccountsRouteChildren = {
+  ApiCrmAccountsAccountIdRoute: ApiCrmAccountsAccountIdRouteWithChildren,
+}
+
+const ApiCrmAccountsRouteWithChildren = ApiCrmAccountsRoute._addFileChildren(
+  ApiCrmAccountsRouteChildren,
+)
+
+interface ApiCrmDealsDealIdActivitiesRouteChildren {
+  ApiCrmDealsDealIdActivitiesActivityIdRoute: typeof ApiCrmDealsDealIdActivitiesActivityIdRoute
+}
+
+const ApiCrmDealsDealIdActivitiesRouteChildren: ApiCrmDealsDealIdActivitiesRouteChildren =
+  {
+    ApiCrmDealsDealIdActivitiesActivityIdRoute:
+      ApiCrmDealsDealIdActivitiesActivityIdRoute,
+  }
+
+const ApiCrmDealsDealIdActivitiesRouteWithChildren =
+  ApiCrmDealsDealIdActivitiesRoute._addFileChildren(
+    ApiCrmDealsDealIdActivitiesRouteChildren,
+  )
+
 interface ApiCrmDealsDealIdRouteChildren {
-  ApiCrmDealsDealIdActivitiesRoute: typeof ApiCrmDealsDealIdActivitiesRoute
+  ApiCrmDealsDealIdActivitiesRoute: typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
+  ApiCrmDealsDealIdAiPriorityRoute: typeof ApiCrmDealsDealIdAiPriorityRoute
+  ApiCrmDealsDealIdContactsRoute: typeof ApiCrmDealsDealIdContactsRoute
   ApiCrmDealsDealIdConversationsRoute: typeof ApiCrmDealsDealIdConversationsRoute
+  ApiCrmDealsDealIdEmailsRoute: typeof ApiCrmDealsDealIdEmailsRoute
   ApiCrmDealsDealIdEvidenceRoute: typeof ApiCrmDealsDealIdEvidenceRoute
+  ApiCrmDealsDealIdFilesRoute: typeof ApiCrmDealsDealIdFilesRoute
   ApiCrmDealsDealIdProductsRoute: typeof ApiCrmDealsDealIdProductsRoute
   ApiCrmDealsDealIdProposalsRoute: typeof ApiCrmDealsDealIdProposalsRoute
+  ApiCrmDealsDealIdQuestionnairesRoute: typeof ApiCrmDealsDealIdQuestionnairesRoute
 }
 
 const ApiCrmDealsDealIdRouteChildren: ApiCrmDealsDealIdRouteChildren = {
-  ApiCrmDealsDealIdActivitiesRoute: ApiCrmDealsDealIdActivitiesRoute,
+  ApiCrmDealsDealIdActivitiesRoute:
+    ApiCrmDealsDealIdActivitiesRouteWithChildren,
+  ApiCrmDealsDealIdAiPriorityRoute: ApiCrmDealsDealIdAiPriorityRoute,
+  ApiCrmDealsDealIdContactsRoute: ApiCrmDealsDealIdContactsRoute,
   ApiCrmDealsDealIdConversationsRoute: ApiCrmDealsDealIdConversationsRoute,
+  ApiCrmDealsDealIdEmailsRoute: ApiCrmDealsDealIdEmailsRoute,
   ApiCrmDealsDealIdEvidenceRoute: ApiCrmDealsDealIdEvidenceRoute,
+  ApiCrmDealsDealIdFilesRoute: ApiCrmDealsDealIdFilesRoute,
   ApiCrmDealsDealIdProductsRoute: ApiCrmDealsDealIdProductsRoute,
   ApiCrmDealsDealIdProposalsRoute: ApiCrmDealsDealIdProposalsRoute,
+  ApiCrmDealsDealIdQuestionnairesRoute: ApiCrmDealsDealIdQuestionnairesRoute,
 }
 
 const ApiCrmDealsDealIdRouteWithChildren =
@@ -2186,14 +2538,45 @@ const ApiCrmDealsDealIdRouteWithChildren =
 
 interface ApiCrmDealsRouteChildren {
   ApiCrmDealsDealIdRoute: typeof ApiCrmDealsDealIdRouteWithChildren
+  ApiCrmDealsBulkRoute: typeof ApiCrmDealsBulkRoute
 }
 
 const ApiCrmDealsRouteChildren: ApiCrmDealsRouteChildren = {
   ApiCrmDealsDealIdRoute: ApiCrmDealsDealIdRouteWithChildren,
+  ApiCrmDealsBulkRoute: ApiCrmDealsBulkRoute,
 }
 
 const ApiCrmDealsRouteWithChildren = ApiCrmDealsRoute._addFileChildren(
   ApiCrmDealsRouteChildren,
+)
+
+interface ApiCrmPipelinesPipelineIdRouteChildren {
+  ApiCrmPipelinesPipelineIdStagesRoute: typeof ApiCrmPipelinesPipelineIdStagesRoute
+  ApiCrmPipelinesPipelineIdStagesSummaryRoute: typeof ApiCrmPipelinesPipelineIdStagesSummaryRoute
+}
+
+const ApiCrmPipelinesPipelineIdRouteChildren: ApiCrmPipelinesPipelineIdRouteChildren =
+  {
+    ApiCrmPipelinesPipelineIdStagesRoute: ApiCrmPipelinesPipelineIdStagesRoute,
+    ApiCrmPipelinesPipelineIdStagesSummaryRoute:
+      ApiCrmPipelinesPipelineIdStagesSummaryRoute,
+  }
+
+const ApiCrmPipelinesPipelineIdRouteWithChildren =
+  ApiCrmPipelinesPipelineIdRoute._addFileChildren(
+    ApiCrmPipelinesPipelineIdRouteChildren,
+  )
+
+interface ApiCrmPipelinesRouteChildren {
+  ApiCrmPipelinesPipelineIdRoute: typeof ApiCrmPipelinesPipelineIdRouteWithChildren
+}
+
+const ApiCrmPipelinesRouteChildren: ApiCrmPipelinesRouteChildren = {
+  ApiCrmPipelinesPipelineIdRoute: ApiCrmPipelinesPipelineIdRouteWithChildren,
+}
+
+const ApiCrmPipelinesRouteWithChildren = ApiCrmPipelinesRoute._addFileChildren(
+  ApiCrmPipelinesRouteChildren,
 )
 
 interface ApiSettingsRdCrmRouteChildren {
@@ -2262,10 +2645,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSendMediaRoute: ApiBaileysSendMediaRoute,
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
-  ApiCrmAccountsRoute: ApiCrmAccountsRoute,
+  ApiCrmAccountsRoute: ApiCrmAccountsRouteWithChildren,
+  ApiCrmCalendarRoute: ApiCrmCalendarRoute,
   ApiCrmDealsRoute: ApiCrmDealsRouteWithChildren,
   ApiCrmInventoryRoute: ApiCrmInventoryRoute,
-  ApiCrmPipelinesRoute: ApiCrmPipelinesRoute,
+  ApiCrmPipelinesRoute: ApiCrmPipelinesRouteWithChildren,
   ApiCrmProductsRoute: ApiCrmProductsRoute,
   ApiGestaoAlertsRoute: ApiGestaoAlertsRoute,
   ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
@@ -2302,6 +2686,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
   ApiWhatsappSendRoute: ApiWhatsappSendRoute,
   ApiCrmImportRdCrmRoute: ApiCrmImportRdCrmRoute,
+  ApiCrmStagesStageIdRoute: ApiCrmStagesStageIdRoute,
   ApiLivechatVisitorVisitorIdRoute: ApiLivechatVisitorVisitorIdRoute,
 }
 export const routeTree = rootRouteImport

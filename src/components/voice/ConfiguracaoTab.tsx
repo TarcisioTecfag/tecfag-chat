@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Phone, Clock, MessageSquare, ShieldAlert, Save, Check } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function ConfiguracaoTab() {
   const [twilioNumber, setTwilioNumber] = useState("+55 14 398-0186");
@@ -54,16 +55,20 @@ export function ConfiguracaoTab() {
             Duração Máxima da Chamada
           </div>
           <p className="text-xs text-muted-foreground">Limite máximo em minutos antes do encerramento automático pela IA.</p>
-          <select 
+          <Select 
             value={maxDuration}
-            onChange={(e) => setMaxDuration(e.target.value)}
-            className="bg-muted/40 border border-border rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:border-primary"
+            onValueChange={(val) => setMaxDuration(val)}
           >
-            <option value="5">5 minutos</option>
-            <option value="10">10 minutos (Recomendado)</option>
-            <option value="15">15 minutos</option>
-            <option value="20">20 minutos</option>
-          </select>
+            <SelectTrigger className="bg-muted/40 border-border rounded-xl text-xs text-foreground">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="5">5 minutos</SelectItem>
+              <SelectItem value="10">10 minutos (Recomendado)</SelectItem>
+              <SelectItem value="15">15 minutos</SelectItem>
+              <SelectItem value="20">20 minutos</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

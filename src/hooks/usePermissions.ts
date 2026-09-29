@@ -200,5 +200,16 @@ export function usePermissions() {
     canTriggerTestCall: permissions.ligacoes.canTriggerTestCall,
     canManageCampaigns: permissions.ligacoes.canManageCampaigns,
     canManageObjectives: permissions.ligacoes.canManageObjectives,
+
+    // Atalhos do CRM
+    canViewCrm: permissions.crm?.canViewCrm ?? true,
+    canViewAllDeals: permissions.crm?.canViewAllDeals ?? true,
+    canCreateDeals: permissions.crm?.canCreateDeals ?? true,
+    canEditDeals: permissions.crm?.canEditDeals ?? true,
+    canMoveStages: permissions.crm?.canMoveStages ?? true,
+    canCloseDeals: permissions.crm?.canCloseDeals ?? true,
+    canManagePipelines: permissions.crm?.canManagePipelines ?? true,
+    canManageProducts: permissions.crm?.canManageProducts ?? true,
+    canManageProposals: permissions.crm?.canManageProposals ?? true,
   };
 }

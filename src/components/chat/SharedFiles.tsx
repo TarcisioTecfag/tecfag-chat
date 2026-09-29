@@ -1,4 +1,11 @@
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, SystemTooltip } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { fetchCnpjInfo, CnpjFullDetails } from "@/lib/valentina/cnpj-service";
@@ -364,9 +371,9 @@ export function SharedFiles() {
     e.preventDefault();
     if (!taskSubject.trim()) return;
 
-    // Se houver mais de 1 negociação vinculada e o operador não selecionou nenhuma opção:
-    if (linkedDeals.length > 1 && !selectedTargetDealId) {
-      toast.error("Por favor, selecione a negociação comercial de destino para esta atividade.");
+    // Se houver mais de 1 negociação vinculada, seleção de um card específico é estritamente obrigatória
+    if (linkedDeals.length > 1 && (!selectedTargetDealId || selectedTargetDealId === "general")) {
+      toast.error("Por favor, selecione qual negociação comercial receberá esta tarefa.");
       return;
     }
 
@@ -791,20 +798,24 @@ export function SharedFiles() {
                     <span>Card de Destino</span>
                     <span className="text-primary font-semibold">* Seleção obrigatória</span>
                   </div>
-                  <select
-                    value={selectedTargetDealId}
-                    onChange={(e) => setSelectedTargetDealId(e.target.value)}
-                    className="w-full h-8 rounded-lg bg-muted px-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary cursor-pointer truncate"
-                    required
+                  <Select
+                    value={selectedTargetDealId || "__none__"}
+                    onValueChange={(val) => setSelectedTargetDealId(val === "__none__" ? "" : val)}
                   >
-                    <option value="">Selecione o negócio comercial...</option>
-                    {linkedDeals.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.title} {d.value ? `(R$ ${d.value})` : ""}
-                      </option>
-                    ))}
-                    <option value="general">Nenhuma (Tarefa Geral do Atendimento)</option>
-                  </select>
+                    <SelectTrigger className="w-full h-8 rounded-lg bg-muted px-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary truncate">
+                      <SelectValue placeholder="Selecione a negociação comercial obrigatória..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__" className="text-xs text-muted-foreground">
+                        Selecione a negociação comercial obrigatória...
+                      </SelectItem>
+                      {linkedDeals.map((d) => (
+                        <SelectItem key={d.id} value={d.id} className="text-xs">
+                          {d.title} {d.value ? `(R$ ${d.value})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               ) : null}
 

@@ -46,6 +46,13 @@ export function ConversationDealsPanel({
   const [searchingDeals, setSearchingDeals] = useState(false);
   const [availableDealsToLink, setAvailableDealsToLink] = useState<any[]>([]);
 
+  const [contactInfo, setContactInfo] = useState<{
+    id: string;
+    name: string;
+    accountId: string | null;
+    accountName: string | null;
+  } | null>(null);
+
   // Carrega pipelines e operadores
   useEffect(() => {
     fetch("/api/crm/pipelines")
@@ -68,6 +75,9 @@ export function ConversationDealsPanel({
       if (!res.ok) throw new Error("Erro ao carregar negociações da conversa.");
       const data = await res.json();
       setDeals(data.deals || []);
+      if (data.contact) {
+        setContactInfo(data.contact);
+      }
     } catch (err: any) {
       console.warn("[ConversationDealsPanel] Erro ao buscar deals:", err);
     } finally {
@@ -81,6 +91,7 @@ export function ConversationDealsPanel({
 
   // Desvincular conversa de um deal
   const handleUnlink = async (dealId: string) => {
+    if (!confirm("Deseja realmente desvincular esta conversa da negociação?")) return;
     try {
       const res = await fetch(`/api/crm/deals/${dealId}/conversations`, {
         method: "DELETE",
@@ -95,7 +106,7 @@ export function ConversationDealsPanel({
     }
   };
 
-  // Buscar negociações existentes para vincular
+  // Buscar negociações existentes para vincular (sem filtro prévio restritivo)
   const handleSearchDeals = async () => {
     setSearchingDeals(true);
     try {
@@ -103,11 +114,11 @@ export function ConversationDealsPanel({
       if (searchDealsQuery.trim()) {
         params.set("search", searchDealsQuery.trim());
       }
-      params.set("limit", "10");
+      params.set("limit", "15");
       const res = await fetch(`/api/crm/deals?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        // Filtra os que já estão vinculados
+        // Filtra os que já estão vinculados nesta conversa
         const linkedIds = new Set(deals.map((d) => d.id));
         setAvailableDealsToLink((data.deals || []).filter((d: any) => !linkedIds.has(d.id)));
       }
@@ -118,10 +129,23 @@ export function ConversationDealsPanel({
     }
   };
 
-  // Vincular negociação existente
-  const handleLinkExistingDeal = async (dealId: string) => {
+  // Vincular negociação existente com aviso preventivo de divergência de conta
+  const handleLinkExistingDeal = async (dealItem: any) => {
+    if (
+      dealItem.accountId &&
+      contactInfo?.accountId &&
+      dealItem.accountId !== contactInfo.accountId
+    ) {
+      const dealAccName = dealItem.account?.name || "Empresa da Negociação";
+      const contactAccName = contactInfo.accountName || "Empresa do Contato";
+      const proceed = window.confirm(
+        `Aviso preventivo:\nA negociação "${dealItem.title}" pertence à empresa "${dealAccName}", mas o contato deste atendimento está vinculado à empresa "${contactAccName}".\n\nDeseja confirmar o vínculo desta negociação mesmo com empresas diferentes?`
+      );
+      if (!proceed) return;
+    }
+
     try {
-      const res = await fetch(`/api/crm/deals/${dealId}/conversations`, {
+      const res = await fetch(`/api/crm/deals/${dealItem.id}/conversations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId, isPrimary: deals.length === 0 }),
@@ -282,15 +306,22 @@ export function ConversationDealsPanel({
                     key={d.id}
                     className="flex items-center justify-between p-2 rounded-xl border border-border/60 hover:bg-muted/30 transition-colors"
                   >
-                    <div className="min-w-0">
+                    <div className="min-w-0 pr-2">
                       <p className="text-xs font-bold text-foreground truncate">{d.title}</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {d.value ? `R$ ${Number(d.value).toLocaleString("pt-BR")}` : "Sem valor"}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {d.account?.name && (
+                          <span className="text-[10px] text-primary font-medium truncate max-w-[140px]" title={d.account.name}>
+                            🏢 {d.account.name}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground">
+                          {d.value ? `R$ ${Number(d.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "Sem valor"}
+                        </span>
+                      </div>
                     </div>
                     <button
-                      onClick={() => handleLinkExistingDeal(d.id)}
-                      className="flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                      onClick={() => handleLinkExistingDeal(d)}
+                      className="flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer shrink-0"
                     >
                       <Check className="h-3 w-3" />
                       <span>Vincular</span>

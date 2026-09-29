@@ -119,9 +119,22 @@ export interface SettingsPermissions {
   canManageLiveChatSettings: boolean;
 }
 
+export interface CrmPermissions {
+  canViewCrm: boolean;
+  canViewAllDeals: boolean;
+  canCreateDeals: boolean;
+  canEditDeals: boolean;
+  canMoveStages: boolean;
+  canCloseDeals: boolean;
+  canManagePipelines: boolean;
+  canManageProducts: boolean;
+  canManageProposals: boolean;
+}
+
 export interface GroupPermissions {
   views: ViewPermissions;
   chat: ChatPermissions;
+  crm: CrmPermissions;
   contacts: ContactPermissions;
   valentina: ValentinaPermissions;
   ligacoes: LigacoesPermissions;
@@ -159,6 +172,17 @@ export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
     canManageRdCrm: true,
     canChangeWallet: true,
     canDeleteMessages: true,
+  },
+  crm: {
+    canViewCrm: true,
+    canViewAllDeals: true,
+    canCreateDeals: true,
+    canEditDeals: true,
+    canMoveStages: true,
+    canCloseDeals: true,
+    canManagePipelines: true,
+    canManageProducts: true,
+    canManageProposals: true,
   },
   contacts: {
     contactScope: "all",
@@ -246,6 +270,17 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         groups: true,
         settings: false,
       },
+      crm: {
+        canViewCrm: true,
+        canViewAllDeals: true,
+        canCreateDeals: true,
+        canEditDeals: true,
+        canMoveStages: true,
+        canCloseDeals: true,
+        canManagePipelines: false,
+        canManageProducts: false,
+        canManageProposals: true,
+      },
       analytics: {
         canAccessOverview: true,
         canAccessPerformance: true,
@@ -289,6 +324,17 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         analytics: false,
         groups: false,
         settings: false,
+      },
+      crm: {
+        canViewCrm: true,
+        canViewAllDeals: true,
+        canCreateDeals: true,
+        canEditDeals: true,
+        canMoveStages: true,
+        canCloseDeals: false,
+        canManagePipelines: false,
+        canManageProducts: false,
+        canManageProposals: false,
       },
       chat: {
         canCaptureChat: true,
@@ -381,6 +427,17 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         groups: false,
         settings: false,
       },
+      crm: {
+        canViewCrm: true,
+        canViewAllDeals: false,
+        canCreateDeals: true,
+        canEditDeals: true,
+        canMoveStages: true,
+        canCloseDeals: true,
+        canManagePipelines: false,
+        canManageProducts: false,
+        canManageProposals: true,
+      },
       chat: {
         canCaptureChat: true,
         canTransferChat: true,
@@ -472,6 +529,17 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         groups: false,
         settings: false,
       },
+      crm: {
+        canViewCrm: false,
+        canViewAllDeals: false,
+        canCreateDeals: false,
+        canEditDeals: false,
+        canMoveStages: false,
+        canCloseDeals: false,
+        canManagePipelines: false,
+        canManageProducts: false,
+        canManageProposals: false,
+      },
       chat: {
         canCaptureChat: true,
         canTransferChat: true,
@@ -562,6 +630,17 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         analytics: true,
         groups: false,
         settings: false,
+      },
+      crm: {
+        canViewCrm: false,
+        canViewAllDeals: false,
+        canCreateDeals: false,
+        canEditDeals: false,
+        canMoveStages: false,
+        canCloseDeals: false,
+        canManagePipelines: false,
+        canManageProducts: false,
+        canManageProposals: false,
       },
       chat: {
         canCaptureChat: false,
@@ -695,6 +774,17 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
       canChangeWallet: existingPerms.chat?.canChangeWallet ?? baseFallback.chat.canChangeWallet,
       canDeleteMessages: existingPerms.chat?.canDeleteMessages ?? isLegacyAdmin,
     },
+    crm: {
+      canViewCrm: existingPerms.crm?.canViewCrm ?? (isLegacyAdmin || Boolean(baseFallback.crm.canViewCrm)),
+      canViewAllDeals: existingPerms.crm?.canViewAllDeals ?? (isLegacyAdmin || baseFallback.crm.canViewAllDeals),
+      canCreateDeals: existingPerms.crm?.canCreateDeals ?? (isLegacyAdmin || baseFallback.crm.canCreateDeals),
+      canEditDeals: existingPerms.crm?.canEditDeals ?? (isLegacyAdmin || baseFallback.crm.canEditDeals),
+      canMoveStages: existingPerms.crm?.canMoveStages ?? (isLegacyAdmin || baseFallback.crm.canMoveStages),
+      canCloseDeals: existingPerms.crm?.canCloseDeals ?? (isLegacyAdmin || baseFallback.crm.canCloseDeals),
+      canManagePipelines: existingPerms.crm?.canManagePipelines ?? (isLegacyAdmin || baseFallback.crm.canManagePipelines),
+      canManageProducts: existingPerms.crm?.canManageProducts ?? (isLegacyAdmin || baseFallback.crm.canManageProducts),
+      canManageProposals: existingPerms.crm?.canManageProposals ?? (isLegacyAdmin || baseFallback.crm.canManageProposals),
+    },
     contacts: {
       contactScope: existingPerms.contacts?.contactScope ?? baseFallback.contacts.contactScope,
       canCreateContact: existingPerms.contacts?.canCreateContact ?? baseFallback.contacts.canCreateContact,
@@ -754,4 +844,41 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
       canManageLiveChatSettings: existingPerms.settings?.canManageLiveChatSettings ?? isLegacyAdmin,
     },
   };
+}
+
+/**
+ * Verifica se um conjunto de permissões ou papel de operador autoriza uma ação de CRM.
+ */
+export function hasCrmPermission(
+  permissions: GroupPermissions | undefined | null,
+  permission: keyof CrmPermissions,
+  operatorRole?: string
+): boolean {
+  if (operatorRole === "admin") return true;
+  if (!permissions?.crm) return false;
+  return Boolean(permissions.crm[permission]);
+}
+
+/**
+ * Validador para rotas de API do servidor. Retorna Response 403 se não autorizado, ou null se permitido.
+ */
+export function requireCrmPermission(
+  session: { permissions?: GroupPermissions; operator: { role: string } },
+  permission: keyof CrmPermissions
+): Response | null {
+  if (session.operator.role === "admin") return null;
+  const crm = session.permissions?.crm;
+  if (!crm || !crm[permission]) {
+    return new Response(
+      JSON.stringify({
+        error: `Permissão insuficiente: seu perfil não possui autorização para '${permission}'.`,
+        code: "FORBIDDEN",
+      }),
+      {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  return null;
 }

@@ -1,4 +1,5 @@
-import { eq, and, desc, asc, sql, inArray } from "drizzle-orm";
+import { eq, ne, and, desc, asc, sql, inArray, gte, lte } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "../../db";
 import {
   crmAccounts,
@@ -15,6 +16,9 @@ import {
   crmProducts,
   crmDealProducts,
   crmProposals,
+  crmDealFiles,
+  crmDealQuestionnaires,
+  crmDealEmails,
   contacts,
   conversations,
   operators,
@@ -33,7 +37,11 @@ import type {
   CrmProduct,
   CrmDealProduct,
   CrmProposal,
+  CrmDealFile,
+  CrmDealQuestionnaire,
+  CrmDealEmail,
 } from "../../db/schema";
+import { vertexAi } from "../vertex-ai";
 
 /**
  * Normaliza documento (CPF ou CNPJ) mantendo estritamente dígitos.
@@ -50,6 +58,245 @@ export function detectDocumentType(docDigits: string): "cpf" | "cnpj" | "other" 
   if (docDigits.length === 11) return "cpf";
   if (docDigits.length === 14) return "cnpj";
   return "other";
+}
+
+/**
+ * Valida o formato de documento por tipo selecionado ('person' -> 11 dígitos, 'company' -> 14 dígitos).
+ */
+export function validateDocument(type: "person" | "company", docDigits: string): void {
+  if (!docDigits) return;
+  if (type === "person" && docDigits.length !== 11) {
+    throw new CrmValidationError("CPF deve conter exatamente 11 dígitos numéricos.", "INVALID_DOCUMENT_FORMAT");
+  }
+  if (type === "company" && docDigits.length !== 14) {
+    throw new CrmValidationError("CNPJ deve conter exatamente 14 dígitos numéricos.", "INVALID_DOCUMENT_FORMAT");
+  }
+}
+
+/**
+ * Converte valor monetário flexível (formato pt-BR com vírgula ou decimal padrão com ponto) em number.
+ */
+export function parseMoneyValue(val: string | number): number {
+  if (typeof val === "number") return val;
+  const str = String(val).trim();
+  if (!str) return NaN;
+  if (str.includes(",")) {
+    return parseFloat(str.replace(/\./g, "").replace(",", "."));
+  }
+  return parseFloat(str);
+}
+
+/**
+ * Classes de erro customizadas do CRM para respostas HTTP semânticas precisas.
+ */
+export class CrmError extends Error {
+  constructor(message: string, public code: string, public statusCode: number = 400) {
+    super(message);
+    this.name = "CrmError";
+  }
+}
+
+export class CrmValidationError extends CrmError {
+  constructor(message: string, code: string = "BAD_REQUEST") {
+    super(message, code, 400);
+    this.name = "CrmValidationError";
+  }
+}
+
+export class CrmNotFoundError extends CrmError {
+  constructor(message: string) {
+    super(message, "NOT_FOUND", 404);
+    this.name = "CrmNotFoundError";
+  }
+}
+
+export class CrmCrossTenantError extends CrmError {
+  constructor(message: string = "Entidade não encontrada ou pertence a outro tenant.") {
+    super(message, "TENANT_MISMATCH", 403);
+    this.name = "CrmCrossTenantError";
+  }
+}
+
+export class CrmConcurrencyError extends CrmError {
+  constructor(message: string = "Conflito de versão concorrente.") {
+    super(message, "CONCURRENCY_CONFLICT", 409);
+    this.name = "CrmConcurrencyError";
+  }
+}
+
+export function handleCrmError(err: any, corsHeaders: Record<string, string> = {}): Response {
+  if (err instanceof CrmError) {
+    return new Response(JSON.stringify({ error: err.message, code: err.code }), {
+      status: err.statusCode,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const msg = String(err?.message || "Erro interno");
+  let status = 500;
+  let code = "INTERNAL_ERROR";
+  if (msg.includes("CONCURRENCY_CONFLICT")) {
+    status = 409;
+    code = "CONCURRENCY_CONFLICT";
+  } else if (msg.includes("não encontrada") || msg.includes("NOT_FOUND")) {
+    status = 404;
+    code = "NOT_FOUND";
+  } else if (msg.includes("TENANT_MISMATCH") || msg.includes("outro tenant") || msg.includes("não pertence")) {
+    status = 403;
+    code = "TENANT_MISMATCH";
+  } else if (msg.includes("obrigatório") || msg.includes("inválid") || msg.includes("não pertence ao funil")) {
+    status = 400;
+    code = "BAD_REQUEST";
+  }
+  return new Response(JSON.stringify({ error: msg, code }), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+export interface CrmDealFilters {
+  pipelineId?: string;
+  stageId?: string;
+  stageIds?: string[];
+  status?: "open" | "won" | "lost" | "paused" | "not_paused" | "all";
+  operatorId?: string;
+  operatorIds?: string[];
+  accountId?: string;
+  search?: string;
+  minValue?: number;
+  maxValue?: number;
+  createdAfter?: string | Date;
+  createdBefore?: string | Date;
+  hasOverdueTask?: boolean;
+  coolingOnly?: boolean;
+  coolingDays?: number;
+}
+
+/**
+ * Constrói condições unificadas de filtro para negociações sem duplicar joins (usa subqueries correlacionadas EXISTS).
+ */
+export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilters) {
+  const conditions = [eq(crmDeals.tenantId, tenantId)];
+
+  if (filters.pipelineId) {
+    conditions.push(eq(crmDeals.pipelineId, filters.pipelineId));
+  }
+
+  if (filters.stageIds && filters.stageIds.length > 0) {
+    if (filters.stageIds.length === 1) {
+      conditions.push(eq(crmDeals.stageId, filters.stageIds[0]));
+    } else {
+      conditions.push(inArray(crmDeals.stageId, filters.stageIds));
+    }
+  } else if (filters.stageId) {
+    conditions.push(eq(crmDeals.stageId, filters.stageId));
+  }
+
+  if (filters.status === "not_paused") {
+    conditions.push(ne(crmDeals.status, "paused"));
+  } else if (filters.status && filters.status !== "all") {
+    conditions.push(eq(crmDeals.status, filters.status));
+  }
+
+  if (filters.operatorIds && filters.operatorIds.length > 0) {
+    if (filters.operatorIds.length === 1) {
+      conditions.push(eq(crmDeals.operatorId, filters.operatorIds[0]));
+    } else {
+      conditions.push(inArray(crmDeals.operatorId, filters.operatorIds));
+    }
+  } else if (filters.operatorId) {
+    conditions.push(eq(crmDeals.operatorId, filters.operatorId));
+  }
+
+  if (filters.accountId) {
+    conditions.push(eq(crmDeals.accountId, filters.accountId));
+  }
+
+  if (filters.minValue !== undefined && filters.minValue !== null && !isNaN(filters.minValue)) {
+    conditions.push(sql`${crmDeals.value} >= ${filters.minValue}`);
+  }
+
+  if (filters.maxValue !== undefined && filters.maxValue !== null && !isNaN(filters.maxValue)) {
+    conditions.push(sql`${crmDeals.value} <= ${filters.maxValue}`);
+  }
+
+  if (filters.createdAfter) {
+    const afterDate = new Date(filters.createdAfter);
+    if (!isNaN(afterDate.getTime())) {
+      conditions.push(gte(crmDeals.createdAt, afterDate));
+    }
+  }
+
+  if (filters.createdBefore) {
+    const beforeDate = new Date(filters.createdBefore);
+    if (!isNaN(beforeDate.getTime())) {
+      conditions.push(lte(crmDeals.createdAt, beforeDate));
+    }
+  }
+
+  if (filters.hasOverdueTask) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM crm_deal_activities act
+        WHERE act.deal_id = ${crmDeals.id}
+          AND act.tenant_id = ${tenantId}
+          AND act.status = 'pending'
+          AND act.type != 'note'
+          AND act.due_date < NOW()
+      )`
+    );
+  }
+
+  if (filters.coolingOnly) {
+    const days = Math.max(1, filters.coolingDays || 10);
+    conditions.push(
+      sql`COALESCE(${crmDeals.lastActivityAt}, ${crmDeals.updatedAt}, ${crmDeals.createdAt}) < (NOW() - (${days} || ' days')::interval)`
+    );
+  }
+
+  if (filters.search && filters.search.trim()) {
+    const cleanTerm = filters.search.trim();
+    const term = `%${cleanTerm.toLowerCase()}%`;
+    const numOnly = cleanTerm.replace(/\D/g, "");
+
+    const docOrPhoneCondition = numOnly.length >= 4
+      ? sql`OR acc.document LIKE ${`%${numOnly}%`}`
+      : sql``;
+
+    const contactPhoneCondition = numOnly.length >= 4
+      ? sql`OR ct.phone LIKE ${`%${numOnly}%`}`
+      : sql``;
+
+    conditions.push(
+      sql`(
+        LOWER(${crmDeals.title}) LIKE ${term}
+        OR LOWER(${crmDeals.id}) LIKE ${term}
+        OR EXISTS (
+          SELECT 1 FROM crm_accounts acc
+          WHERE acc.id = ${crmDeals.accountId}
+            AND acc.tenant_id = ${tenantId}
+            AND (
+              LOWER(acc.name) LIKE ${term}
+              OR LOWER(acc.trade_name) LIKE ${term}
+              OR LOWER(acc.email) LIKE ${term}
+              ${docOrPhoneCondition}
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM crm_deal_contacts dc
+          INNER JOIN contacts ct ON ct.id = dc.contact_id AND ct.tenant_id = dc.tenant_id
+          WHERE dc.deal_id = ${crmDeals.id}
+            AND dc.tenant_id = ${tenantId}
+            AND (
+              LOWER(ct.name) LIKE ${term}
+              OR LOWER(ct.email) LIKE ${term}
+              ${contactPhoneCondition}
+            )
+        )
+      )`
+    );
+  }
+
+  return conditions;
 }
 
 export class CrmService {
@@ -70,6 +317,7 @@ export class CrmService {
 
   /**
    * Lista todos os funis de um tenant com suas respectivas etapas ordenadas.
+   * Leitura pura e idempotente — NUNCA gera seed de dados operacionais no GET.
    */
   async getPipelines(tenantId: string): Promise<Array<CrmPipeline & { stages: CrmStage[] }>> {
     const pipelines = await db
@@ -79,28 +327,7 @@ export class CrmService {
       .orderBy(asc(crmPipelines.orderIndex), asc(crmPipelines.createdAt));
 
     if (pipelines.length === 0) {
-      // Auto-inicializa o funil padrão para o tenant se ainda não houver nenhum funil cadastrado
-      try {
-        const defaultPipeline = await this.createPipeline(tenantId, {
-          name: "Funil Comercial",
-          orderIndex: 0,
-          isDefault: true,
-          color: "#0284c7",
-          coolingDays: 10,
-          stages: [
-            { name: "Primeiro Contato", orderIndex: 0 },
-            { name: "Qualificação", orderIndex: 1 },
-            { name: "Proposta Enviada", orderIndex: 2 },
-            { name: "Negociação", orderIndex: 3 },
-            { name: "Fechamento / Ganho", orderIndex: 4, isWinStage: true },
-            { name: "Perdido", orderIndex: 5, isLossStage: true },
-          ],
-        });
-        return [defaultPipeline];
-      } catch (seedErr: any) {
-        console.error("[CrmService] Falha ao auto-inicializar funil padrão:", seedErr);
-        return [];
-      }
+      return [];
     }
 
     const pipelineIds = pipelines.map((p) => p.id);
@@ -203,6 +430,389 @@ export class CrmService {
     };
   }
 
+  /**
+   * Inicializa o funil comercial padrão de forma explícita e controlada (ação administrativa).
+   * Não pode ser chamado se o tenant já possuir funis cadastrados.
+   */
+  async initDefaultPipeline(
+    tenantId: string,
+    operatorId?: string | null
+  ): Promise<CrmPipeline & { stages: CrmStage[] }> {
+    const existing = await db
+      .select({ id: crmPipelines.id })
+      .from(crmPipelines)
+      .where(eq(crmPipelines.tenantId, tenantId))
+      .limit(1);
+
+    if (existing.length > 0) {
+      throw new CrmValidationError("Tenant já possui funis cadastrados.");
+    }
+
+    return this.createPipeline(tenantId, {
+      name: "Funil Comercial",
+      orderIndex: 0,
+      isDefault: true,
+      color: "#0284c7",
+      coolingDays: 10,
+      stages: [
+        { name: "Primeiro Contato", orderIndex: 0 },
+        { name: "Qualificação", orderIndex: 1 },
+        { name: "Proposta Enviada", orderIndex: 2 },
+        { name: "Negociação", orderIndex: 3 },
+        { name: "Fechamento / Ganho", orderIndex: 4, isWinStage: true },
+        { name: "Perdido", orderIndex: 5, isLossStage: true },
+      ],
+    });
+  }
+
+  /**
+   * Obtém um funil específico de um tenant com suas etapas.
+   */
+  async getPipelineById(
+    tenantId: string,
+    pipelineId: string
+  ): Promise<CrmPipeline & { stages: CrmStage[] }> {
+    const [pipeline] = await db
+      .select()
+      .from(crmPipelines)
+      .where(and(eq(crmPipelines.id, pipelineId), eq(crmPipelines.tenantId, tenantId)))
+      .limit(1);
+
+    if (!pipeline) {
+      throw new CrmNotFoundError(`Funil '${pipelineId}' não encontrado para este tenant.`);
+    }
+
+    const stages = await db
+      .select()
+      .from(crmStages)
+      .where(and(eq(crmStages.pipelineId, pipelineId), eq(crmStages.tenantId, tenantId)))
+      .orderBy(asc(crmStages.orderIndex), asc(crmStages.createdAt));
+
+    return {
+      ...pipeline,
+      stages,
+    };
+  }
+
+  /**
+   * Atualiza as configurações de um funil.
+   */
+  async updatePipeline(
+    tenantId: string,
+    pipelineId: string,
+    updates: {
+      name?: string;
+      orderIndex?: number;
+      isDefault?: boolean;
+      color?: string;
+      coolingDays?: number;
+    }
+  ): Promise<CrmPipeline & { stages: CrmStage[] }> {
+    const existing = await this.getPipelineById(tenantId, pipelineId);
+
+    if (updates.isDefault) {
+      await db
+        .update(crmPipelines)
+        .set({ isDefault: false, updatedAt: new Date() })
+        .where(eq(crmPipelines.tenantId, tenantId));
+    }
+
+    const setPayload: Record<string, any> = { updatedAt: new Date() };
+    if (updates.name !== undefined) setPayload.name = updates.name.trim();
+    if (updates.orderIndex !== undefined) setPayload.orderIndex = updates.orderIndex;
+    if (updates.isDefault !== undefined) setPayload.isDefault = updates.isDefault;
+    if (updates.color !== undefined) setPayload.color = updates.color;
+    if (updates.coolingDays !== undefined) setPayload.coolingDays = updates.coolingDays;
+
+    const [updated] = await db
+      .update(crmPipelines)
+      .set(setPayload)
+      .where(and(eq(crmPipelines.id, pipelineId), eq(crmPipelines.tenantId, tenantId)))
+      .returning();
+
+    return {
+      ...updated,
+      stages: existing.stages,
+    };
+  }
+
+  /**
+   * Remove um funil. Rejeita caso existam negociações associadas.
+   */
+  async deletePipeline(
+    tenantId: string,
+    pipelineId: string
+  ): Promise<{ success: boolean }> {
+    await this.getPipelineById(tenantId, pipelineId);
+
+    const [dealsCount] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.pipelineId, pipelineId), eq(crmDeals.tenantId, tenantId)));
+
+    if (dealsCount && dealsCount.count > 0) {
+      throw new CrmValidationError(
+        `Não é possível excluir o funil porque existem ${dealsCount.count} negociação(ões) vinculada(s).`,
+        "PIPELINE_HAS_DEALS"
+      );
+    }
+
+    await db
+      .delete(crmStages)
+      .where(and(eq(crmStages.pipelineId, pipelineId), eq(crmStages.tenantId, tenantId)));
+
+    await db
+      .delete(crmPipelines)
+      .where(and(eq(crmPipelines.id, pipelineId), eq(crmPipelines.tenantId, tenantId)));
+
+    return { success: true };
+  }
+
+  /**
+   * Cria uma nova etapa no funil informado.
+   */
+  async createStage(
+    tenantId: string,
+    pipelineId: string,
+    data: {
+      name: string;
+      orderIndex?: number;
+      isWinStage?: boolean;
+      isLossStage?: boolean;
+      requiredFields?: string[];
+    }
+  ): Promise<CrmStage> {
+    await this.getPipelineById(tenantId, pipelineId);
+
+    if (!data.name || !data.name.trim()) {
+      throw new CrmValidationError("O nome da etapa é obrigatório.", "NAME_REQUIRED");
+    }
+
+    let nextOrder = data.orderIndex;
+    if (nextOrder === undefined) {
+      const [maxOrder] = await db
+        .select({ max: sql<number>`coalesce(max(${crmStages.orderIndex}), -1)::int` })
+        .from(crmStages)
+        .where(and(eq(crmStages.pipelineId, pipelineId), eq(crmStages.tenantId, tenantId)));
+      nextOrder = (maxOrder?.max ?? -1) + 1;
+    }
+
+    const stageId = `stg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const [created] = await db
+      .insert(crmStages)
+      .values({
+        id: stageId,
+        tenantId,
+        pipelineId,
+        name: data.name.trim(),
+        orderIndex: nextOrder,
+        isWinStage: data.isWinStage ?? false,
+        isLossStage: data.isLossStage ?? false,
+        requiredFields: data.requiredFields ?? [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    return created;
+  }
+
+  /**
+   * Atualiza as propriedades de uma etapa.
+   */
+  async updateStage(
+    tenantId: string,
+    stageId: string,
+    updates: {
+      name?: string;
+      orderIndex?: number;
+      isWinStage?: boolean;
+      isLossStage?: boolean;
+      requiredFields?: string[];
+    }
+  ): Promise<CrmStage> {
+    const [existing] = await db
+      .select()
+      .from(crmStages)
+      .where(and(eq(crmStages.id, stageId), eq(crmStages.tenantId, tenantId)))
+      .limit(1);
+
+    if (!existing) {
+      throw new CrmNotFoundError(`Etapa '${stageId}' não encontrada para este tenant.`);
+    }
+
+    const setPayload: Record<string, any> = { updatedAt: new Date() };
+    if (updates.name !== undefined) setPayload.name = updates.name.trim();
+    if (updates.orderIndex !== undefined) setPayload.orderIndex = updates.orderIndex;
+    if (updates.isWinStage !== undefined) setPayload.isWinStage = updates.isWinStage;
+    if (updates.isLossStage !== undefined) setPayload.isLossStage = updates.isLossStage;
+    if (updates.requiredFields !== undefined) setPayload.requiredFields = updates.requiredFields;
+
+    const [updated] = await db
+      .update(crmStages)
+      .set(setPayload)
+      .where(and(eq(crmStages.id, stageId), eq(crmStages.tenantId, tenantId)))
+      .returning();
+
+    return updated;
+  }
+
+  /**
+   * Remove uma etapa. Rejeita caso existam negociações associadas a ela.
+   */
+  async deleteStage(
+    tenantId: string,
+    stageId: string
+  ): Promise<{ success: boolean }> {
+    const [existing] = await db
+      .select()
+      .from(crmStages)
+      .where(and(eq(crmStages.id, stageId), eq(crmStages.tenantId, tenantId)))
+      .limit(1);
+
+    if (!existing) {
+      throw new CrmNotFoundError(`Etapa '${stageId}' não encontrada para este tenant.`);
+    }
+
+    const [dealsCount] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.stageId, stageId), eq(crmDeals.tenantId, tenantId)));
+
+    if (dealsCount && dealsCount.count > 0) {
+      throw new CrmValidationError(
+        `Não é possível excluir a etapa porque existem ${dealsCount.count} negociação(ões) vinculada(s). Mova as negociações antes de excluir.`,
+        "STAGE_HAS_DEALS"
+      );
+    }
+
+    await db
+      .delete(crmStages)
+      .where(and(eq(crmStages.id, stageId), eq(crmStages.tenantId, tenantId)));
+
+    return { success: true };
+  }
+
+  /**
+   * Reordena as etapas de um funil de forma atômica.
+   */
+  async reorderStages(
+    tenantId: string,
+    pipelineId: string,
+    stageOrders: Array<{ id: string; orderIndex: number }>
+  ): Promise<CrmStage[]> {
+    await this.getPipelineById(tenantId, pipelineId);
+
+    await db.transaction(async (tx) => {
+      for (const item of stageOrders) {
+        await tx
+          .update(crmStages)
+          .set({ orderIndex: item.orderIndex, updatedAt: new Date() })
+          .where(
+            and(
+              eq(crmStages.id, item.id),
+              eq(crmStages.pipelineId, pipelineId),
+              eq(crmStages.tenantId, tenantId)
+            )
+          );
+      }
+    });
+
+    return await db
+      .select()
+      .from(crmStages)
+      .where(and(eq(crmStages.pipelineId, pipelineId), eq(crmStages.tenantId, tenantId)))
+      .orderBy(asc(crmStages.orderIndex), asc(crmStages.createdAt));
+  }
+
+  /**
+   * Resumo de agregação de negociações por etapa de um funil.
+   * Executa agregação exata sem multiplicar joins de contatos/conversas (zero N+1 e zero inflação de contagem).
+   * Retorna todas as etapas do funil (inclusive as com 0 negociações).
+   */
+  async getPipelineStagesSummary(
+    tenantId: string,
+    pipelineId: string,
+    filters: CrmDealFilters = {}
+  ): Promise<{
+    pipelineId: string;
+    stages: Array<{
+      stageId: string;
+      dealsCount: number;
+      knownValueDealsCount: number;
+      totalValue: number;
+      formattedTotalValue: string;
+    }>;
+    totalDeals: number;
+    totalKnownValueDeals: number;
+    totalValue: number;
+    formattedTotalValue: string;
+  }> {
+    const pipeline = await this.getPipelineById(tenantId, pipelineId);
+    const stages = pipeline.stages;
+
+    const conditions = buildDealFilterConditions(tenantId, {
+      ...filters,
+      pipelineId,
+    });
+
+    const aggregates = await db
+      .select({
+        stageId: crmDeals.stageId,
+        dealsCount: sql<number>`count(distinct ${crmDeals.id})::int`,
+        knownValueDealsCount: sql<number>`count(case when ${crmDeals.value} is not null then 1 end)::int`,
+        totalValue: sql<number>`coalesce(sum(case when ${crmDeals.value} is not null then ${crmDeals.value}::numeric else 0 end), 0)::float`,
+      })
+      .from(crmDeals)
+      .where(and(...conditions))
+      .groupBy(crmDeals.stageId);
+
+    const aggMap = new Map<string, { dealsCount: number; knownValueDealsCount: number; totalValue: number }>();
+    for (const row of aggregates) {
+      aggMap.set(row.stageId, {
+        dealsCount: Number(row.dealsCount) || 0,
+        knownValueDealsCount: Number(row.knownValueDealsCount) || 0,
+        totalValue: Number(row.totalValue) || 0,
+      });
+    }
+
+    let globalDealsCount = 0;
+    let globalKnownValueCount = 0;
+    let globalTotalValue = 0;
+
+    const stagesResult = stages.map((s) => {
+      const agg = aggMap.get(s.id) || { dealsCount: 0, knownValueDealsCount: 0, totalValue: 0 };
+      globalDealsCount += agg.dealsCount;
+      globalKnownValueCount += agg.knownValueDealsCount;
+      globalTotalValue += agg.totalValue;
+
+      const formatted = agg.knownValueDealsCount > 0
+        ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(agg.totalValue)
+        : "-";
+
+      return {
+        stageId: s.id,
+        dealsCount: agg.dealsCount,
+        knownValueDealsCount: agg.knownValueDealsCount,
+        totalValue: agg.totalValue,
+        formattedTotalValue: formatted,
+      };
+    });
+
+    const globalFormatted = globalKnownValueCount > 0
+      ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(globalTotalValue)
+      : "-";
+
+    return {
+      pipelineId,
+      stages: stagesResult,
+      totalDeals: globalDealsCount,
+      totalKnownValueDeals: globalKnownValueCount,
+      totalValue: globalTotalValue,
+      formattedTotalValue: globalFormatted,
+    };
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // 2. CLIENTES / CONTAS (Accounts PF e PJ)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -214,16 +824,21 @@ export class CrmService {
     tenantId: string,
     params: {
       search?: string;
+      query?: string;
       document?: string;
       type?: "person" | "company";
+      includeArchived?: boolean;
       limit?: number;
       offset?: number;
     } = {}
-  ): Promise<{ accounts: CrmAccount[]; total: number }> {
+  ): Promise<{ accounts: CrmAccount[]; total: number; limit: number; offset: number }> {
     const conditions = [
       eq(crmAccounts.tenantId, tenantId),
-      sql`${crmAccounts.archivedAt} IS NULL`,
     ];
+
+    if (!params.includeArchived) {
+      conditions.push(sql`${crmAccounts.archivedAt} IS NULL`);
+    }
 
     if (params.document) {
       const cleanDoc = normalizeDocument(params.document);
@@ -236,11 +851,20 @@ export class CrmService {
       conditions.push(eq(crmAccounts.type, params.type));
     }
 
-    if (params.search && params.search.trim()) {
-      const term = `%${params.search.trim().toLowerCase()}%`;
-      conditions.push(
-        sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(${crmAccounts.tradeName}) LIKE ${term} OR LOWER(${crmAccounts.document}) LIKE ${term} OR LOWER(${crmAccounts.email}) LIKE ${term})`
-      );
+    const termInput = params.search || params.query;
+    if (termInput && termInput.trim()) {
+      const cleanTerm = termInput.trim();
+      const term = `%${cleanTerm.toLowerCase()}%`;
+      const numOnly = cleanTerm.replace(/\D/g, "");
+      if (numOnly.length >= 8) {
+        conditions.push(
+          sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(${crmAccounts.tradeName}) LIKE ${term} OR ${crmAccounts.document} LIKE ${`%${numOnly}%`} OR LOWER(${crmAccounts.email}) LIKE ${term})`
+        );
+      } else {
+        conditions.push(
+          sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(${crmAccounts.tradeName}) LIKE ${term} OR LOWER(${crmAccounts.document}) LIKE ${term} OR LOWER(${crmAccounts.email}) LIKE ${term})`
+        );
+      }
     }
 
     const whereClause = and(...conditions);
@@ -263,7 +887,27 @@ export class CrmService {
     return {
       accounts,
       total: countResult?.count || 0,
+      limit,
+      offset,
     };
+  }
+
+  /**
+   * Alias de conveniência para listagem de contas
+   */
+  async listAccounts(
+    tenantId: string,
+    params: {
+      search?: string;
+      query?: string;
+      document?: string;
+      type?: "person" | "company";
+      includeArchived?: boolean;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ) {
+    return this.getAccounts(tenantId, params);
   }
 
   /**
@@ -311,6 +955,9 @@ export class CrmService {
     }
 
     const accountType = data.type || (docType === "cnpj" ? "company" : "person");
+    if (cleanDoc) {
+      validateDocument(accountType, cleanDoc);
+    }
     const accountId = `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     const [account] = await db
@@ -338,24 +985,902 @@ export class CrmService {
     return account;
   }
 
+  /**
+   * Obtém ficha detalhada da conta compradora com contatos vinculados (1:N),
+   * negociações associadas, atendimentos relacionados e histórico de transições.
+   */
+  async getAccountById(
+    tenantId: string,
+    accountId: string
+  ): Promise<{
+    account: CrmAccount;
+    contacts: Array<{
+      id: string;
+      name: string;
+      phone: string | null;
+      email: string | null;
+      avatar: string | null;
+      accountId: string | null;
+    }>;
+    deals: CrmDeal[];
+    conversations: Array<{
+      id: string;
+      accountId: string;
+      conversationId: string;
+      contextNote: string | null;
+      createdAt: Date;
+      operatorName: string | null;
+      conversation: {
+        id: string;
+        channel: string;
+        status: string;
+        contactName: string | null;
+        lastMessageAt: Date | null;
+      } | null;
+    }>;
+    history: Array<{
+      id: string;
+      contactId: string;
+      contactName: string | null;
+      accountId: string | null;
+      reason: string | null;
+      createdAt: Date;
+      changedByOperatorId: string | null;
+      operatorName: string | null;
+    }>;
+  }> {
+    const [account] = await db
+      .select()
+      .from(crmAccounts)
+      .where(
+        and(
+          eq(crmAccounts.id, accountId),
+          eq(crmAccounts.tenantId, tenantId),
+          sql`${crmAccounts.archivedAt} IS NULL`
+        )
+      )
+      .limit(1);
+
+    if (!account) {
+      throw new CrmNotFoundError("Cliente/Conta não encontrada.");
+    }
+
+    // 1. Contatos vinculados (1:N)
+    const linkedContacts = await db
+      .select({
+        id: contacts.id,
+        name: contacts.name,
+        phone: contacts.phone,
+        email: contacts.email,
+        avatar: contacts.avatar,
+        accountId: contacts.accountId,
+      })
+      .from(contacts)
+      .where(and(eq(contacts.tenantId, tenantId), eq(contacts.accountId, accountId)));
+
+    // 2. Negociações associadas
+    const linkedDeals = await db
+      .select()
+      .from(crmDeals)
+      .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.accountId, accountId)))
+      .orderBy(desc(crmDeals.createdAt));
+
+    // 3. Conversas associadas
+    const linkedConversationsRaw = await db
+      .select({
+        link: crmAccountConversations,
+        conv: conversations,
+        ct: contacts,
+        op: operators,
+      })
+      .from(crmAccountConversations)
+      .innerJoin(conversations, eq(crmAccountConversations.conversationId, conversations.id))
+      .leftJoin(contacts, eq(conversations.contactId, contacts.id))
+      .leftJoin(operators, eq(crmAccountConversations.createdByOperatorId, operators.id))
+      .where(
+        and(
+          eq(crmAccountConversations.tenantId, tenantId),
+          eq(crmAccountConversations.accountId, accountId)
+        )
+      )
+      .orderBy(desc(crmAccountConversations.createdAt));
+
+    const linkedConversations = linkedConversationsRaw.map((r) => ({
+      id: r.link.id,
+      accountId: r.link.accountId,
+      conversationId: r.link.conversationId,
+      contextNote: r.link.contextNote,
+      createdAt: r.link.createdAt,
+      operatorName: r.op?.name || null,
+      conversation: r.conv
+        ? {
+            id: r.conv.id,
+            channel: r.ct?.mainChannel || "whatsapp",
+            status: r.conv.queueState,
+            contactName: r.ct?.name || null,
+            lastMessageAt: r.conv.lastMessageTime,
+          }
+        : null,
+    }));
+
+    // 4. Histórico de contatos nesta conta
+    const historyRaw = await db
+      .select({
+        hist: crmContactAccountHistory,
+        ct: contacts,
+        op: operators,
+      })
+      .from(crmContactAccountHistory)
+      .leftJoin(contacts, eq(crmContactAccountHistory.contactId, contacts.id))
+      .leftJoin(operators, eq(crmContactAccountHistory.changedByOperatorId, operators.id))
+      .where(
+        and(
+          eq(crmContactAccountHistory.tenantId, tenantId),
+          eq(crmContactAccountHistory.accountId, accountId)
+        )
+      )
+      .orderBy(desc(crmContactAccountHistory.createdAt));
+
+    const history = historyRaw.map((r) => ({
+      id: r.hist.id,
+      contactId: r.hist.contactId,
+      contactName: r.ct?.name || null,
+      accountId: r.hist.accountId,
+      reason: r.hist.reason,
+      createdAt: r.hist.createdAt,
+      changedByOperatorId: r.hist.changedByOperatorId,
+      operatorName: r.op?.name || null,
+    }));
+
+    return {
+      account,
+      contacts: linkedContacts,
+      deals: linkedDeals,
+      conversations: linkedConversations,
+      history,
+    };
+  }
+
+  /**
+   * Atualiza dados cadastrais da conta compradora com validações de unicidade e documento.
+   */
+  async updateAccount(
+    tenantId: string,
+    accountId: string,
+    data: {
+      name?: string;
+      tradeName?: string | null;
+      type?: "person" | "company";
+      document?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      website?: string | null;
+      address?: Record<string, any>;
+      customFields?: Record<string, any>;
+      notes?: string | null;
+    }
+  ): Promise<CrmAccount> {
+    const [current] = await db
+      .select()
+      .from(crmAccounts)
+      .where(
+        and(
+          eq(crmAccounts.id, accountId),
+          eq(crmAccounts.tenantId, tenantId),
+          sql`${crmAccounts.archivedAt} IS NULL`
+        )
+      )
+      .limit(1);
+
+    if (!current) {
+      throw new CrmNotFoundError("Cliente/Conta não encontrada.");
+    }
+
+    const updates: Record<string, any> = {
+      updatedAt: new Date(),
+    };
+
+    if (data.name !== undefined) {
+      if (!data.name.trim()) throw new CrmValidationError("O nome ou razão social é obrigatório.");
+      updates.name = data.name.trim();
+    }
+    if (data.tradeName !== undefined) updates.tradeName = data.tradeName?.trim() || null;
+    if (data.type !== undefined) updates.type = data.type;
+    if (data.email !== undefined) updates.email = data.email?.trim() || null;
+    if (data.phone !== undefined) updates.phone = data.phone ? normalizeDocument(data.phone) : null;
+    if (data.website !== undefined) updates.website = data.website?.trim() || null;
+    if (data.address !== undefined) updates.address = data.address || {};
+    if (data.customFields !== undefined) updates.customFields = data.customFields || {};
+    if (data.notes !== undefined) updates.notes = data.notes?.trim() || null;
+
+    if (data.document !== undefined) {
+      const cleanDoc = data.document ? normalizeDocument(data.document) : "";
+      if (cleanDoc) {
+        const targetType = data.type || current.type;
+        validateDocument(targetType as "person" | "company", cleanDoc);
+
+        // Verifica duplicidade no mesmo tenant
+        const [existing] = await db
+          .select({ id: crmAccounts.id })
+          .from(crmAccounts)
+          .where(
+            and(
+              eq(crmAccounts.tenantId, tenantId),
+              eq(crmAccounts.document, cleanDoc),
+              sql`${crmAccounts.id} != ${accountId}`,
+              sql`${crmAccounts.archivedAt} IS NULL`
+            )
+          )
+          .limit(1);
+
+        if (existing) {
+          throw new CrmValidationError(
+            "Já existe outra conta cadastrada com este documento neste tenant.",
+            "DUPLICATE_DOCUMENT"
+          );
+        }
+
+        updates.document = cleanDoc;
+        updates.documentType = detectDocumentType(cleanDoc);
+      } else {
+        updates.document = null;
+        updates.documentType = null;
+      }
+    }
+
+    const [updated] = await db
+      .update(crmAccounts)
+      .set(updates)
+      .where(and(eq(crmAccounts.id, accountId), eq(crmAccounts.tenantId, tenantId)))
+      .returning();
+
+    return updated;
+  }
+
+  /**
+   * Arquivamento suave (soft-delete) de conta compradora.
+   */
+  async archiveAccount(
+    tenantId: string,
+    accountId: string
+  ): Promise<{ success: boolean; id: string }> {
+    const [current] = await db
+      .select({ id: crmAccounts.id })
+      .from(crmAccounts)
+      .where(
+        and(
+          eq(crmAccounts.id, accountId),
+          eq(crmAccounts.tenantId, tenantId),
+          sql`${crmAccounts.archivedAt} IS NULL`
+        )
+      )
+      .limit(1);
+
+    if (!current) {
+      throw new CrmNotFoundError("Cliente/Conta não encontrada.");
+    }
+
+    await db
+      .update(crmAccounts)
+      .set({ archivedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(crmAccounts.id, accountId), eq(crmAccounts.tenantId, tenantId)));
+
+    return { success: true, id: accountId };
+  }
+
+  /**
+   * Altera a conta compradora principal de um contato, registrando histórico formal
+   * em crm_contact_account_history sem reescrever dados de negócios históricos.
+   */
+  async updateContactAccount(
+    tenantId: string,
+    contactId: string,
+    newAccountId: string | null,
+    reason?: string,
+    operatorId?: string
+  ): Promise<{ contactId: string; accountId: string | null }> {
+    return await db.transaction(async (tx) => {
+      const [contact] = await tx
+        .select()
+        .from(contacts)
+        .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
+        .limit(1);
+
+      if (!contact) {
+        throw new CrmNotFoundError("Contato não encontrado.");
+      }
+
+      if (newAccountId) {
+        const [acc] = await tx
+          .select({ id: crmAccounts.id })
+          .from(crmAccounts)
+          .where(
+            and(
+              eq(crmAccounts.id, newAccountId),
+              eq(crmAccounts.tenantId, tenantId),
+              sql`${crmAccounts.archivedAt} IS NULL`
+            )
+          )
+          .limit(1);
+
+        if (!acc) {
+          throw new CrmCrossTenantError(`Conta de destino (${newAccountId}) não pertence ao tenant ${tenantId}.`);
+        }
+      }
+
+      // Se a conta mudou, grava no histórico
+      if (contact.accountId !== newAccountId) {
+        await tx.insert(crmContactAccountHistory).values({
+          id: `cah-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          tenantId,
+          contactId,
+          accountId: newAccountId || null,
+          reason: reason?.trim() || null,
+          changedByOperatorId: operatorId || null,
+          createdAt: new Date(),
+        });
+
+        await tx
+          .update(contacts)
+          .set({ accountId: newAccountId })
+          .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+      }
+
+      return { contactId, accountId: newAccountId };
+    });
+  }
+
+  /**
+   * Consulta histórico de transições de empresa de um contato.
+   */
+  async getContactAccountHistory(
+    tenantId: string,
+    contactId: string
+  ): Promise<
+    Array<{
+      id: string;
+      contactId: string;
+      accountId: string | null;
+      accountName: string | null;
+      reason: string | null;
+      changedByOperatorId: string | null;
+      operatorName: string | null;
+      createdAt: Date;
+    }>
+  > {
+    const [contact] = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
+      .limit(1);
+
+    if (!contact) {
+      throw new CrmNotFoundError("Contato não encontrado.");
+    }
+
+    const historyRaw = await db
+      .select({
+        hist: crmContactAccountHistory,
+        acc: crmAccounts,
+        op: operators,
+      })
+      .from(crmContactAccountHistory)
+      .leftJoin(crmAccounts, eq(crmContactAccountHistory.accountId, crmAccounts.id))
+      .leftJoin(operators, eq(crmContactAccountHistory.changedByOperatorId, operators.id))
+      .where(
+        and(
+          eq(crmContactAccountHistory.tenantId, tenantId),
+          eq(crmContactAccountHistory.contactId, contactId)
+        )
+      )
+      .orderBy(desc(crmContactAccountHistory.createdAt));
+
+    return historyRaw.map((r) => ({
+      id: r.hist.id,
+      contactId: r.hist.contactId,
+      accountId: r.hist.accountId,
+      accountName: r.acc?.name || null,
+      reason: r.hist.reason,
+      changedByOperatorId: r.hist.changedByOperatorId,
+      operatorName: r.op?.name || null,
+      createdAt: r.hist.createdAt,
+    }));
+  }
+
+  /**
+   * Consulta participantes vinculados a uma negociação.
+   */
+  async getDealContacts(
+    tenantId: string,
+    dealId: string
+  ): Promise<
+    Array<{
+      id: string;
+      dealId: string;
+      contactId: string;
+      role: string;
+      isPrimary: boolean;
+      createdAt: Date;
+      contact: {
+        id: string;
+        name: string;
+        phone: string | null;
+        email: string | null;
+        avatar: string | null;
+      };
+    }>
+  > {
+    const [deal] = await db
+      .select({ id: crmDeals.id })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+      .limit(1);
+
+    if (!deal) {
+      throw new CrmNotFoundError("Negociação não encontrada.");
+    }
+
+    const raw = await db
+      .select({
+        dealContact: crmDealContacts,
+        contact: contacts,
+      })
+      .from(crmDealContacts)
+      .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+      .where(
+        and(
+          eq(crmDealContacts.tenantId, tenantId),
+          eq(crmDealContacts.dealId, dealId)
+        )
+      )
+      .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
+
+    return raw.map((r) => ({
+      ...r.dealContact,
+      contact: {
+        id: r.contact.id,
+        name: r.contact.name,
+        phone: r.contact.phone,
+        email: r.contact.email,
+        avatar: r.contact.avatar,
+      },
+    }));
+  }
+
+  /**
+   * Adiciona participante a uma negociação com papel e definição de contato principal.
+   */
+  async addDealContact(
+    tenantId: string,
+    dealId: string,
+    contactId: string,
+    role: string = "buyer",
+    isPrimary: boolean = false
+  ) {
+    return await db.transaction(async (tx) => {
+      const [deal] = await tx
+        .select({ id: crmDeals.id })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) {
+        throw new CrmNotFoundError("Negociação não encontrada.");
+      }
+
+      const [contact] = await tx
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
+        .limit(1);
+
+      if (!contact) {
+        throw new CrmCrossTenantError(`Contato (${contactId}) não pertence ao tenant ${tenantId}.`);
+      }
+
+      // Verifica participantes existentes
+      const existing = await tx
+        .select()
+        .from(crmDealContacts)
+        .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)));
+
+      const isFirst = existing.length === 0;
+      const shouldBePrimary = isPrimary || isFirst;
+
+      if (shouldBePrimary) {
+        await tx
+          .update(crmDealContacts)
+          .set({ isPrimary: false })
+          .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)));
+      }
+
+      const already = existing.find((p) => p.contactId === contactId);
+      if (already) {
+        await tx
+          .update(crmDealContacts)
+          .set({ role, isPrimary: shouldBePrimary })
+          .where(eq(crmDealContacts.id, already.id));
+      } else {
+        await tx.insert(crmDealContacts).values({
+          id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          tenantId,
+          dealId,
+          contactId,
+          role,
+          isPrimary: shouldBePrimary,
+          createdAt: new Date(),
+        });
+      }
+
+      // Consulta lista atualizada de participantes
+      const updatedRaw = await tx
+        .select({
+          dealContact: crmDealContacts,
+          contact: contacts,
+        })
+        .from(crmDealContacts)
+        .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.dealId, dealId)
+          )
+        )
+        .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
+
+      return updatedRaw.map((r) => ({
+        ...r.dealContact,
+        contact: {
+          id: r.contact.id,
+          name: r.contact.name,
+          phone: r.contact.phone,
+          email: r.contact.email,
+          avatar: r.contact.avatar,
+        },
+      }));
+    });
+  }
+
+  /**
+   * Remove participante de uma negociação. Se o participante removido for o primário,
+   * elege o primeiro participante restante como primário.
+   */
+  async removeDealContact(
+    tenantId: string,
+    dealId: string,
+    contactId: string
+  ) {
+    return await db.transaction(async (tx) => {
+      const [deal] = await tx
+        .select({ id: crmDeals.id })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) {
+        throw new CrmNotFoundError("Negociação não encontrada.");
+      }
+
+      const [existing] = await tx
+        .select()
+        .from(crmDealContacts)
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.dealId, dealId),
+            eq(crmDealContacts.contactId, contactId)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        return await this.getDealContacts(tenantId, dealId);
+      }
+
+      await tx.delete(crmDealContacts).where(eq(crmDealContacts.id, existing.id));
+
+      if (existing.isPrimary) {
+        const [next] = await tx
+          .select()
+          .from(crmDealContacts)
+          .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)))
+          .orderBy(asc(crmDealContacts.createdAt))
+          .limit(1);
+
+        if (next) {
+          await tx
+            .update(crmDealContacts)
+            .set({ isPrimary: true })
+            .where(eq(crmDealContacts.id, next.id));
+        }
+      }
+
+      const updatedRaw = await tx
+        .select({
+          dealContact: crmDealContacts,
+          contact: contacts,
+        })
+        .from(crmDealContacts)
+        .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.dealId, dealId)
+          )
+        )
+        .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
+
+      return updatedRaw.map((r) => ({
+        ...r.dealContact,
+        contact: {
+          id: r.contact.id,
+          name: r.contact.name,
+          phone: r.contact.phone,
+          email: r.contact.email,
+          avatar: r.contact.avatar,
+        },
+      }));
+    });
+  }
+
+  /**
+   * Define o contato principal de uma negociação.
+   */
+  async setPrimaryDealContact(
+    tenantId: string,
+    dealId: string,
+    contactId: string
+  ) {
+    return await db.transaction(async (tx) => {
+      const [deal] = await tx
+        .select({ id: crmDeals.id })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) {
+        throw new CrmNotFoundError("Negociação não encontrada.");
+      }
+
+      const [target] = await tx
+        .select()
+        .from(crmDealContacts)
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.dealId, dealId),
+            eq(crmDealContacts.contactId, contactId)
+          )
+        )
+        .limit(1);
+
+      if (!target) {
+        throw new CrmNotFoundError("Contato participante não encontrado nesta negociação.");
+      }
+
+      await tx
+        .update(crmDealContacts)
+        .set({ isPrimary: false })
+        .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)));
+
+      await tx
+        .update(crmDealContacts)
+        .set({ isPrimary: true })
+        .where(eq(crmDealContacts.id, target.id));
+
+      const updatedRaw = await tx
+        .select({
+          dealContact: crmDealContacts,
+          contact: contacts,
+        })
+        .from(crmDealContacts)
+        .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.dealId, dealId)
+          )
+        )
+        .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
+
+      return updatedRaw.map((r) => ({
+        ...r.dealContact,
+        contact: {
+          id: r.contact.id,
+          name: r.contact.name,
+          phone: r.contact.phone,
+          email: r.contact.email,
+          avatar: r.contact.avatar,
+        },
+      }));
+    });
+  }
+
+  /**
+   * Vincula explicitamente uma conversa a uma conta compradora com autoria e nota de contexto.
+   */
+  async linkAccountConversation(
+    tenantId: string,
+    accountId: string,
+    conversationId: string,
+    operatorId?: string,
+    contextNote?: string
+  ) {
+    const [acc] = await db
+      .select({ id: crmAccounts.id })
+      .from(crmAccounts)
+      .where(
+        and(
+          eq(crmAccounts.id, accountId),
+          eq(crmAccounts.tenantId, tenantId),
+          sql`${crmAccounts.archivedAt} IS NULL`
+        )
+      )
+      .limit(1);
+
+    if (!acc) {
+      throw new CrmNotFoundError("Conta compradora não encontrada.");
+    }
+
+    const [conv] = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+      .limit(1);
+
+    if (!conv) {
+      throw new CrmCrossTenantError(`Conversa (${conversationId}) não pertence ao tenant ${tenantId}.`);
+    }
+
+    // Verifica se já existe vínculo
+    const [existing] = await db
+      .select()
+      .from(crmAccountConversations)
+      .where(
+        and(
+          eq(crmAccountConversations.tenantId, tenantId),
+          eq(crmAccountConversations.accountId, accountId),
+          eq(crmAccountConversations.conversationId, conversationId)
+        )
+      )
+      .limit(1);
+
+    if (existing) {
+      if (contextNote !== undefined && contextNote !== existing.contextNote) {
+        await db
+          .update(crmAccountConversations)
+          .set({ contextNote: contextNote?.trim() || null })
+          .where(eq(crmAccountConversations.id, existing.id));
+      }
+      return existing;
+    }
+
+    const [created] = await db
+      .insert(crmAccountConversations)
+      .values({
+        id: `ac-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        tenantId,
+        accountId,
+        conversationId,
+        contextNote: contextNote?.trim() || null,
+        createdByOperatorId: operatorId || null,
+        createdAt: new Date(),
+      })
+      .returning();
+
+    return created;
+  }
+
+  /**
+   * Desvincula uma conversa de uma conta compradora.
+   */
+  async unlinkAccountConversation(
+    tenantId: string,
+    accountId: string,
+    conversationId: string
+  ) {
+    const [acc] = await db
+      .select({ id: crmAccounts.id })
+      .from(crmAccounts)
+      .where(and(eq(crmAccounts.id, accountId), eq(crmAccounts.tenantId, tenantId)))
+      .limit(1);
+
+    if (!acc) {
+      throw new CrmNotFoundError("Conta compradora não encontrada.");
+    }
+
+    await db
+      .delete(crmAccountConversations)
+      .where(
+        and(
+          eq(crmAccountConversations.tenantId, tenantId),
+          eq(crmAccountConversations.accountId, accountId),
+          eq(crmAccountConversations.conversationId, conversationId)
+        )
+      );
+
+    return { success: true };
+  }
+
+  /**
+   * Lista conversas vinculadas a uma conta compradora.
+   */
+  async getAccountConversations(
+    tenantId: string,
+    accountId: string
+  ) {
+    const [acc] = await db
+      .select({ id: crmAccounts.id })
+      .from(crmAccounts)
+      .where(and(eq(crmAccounts.id, accountId), eq(crmAccounts.tenantId, tenantId)))
+      .limit(1);
+
+    if (!acc) {
+      throw new CrmNotFoundError("Conta compradora não encontrada.");
+    }
+
+    const raw = await db
+      .select({
+        link: crmAccountConversations,
+        conv: conversations,
+        ct: contacts,
+        op: operators,
+      })
+      .from(crmAccountConversations)
+      .innerJoin(conversations, eq(crmAccountConversations.conversationId, conversations.id))
+      .leftJoin(contacts, eq(conversations.contactId, contacts.id))
+      .leftJoin(operators, eq(crmAccountConversations.createdByOperatorId, operators.id))
+      .where(
+        and(
+          eq(crmAccountConversations.tenantId, tenantId),
+          eq(crmAccountConversations.accountId, accountId)
+        )
+      )
+      .orderBy(desc(crmAccountConversations.createdAt));
+
+    return raw.map((r) => ({
+      id: r.link.id,
+      accountId: r.link.accountId,
+      conversationId: r.link.conversationId,
+      contextNote: r.link.contextNote,
+      createdAt: r.link.createdAt,
+      operatorName: r.op?.name || null,
+      conversation: {
+        id: r.conv.id,
+        channel: r.ct?.mainChannel || "whatsapp",
+        status: r.conv.queueState,
+        contactName: r.ct?.name || null,
+        lastMessageAt: r.conv.lastMessageTime,
+      },
+    }));
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // 3. NEGOCIAÇÕES / CARDS (Deals)
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Lista negociações paginadas com filtros comerciais, contagem de conversas e dados do comprador.
+   * Lista negociações paginadas com filtros comerciais completos, ordenação dinâmica e sem joins multiplicativos.
    */
   async getDeals(
     tenantId: string,
-    params: {
-      pipelineId?: string;
-      stageId?: string;
-      status?: "open" | "won" | "lost" | "paused";
-      operatorId?: string;
-      accountId?: string;
-      search?: string;
+    params: CrmDealFilters & {
       limit?: number;
       offset?: number;
+      sortBy?:
+        | "name_asc"
+        | "name_desc"
+        | "created_asc"
+        | "created_desc"
+        | "next_task_asc"
+        | "close_date_asc"
+        | "close_date_desc"
+        | "rating_desc"
+        | "rating_asc"
+        | "contact_recent"
+        | "contact_old"
+        | "updated_desc"
+        | string;
     } = {}
   ): Promise<{
     deals: Array<
@@ -367,28 +1892,7 @@ export class CrmService {
     >;
     total: number;
   }> {
-    const conditions = [eq(crmDeals.tenantId, tenantId)];
-
-    if (params.pipelineId) {
-      conditions.push(eq(crmDeals.pipelineId, params.pipelineId));
-    }
-    if (params.stageId) {
-      conditions.push(eq(crmDeals.stageId, params.stageId));
-    }
-    if (params.status) {
-      conditions.push(eq(crmDeals.status, params.status));
-    }
-    if (params.operatorId) {
-      conditions.push(eq(crmDeals.operatorId, params.operatorId));
-    }
-    if (params.accountId) {
-      conditions.push(eq(crmDeals.accountId, params.accountId));
-    }
-    if (params.search && params.search.trim()) {
-      const term = `%${params.search.trim().toLowerCase()}%`;
-      conditions.push(sql`LOWER(${crmDeals.title}) LIKE ${term}`);
-    }
-
+    const conditions = buildDealFilterConditions(tenantId, params);
     const whereClause = and(...conditions);
     const limit = Math.min(params.limit || 50, 200);
     const offset = params.offset || 0;
@@ -398,11 +1902,69 @@ export class CrmService {
       .from(crmDeals)
       .where(whereClause);
 
+    let orderClause: any[];
+    switch (params.sortBy) {
+      case "name_asc":
+        orderClause = [asc(crmDeals.title)];
+        break;
+      case "name_desc":
+        orderClause = [desc(crmDeals.title)];
+        break;
+      case "created_asc":
+        orderClause = [asc(crmDeals.createdAt)];
+        break;
+      case "created_desc":
+        orderClause = [desc(crmDeals.createdAt)];
+        break;
+      case "next_task_asc":
+        orderClause = [
+          sql`(
+            SELECT MIN(act.due_date)
+            FROM crm_deal_activities act
+            WHERE act.deal_id = ${crmDeals.id}
+              AND act.tenant_id = ${tenantId}
+              AND act.status = 'pending'
+              AND act.type != 'note'
+          ) ASC NULLS LAST`,
+          desc(crmDeals.createdAt),
+        ];
+        break;
+      case "close_date_asc":
+        orderClause = [sql`${crmDeals.expectedCloseDate} ASC NULLS LAST`, desc(crmDeals.createdAt)];
+        break;
+      case "close_date_desc":
+        orderClause = [sql`${crmDeals.expectedCloseDate} DESC NULLS LAST`, desc(crmDeals.createdAt)];
+        break;
+      case "rating_desc":
+        orderClause = [sql`${crmDeals.rating} DESC NULLS LAST`, desc(crmDeals.createdAt)];
+        break;
+      case "rating_asc":
+        orderClause = [sql`${crmDeals.rating} ASC NULLS LAST`, desc(crmDeals.createdAt)];
+        break;
+      case "contact_recent":
+      case "updated_desc":
+        orderClause = [
+          sql`COALESCE(${crmDeals.lastActivityAt}, ${crmDeals.updatedAt}, ${crmDeals.createdAt}) DESC`,
+          desc(crmDeals.createdAt),
+        ];
+        break;
+      case "contact_old":
+      case "updated_asc":
+        orderClause = [
+          sql`COALESCE(${crmDeals.lastActivityAt}, ${crmDeals.updatedAt}, ${crmDeals.createdAt}) ASC`,
+          asc(crmDeals.createdAt),
+        ];
+        break;
+      default:
+        orderClause = [desc(crmDeals.updatedAt), desc(crmDeals.createdAt)];
+        break;
+    }
+
     const rawDeals = await db
       .select()
       .from(crmDeals)
       .where(whereClause)
-      .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt))
+      .orderBy(...orderClause)
       .limit(limit)
       .offset(offset);
 
@@ -471,11 +2033,63 @@ export class CrmService {
       contactCountMap.set(cc.dealId, cc.count);
     }
 
+    // Próxima atividade pendente por deal (excluindo notas e trazendo operadores)
+    const taskAssignedOp = alias(operators, "task_assigned_op");
+    const pendingActivities = await db
+      .select({
+        activity: crmDealActivities,
+        assignedOperatorName: taskAssignedOp.name,
+      })
+      .from(crmDealActivities)
+      .leftJoin(taskAssignedOp, eq(crmDealActivities.assignedToOperatorId, taskAssignedOp.id))
+      .where(
+        and(
+          eq(crmDealActivities.tenantId, tenantId),
+          inArray(crmDealActivities.dealId, dealIds),
+          eq(crmDealActivities.status, "pending"),
+          sql`${crmDealActivities.type} != 'note'`
+        )
+      )
+      .orderBy(sql`${crmDealActivities.dueDate} ASC NULLS LAST`, asc(crmDealActivities.createdAt));
+
+    const nextActivityMap = new Map<string, any>();
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const nowTime = now.getTime();
+
+    for (const item of pendingActivities) {
+      const act = item.activity;
+      if (!nextActivityMap.has(act.dealId)) {
+        const due = act.dueDate ? new Date(act.dueDate) : null;
+        const dueTime = due ? due.getTime() : null;
+        const isOverdue = due ? dueTime! < nowTime : false;
+        const isToday = due ? due >= startOfToday && due <= endOfToday : false;
+        const isFuture = due ? due > endOfToday : false;
+        const hasNoDueDate = due === null;
+
+        nextActivityMap.set(act.dealId, {
+          id: act.id,
+          title: act.title,
+          type: act.type,
+          dueDate: due ? due.toISOString() : null,
+          isOverdue,
+          isToday,
+          isFuture,
+          hasNoDueDate,
+          assignedToOperatorId: act.assignedToOperatorId || null,
+          responsibleName: item.assignedOperatorName || null,
+        });
+      }
+    }
+
     const enrichedDeals = rawDeals.map((deal) => ({
       ...deal,
+      ownerId: deal.operatorId,
       account: deal.accountId ? accountsMap.get(deal.accountId) || null : null,
       conversationsCount: convCountMap.get(deal.id) || 0,
       contactsCount: contactCountMap.get(deal.id) || 0,
+      nextTask: nextActivityMap.get(deal.id) || null,
     }));
 
     return {
@@ -492,14 +2106,57 @@ export class CrmService {
     dealId: string
   ): Promise<
     | (CrmDeal & {
+        ownerId?: string | null;
+        pipeline?: {
+          id: string;
+          name: string;
+          color: string | null;
+          isDefault: boolean;
+          stages: Array<{
+            id: string;
+            name: string;
+            orderIndex: number;
+            isWinStage: boolean;
+            isLossStage: boolean;
+          }>;
+        } | null;
         account: CrmAccount | null;
         contacts: Array<CrmDealContact & { contact: typeof contacts.$inferSelect }>;
-        conversations: Array<CrmConversationDeal & { conversation: typeof conversations.$inferSelect }>;
-        activities: CrmDealActivity[];
+        conversations: Array<
+          CrmConversationDeal & {
+            conversation: typeof conversations.$inferSelect;
+            contact?: typeof contacts.$inferSelect | null;
+            contactName: string;
+            contactPhone: string | null;
+            contactAvatar: string | null;
+            channel: string;
+            mainChannel: string;
+            queueState: string;
+            operatorName: string | null;
+            lastMessageText: string | null;
+            lastMessageTime: Date | null;
+          }
+        >;
+        activities: Array<CrmDealActivity & { operatorName: string | null; assignedToOperatorName: string | null }>;
+        nextTask?: {
+          id: string;
+          title: string;
+          type: string;
+          dueDate: string | null;
+          isOverdue: boolean;
+          isToday: boolean;
+          isFuture: boolean;
+          hasNoDueDate: boolean;
+          assignedToOperatorId: string | null;
+          responsibleName: string | null;
+        } | null;
         events: CrmDealEvent[];
         evidences: Array<CrmActivityMessage & { message: typeof messages.$inferSelect }>;
         products: CrmDealProduct[];
         proposals: CrmProposal[];
+        files: Array<CrmDealFile & { uploaderName?: string | null }>;
+        questionnaires: Array<CrmDealQuestionnaire & { filledByName?: string | null }>;
+        emails: Array<CrmDealEmail & { operatorName?: string | null }>;
       })
     | null
   > {
@@ -510,6 +2167,53 @@ export class CrmService {
       .limit(1);
 
     if (!deal) return null;
+
+    // Funil e etapas reais do negócio (evita fixar funil padrão na ficha)
+    let pipelineData: {
+      id: string;
+      name: string;
+      color: string | null;
+      isDefault: boolean;
+      stages: Array<{
+        id: string;
+        name: string;
+        orderIndex: number;
+        isWinStage: boolean;
+        isLossStage: boolean;
+      }>;
+    } | null = null;
+
+    if (deal.pipelineId) {
+      const [pipe] = await db
+        .select({
+          id: crmPipelines.id,
+          name: crmPipelines.name,
+          color: crmPipelines.color,
+          isDefault: crmPipelines.isDefault,
+        })
+        .from(crmPipelines)
+        .where(and(eq(crmPipelines.id, deal.pipelineId), eq(crmPipelines.tenantId, tenantId)))
+        .limit(1);
+
+      if (pipe) {
+        const stages = await db
+          .select({
+            id: crmStages.id,
+            name: crmStages.name,
+            orderIndex: crmStages.orderIndex,
+            isWinStage: crmStages.isWinStage,
+            isLossStage: crmStages.isLossStage,
+          })
+          .from(crmStages)
+          .where(and(eq(crmStages.pipelineId, pipe.id), eq(crmStages.tenantId, tenantId)))
+          .orderBy(asc(crmStages.orderIndex), asc(crmStages.createdAt));
+
+        pipelineData = {
+          ...pipe,
+          stages,
+        };
+      }
+    }
 
     let account: CrmAccount | null = null;
     if (deal.accountId) {
@@ -541,33 +2245,83 @@ export class CrmService {
       contact: r.contact,
     }));
 
-    // Conversas vinculadas ativas
+    // Conversas vinculadas ativas com joins de contato e operador (DTO completo)
     const convDealsRaw = await db
       .select({
         convDeal: crmConversationDeals,
         conversation: conversations,
+        contact: contacts,
+        operatorName: operators.name,
       })
       .from(crmConversationDeals)
       .innerJoin(conversations, eq(crmConversationDeals.conversationId, conversations.id))
+      .leftJoin(contacts, eq(conversations.contactId, contacts.id))
+      .leftJoin(operators, eq(conversations.operatorId, operators.id))
       .where(
         and(
           eq(crmConversationDeals.tenantId, tenantId),
           eq(crmConversationDeals.dealId, dealId),
           eq(crmConversationDeals.isActive, true)
         )
-      );
+      )
+      .orderBy(desc(conversations.lastMessageTime));
 
-    const mappedConversations = convDealsRaw.map((r) => ({
-      ...r.convDeal,
-      conversation: r.conversation,
-    }));
+    const mappedConversations = convDealsRaw.map((r) => {
+      const mainChan = r.contact?.mainChannel || "whatsapp";
+      return {
+        ...r.convDeal,
+        conversation: r.conversation,
+        contact: r.contact,
+        contactName: r.contact?.name || "Sem nome",
+        contactPhone: r.contact?.phone || null,
+        contactAvatar: r.contact?.avatar || null,
+        channel: mainChan,
+        mainChannel: mainChan,
+        queueState: r.conversation.queueState || "meus",
+        operatorName: r.operatorName || (r.conversation.operatorId ? "Operador" : "Na Fila"),
+        lastMessageText: r.conversation.lastMessageText || null,
+        lastMessageTime: r.conversation.lastMessageTime || null,
+      };
+    });
 
-    // Atividades e tarefas
-    const activities = await db
-      .select()
-      .from(crmDealActivities)
-      .where(and(eq(crmDealActivities.tenantId, tenantId), eq(crmDealActivities.dealId, dealId)))
-      .orderBy(desc(crmDealActivities.createdAt));
+    // Atividades e tarefas com joins de operadores e ordenação padronizada
+    const activities = await this.getDealActivities(tenantId, dealId);
+
+    // Próxima tarefa pendente da negociação (excluindo notas comerciais)
+    const pendingNonNotes = activities.filter((a) => a.status === "pending" && a.type !== "note");
+    pendingNonNotes.sort((a, b) => {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    });
+    const firstTask = pendingNonNotes[0] || null;
+    let nextTask: any = null;
+    if (firstTask) {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const nowTime = now.getTime();
+      const due = firstTask.dueDate ? new Date(firstTask.dueDate) : null;
+      const dueTime = due ? due.getTime() : null;
+      const isOverdue = due ? dueTime! < nowTime : false;
+      const isToday = due ? due >= startOfToday && due <= endOfToday : false;
+      const isFuture = due ? due > endOfToday : false;
+      const hasNoDueDate = due === null;
+
+      nextTask = {
+        id: firstTask.id,
+        title: firstTask.title,
+        type: firstTask.type,
+        dueDate: due ? due.toISOString() : null,
+        isOverdue,
+        isToday,
+        isFuture,
+        hasNoDueDate,
+        assignedToOperatorId: firstTask.assignedToOperatorId || null,
+        responsibleName: firstTask.assignedToOperatorName || null,
+      };
+    }
 
     // Eventos de auditoria
     const events = await db
@@ -611,21 +2365,37 @@ export class CrmService {
       .where(and(eq(crmProposals.tenantId, tenantId), eq(crmProposals.dealId, dealId)))
       .orderBy(desc(crmProposals.createdAt));
 
+    // Arquivos anexados
+    const files = await this.getDealFiles(tenantId, dealId);
+
+    // Questionários respondidos
+    const questionnaires = await this.getDealQuestionnaires(tenantId, dealId);
+
+    // E-mails registrados
+    const emails = await this.getDealEmails(tenantId, dealId);
+
     return {
       ...deal,
+      ownerId: deal.operatorId,
+      pipeline: pipelineData,
       account,
       contacts: mappedContacts,
       conversations: mappedConversations,
       activities,
+      nextTask,
       events,
       evidences,
       products,
       proposals,
+      files,
+      questionnaires,
+      emails,
     };
   }
 
   /**
    * Cria uma negociação com auditoria e vínculo opcional a uma conversa/contato.
+   * Executa como unidade 100% transacional (db.transaction) com validação relacional estrita.
    */
   async createDeal(
     tenantId: string,
@@ -635,74 +2405,283 @@ export class CrmService {
       pipelineId: string;
       stageId: string;
       accountId?: string | null;
-      value?: string | number;
+      account?: {
+        name: string;
+        type?: "person" | "company";
+        tradeName?: string | null;
+        document?: string | null;
+        phone?: string | null;
+        email?: string | null;
+      } | null;
+      value?: string | number | null;
       currency?: string;
       expectedCloseDate?: Date | null;
+      operatorId?: string | null;
+      ownerId?: string | null;
       source?: string;
       campaign?: string;
       rating?: number;
       contactId?: string; // Contato principal a associar
       conversationId?: string; // Conversa de origem
+      initialNote?: string | null;
     }
   ): Promise<CrmDeal> {
-    const dealId = `deal-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const now = new Date();
+    if (!data.title || !data.title.trim()) {
+      throw new CrmValidationError("O título da negociação é obrigatório.");
+    }
+    if (!data.pipelineId || !data.stageId) {
+      throw new CrmValidationError("Funil (pipelineId) e Etapa (stageId) são obrigatórios.");
+    }
 
-    const [deal] = await db
-      .insert(crmDeals)
-      .values({
-        id: dealId,
-        tenantId,
-        title: data.title.trim(),
-        accountId: data.accountId || null,
-        pipelineId: data.pipelineId,
-        stageId: data.stageId,
-        status: "open",
-        value: (data.value ?? "0.00").toString(),
-        currency: data.currency || "BRL",
-        expectedCloseDate: data.expectedCloseDate || null,
-        operatorId: operatorId || null,
-        source: data.source || "manual",
-        campaign: data.campaign || null,
-        rating: data.rating ?? 0,
-        version: 1,
-        lastActivityAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
+    return await db.transaction(async (tx) => {
+      // 1. Validação estrita do Funil no tenant
+      const [pipeline] = await tx
+        .select({ id: crmPipelines.id })
+        .from(crmPipelines)
+        .where(and(eq(crmPipelines.id, data.pipelineId), eq(crmPipelines.tenantId, tenantId)))
+        .limit(1);
 
-    // Evento de auditoria imutável
-    await this.logDealEvent(tenantId, dealId, "created", operatorId, {
-      title: deal.title,
-      pipelineId: deal.pipelineId,
-      stageId: deal.stageId,
-      value: deal.value,
-    });
+      if (!pipeline) {
+        throw new CrmCrossTenantError(`O funil informado (${data.pipelineId}) não pertence ao tenant ${tenantId}.`);
+      }
 
-    // Se informado um contato, cria o vínculo participante
-    if (data.contactId) {
-      await db.insert(crmDealContacts).values({
-        id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      // 2. Validação estrita da Etapa no tenant E pertencimento ao Funil selecionado
+      const [stage] = await tx
+        .select({ id: crmStages.id, pipelineId: crmStages.pipelineId })
+        .from(crmStages)
+        .where(and(eq(crmStages.id, data.stageId), eq(crmStages.tenantId, tenantId)))
+        .limit(1);
+
+      if (!stage) {
+        throw new CrmCrossTenantError(`A etapa informada (${data.stageId}) não pertence ao tenant ${tenantId}.`);
+      }
+
+      if (stage.pipelineId !== data.pipelineId) {
+        throw new CrmValidationError(
+          `A etapa (${data.stageId}) não pertence ao funil informado (${data.pipelineId}).`,
+          "STAGE_NOT_IN_PIPELINE"
+        );
+      }
+
+      const now = new Date();
+      let targetAccountId: string | null = data.accountId || null;
+
+      // 3. Criação ou resolução atômica de Conta Compradora
+      if (data.account && data.account.name && data.account.name.trim()) {
+        const accName = data.account.name.trim();
+        const rawDoc = data.account.document ? normalizeDocument(data.account.document) : "";
+        const accType = data.account.type || (rawDoc.length === 14 ? "company" : "person");
+
+        if (rawDoc) {
+          validateDocument(accType, rawDoc);
+          // Verificar se já existe conta com este documento no mesmo tenant
+          const [existingAcc] = await tx
+            .select({ id: crmAccounts.id })
+            .from(crmAccounts)
+            .where(
+              and(
+                eq(crmAccounts.tenantId, tenantId),
+                eq(crmAccounts.document, rawDoc),
+                sql`${crmAccounts.archivedAt} IS NULL`
+              )
+            )
+            .limit(1);
+
+          if (existingAcc) {
+            targetAccountId = existingAcc.id;
+          }
+        }
+
+        if (!targetAccountId) {
+          const newAccId = `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+          const [createdAcc] = await tx
+            .insert(crmAccounts)
+            .values({
+              id: newAccId,
+              tenantId,
+              type: accType,
+              name: accName,
+              tradeName: data.account.tradeName?.trim() || null,
+              documentType: rawDoc ? (accType === "company" ? "cnpj" : "cpf") : null,
+              document: rawDoc || null,
+              phone: data.account.phone ? normalizeDocument(data.account.phone) : null,
+              email: data.account.email?.trim() || null,
+              address: {},
+              customFields: {},
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning();
+          targetAccountId = createdAcc.id;
+        }
+      } else if (targetAccountId) {
+        const [acc] = await tx
+          .select({ id: crmAccounts.id })
+          .from(crmAccounts)
+          .where(and(eq(crmAccounts.id, targetAccountId), eq(crmAccounts.tenantId, tenantId)))
+          .limit(1);
+
+        if (!acc) {
+          throw new CrmCrossTenantError(`A conta informada (${targetAccountId}) não pertence ao tenant ${tenantId}.`);
+        }
+      }
+
+      // 4. Validação de Contato no tenant (se fornecido)
+      if (data.contactId) {
+        const [contact] = await tx
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(and(eq(contacts.id, data.contactId), eq(contacts.tenantId, tenantId)))
+          .limit(1);
+
+        if (!contact) {
+          throw new CrmCrossTenantError(`O contato informado (${data.contactId}) não pertence ao tenant ${tenantId}.`);
+        }
+      }
+
+      // 5. Validação de Conversa de origem no tenant (se fornecida)
+      if (data.conversationId) {
+        const [conv] = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(and(eq(conversations.id, data.conversationId), eq(conversations.tenantId, tenantId)))
+          .limit(1);
+
+        if (!conv) {
+          throw new CrmCrossTenantError(`A conversa informada (${data.conversationId}) não pertence ao tenant ${tenantId}.`);
+        }
+      }
+
+      // 6. Validação do Vendedor / Operador responsável no tenant (se fornecido)
+      const assignedOpId = data.operatorId !== undefined ? data.operatorId : (data.ownerId !== undefined ? data.ownerId : operatorId);
+      if (assignedOpId) {
+        const [op] = await tx
+          .select({ id: operators.id })
+          .from(operators)
+          .where(and(eq(operators.id, assignedOpId), eq(operators.tenantId, tenantId)))
+          .limit(1);
+
+        if (!op) {
+          throw new CrmCrossTenantError(`O operador responsável (${assignedOpId}) não pertence ao tenant ${tenantId}.`);
+        }
+      }
+
+      // Tratamento de valor: null não vira "0.00", zero real vira "0.00"
+      let dealValue: string | null = null;
+      if (data.value !== undefined && data.value !== null && data.value !== "") {
+        const parsedNum = parseMoneyValue(data.value);
+        if (isNaN(parsedNum)) {
+          throw new CrmValidationError("Valor da negociação inválido.", "INVALID_VALUE");
+        }
+        dealValue = parsedNum.toFixed(2);
+      }
+
+      const dealId = `deal-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+      // 7. Inserção do Deal
+      const [deal] = await tx
+        .insert(crmDeals)
+        .values({
+          id: dealId,
+          tenantId,
+          title: data.title.trim(),
+          accountId: targetAccountId,
+          pipelineId: data.pipelineId,
+          stageId: data.stageId,
+          status: "open",
+          value: dealValue,
+          currency: data.currency || "BRL",
+          expectedCloseDate: data.expectedCloseDate || null,
+          operatorId: assignedOpId || null,
+          source: data.source || "manual",
+          campaign: data.campaign || null,
+          rating: data.rating ?? 0,
+          version: 1,
+          lastActivityAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      // 8. Evento de auditoria imutável na mesma transação
+      await this.logDealEvent(
         tenantId,
         dealId,
-        contactId: data.contactId,
-        role: "buyer",
-        isPrimary: true,
-        createdAt: now,
-      });
-    }
+        "created",
+        operatorId,
+        {
+          title: deal.title,
+          pipelineId: deal.pipelineId,
+          stageId: deal.stageId,
+          value: deal.value,
+        },
+        tx
+      );
 
-    // Se originado de uma conversa, vincula N:N
-    if (data.conversationId) {
-      await this.linkConversationDeal(tenantId, data.conversationId, dealId, operatorId, "chat");
-    }
+      // 9. Se informada nota inicial, registra atividade tipo note na mesma transação
+      if (data.initialNote && data.initialNote.trim()) {
+        await tx.insert(crmDealActivities).values({
+          id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          tenantId,
+          dealId,
+          type: "note",
+          title: "Nota inicial",
+          description: data.initialNote.trim(),
+          status: "completed",
+          operatorId: operatorId || assignedOpId || null,
+          completedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
 
-    return deal;
+      // 10. Se informado um contato, cria o vínculo participante na mesma transação
+      if (data.contactId) {
+        await tx.insert(crmDealContacts).values({
+          id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          tenantId,
+          dealId,
+          contactId: data.contactId,
+          role: "buyer",
+          isPrimary: true,
+          createdAt: now,
+        });
+      }
+
+      // 11. Se originado de uma conversa, vincula N:N na mesma transação
+      if (data.conversationId) {
+        const linkId = `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        await tx.insert(crmConversationDeals).values({
+          id: linkId,
+          tenantId,
+          conversationId: data.conversationId,
+          dealId,
+          origin: "chat",
+          createdByOperatorId: operatorId,
+          isActive: true,
+          createdAt: now,
+        });
+
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "conversation_linked",
+          operatorId,
+          {
+            conversationId: data.conversationId,
+            origin: "chat",
+          },
+          tx
+        );
+      }
+
+      return deal;
+    });
   }
 
   /**
-   * Atualiza etapa, status ou campos de uma negociação com verificação de versão (concorrência otimista).
+   * Atualiza etapa, status ou campos de uma negociação com verificação de versão (concorrência otimista),
+   * validação relacional estrita (etapa pertence ao funil do deal, operador pertence ao tenant) e execução atômica.
    */
   async updateDeal(
     tenantId: string,
@@ -712,95 +2691,329 @@ export class CrmService {
       title?: string;
       stageId?: string;
       status?: "open" | "won" | "lost" | "paused";
-      value?: string | number;
+      value?: string | number | null;
       expectedCloseDate?: Date | null;
       operatorId?: string | null;
+      ownerId?: string | null;
+      accountId?: string | null;
       rating?: number;
+      source?: string;
+      campaign?: string;
       lossReason?: string | null;
       pausedReason?: string | null;
       expectedVersion?: number;
     }
   ): Promise<CrmDeal> {
-    const [current] = await db
-      .select()
-      .from(crmDeals)
-      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
-      .limit(1);
+    return await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .for("update")
+        .limit(1);
 
-    if (!current) {
-      throw new Error("Negociação não encontrada.");
-    }
-
-    if (updates.expectedVersion !== undefined && current.version !== updates.expectedVersion) {
-      throw new Error(`CONCURRENCY_CONFLICT: Versão esperada ${updates.expectedVersion}, mas atual é ${current.version}`);
-    }
-
-    const now = new Date();
-    const setPayload: Record<string, any> = {
-      updatedAt: now,
-      version: current.version + 1,
-    };
-
-    if (updates.title !== undefined) setPayload.title = updates.title.trim();
-    if (updates.value !== undefined) setPayload.value = updates.value.toString();
-    if (updates.expectedCloseDate !== undefined) setPayload.expectedCloseDate = updates.expectedCloseDate;
-    if (updates.operatorId !== undefined) setPayload.operatorId = updates.operatorId;
-    if (updates.rating !== undefined) setPayload.rating = updates.rating;
-    if (updates.lossReason !== undefined) setPayload.lossReason = updates.lossReason;
-    if (updates.pausedReason !== undefined) setPayload.pausedReason = updates.pausedReason;
-
-    // Transição de etapa
-    const stageChanged = updates.stageId && updates.stageId !== current.stageId;
-    if (stageChanged) {
-      setPayload.stageId = updates.stageId;
-      setPayload.lastActivityAt = now;
-    }
-
-    // Transição de status
-    const statusChanged = updates.status && updates.status !== current.status;
-    if (statusChanged) {
-      setPayload.status = updates.status;
-      if (updates.status === "won" || updates.status === "lost") {
-        setPayload.closedAt = now;
-      } else {
-        setPayload.closedAt = null;
+      if (!current) {
+        throw new CrmNotFoundError("Negociação não encontrada.");
       }
-      setPayload.lastActivityAt = now;
-    }
 
-    const [updated] = await db
-      .update(crmDeals)
-      .set(setPayload)
-      .where(
-        and(
-          eq(crmDeals.id, dealId),
-          eq(crmDeals.tenantId, tenantId),
-          eq(crmDeals.version, current.version)
+      if (updates.expectedVersion !== undefined && current.version !== updates.expectedVersion) {
+        throw new CrmConcurrencyError(
+          `Versão esperada ${updates.expectedVersion}, mas atual é ${current.version}`
+        );
+      }
+
+      const now = new Date();
+      const setPayload: Record<string, any> = {
+        updatedAt: now,
+        version: current.version + 1,
+      };
+
+      if (updates.title !== undefined) setPayload.title = updates.title.trim();
+      if (updates.value !== undefined) {
+        if (updates.value === null || updates.value === "") {
+          setPayload.value = null;
+        } else {
+          const parsedNum = parseMoneyValue(updates.value);
+          if (isNaN(parsedNum)) {
+            throw new CrmValidationError("Valor da negociação inválido.", "INVALID_VALUE");
+          }
+          setPayload.value = parsedNum.toFixed(2);
+        }
+      }
+      if (updates.expectedCloseDate !== undefined) setPayload.expectedCloseDate = updates.expectedCloseDate;
+      if (updates.rating !== undefined) setPayload.rating = updates.rating;
+      if (updates.source !== undefined) setPayload.source = updates.source ? updates.source.trim() : null;
+      if (updates.campaign !== undefined) setPayload.campaign = updates.campaign ? updates.campaign.trim() : null;
+      if (updates.lossReason !== undefined) setPayload.lossReason = updates.lossReason;
+      if (updates.pausedReason !== undefined) setPayload.pausedReason = updates.pausedReason;
+
+      // Validação de operador se alterado
+      const targetOpId = updates.operatorId !== undefined ? updates.operatorId : updates.ownerId;
+      if (targetOpId !== undefined) {
+        if (targetOpId !== null) {
+          const [op] = await tx
+            .select({ id: operators.id })
+            .from(operators)
+            .where(and(eq(operators.id, targetOpId), eq(operators.tenantId, tenantId)))
+            .limit(1);
+          if (!op) {
+            throw new CrmCrossTenantError(`O operador informado (${targetOpId}) não pertence ao tenant ${tenantId}.`);
+          }
+        }
+        setPayload.operatorId = targetOpId;
+      }
+
+      // Validação de conta compradora se alterada
+      if (updates.accountId !== undefined) {
+        if (updates.accountId !== null) {
+          const [acc] = await tx
+            .select({ id: crmAccounts.id })
+            .from(crmAccounts)
+            .where(and(eq(crmAccounts.id, updates.accountId), eq(crmAccounts.tenantId, tenantId)))
+            .limit(1);
+          if (!acc) {
+            throw new CrmCrossTenantError(`A conta informada (${updates.accountId}) não pertence ao tenant ${tenantId}.`);
+          }
+        }
+        setPayload.accountId = updates.accountId;
+      }
+
+      // Transição de etapa: validação se pertence ao MESMO funil e tenant
+      const stageChanged = updates.stageId && updates.stageId !== current.stageId;
+      let effectiveNewStatus = updates.status;
+
+      if (stageChanged) {
+        const [stage] = await tx
+          .select({
+            id: crmStages.id,
+            pipelineId: crmStages.pipelineId,
+            isWinStage: crmStages.isWinStage,
+            isLossStage: crmStages.isLossStage,
+          })
+          .from(crmStages)
+          .where(and(eq(crmStages.id, updates.stageId!), eq(crmStages.tenantId, tenantId)))
+          .limit(1);
+
+        if (!stage) {
+          throw new CrmCrossTenantError(`A etapa informada (${updates.stageId}) não pertence ao tenant ${tenantId}.`);
+        }
+
+        if (stage.pipelineId !== current.pipelineId) {
+          throw new CrmValidationError(
+            `A etapa informada (${updates.stageId}) não pertence ao funil (${current.pipelineId}) da negociação.`,
+            "STAGE_NOT_IN_PIPELINE"
+          );
+        }
+
+        setPayload.stageId = updates.stageId;
+        setPayload.lastActivityAt = now;
+
+        // Se mover para etapa terminal e o status não foi explicitado na requisição
+        if (effectiveNewStatus === undefined) {
+          if (stage.isWinStage) {
+            effectiveNewStatus = "won";
+          } else if (stage.isLossStage) {
+            effectiveNewStatus = "lost";
+          } else if (current.status === "won" || current.status === "lost") {
+            effectiveNewStatus = "open";
+          }
+        }
+      }
+
+      // Transição de status
+      const statusChanged = effectiveNewStatus !== undefined && effectiveNewStatus !== current.status;
+      if (statusChanged) {
+        setPayload.status = effectiveNewStatus;
+        if (effectiveNewStatus === "won" || effectiveNewStatus === "lost") {
+          setPayload.closedAt = now;
+        } else {
+          setPayload.closedAt = null;
+        }
+        setPayload.lastActivityAt = now;
+      }
+
+      const [updated] = await tx
+        .update(crmDeals)
+        .set(setPayload)
+        .where(
+          and(
+            eq(crmDeals.id, dealId),
+            eq(crmDeals.tenantId, tenantId),
+            eq(crmDeals.version, current.version)
+          )
         )
-      )
-      .returning();
+        .returning();
 
-    if (!updated) {
-      throw new Error("Falha de concorrência ao atualizar a negociação.");
+      if (!updated) {
+        throw new CrmConcurrencyError("Falha de concorrência ao atualizar a negociação.");
+      }
+
+      // Auditoria de mudanças dentro da transação
+      if (stageChanged) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "stage_changed",
+          operatorId,
+          {
+            fromStageId: current.stageId,
+            toStageId: updates.stageId,
+          },
+          tx
+        );
+      }
+
+      if (statusChanged) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "status_changed",
+          operatorId,
+          {
+            fromStatus: current.status,
+            toStatus: effectiveNewStatus,
+            lossReason: updates.lossReason,
+          },
+          tx
+        );
+      }
+
+      return updated;
+    });
+  }
+
+  /**
+   * Atualização em massa de negociações (mover etapa, atribuir vendedor ou alterar status).
+   * Executa em transação, valida isolamento de tenant e registra auditoria.
+   */
+  async bulkUpdateDeals(
+    tenantId: string,
+    operatorId: string,
+    params: {
+      dealIds: string[];
+      stageId?: string;
+      operatorId?: string;
+      status?: "open" | "won" | "lost" | "paused";
+      lossReason?: string;
+    }
+  ): Promise<{ success: boolean; updatedCount: number; dealIds: string[] }> {
+    if (!params.dealIds || params.dealIds.length === 0) {
+      throw new CrmValidationError("Nenhuma negociação informada para atualização em massa.");
     }
 
-    // Auditoria de mudanças
-    if (stageChanged) {
-      await this.logDealEvent(tenantId, dealId, "stage_changed", operatorId, {
-        fromStageId: current.stageId,
-        toStageId: updates.stageId,
-      });
-    }
+    return await db.transaction(async (tx) => {
+      // 1. Busca todos os deals no tenant
+      const foundDeals = await tx
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, params.dealIds)));
 
-    if (statusChanged) {
-      await this.logDealEvent(tenantId, dealId, "status_changed", operatorId, {
-        fromStatus: current.status,
-        toStatus: updates.status,
-        lossReason: updates.lossReason,
-      });
-    }
+      if (foundDeals.length === 0) {
+        throw new CrmNotFoundError("Nenhuma negociação correspondente encontrada no tenant.");
+      }
 
-    return updated;
+      // 2. Se stageId informado, valida se a etapa pertence ao mesmo funil de cada deal
+      let targetStage: CrmStage | null = null;
+      if (params.stageId) {
+        const [stg] = await tx
+          .select()
+          .from(crmStages)
+          .where(and(eq(crmStages.id, params.stageId), eq(crmStages.tenantId, tenantId)))
+          .limit(1);
+
+        if (!stg) {
+          throw new CrmCrossTenantError(`A etapa (${params.stageId}) não pertence ao tenant.`);
+        }
+        targetStage = stg;
+      }
+
+      // 3. Se operatorId informado, valida operador no tenant
+      if (params.operatorId) {
+        const [op] = await tx
+          .select({ id: operators.id })
+          .from(operators)
+          .where(and(eq(operators.id, params.operatorId), eq(operators.tenantId, tenantId)))
+          .limit(1);
+        if (!op) {
+          throw new CrmCrossTenantError(`O operador (${params.operatorId}) não pertence ao tenant.`);
+        }
+      }
+
+      const now = new Date();
+      let updatedCount = 0;
+      const updatedIds: string[] = [];
+
+      for (const deal of foundDeals) {
+        const setPayload: Record<string, any> = {
+          updatedAt: now,
+          lastActivityAt: now,
+          version: deal.version + 1,
+        };
+
+        if (params.stageId && targetStage) {
+          if (deal.pipelineId !== targetStage.pipelineId) {
+            throw new CrmValidationError(
+              `A negociação '${deal.title}' pertence a outro funil (${deal.pipelineId}) e não pode ser movida para a etapa de funil distinto (${targetStage.pipelineId}).`,
+              "STAGE_PIPELINE_MISMATCH"
+            );
+          }
+          setPayload.stageId = params.stageId;
+        }
+
+        if (params.operatorId) {
+          setPayload.operatorId = params.operatorId;
+        }
+
+        let newStatus = params.status;
+        if (!newStatus && params.stageId && targetStage) {
+          if (targetStage.isWinStage) newStatus = "won";
+          else if (targetStage.isLossStage) newStatus = "lost";
+        }
+
+        if (newStatus) {
+          setPayload.status = newStatus;
+          if (newStatus === "won" || newStatus === "lost") {
+            setPayload.closedAt = now;
+          } else {
+            setPayload.closedAt = null;
+          }
+          if (params.lossReason) {
+            setPayload.lossReason = params.lossReason;
+          }
+        }
+
+        await tx
+          .update(crmDeals)
+          .set(setPayload)
+          .where(and(eq(crmDeals.id, deal.id), eq(crmDeals.tenantId, tenantId)));
+
+        // Evento de auditoria
+        await this.logDealEvent(
+          tenantId,
+          deal.id,
+          "bulk_updated",
+          operatorId,
+          {
+            previousStageId: deal.stageId,
+            newStageId: setPayload.stageId || deal.stageId,
+            previousStatus: deal.status,
+            newStatus: setPayload.status || deal.status,
+            previousOperatorId: deal.operatorId,
+            newOperatorId: setPayload.operatorId || deal.operatorId,
+          },
+          tx
+        );
+
+        updatedCount++;
+        updatedIds.push(deal.id);
+      }
+
+      return {
+        success: true,
+        updatedCount,
+        dealIds: updatedIds,
+      };
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -830,7 +3043,7 @@ export class CrmService {
   }
 
   /**
-   * Associa uma negociação existente a uma conversa (idempotente).
+   * Associa uma negociação existente a uma conversa (idempotente e transacional).
    */
   async linkConversationDeal(
     tenantId: string,
@@ -839,84 +3052,101 @@ export class CrmService {
     operatorId: string | null,
     origin: "chat" | "crm" | "auto_sdr" = "chat"
   ): Promise<CrmConversationDeal> {
-    // 1. Valida existência de ambas as entidades no tenant
-    const [conv] = await db
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
-      .limit(1);
+    return await db.transaction(async (tx) => {
+      // 1. Valida existência de ambas as entidades no tenant
+      const [conv] = await tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+        .limit(1);
 
-    if (!conv) throw new Error("Conversa não encontrada no tenant.");
+      if (!conv) throw new CrmCrossTenantError(`Conversa (${conversationId}) não encontrada no tenant ${tenantId}.`);
 
-    const [deal] = await db
-      .select({ id: crmDeals.id })
-      .from(crmDeals)
-      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
-      .limit(1);
+      const [deal] = await tx
+        .select({ id: crmDeals.id })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
 
-    if (!deal) throw new Error("Negociação não encontrada no tenant.");
+      if (!deal) throw new CrmCrossTenantError(`Negociação (${dealId}) não encontrada no tenant ${tenantId}.`);
 
-    // 2. Verifica se já está vinculado
-    const [existing] = await db
-      .select()
-      .from(crmConversationDeals)
-      .where(
-        and(
-          eq(crmConversationDeals.tenantId, tenantId),
-          eq(crmConversationDeals.conversationId, conversationId),
-          eq(crmConversationDeals.dealId, dealId)
+      // 2. Verifica se já está vinculado
+      const [existing] = await tx
+        .select()
+        .from(crmConversationDeals)
+        .where(
+          and(
+            eq(crmConversationDeals.tenantId, tenantId),
+            eq(crmConversationDeals.conversationId, conversationId),
+            eq(crmConversationDeals.dealId, dealId)
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
 
-    if (existing) {
-      if (!existing.isActive) {
-        // Reativa vínculo previamente removido
-        const [reactivated] = await db
-          .update(crmConversationDeals)
-          .set({
-            isActive: true,
-            unlinkedAt: null,
-            unlinkedByOperatorId: null,
-          })
-          .where(and(eq(crmConversationDeals.id, existing.id), eq(crmConversationDeals.tenantId, tenantId)))
-          .returning();
-        
-        await this.logDealEvent(tenantId, dealId, "conversation_linked", operatorId, {
-          conversationId,
-          reactivated: true,
-        });
+      if (existing) {
+        if (!existing.isActive) {
+          // Reativa vínculo previamente removido
+          const [reactivated] = await tx
+            .update(crmConversationDeals)
+            .set({
+              isActive: true,
+              unlinkedAt: null,
+              unlinkedByOperatorId: null,
+            })
+            .where(and(eq(crmConversationDeals.id, existing.id), eq(crmConversationDeals.tenantId, tenantId)))
+            .returning();
+          
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "conversation_linked",
+            operatorId,
+            {
+              conversationId,
+              reactivated: true,
+            },
+            tx
+          );
 
-        return reactivated;
+          return reactivated;
+        }
+        return existing;
       }
-      return existing;
-    }
 
-    const id = `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const [created] = await db
-      .insert(crmConversationDeals)
-      .values({
-        id,
+      const id = `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const now = new Date();
+      const [created] = await tx
+        .insert(crmConversationDeals)
+        .values({
+          id,
+          tenantId,
+          conversationId,
+          dealId,
+          origin,
+          createdByOperatorId: operatorId,
+          isActive: true,
+          createdAt: now,
+        })
+        .returning();
+
+      await this.logDealEvent(
         tenantId,
-        conversationId,
         dealId,
-        origin,
-        createdByOperatorId: operatorId,
-        isActive: true,
-        createdAt: new Date(),
-      })
-      .returning();
+        "conversation_linked",
+        operatorId,
+        {
+          conversationId,
+          origin,
+        },
+        tx
+      );
 
-    await this.logDealEvent(tenantId, dealId, "conversation_linked", operatorId, {
-      conversationId,
-      origin,
+      return created;
     });
-
-    return created;
   }
 
   /**
-   * Desvincula uma conversa de um card sem excluir nenhuma das entidades.
+   * Desvincula uma conversa de um card sem excluir nenhuma das entidades (transacional e preserva histórico).
    */
   async unlinkConversationDeal(
     tenantId: string,
@@ -924,31 +3154,57 @@ export class CrmService {
     dealId: string,
     operatorId: string | null
   ): Promise<boolean> {
-    const result = await db
-      .update(crmConversationDeals)
-      .set({
-        isActive: false,
-        unlinkedAt: new Date(),
-        unlinkedByOperatorId: operatorId,
-      })
-      .where(
-        and(
-          eq(crmConversationDeals.tenantId, tenantId),
-          eq(crmConversationDeals.conversationId, conversationId),
-          eq(crmConversationDeals.dealId, dealId),
-          eq(crmConversationDeals.isActive, true)
+    return await db.transaction(async (tx) => {
+      // Valida entidades no tenant
+      const [deal] = await tx
+        .select({ id: crmDeals.id })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) throw new CrmCrossTenantError(`Negociação (${dealId}) não encontrada no tenant ${tenantId}.`);
+
+      const [conv] = await tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+        .limit(1);
+
+      if (!conv) throw new CrmCrossTenantError(`Conversa (${conversationId}) não encontrada no tenant ${tenantId}.`);
+
+      const result = await tx
+        .update(crmConversationDeals)
+        .set({
+          isActive: false,
+          unlinkedAt: new Date(),
+          unlinkedByOperatorId: operatorId,
+        })
+        .where(
+          and(
+            eq(crmConversationDeals.tenantId, tenantId),
+            eq(crmConversationDeals.conversationId, conversationId),
+            eq(crmConversationDeals.dealId, dealId),
+            eq(crmConversationDeals.isActive, true)
+          )
         )
-      )
-      .returning();
+        .returning();
 
-    if (result.length > 0) {
-      await this.logDealEvent(tenantId, dealId, "conversation_unlinked", operatorId, {
-        conversationId,
-      });
-      return true;
-    }
+      if (result.length > 0) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "conversation_unlinked",
+          operatorId,
+          {
+            conversationId,
+          },
+          tx
+        );
+        return true;
+      }
 
-    return false;
+      return false;
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -956,18 +3212,325 @@ export class CrmService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Lista atividades/tarefas de uma negociação.
+   * Lista atividades/tarefas de uma negociação com enriquecimento de operadores e suporte a filtros.
    */
-  async getDealActivities(tenantId: string, dealId: string): Promise<CrmDealActivity[]> {
-    return db
-      .select()
+  async getDealActivities(
+    tenantId: string,
+    dealId: string,
+    options: {
+      status?: "pending" | "completed" | "cancelled";
+      type?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): Promise<
+    Array<
+      CrmDealActivity & {
+        operatorName: string | null;
+        assignedToOperatorName: string | null;
+      }
+    >
+  > {
+    // 1. Valida se a negociação pertence ao tenant
+    const [deal] = await db
+      .select({ id: crmDeals.id })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+      .limit(1);
+
+    if (!deal) {
+      throw new CrmNotFoundError(`Negociação (${dealId}) não encontrada no tenant ${tenantId}.`);
+    }
+
+    const conditions = [
+      eq(crmDealActivities.tenantId, tenantId),
+      eq(crmDealActivities.dealId, dealId),
+    ];
+
+    if (options.status) {
+      conditions.push(eq(crmDealActivities.status, options.status));
+    }
+    if (options.type) {
+      conditions.push(eq(crmDealActivities.type, options.type));
+    }
+
+    const creatorOp = alias(operators, "act_creator_op");
+    const assignedOp = alias(operators, "act_assigned_op");
+
+    const query = db
+      .select({
+        activity: crmDealActivities,
+        operatorName: creatorOp.name,
+        assignedToOperatorName: assignedOp.name,
+      })
       .from(crmDealActivities)
-      .where(and(eq(crmDealActivities.tenantId, tenantId), eq(crmDealActivities.dealId, dealId)))
-      .orderBy(asc(crmDealActivities.dueDate), desc(crmDealActivities.createdAt));
+      .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
+      .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
+      .where(and(...conditions))
+      .orderBy(
+        sql`CASE WHEN ${crmDealActivities.status} = 'pending' THEN 0 ELSE 1 END`,
+        sql`${crmDealActivities.dueDate} ASC NULLS LAST`,
+        desc(crmDealActivities.createdAt)
+      );
+
+    if (options.limit) {
+      query.limit(options.limit);
+    }
+    if (options.offset) {
+      query.offset(options.offset);
+    }
+
+    const rows = await query;
+    return rows.map((r) => ({
+      ...r.activity,
+      operatorName: r.operatorName || null,
+      assignedToOperatorName: r.assignedToOperatorName || null,
+    }));
   }
 
   /**
-   * Cria uma atividade ou nota comercial vinculada a um card específico.
+   * Atualiza uma atividade ou tarefa comercial com validação de ciclo de vida e autoria.
+   * Regra Inviolável E3: Notas comerciais ('note') são imutáveis e permanentes — não podem ser alteradas, concluídas ou canceladas.
+   */
+  async updateDealActivity(
+    tenantId: string,
+    dealId: string,
+    activityId: string,
+    operatorId: string | null,
+    updates: {
+      status?: "pending" | "completed" | "cancelled";
+      title?: string;
+      description?: string | null;
+      dueDate?: Date | string | null;
+      type?: "task" | "call" | "meeting" | "whatsapp" | "note";
+      assignedToOperatorId?: string | null;
+    }
+  ): Promise<
+    CrmDealActivity & {
+      operatorName: string | null;
+      assignedToOperatorName: string | null;
+    }
+  > {
+    return await db.transaction(async (tx) => {
+      // 1. Verifica a negociação no tenant
+      const [deal] = await tx
+        .select({ id: crmDeals.id })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) {
+        throw new CrmNotFoundError("Negociação não encontrada.");
+      }
+
+      // 2. Busca a atividade no tenant e deal
+      const [current] = await tx
+        .select()
+        .from(crmDealActivities)
+        .where(
+          and(
+            eq(crmDealActivities.id, activityId),
+            eq(crmDealActivities.dealId, dealId),
+            eq(crmDealActivities.tenantId, tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!current) {
+        throw new CrmNotFoundError("Atividade não encontrada.");
+      }
+
+      // 3. Regra Inviolável de E3: Notas comerciais são imutáveis!
+      if (current.type === "note") {
+        throw new CrmValidationError(
+          "Notas comerciais são registros históricos permanentes e não podem ser alteradas.",
+          "NOTE_IS_IMMUTABLE"
+        );
+      }
+
+      const now = new Date();
+      const setPayload: Partial<typeof crmDealActivities.$inferInsert> = {
+        updatedAt: now,
+      };
+
+      // Transição de status (concluir, reabrir, cancelar)
+      let statusChanged = false;
+      if (updates.status && updates.status !== current.status) {
+        setPayload.status = updates.status;
+        statusChanged = true;
+        if (updates.status === "completed") {
+          setPayload.completedAt = now;
+        } else {
+          setPayload.completedAt = null;
+        }
+      }
+
+      if (updates.title !== undefined) {
+        if (!updates.title.trim()) {
+          throw new CrmValidationError("O título da atividade não pode ser vazio.");
+        }
+        setPayload.title = updates.title.trim();
+      }
+
+      if (updates.description !== undefined) {
+        setPayload.description = updates.description?.trim() || null;
+      }
+
+      let dueDateChanged = false;
+      if (updates.dueDate !== undefined) {
+        setPayload.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
+        dueDateChanged = true;
+      }
+
+      if (updates.type !== undefined) {
+        if (updates.type === "note") {
+          throw new CrmValidationError("Não é permitido converter uma tarefa em nota.", "INVALID_TYPE_CONVERSION");
+        }
+        setPayload.type = updates.type;
+      }
+
+      if (updates.assignedToOperatorId !== undefined) {
+        if (updates.assignedToOperatorId) {
+          const [op] = await tx
+            .select({ id: operators.id })
+            .from(operators)
+            .where(and(eq(operators.id, updates.assignedToOperatorId), eq(operators.tenantId, tenantId)))
+            .limit(1);
+
+          if (!op) {
+            throw new CrmCrossTenantError(`Operador atribuído (${updates.assignedToOperatorId}) não pertence ao tenant.`);
+          }
+        }
+        setPayload.assignedToOperatorId = updates.assignedToOperatorId || null;
+      }
+
+      const [updated] = await tx
+        .update(crmDealActivities)
+        .set(setPayload)
+        .where(
+          and(
+            eq(crmDealActivities.id, activityId),
+            eq(crmDealActivities.dealId, dealId),
+            eq(crmDealActivities.tenantId, tenantId)
+          )
+        )
+        .returning();
+
+      // Atualiza timestamp da negociação
+      await tx
+        .update(crmDeals)
+        .set({ lastActivityAt: now, updatedAt: now })
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+
+      // Evento de auditoria granular
+      let eventType = "activity_updated";
+      if (statusChanged) {
+        if (updates.status === "completed") eventType = "activity_completed";
+        else if (updates.status === "pending") eventType = "activity_reopened";
+        else if (updates.status === "cancelled") eventType = "activity_cancelled";
+      } else if (dueDateChanged) {
+        eventType = "activity_rescheduled";
+      }
+
+      await this.logDealEvent(
+        tenantId,
+        dealId,
+        eventType,
+        operatorId,
+        {
+          activityId,
+          activityTitle: updated.title,
+          status: updated.status,
+          dueDate: updated.dueDate,
+        },
+        tx
+      );
+
+      // Busca operadores relacionados
+      const creatorOp = alias(operators, "upd_act_creator_op");
+      const assignedOp = alias(operators, "upd_act_assigned_op");
+      const [fullActivity] = await tx
+        .select({
+          activity: crmDealActivities,
+          operatorName: creatorOp.name,
+          assignedToOperatorName: assignedOp.name,
+        })
+        .from(crmDealActivities)
+        .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
+        .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
+        .where(eq(crmDealActivities.id, updated.id))
+        .limit(1);
+
+      return {
+        ...fullActivity.activity,
+        operatorName: fullActivity.operatorName || null,
+        assignedToOperatorName: fullActivity.assignedToOperatorName || null,
+      };
+    });
+  }
+
+  /**
+   * Remove uma atividade da negociação.
+   * Regra Inviolável E3: Notas comerciais imutáveis não podem ser excluídas.
+   */
+  async deleteDealActivity(
+    tenantId: string,
+    dealId: string,
+    activityId: string,
+    operatorId: string | null
+  ): Promise<{ success: boolean; id: string }> {
+    return await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(crmDealActivities)
+        .where(
+          and(
+            eq(crmDealActivities.id, activityId),
+            eq(crmDealActivities.dealId, dealId),
+            eq(crmDealActivities.tenantId, tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!current) {
+        throw new CrmNotFoundError("Atividade não encontrada.");
+      }
+
+      if (current.type === "note") {
+        throw new CrmValidationError(
+          "Notas comerciais são registros históricos permanentes e não podem ser excluídas.",
+          "NOTE_IS_IMMUTABLE"
+        );
+      }
+
+      await tx
+        .delete(crmDealActivities)
+        .where(
+          and(
+            eq(crmDealActivities.id, activityId),
+            eq(crmDealActivities.dealId, dealId),
+            eq(crmDealActivities.tenantId, tenantId)
+          )
+        );
+
+      await this.logDealEvent(
+        tenantId,
+        dealId,
+        "activity_deleted",
+        operatorId,
+        {
+          activityId,
+          activityTitle: current.title,
+        },
+        tx
+      );
+
+      return { success: true, id: activityId };
+    });
+  }
+
+  /**
+   * Cria uma atividade ou nota comercial vinculada a um card específico com validações e transação atômica.
    */
   async createDealActivity(
     tenantId: string,
@@ -977,40 +3540,127 @@ export class CrmService {
       type: "task" | "note" | "call" | "meeting";
       title: string;
       description?: string;
-      dueDate?: Date | null;
+      dueDate?: Date | string | null;
       conversationId?: string | null;
       assignedToOperatorId?: string | null;
     }
-  ): Promise<CrmDealActivity> {
-    const id = `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const now = new Date();
+  ): Promise<
+    CrmDealActivity & {
+      operatorName: string | null;
+      assignedToOperatorName: string | null;
+    }
+  > {
+    if (!data.title || !data.title.trim()) {
+      throw new CrmValidationError("Título da atividade é obrigatório.");
+    }
+    if (!data.type) {
+      throw new CrmValidationError("Tipo de atividade é obrigatório.");
+    }
 
-    const [activity] = await db
-      .insert(crmDealActivities)
-      .values({
-        id,
+    return await db.transaction(async (tx) => {
+      // 1. Valida existência do Deal no tenant
+      const [deal] = await tx
+        .select({ id: crmDeals.id })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) {
+        throw new CrmNotFoundError(`Negociação (${dealId}) não encontrada no tenant ${tenantId}.`);
+      }
+
+      // 2. Se informada conversationId, valida no tenant
+      if (data.conversationId) {
+        const [conv] = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(and(eq(conversations.id, data.conversationId), eq(conversations.tenantId, tenantId)))
+          .limit(1);
+
+        if (!conv) {
+          throw new CrmCrossTenantError(`Conversa (${data.conversationId}) não encontrada no tenant ${tenantId}.`);
+        }
+      }
+
+      // 3. Se informado assignedToOperatorId, valida no tenant
+      const assignedOpId = data.assignedToOperatorId || operatorId;
+      if (assignedOpId) {
+        const [op] = await tx
+          .select({ id: operators.id })
+          .from(operators)
+          .where(and(eq(operators.id, assignedOpId), eq(operators.tenantId, tenantId)))
+          .limit(1);
+
+        if (!op) {
+          throw new CrmCrossTenantError(`Operador atribuído (${assignedOpId}) não encontrado no tenant ${tenantId}.`);
+        }
+      }
+
+      const id = `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const now = new Date();
+      const initialStatus = data.type === "note" ? "completed" : "pending";
+
+      const [activity] = await tx
+        .insert(crmDealActivities)
+        .values({
+          id,
+          tenantId,
+          dealId,
+          conversationId: data.conversationId || null,
+          type: data.type,
+          title: data.title.trim(),
+          description: data.description?.trim() || null,
+          status: initialStatus,
+          completedAt: data.type === "note" ? now : null,
+          dueDate: data.dueDate ? new Date(data.dueDate) : null,
+          operatorId,
+          assignedToOperatorId: assignedOpId,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      // Atualiza timestamp de atividade na negociação
+      await tx
+        .update(crmDeals)
+        .set({ lastActivityAt: now, updatedAt: now })
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+
+      // Evento de auditoria
+      await this.logDealEvent(
         tenantId,
         dealId,
-        conversationId: data.conversationId || null,
-        type: data.type,
-        title: data.title.trim(),
-        description: data.description?.trim() || null,
-        status: "pending",
-        dueDate: data.dueDate || null,
+        data.type === "note" ? "note_created" : "activity_created",
         operatorId,
-        assignedToOperatorId: data.assignedToOperatorId || operatorId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
+        {
+          activityId: activity.id,
+          activityTitle: activity.title,
+          type: activity.type,
+        },
+        tx
+      );
 
-    // Atualiza timestamp de atividade na negociação
-    await db
-      .update(crmDeals)
-      .set({ lastActivityAt: now, updatedAt: now })
-      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+      // Busca operadores relacionados para retorno enriquecido
+      const creatorOp = alias(operators, "cre_act_creator_op");
+      const assignedOp = alias(operators, "cre_act_assigned_op");
+      const [fullActivity] = await tx
+        .select({
+          activity: crmDealActivities,
+          operatorName: creatorOp.name,
+          assignedToOperatorName: assignedOp.name,
+        })
+        .from(crmDealActivities)
+        .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
+        .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
+        .where(eq(crmDealActivities.id, activity.id))
+        .limit(1);
 
-    return activity;
+      return {
+        ...fullActivity.activity,
+        operatorName: fullActivity.operatorName || null,
+        assignedToOperatorName: fullActivity.assignedToOperatorName || null,
+      };
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1642,7 +4292,7 @@ export class CrmService {
       });
 
       // Se não houver itens cadastrados mas o deal tiver valor, usa o valor do deal como subtotal
-      if (serializedItems.length === 0 && parseFloat(deal.value) > 0) {
+      if (serializedItems.length === 0 && deal.value && parseFloat(deal.value) > 0) {
         const v = parseFloat(deal.value);
         const vCents = Math.round(v * 100);
         subtotalCents = vCents;
@@ -1772,6 +4422,722 @@ export class CrmService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 7. ARQUIVOS DA NEGOCIAÇÃO (crm_deal_files)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Registra um anexo/arquivo associado ao negócio, com limite de tamanho (max 25MB),
+   * validação de tenant e vínculo opcional a uma conversa.
+   */
+  async uploadDealFile(
+    tenantId: string,
+    dealId: string,
+    operatorId: string | null,
+    data: {
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+      storagePath: string;
+      conversationId?: string | null;
+      metadata?: Record<string, any>;
+    }
+  ): Promise<CrmDealFile> {
+    return await db.transaction(async (tx) => {
+      // 1. Valida que o Deal pertence ao tenant
+      const [deal] = await tx
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) {
+        throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
+      }
+
+      // 2. Validação de tamanho (máximo 25MB = 26214400 bytes)
+      const MAX_SIZE = 25 * 1024 * 1024;
+      if (data.fileSize <= 0 || data.fileSize > MAX_SIZE) {
+        throw new Error(`Tamanho de arquivo inválido (${data.fileSize} bytes). Limite máximo é de 25MB.`);
+      }
+
+      // 3. Se houver conversationId, valida que pertence ao tenant
+      if (data.conversationId) {
+        const [conv] = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(and(eq(conversations.id, data.conversationId), eq(conversations.tenantId, tenantId)))
+          .limit(1);
+
+        if (!conv) {
+          throw new Error(`Conversa ${data.conversationId} não pertence ao tenant ${tenantId}.`);
+        }
+      }
+
+      const id = `dfile-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+      const now = new Date();
+
+      const [newFile] = await tx
+        .insert(crmDealFiles)
+        .values({
+          id,
+          tenantId,
+          dealId,
+          conversationId: data.conversationId || null,
+          uploadedByOperatorId: operatorId,
+          fileName: data.fileName.trim(),
+          fileSize: data.fileSize,
+          mimeType: data.mimeType || "application/octet-stream",
+          storagePath: data.storagePath,
+          metadata: data.metadata || {},
+          createdAt: now,
+        })
+        .returning();
+
+      // Registra evento de auditoria
+      await tx.insert(crmDealEvents).values({
+        id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        tenantId,
+        dealId,
+        eventType: "deal_file_uploaded",
+        operatorId,
+        metadata: {
+          fileId: id,
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          mimeType: data.mimeType,
+          conversationId: data.conversationId || null,
+        },
+        createdAt: now,
+      });
+
+      return newFile;
+    });
+  }
+
+  /**
+   * Lista os arquivos anexados à negociação.
+   */
+  async getDealFiles(
+    tenantId: string,
+    dealId: string
+  ): Promise<Array<CrmDealFile & { uploaderName?: string | null }>> {
+    // 1. Valida pertencimento do Deal ao tenant
+    const [deal] = await db
+      .select({ id: crmDeals.id })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+      .limit(1);
+
+    if (!deal) {
+      throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
+    }
+
+    const files = await db
+      .select({
+        id: crmDealFiles.id,
+        tenantId: crmDealFiles.tenantId,
+        dealId: crmDealFiles.dealId,
+        conversationId: crmDealFiles.conversationId,
+        uploadedByOperatorId: crmDealFiles.uploadedByOperatorId,
+        fileName: crmDealFiles.fileName,
+        fileSize: crmDealFiles.fileSize,
+        mimeType: crmDealFiles.mimeType,
+        storagePath: crmDealFiles.storagePath,
+        metadata: crmDealFiles.metadata,
+        createdAt: crmDealFiles.createdAt,
+        uploaderName: operators.name,
+      })
+      .from(crmDealFiles)
+      .leftJoin(operators, eq(crmDealFiles.uploadedByOperatorId, operators.id))
+      .where(and(eq(crmDealFiles.tenantId, tenantId), eq(crmDealFiles.dealId, dealId)))
+      .orderBy(desc(crmDealFiles.createdAt));
+
+    return files as any;
+  }
+
+  /**
+   * Exclui um arquivo anexado à negociação.
+   */
+  async deleteDealFile(
+    tenantId: string,
+    dealId: string,
+    fileId: string,
+    operatorId: string | null
+  ): Promise<boolean> {
+    return await db.transaction(async (tx) => {
+      const [file] = await tx
+        .select()
+        .from(crmDealFiles)
+        .where(
+          and(
+            eq(crmDealFiles.id, fileId),
+            eq(crmDealFiles.dealId, dealId),
+            eq(crmDealFiles.tenantId, tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!file) {
+        throw new Error(`Arquivo ${fileId} não encontrado para a negociação ${dealId}.`);
+      }
+
+      await tx
+        .delete(crmDealFiles)
+        .where(and(eq(crmDealFiles.id, fileId), eq(crmDealFiles.tenantId, tenantId)));
+
+      await tx.insert(crmDealEvents).values({
+        id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        tenantId,
+        dealId,
+        eventType: "deal_file_deleted",
+        operatorId,
+        metadata: {
+          fileId,
+          fileName: file.fileName,
+        },
+        createdAt: new Date(),
+      });
+
+      return true;
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 8. QUESTIONÁRIOS E BRIEFINGS (crm_deal_questionnaires)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Registra ou atualiza um formulário/questionário de qualificação técnica para a negociação.
+   */
+  async saveDealQuestionnaire(
+    tenantId: string,
+    dealId: string,
+    operatorId: string | null,
+    data: {
+      formTitle: string;
+      version?: number;
+      answers: Array<{ question: string; answer: string | number | boolean }>;
+      contactId?: string | null;
+    }
+  ): Promise<CrmDealQuestionnaire> {
+    return await db.transaction(async (tx) => {
+      // 1. Valida pertencimento do Deal ao tenant
+      const [deal] = await tx
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) {
+        throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
+      }
+
+      // 2. Se contactId informado, valida tenant
+      if (data.contactId) {
+        const [contact] = await tx
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(and(eq(contacts.id, data.contactId), eq(contacts.tenantId, tenantId)))
+          .limit(1);
+
+        if (!contact) {
+          throw new Error(`Contato ${data.contactId} não pertence ao tenant ${tenantId}.`);
+        }
+      }
+
+      const id = `quest-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+      const now = new Date();
+
+      const [newQuest] = await tx
+        .insert(crmDealQuestionnaires)
+        .values({
+          id,
+          tenantId,
+          dealId,
+          contactId: data.contactId || null,
+          formTitle: data.formTitle.trim(),
+          version: data.version || 1,
+          answers: data.answers || [],
+          filledByOperatorId: operatorId,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      await tx.insert(crmDealEvents).values({
+        id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        tenantId,
+        dealId,
+        eventType: "deal_questionnaire_saved",
+        operatorId,
+        metadata: {
+          questionnaireId: id,
+          formTitle: data.formTitle,
+          questionsCount: Array.isArray(data.answers) ? data.answers.length : 0,
+        },
+        createdAt: now,
+      });
+
+      return newQuest;
+    });
+  }
+
+  /**
+   * Lista os questionários/briefings respondidos da negociação.
+   */
+  async getDealQuestionnaires(
+    tenantId: string,
+    dealId: string
+  ): Promise<Array<CrmDealQuestionnaire & { filledByName?: string | null }>> {
+    const [deal] = await db
+      .select({ id: crmDeals.id })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+      .limit(1);
+
+    if (!deal) {
+      throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
+    }
+
+    const list = await db
+      .select({
+        id: crmDealQuestionnaires.id,
+        tenantId: crmDealQuestionnaires.tenantId,
+        dealId: crmDealQuestionnaires.dealId,
+        contactId: crmDealQuestionnaires.contactId,
+        formTitle: crmDealQuestionnaires.formTitle,
+        version: crmDealQuestionnaires.version,
+        answers: crmDealQuestionnaires.answers,
+        filledByOperatorId: crmDealQuestionnaires.filledByOperatorId,
+        createdAt: crmDealQuestionnaires.createdAt,
+        updatedAt: crmDealQuestionnaires.updatedAt,
+        filledByName: operators.name,
+      })
+      .from(crmDealQuestionnaires)
+      .leftJoin(operators, eq(crmDealQuestionnaires.filledByOperatorId, operators.id))
+      .where(
+        and(
+          eq(crmDealQuestionnaires.tenantId, tenantId),
+          eq(crmDealQuestionnaires.dealId, dealId)
+        )
+      )
+      .orderBy(desc(crmDealQuestionnaires.createdAt));
+
+    return list as any;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 9. E-MAILS COMERCIAIS AUDITADOS (crm_deal_emails)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Registra um e-mail trocado referente à negociação com remetente, destinatário,
+   * conteúdo e data comprovada. Não simula envio falso de SMTP se não configurado.
+   */
+  async logDealEmail(
+    tenantId: string,
+    dealId: string,
+    operatorId: string | null,
+    data: {
+      direction?: "outbound" | "inbound";
+      fromAddress: string;
+      toAddress: string;
+      ccAddresses?: string[];
+      subject: string;
+      bodyText?: string;
+      bodyHtml?: string;
+      sentAt?: Date;
+      metadata?: Record<string, any>;
+    }
+  ): Promise<CrmDealEmail> {
+    return await db.transaction(async (tx) => {
+      // 1. Valida pertencimento do Deal ao tenant
+      const [deal] = await tx
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .limit(1);
+
+      if (!deal) {
+        throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
+      }
+
+      if (!data.toAddress || !data.toAddress.includes("@")) {
+        throw new Error("Endereço de e-mail do destinatário inválido.");
+      }
+      if (!data.fromAddress || !data.fromAddress.includes("@")) {
+        throw new Error("Endereço de e-mail do remetente inválido.");
+      }
+      if (!data.subject?.trim()) {
+        throw new Error("Assunto do e-mail é obrigatório.");
+      }
+
+      const id = `email-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+      const now = new Date();
+
+      const [newEmail] = await tx
+        .insert(crmDealEmails)
+        .values({
+          id,
+          tenantId,
+          dealId,
+          operatorId,
+          direction: data.direction || "outbound",
+          fromAddress: data.fromAddress.trim().toLowerCase(),
+          toAddress: data.toAddress.trim().toLowerCase(),
+          ccAddresses: data.ccAddresses || [],
+          subject: data.subject.trim(),
+          bodyText: data.bodyText || null,
+          bodyHtml: data.bodyHtml || null,
+          sentAt: data.sentAt || now,
+          isVerified: true,
+          metadata: data.metadata || {},
+          createdAt: now,
+        })
+        .returning();
+
+      await tx.insert(crmDealEvents).values({
+        id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        tenantId,
+        dealId,
+        eventType: "deal_email_logged",
+        operatorId,
+        metadata: {
+          emailId: id,
+          direction: newEmail.direction,
+          subject: newEmail.subject,
+          toAddress: newEmail.toAddress,
+        },
+        createdAt: now,
+      });
+
+      return newEmail;
+    });
+  }
+
+  /**
+   * Lista os e-mails registrados para uma negociação.
+   */
+  async getDealEmails(
+    tenantId: string,
+    dealId: string
+  ): Promise<Array<CrmDealEmail & { operatorName?: string | null }>> {
+    const [deal] = await db
+      .select({ id: crmDeals.id })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+      .limit(1);
+
+    if (!deal) {
+      throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
+    }
+
+    const emails = await db
+      .select({
+        id: crmDealEmails.id,
+        tenantId: crmDealEmails.tenantId,
+        dealId: crmDealEmails.dealId,
+        operatorId: crmDealEmails.operatorId,
+        direction: crmDealEmails.direction,
+        fromAddress: crmDealEmails.fromAddress,
+        toAddress: crmDealEmails.toAddress,
+        ccAddresses: crmDealEmails.ccAddresses,
+        subject: crmDealEmails.subject,
+        bodyText: crmDealEmails.bodyText,
+        bodyHtml: crmDealEmails.bodyHtml,
+        sentAt: crmDealEmails.sentAt,
+        isVerified: crmDealEmails.isVerified,
+        metadata: crmDealEmails.metadata,
+        createdAt: crmDealEmails.createdAt,
+        operatorName: operators.name,
+      })
+      .from(crmDealEmails)
+      .leftJoin(operators, eq(crmDealEmails.operatorId, operators.id))
+      .where(and(eq(crmDealEmails.tenantId, tenantId), eq(crmDealEmails.dealId, dealId)))
+      .orderBy(desc(crmDealEmails.sentAt));
+
+    return emails as any;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 10. PRIORIZAÇÃO COMERCIAL & IA (Vertex AI com critério mensurável)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Calcula a prioridade comercial de uma negociação utilizando exclusivamente
+   * o serviço Vertex AI (com repasse de tenantId e feature 'sdr_agent')
+   * e fallback explicável baseado em regras comerciais determinísticas caso offline.
+   */
+  async calculateDealAiPriority(
+    tenantId: string,
+    dealId: string,
+    operatorId: string | null
+  ): Promise<{
+    score: number;
+    level: "baixa" | "media" | "alta" | "critica";
+    reason: string;
+    updatedAt: Date;
+  }> {
+    // 1. Obter detalhes da negociação
+    const [deal] = await db
+      .select()
+      .from(crmDeals)
+      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+      .limit(1);
+
+    if (!deal) {
+      throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
+    }
+
+    const now = new Date();
+    const dealValue = parseFloat(deal.value || "0");
+
+    // Produtos
+    const products = await db
+      .select()
+      .from(crmDealProducts)
+      .where(and(eq(crmDealProducts.tenantId, tenantId), eq(crmDealProducts.dealId, dealId)));
+    const productsCount = products.length;
+
+    // Propostas
+    const proposals = await db
+      .select()
+      .from(crmProposals)
+      .where(and(eq(crmProposals.tenantId, tenantId), eq(crmProposals.dealId, dealId)));
+    const proposalsCount = proposals.length;
+
+    // Etapa atual
+    let stageName = "Etapa Atual";
+    if (deal.stageId) {
+      const [stg] = await db
+        .select({ name: crmStages.name })
+        .from(crmStages)
+        .where(and(eq(crmStages.id, deal.stageId), eq(crmStages.tenantId, tenantId)))
+        .limit(1);
+      if (stg) stageName = stg.name;
+    }
+
+    // 2. Analisar tarefas pendentes e atrasadas
+    const activities = await db
+      .select()
+      .from(crmDealActivities)
+      .where(
+        and(
+          eq(crmDealActivities.tenantId, tenantId),
+          eq(crmDealActivities.dealId, dealId)
+        )
+      );
+
+    const pendingTasks = activities.filter((a) => !a.completedAt && a.type === "task");
+    const overdueTasks = pendingTasks.filter(
+      (a) => a.dueDate && new Date(a.dueDate) < now
+    );
+
+    // Dias sem atividade recente
+    const daysSinceLastActivity = Math.max(
+      0,
+      Math.floor(
+        (now.getTime() - new Date(deal.lastActivityAt || deal.createdAt).getTime()) /
+          (1000 * 60 * 60 * 24)
+      )
+    );
+
+    // Heurística explicável de base (determinística e transparente)
+    let baseScore = 40;
+    const explanationPoints: string[] = [];
+
+    // Fatores de valor financeiro
+    if (dealValue >= 50000) {
+      baseScore += 30;
+      explanationPoints.push(`Alto valor financeiro (R$ ${dealValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}).`);
+    } else if (dealValue >= 10000) {
+      baseScore += 20;
+      explanationPoints.push(`Ticket intermediário (R$ ${dealValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}).`);
+    } else if (dealValue > 0) {
+      baseScore += 10;
+      explanationPoints.push(`Ticket padrão cadastrado.`);
+    }
+
+    // Fatores de proposta/produtos
+    if (proposalsCount > 0) {
+      baseScore += 15;
+      explanationPoints.push(`${proposalsCount} proposta(s) formal(is) emitida(s).`);
+    } else if (productsCount > 0) {
+      baseScore += 10;
+      explanationPoints.push(`${productsCount} produto(s) mapeado(s).`);
+    }
+
+    // Fatores de urgência/atraso
+    if (overdueTasks.length > 0) {
+      baseScore += 15;
+      explanationPoints.push(`${overdueTasks.length} tarefa(s) com prazo vencido exigindo atenção imediata.`);
+    }
+
+    // Desconto se abandonado sem atividade
+    if (daysSinceLastActivity > 7) {
+      baseScore -= 15;
+      explanationPoints.push(`Sem movimentação comercial há ${daysSinceLastActivity} dias.`);
+    }
+
+    const calculatedScore = Math.min(100, Math.max(5, baseScore));
+    let calculatedLevel: "baixa" | "media" | "alta" | "critica" = "media";
+    if (calculatedScore >= 80) calculatedLevel = "critica";
+    else if (calculatedScore >= 60) calculatedLevel = "alta";
+    else if (calculatedScore >= 35) calculatedLevel = "media";
+    else calculatedLevel = "baixa";
+
+    let finalScore = calculatedScore;
+    let finalLevel = calculatedLevel;
+    let finalReason = explanationPoints.join(" ");
+
+    // 3. Consulta ao Vertex AI se credencial/serviço estiver disponível
+    try {
+      const prompt = `Você é um analista comercial sênior. Avalie a seguinte oportunidade de negócio e forneça um score de prioridade de 0 a 100, nível (baixa, media, alta ou critica) e justificativa sucinta e objetiva em português:\n\n` +
+        `Título: ${deal.title}\n` +
+        `Valor: R$ ${dealValue}\n` +
+        `Etapa: ${stageName}\n` +
+        `Status: ${deal.status}\n` +
+        `Produtos vinculados: ${productsCount}\n` +
+        `Propostas emitidas: ${proposalsCount}\n` +
+        `Tarefas atrasadas: ${overdueTasks.length}\n` +
+        `Dias sem atividade: ${daysSinceLastActivity}\n` +
+        `Responda em formato JSON: { "score": number, "level": "baixa"|"media"|"alta"|"critica", "reason": "string" }`;
+
+      const aiResponse = await vertexAi.generateStructuredJson<{
+        score: number;
+        level: "baixa" | "media" | "alta" | "critica";
+        reason: string;
+      }>(prompt, undefined, undefined, {
+        feature: "sdr_agent", // Compatível com o mapa de custos atual
+        tenantId,
+        metadata: { dealId, dealTitle: deal.title },
+      });
+
+      if (aiResponse && typeof aiResponse.score === "number" && aiResponse.reason) {
+        finalScore = Math.min(100, Math.max(0, Math.round(aiResponse.score)));
+        finalLevel = ["baixa", "media", "alta", "critica"].includes(aiResponse.level)
+          ? aiResponse.level
+          : calculatedLevel;
+        finalReason = `[IA Vertex]: ${aiResponse.reason}`;
+      }
+    } catch (e: any) {
+      // Fallback gracioso mantendo explicabilidade auditável
+      finalReason = `[Critério Comercial Heurístico]: ${explanationPoints.join(" ") || "Critério baseado em valor de ticket e atividade da negociação."}`;
+    }
+
+    // 4. Persistir score na negociação
+    await db
+      .update(crmDeals)
+      .set({
+        aiPriorityScore: finalScore,
+        aiPriorityLevel: finalLevel,
+        aiPriorityReason: finalReason,
+        aiPriorityUpdatedAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+
+    // Grava auditoria
+    await this.logDealEvent(tenantId, dealId, "deal_ai_priority_calculated", operatorId, {
+      score: finalScore,
+      level: finalLevel,
+      reason: finalReason,
+    });
+
+    return {
+      score: finalScore,
+      level: finalLevel,
+      reason: finalReason,
+      updatedAt: now,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 11. CALENDÁRIO COMERCIAL (crm_deal_activities com prazo)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Consulta o calendário comercial trazendo tarefas com prazo definido,
+   * dados completos do negócio associado, etapa e responsável para navegação direta.
+   */
+  async getCrmCalendarTasks(
+    tenantId: string,
+    filters: {
+      startDate?: Date | string;
+      endDate?: Date | string;
+      operatorId?: string;
+      status?: "all" | "pending" | "completed";
+    } = {}
+  ): Promise<
+    Array<{
+      taskId: string;
+      dealId: string;
+      dealTitle: string;
+      dealValue: string | null;
+      pipelineId: string;
+      stageId: string;
+      stageName: string | null;
+      title: string;
+      description: string | null;
+      dueDate: Date | null;
+      isOverdue: boolean;
+      completedAt: Date | null;
+      operatorId: string | null;
+      operatorName: string | null;
+    }>
+  > {
+    const conditions = [
+      eq(crmDealActivities.tenantId, tenantId),
+      eq(crmDealActivities.type, "task"),
+      sql`${crmDealActivities.dueDate} IS NOT NULL`,
+    ];
+
+    if (filters.startDate) {
+      conditions.push(gte(crmDealActivities.dueDate, new Date(filters.startDate)));
+    }
+    if (filters.endDate) {
+      conditions.push(lte(crmDealActivities.dueDate, new Date(filters.endDate)));
+    }
+    if (filters.operatorId) {
+      conditions.push(eq(crmDealActivities.operatorId, filters.operatorId));
+    }
+    if (filters.status === "pending") {
+      conditions.push(sql`${crmDealActivities.completedAt} IS NULL`);
+    } else if (filters.status === "completed") {
+      conditions.push(sql`${crmDealActivities.completedAt} IS NOT NULL`);
+    }
+
+    const rows = await db
+      .select({
+        taskId: crmDealActivities.id,
+        dealId: crmDealActivities.dealId,
+        title: crmDealActivities.title,
+        description: crmDealActivities.description,
+        dueDate: crmDealActivities.dueDate,
+        completedAt: crmDealActivities.completedAt,
+        operatorId: crmDealActivities.operatorId,
+        operatorName: operators.name,
+        dealTitle: crmDeals.title,
+        dealValue: crmDeals.value,
+        pipelineId: crmDeals.pipelineId,
+        stageId: crmDeals.stageId,
+        stageName: crmStages.name,
+      })
+      .from(crmDealActivities)
+      .innerJoin(crmDeals, and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
+      .leftJoin(crmStages, eq(crmDeals.stageId, crmStages.id))
+      .leftJoin(operators, eq(crmDealActivities.operatorId, operators.id))
+      .where(and(...conditions))
+      .orderBy(asc(crmDealActivities.dueDate));
+
+    const now = new Date();
+    return rows.map((r) => ({
+      ...r,
+      isOverdue: !r.completedAt && r.dueDate ? new Date(r.dueDate) < now : false,
+    }));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 6. AUDITORIA IMUTÁVEL
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1780,10 +5146,11 @@ export class CrmService {
     dealId: string,
     eventType: string,
     operatorId: string | null,
-    metadata: Record<string, any>
+    metadata: Record<string, any>,
+    executor: any = db
   ): Promise<void> {
     try {
-      await db.insert(crmDealEvents).values({
+      await executor.insert(crmDealEvents).values({
         id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         tenantId,
         dealId,

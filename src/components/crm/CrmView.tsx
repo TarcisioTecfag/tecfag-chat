@@ -1,35 +1,49 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useChat } from "@/hooks/useChatState";
-import { CrmToolbar, PipelineOption } from "./CrmToolbar";
+import { CrmToolbar, PipelineOption, CrmStatusFilter } from "./CrmToolbar";
 import { PipelineBoard } from "./PipelineBoard";
 import { DealList } from "./DealList";
 import { DealCardData } from "./DealCard";
 import { CreateDealDialog } from "./CreateDealDialog";
 import { DealDetailModal } from "./DealDetailModal";
+import { PipelineSettingsModal } from "./PipelineSettingsModal";
+import { AdvancedFiltersModal, AdvancedFiltersState } from "./AdvancedFiltersModal";
 import { toast } from "sonner";
-import { Loader2, Plus, AlertCircle, RefreshCw } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 export function CrmView() {
   const { tenant, currentOperatorId } = useChat();
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [pipelines, setPipelines] = useState<any[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
   const [deals, setDeals] = useState<DealCardData[]>([]);
   const [totalDeals, setTotalDeals] = useState(0);
 
-  // Filtros
+  // Modais de Configuração
+  const [isPipelineSettingsOpen, setIsPipelineSettingsOpen] = useState(false);
+  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
+
+  // Filtros Globais Compartilhados entre Kanban e Lista
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
-  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "won" | "lost" | "paused">("open");
-  const [onlyMyDeals, setOnlyMyDeals] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<CrmStatusFilter>("open");
+  const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<string>("updated_desc");
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFiltersState>({});
   const [searchQuery, setSearchQuery] = useState("");
-  const [limit] = useState(50);
-  const [offset, setOffset] = useState(0);
+
+  // Paginação separada para a Lista
+  const [listLimit, setListLimit] = useState(50);
+  const [listOffset, setListOffset] = useState(0);
+
+  // Resumo de Etapas (Agregação Real do Servidor)
+  const [stagesSummary, setStagesSummary] = useState<any[]>([]);
 
   // Operadores
   const [operators, setOperators] = useState<Array<{ id: string; name: string }>>([]);
 
-  // Modais
+  // Modais de Ação
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [selectedDealForDetail, setSelectedDealForDetail] = useState<DealCardData | null>(null);
   const [createAtStageId, setCreateAtStageId] = useState<string | undefined>(undefined);
@@ -42,6 +56,76 @@ export function CrmView() {
     }
     return map;
   }, [operators]);
+
+  // Funil ativo
+  const activePipeline = pipelines.find((p) => p.id === selectedPipelineId);
+  const activeStages = activePipeline?.stages || [];
+
+  // Mapa de etapas
+  const stagesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of activeStages) {
+      map.set(s.id, s.name);
+    }
+    return map;
+  }, [activeStages]);
+
+  // Mapa de resumo de etapas
+  const stagesSummaryMap = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const s of stagesSummary) {
+      map.set(s.stageId, s);
+    }
+    return map;
+  }, [stagesSummary]);
+
+  // Helper para construir query params padronizados
+  const buildFilterQueryParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (selectedPipelineId) {
+      params.set("pipelineId", selectedPipelineId);
+    }
+    if (statusFilter !== "all") {
+      params.set("status", statusFilter);
+    }
+    if (selectedOperatorIds.length > 0) {
+      params.set("operatorIds", selectedOperatorIds.join(","));
+    }
+    if (searchQuery.trim()) {
+      params.set("search", searchQuery.trim());
+    }
+    if (sortBy) {
+      params.set("sortBy", sortBy);
+    }
+
+    // Filtros Avançados
+    if (advancedFilters.stageIds && advancedFilters.stageIds.length > 0) {
+      params.set("stageIds", advancedFilters.stageIds.join(","));
+    }
+    if (advancedFilters.minValue !== undefined) {
+      params.set("minValue", String(advancedFilters.minValue));
+    }
+    if (advancedFilters.maxValue !== undefined) {
+      params.set("maxValue", String(advancedFilters.maxValue));
+    }
+    if (advancedFilters.createdAfter) {
+      params.set("createdAfter", advancedFilters.createdAfter);
+    }
+    if (advancedFilters.createdBefore) {
+      params.set("createdBefore", advancedFilters.createdBefore);
+    }
+    if (advancedFilters.hasOverdueTask) {
+      params.set("hasOverdueTask", "true");
+    }
+    if (advancedFilters.coolingOnly) {
+      params.set("coolingOnly", "true");
+      if (advancedFilters.coolingDays) {
+        params.set("coolingDays", String(advancedFilters.coolingDays));
+      }
+    }
+
+    return params;
+  }, [selectedPipelineId, statusFilter, selectedOperatorIds, searchQuery, sortBy, advancedFilters]);
 
   // Carrega pipelines
   const fetchPipelines = useCallback(async () => {
@@ -66,7 +150,7 @@ export function CrmView() {
     }
   }, [selectedPipelineId]);
 
-  // Carrega operadores para os selects e badges
+  // Carrega operadores
   const fetchOperators = useCallback(async () => {
     try {
       const res = await fetch("/api/operators");
@@ -79,6 +163,21 @@ export function CrmView() {
     }
   }, []);
 
+  // Carrega resumo de etapas (agregação real no servidor)
+  const fetchStagesSummary = useCallback(async () => {
+    if (!selectedPipelineId) return;
+    try {
+      const params = buildFilterQueryParams();
+      const res = await fetch(`/api/crm/pipelines/${selectedPipelineId}/stages-summary?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setStagesSummary(data.stages || []);
+      }
+    } catch (err) {
+      console.warn("[CrmView] Falha ao buscar resumo de etapas:", err);
+    }
+  }, [selectedPipelineId, buildFilterQueryParams]);
+
   // Carrega deals com os filtros ativos
   const fetchDeals = useCallback(async () => {
     if (!selectedPipelineId) {
@@ -86,33 +185,35 @@ export function CrmView() {
       return;
     }
     setLoading(true);
+    setError(null);
     try {
-      const params = new URLSearchParams();
-      params.set("pipelineId", selectedPipelineId);
-      if (statusFilter !== "all") {
-        params.set("status", statusFilter);
+      const params = buildFilterQueryParams();
+
+      if (viewMode === "list") {
+        params.set("limit", String(listLimit));
+        params.set("offset", String(listOffset));
+      } else {
+        // No modo kanban traz fatia ampla do funil
+        params.set("limit", "200");
+        params.set("offset", "0");
       }
-      if (onlyMyDeals && currentOperatorId) {
-        params.set("operatorId", currentOperatorId);
-      }
-      if (searchQuery.trim()) {
-        params.set("search", searchQuery.trim());
-      }
-      params.set("limit", String(limit));
-      params.set("offset", String(offset));
 
       const res = await fetch(`/api/crm/deals?${params.toString()}`);
-      if (!res.ok) throw new Error("Erro ao carregar negociações.");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Erro ao carregar negociações.");
+      }
       const data = await res.json();
       setDeals(data.deals || []);
       setTotalDeals(data.total || 0);
     } catch (err: any) {
       console.error("[CrmView] Erro deals:", err);
+      setError(err.message || "Falha ao carregar negociações.");
       toast.error("Falha ao carregar negociações.");
     } finally {
       setLoading(false);
     }
-  }, [selectedPipelineId, statusFilter, onlyMyDeals, currentOperatorId, searchQuery, limit, offset]);
+  }, [selectedPipelineId, buildFilterQueryParams, viewMode, listLimit, listOffset]);
 
   // Inicialização
   useEffect(() => {
@@ -122,28 +223,53 @@ export function CrmView() {
 
   useEffect(() => {
     fetchDeals();
-  }, [fetchDeals]);
+    fetchStagesSummary();
+  }, [fetchDeals, fetchStagesSummary]);
 
   // Movimentação de Card (Kanban) com concorrência otimista
-  const handleMoveDeal = async (dealId: string, newStageId: string, currentVersion: number) => {
+  const handleMoveDeal = async (
+    dealId: string,
+    newStageId: string,
+    currentVersion: number,
+    terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null }
+  ) => {
     // Atualização otimista imediata na UI
     setDeals((prev) =>
-      prev.map((d) => (d.id === dealId ? { ...d, stageId: newStageId, version: d.version + 1 } : d))
+      prev.map((d) =>
+        d.id === dealId
+          ? {
+              ...d,
+              stageId: newStageId,
+              version: d.version + 1,
+              status: terminalData?.status || d.status,
+              value: terminalData?.value !== undefined ? terminalData.value : d.value,
+            }
+          : d
+      )
     );
 
     try {
+      const payload: Record<string, any> = {
+        stageId: newStageId,
+        expectedVersion: currentVersion,
+      };
+
+      if (terminalData) {
+        if (terminalData.status) payload.status = terminalData.status;
+        if (terminalData.lossReason) payload.lossReason = terminalData.lossReason;
+        if (terminalData.value !== undefined) payload.value = terminalData.value;
+      }
+
       const res = await fetch(`/api/crm/deals/${dealId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          stageId: newStageId,
-          expectedVersion: currentVersion,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (res.status === 409) {
         toast.error("Conflito: esta negociação foi alterada por outro usuário. Atualizando quadro...");
         fetchDeals();
+        fetchStagesSummary();
         return;
       }
 
@@ -152,28 +278,25 @@ export function CrmView() {
       }
 
       const data = await res.json();
-      // Atualiza com dados oficiais do servidor
       setDeals((prev) => prev.map((d) => (d.id === dealId ? { ...d, ...data.deal } : d)));
+      fetchStagesSummary();
       toast.success("Negociação movida com sucesso!");
     } catch (err: any) {
       console.error("[CrmView] Falha ao mover deal:", err);
       toast.error("Falha ao mover negociação.");
       fetchDeals();
+      fetchStagesSummary();
     }
   };
 
-  // Funil ativo
-  const activePipeline = pipelines.find((p) => p.id === selectedPipelineId);
-  const activeStages = activePipeline?.stages || [];
-
-  // Mapeamento de id -> nome de etapa para a visão em lista
-  const stagesMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of activeStages) {
-      map.set(s.id, s.name);
-    }
-    return map;
-  }, [activeStages]);
+  const handleClearAllFilters = () => {
+    setStatusFilter("all");
+    setSelectedOperatorIds([]);
+    setSearchQuery("");
+    setAdvancedFilters({});
+    setSortBy("updated_desc");
+    setListOffset(0);
+  };
 
   return (
     <div className="flex flex-col h-full w-full gap-4 overflow-hidden p-1">
@@ -185,21 +308,37 @@ export function CrmView() {
         selectedPipelineId={selectedPipelineId}
         onPipelineChange={(id) => {
           setSelectedPipelineId(id);
-          setOffset(0);
+          setListOffset(0);
         }}
         statusFilter={statusFilter}
         onStatusFilterChange={(st) => {
           setStatusFilter(st);
-          setOffset(0);
+          setListOffset(0);
         }}
-        onlyMyDeals={onlyMyDeals}
-        onToggleOnlyMyDeals={setOnlyMyDeals}
+        operators={operators}
+        currentOperatorId={currentOperatorId}
+        selectedOperatorIds={selectedOperatorIds}
+        onOperatorIdsChange={(opIds) => {
+          setSelectedOperatorIds(opIds);
+          setListOffset(0);
+        }}
+        sortBy={sortBy}
+        onSortByChange={(sb) => {
+          setSortBy(sb);
+          setListOffset(0);
+        }}
+        advancedFilters={advancedFilters}
+        onOpenAdvancedFilters={() => setIsAdvancedFiltersOpen(true)}
         searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
+        onSearchQueryChange={(q) => {
+          setSearchQuery(q);
+          setListOffset(0);
+        }}
         onNewDealClick={() => {
           setCreateAtStageId(undefined);
           setIsCreateDialogOpen(true);
         }}
+        onManagePipelinesClick={() => setIsPipelineSettingsOpen(true)}
       />
 
       {/* Conteúdo Principal */}
@@ -225,7 +364,7 @@ export function CrmView() {
                   setLoading(true);
                   fetchPipelines();
                 }}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-90 transition-opacity cursor-pointer"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 <span>Inicializar / Recarregar Funil</span>
@@ -236,6 +375,7 @@ export function CrmView() {
           <PipelineBoard
             pipeline={activePipeline}
             deals={deals}
+            stagesSummaryMap={stagesSummaryMap}
             operatorsMap={operatorsMap}
             onDealClick={(d) => setSelectedDealForDetail(d)}
             onMoveDeal={handleMoveDeal}
@@ -247,22 +387,51 @@ export function CrmView() {
         ) : (
           <DealList
             deals={deals}
+            stages={activeStages}
+            operators={operators}
             stagesMap={stagesMap}
             operatorsMap={operatorsMap}
             onDealClick={(d) => setSelectedDealForDetail(d)}
             total={totalDeals}
-            limit={limit}
-            offset={offset}
-            onPageChange={setOffset}
+            limit={listLimit}
+            offset={listOffset}
+            onPageChange={setListOffset}
+            onLimitChange={(newLimit) => {
+              setListLimit(newLimit);
+              setListOffset(0);
+            }}
+            loading={loading}
+            error={error}
+            onRetry={fetchDeals}
+            onClearFilters={handleClearAllFilters}
+            onRefreshData={() => {
+              fetchDeals();
+              fetchStagesSummary();
+            }}
           />
         )}
       </div>
+
+      {/* Modal de Filtros Avançados */}
+      <AdvancedFiltersModal
+        isOpen={isAdvancedFiltersOpen}
+        onClose={() => setIsAdvancedFiltersOpen(false)}
+        stages={activeStages}
+        filters={advancedFilters}
+        onApply={(newFilters) => {
+          setAdvancedFilters(newFilters);
+          setListOffset(0);
+        }}
+      />
 
       {/* Modal de Criação de Negociação */}
       <CreateDealDialog
         isOpen={isCreateDialogOpen}
         onClose={() => setIsCreateDialogOpen(false)}
-        onSuccess={() => fetchDeals()}
+        onSuccess={() => {
+          fetchDeals();
+          fetchStagesSummary();
+        }}
         pipelines={pipelines}
         operators={operators}
         defaultPipelineId={selectedPipelineId}
@@ -275,9 +444,24 @@ export function CrmView() {
         isOpen={!!selectedDealForDetail}
         dealId={selectedDealForDetail?.id || null}
         onClose={() => setSelectedDealForDetail(null)}
-        onDealUpdated={() => fetchDeals()}
+        onDealUpdated={() => {
+          fetchDeals();
+          fetchStagesSummary();
+        }}
         pipelineStages={activeStages}
         operatorsMap={operatorsMap}
+      />
+
+      {/* Modal de Gestão de Funis e Etapas */}
+      <PipelineSettingsModal
+        isOpen={isPipelineSettingsOpen}
+        onClose={() => setIsPipelineSettingsOpen(false)}
+        onPipelinesChanged={() => {
+          fetchPipelines();
+          fetchStagesSummary();
+          fetchDeals();
+        }}
+        selectedPipelineId={selectedPipelineId}
       />
     </div>
   );

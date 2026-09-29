@@ -33,7 +33,25 @@ const TooltipContent = React.forwardRef<
     />
   </TooltipPrimitive.Portal>
 ));
-TooltipContent.displayName = TooltipPrimitive.Content.displayName;
+interface SystemTooltipProps extends Omit<React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>, "content"> {
+  content: React.ReactNode;
+  children: React.ReactNode;
+  delayDuration?: number;
+}
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+const SystemTooltip = ({ content, children, delayDuration = 150, side = "top", ...props }: SystemTooltipProps) => {
+  if (!content) return <>{children}</>;
+  return (
+    <TooltipProvider delayDuration={delayDuration}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side={side} {...props}>
+          {content}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, SystemTooltip };
 

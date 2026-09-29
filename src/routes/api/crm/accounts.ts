@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
-import { crmService } from "../../../lib/crm/crm-service";
+import { requireCrmPermission } from "../../../lib/rbac";
+import { crmService, handleCrmError } from "../../../lib/crm/crm-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,6 +26,9 @@ export const Route = createFileRoute("/api/crm/accounts")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
+
           const url = new URL(request.url);
           const search = url.searchParams.get("search") || undefined;
           const document = url.searchParams.get("document") || undefined;
@@ -45,10 +49,7 @@ export const Route = createFileRoute("/api/crm/accounts")({
           });
         } catch (err: any) {
           console.error("[CRM Accounts API] Erro no GET:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
@@ -62,6 +63,9 @@ export const Route = createFileRoute("/api/crm/accounts")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canCreateDeals");
+          if (permError) return permError;
 
           const body = await request.json();
           if (!body.name || !body.name.trim()) {
@@ -91,10 +95,7 @@ export const Route = createFileRoute("/api/crm/accounts")({
           });
         } catch (err: any) {
           console.error("[CRM Accounts API] Erro no POST:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
     },

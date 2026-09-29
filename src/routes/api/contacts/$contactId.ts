@@ -16,7 +16,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
 
       // ── PATCH /api/contacts/:contactId ──────────────────────────────────────
-      // Body: { name?, phone?, email?, cnpj?, cpf?, tags?, cnpjDetails? }
+      // Body: { name?, phone?, email?, cnpj?, cpf?, tags?, cnpjDetails?, accountId?, accountChangeReason? }
       PATCH: async ({ request, params }) => {
         try {
           const auth = await requireSession(request);
@@ -32,9 +32,23 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             cpf?: string;
             tags?: string[];
             cnpjDetails?: any;
+            accountId?: string | null;
+            accountChangeReason?: string;
           };
 
-          // Monta apenas os campos enviados
+          // 1. Se alteração de cliente/conta compradora foi solicitada
+          if (body.accountId !== undefined) {
+            const { crmService } = await import("../../../lib/crm/crm-service");
+            await crmService.updateContactAccount(
+              session.tenantId,
+              contactId,
+              body.accountId,
+              body.accountChangeReason,
+              session.operator.id
+            );
+          }
+
+          // Monta apenas os demais campos enviados
           const updates: Record<string, any> = {};
           if ("name"  in body) updates.name  = body.name;
           if ("phone" in body) updates.phone = body.phone;
@@ -44,25 +58,27 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           if ("tags"  in body) updates.tags  = body.tags;
           if ("cnpjDetails" in body) updates.cnpjDetails = body.cnpjDetails;
 
-          if (Object.keys(updates).length === 0) {
-            return new Response(JSON.stringify({ error: "Nenhum campo para atualizar" }), {
-              status: 400,
-              headers: { ...CORS, "Content-Type": "application/json" },
-            });
+          if (Object.keys(updates).length > 0) {
+            await db
+              .update(contacts)
+              .set(updates)
+              .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)));
           }
 
-          const result = await db
-            .update(contacts)
-            .set(updates)
-            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)));
+          const [updatedContact] = await db
+            .select()
+            .from(contacts)
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)))
+            .limit(1);
 
-          return new Response(JSON.stringify({ success: true }), {
+          return new Response(JSON.stringify({ success: true, contact: updatedContact }), {
             headers: { ...CORS, "Content-Type": "application/json" },
           });
         } catch (e: any) {
           console.error("Erro ao atualizar contato:", e);
-          return new Response(JSON.stringify({ error: e.message }), {
-            status: 500,
+          const statusCode = e?.statusCode || 500;
+          return new Response(JSON.stringify({ error: e.message, code: e?.code }), {
+            status: statusCode,
             headers: { ...CORS, "Content-Type": "application/json" },
           });
         }
@@ -88,7 +104,18 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             });
           }
 
-          return new Response(JSON.stringify(contact), {
+          let account = null;
+          if (contact.accountId) {
+            const { crmAccounts } = await import("../../../db/schema");
+            const [acc] = await db
+              .select()
+              .from(crmAccounts)
+              .where(and(eq(crmAccounts.id, contact.accountId), eq(crmAccounts.tenantId, session.tenantId)))
+              .limit(1);
+            account = acc || null;
+          }
+
+          return new Response(JSON.stringify({ ...contact, account }), {
             headers: { ...CORS, "Content-Type": "application/json" },
           });
         } catch (e: any) {

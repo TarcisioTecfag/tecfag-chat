@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
-import { crmService } from "../../../lib/crm/crm-service";
+import { requireCrmPermission } from "../../../lib/rbac";
+import { crmService, handleCrmError } from "../../../lib/crm/crm-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,6 +25,9 @@ export const Route = createFileRoute("/api/crm/products")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
+
           const url = new URL(request.url);
           const search = url.searchParams.get("search") || undefined;
           const isActiveParam = url.searchParams.get("isActive");
@@ -36,10 +40,7 @@ export const Route = createFileRoute("/api/crm/products")({
           });
         } catch (err: any) {
           console.error("[CRM Products API] Erro no GET:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
@@ -53,6 +54,9 @@ export const Route = createFileRoute("/api/crm/products")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canManageProducts");
+          if (permError) return permError;
 
           const body = await request.json();
           if (!body.name || typeof body.name !== "string" || !body.name.trim()) {
@@ -78,10 +82,7 @@ export const Route = createFileRoute("/api/crm/products")({
           });
         } catch (err: any) {
           console.error("[CRM Products API] Erro no POST:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
     },

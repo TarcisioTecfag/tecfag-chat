@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
-import { crmService } from "../../../../../lib/crm/crm-service";
+import { requireCrmPermission } from "../../../../../lib/rbac";
+import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { db } from "../../../../../db";
 import { crmDeals } from "../../../../../db/schema";
 import { eq, and } from "drizzle-orm";
@@ -36,6 +37,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/proposals")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
+
           const { dealId } = params as { dealId: string };
 
           // Valida existência e pertencimento do Deal ao tenant
@@ -59,10 +63,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/proposals")({
           });
         } catch (err: any) {
           console.error("[CRM Proposals API] Erro no GET:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
@@ -77,6 +78,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/proposals")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canManageProposals");
+          if (permError) return permError;
 
           const { dealId } = params as { dealId: string };
           const body = await request.json();
@@ -109,10 +113,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/proposals")({
           });
         } catch (err: any) {
           console.error("[CRM Proposals API] Erro no POST:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
@@ -126,6 +127,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/proposals")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+
+          const permError = requireCrmPermission(session, "canManageProposals");
+          if (permError) return permError;
 
           const body = await request.json();
           const { proposalId, status, metadata } = body;
@@ -159,10 +163,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/proposals")({
           });
         } catch (err: any) {
           console.error("[CRM Proposals API] Erro no PATCH:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
     },

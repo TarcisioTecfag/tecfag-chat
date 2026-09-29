@@ -145,6 +145,45 @@ const SelectSeparator = React.forwardRef<
 ));
 SelectSeparator.displayName = SelectPrimitive.Separator.displayName;
 
+const SimpleSelect = React.forwardRef<
+  HTMLButtonElement,
+  {
+    value?: string;
+    onValueChange?: (value: string) => void;
+    placeholder?: string;
+    options: { value: string; label: React.ReactNode; disabled?: boolean }[];
+    className?: string;
+    triggerClassName?: string;
+    disabled?: boolean;
+  }
+>(({ value, onValueChange, placeholder, options, className, triggerClassName, disabled }, ref) => {
+  const safeValue = value === "" || value === undefined ? "__empty__" : value;
+  const handleValueChange = (val: string) => {
+    if (onValueChange) {
+      onValueChange(val === "__empty__" ? "" : val);
+    }
+  };
+
+  return (
+    <Select value={safeValue} onValueChange={handleValueChange} disabled={disabled}>
+      <SelectTrigger ref={ref} className={cn("h-9 text-xs rounded-xl", triggerClassName, className)}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((opt, i) => {
+          const itemVal = opt.value === "" ? "__empty__" : opt.value;
+          return (
+            <SelectItem key={`${itemVal}-${i}`} value={itemVal} disabled={opt.disabled} className="text-xs">
+              {opt.label}
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
+  );
+});
+SimpleSelect.displayName = "SimpleSelect";
+
 export {
   Select,
   SelectGroup,
@@ -156,4 +195,6 @@ export {
   SelectSeparator,
   SelectScrollUpButton,
   SelectScrollDownButton,
+  SimpleSelect,
 };
+

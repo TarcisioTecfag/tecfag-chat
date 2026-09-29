@@ -49,6 +49,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
+  SystemTooltip,
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -1593,26 +1594,28 @@ export function ChatPanel() {
               <span className="text-[11px] font-bold text-muted-foreground min-w-[36px] text-center">
                 {matches.length > 0 ? `${searchMatchIndex + 1}/${matches.length}` : "0/0"}
               </span>
-              <button
-                disabled={matches.length === 0}
-                onClick={() => setSearchMatchIndex((prev) => (prev - 1 + matches.length) % matches.length)}
-                className={`p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer ${
-                  matches.length === 0 ? "opacity-30 cursor-not-allowed" : ""
-                }`}
-                title="Mensagem anterior"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </button>
-              <button
-                disabled={matches.length === 0}
-                onClick={() => setSearchMatchIndex((prev) => (prev + 1) % matches.length)}
-                className={`p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer ${
-                  matches.length === 0 ? "opacity-30 cursor-not-allowed" : ""
-                }`}
-                title="Próxima mensagem"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
+              <SystemTooltip content="Mensagem anterior">
+                <button
+                  disabled={matches.length === 0}
+                  onClick={() => setSearchMatchIndex((prev) => (prev - 1 + matches.length) % matches.length)}
+                  className={`p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer ${
+                    matches.length === 0 ? "opacity-30 cursor-not-allowed" : ""
+                  }`}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content="Próxima mensagem">
+                <button
+                  disabled={matches.length === 0}
+                  onClick={() => setSearchMatchIndex((prev) => (prev + 1) % matches.length)}
+                  className={`p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer ${
+                    matches.length === 0 ? "opacity-30 cursor-not-allowed" : ""
+                  }`}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </SystemTooltip>
             </div>
           )}
 
@@ -1798,20 +1801,22 @@ export function ChatPanel() {
                   className={`flex flex-col items-end group relative w-full ${gap}`}
                 >
                   <div className="flex items-center gap-2 max-w-[80%] justify-end">
-                    <button
-                      onClick={() => setMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
-                      title="Marcar como evidência do negócio"
-                    >
-                      <Bookmark className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setReplyingTo(m)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
-                      title="Responder"
-                    >
-                      <CornerUpLeft className="h-3.5 w-3.5" />
-                    </button>
+                    <SystemTooltip content="Marcar como evidência do negócio">
+                      <button
+                        onClick={() => setMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
+                      >
+                        <Bookmark className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
+                    <SystemTooltip content="Responder">
+                      <button
+                        onClick={() => setReplyingTo(m)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                      >
+                        <CornerUpLeft className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
                     {isSticker ? (
                       <div className="leading-relaxed">
                         {renderMessageContent(m.text, handleMediaClick, true, handleSaveSticker)}
@@ -1999,20 +2004,22 @@ export function ChatPanel() {
                         )}
                       </div>
                     )}
-                    <button
-                      onClick={() => setReplyingTo(m)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
-                      title="Responder"
-                    >
-                      <CornerUpLeft className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
-                      title="Marcar como evidência do negócio"
-                    >
-                      <Bookmark className="h-3.5 w-3.5" />
-                    </button>
+                    <SystemTooltip content="Responder">
+                      <button
+                        onClick={() => setReplyingTo(m)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                      >
+                        <CornerUpLeft className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
+                    <SystemTooltip content="Marcar como evidência do negócio">
+                      <button
+                        onClick={() => setMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
+                      >
+                        <Bookmark className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
                   </div>
 
                   {/* Dynamic Suggestions for Valentina Welcome Message */}
@@ -2668,13 +2675,14 @@ export function ChatPanel() {
           onClick={() => setActiveMedia(null)}
         >
           {/* Close button */}
-          <button
-            className="absolute top-4 right-4 z-50 p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer hover:scale-105 active:scale-95"
-            onClick={() => setActiveMedia(null)}
-            title="Fechar"
-          >
-            <X className="h-6 w-6" />
-          </button>
+          <SystemTooltip content="Fechar">
+            <button
+              className="absolute top-4 right-4 z-50 p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer hover:scale-105 active:scale-95"
+              onClick={() => setActiveMedia(null)}
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </SystemTooltip>
 
           {/* Media container */}
           <div

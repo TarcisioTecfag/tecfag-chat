@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const TENANT_ID = "valem";
 
@@ -616,11 +617,9 @@ function ObjectiveFullEditor({
 
                         <div className="flex items-center justify-end pt-4 sm:pt-4">
                           <label className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={field.required}
-                              onChange={(e) => updateField(idx, "required", e.target.checked)}
-                              className="rounded border-border text-primary focus:ring-primary/30 cursor-pointer w-4 h-4"
+                              onCheckedChange={(checked) => updateField(idx, "required", !!checked)}
                             />
                             <span className="text-xs font-semibold">Resposta Obrigatória</span>
                           </label>

@@ -1,0 +1,2 @@
+ALTER TABLE "crm_deals" ALTER COLUMN "value" DROP NOT NULL;
+ALTER TABLE "crm_deals" ALTER COLUMN "value" DROP DEFAULT;

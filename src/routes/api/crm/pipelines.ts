@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
-import { crmService } from "../../../lib/crm/crm-service";
+import { requireCrmPermission } from "../../../lib/rbac";
+import { crmService, handleCrmError } from "../../../lib/crm/crm-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/api/crm/pipelines")({
       /**
        * GET /api/crm/pipelines
        * Lista os funis de vendas com suas etapas ordenadas para o tenant ativo.
+       * Leitura pura e idempotente sem efeitos colaterais.
        */
       GET: async ({ request }) => {
         try {
@@ -24,6 +26,9 @@ export const Route = createFileRoute("/api/crm/pipelines")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
+
           const pipelines = await crmService.getPipelines(tenantId);
 
           return new Response(JSON.stringify({ pipelines }), {
@@ -31,16 +36,14 @@ export const Route = createFileRoute("/api/crm/pipelines")({
           });
         } catch (err: any) {
           console.error("[CRM Pipelines API] Erro no GET:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
 
       /**
        * POST /api/crm/pipelines
-       * Cria um novo funil (apenas administradores).
+       * Cria um novo funil ou inicializa o funil padrão (ação administrativa explícita).
+       * Exige canManagePipelines.
        */
       POST: async ({ request }) => {
         try {
@@ -49,14 +52,20 @@ export const Route = createFileRoute("/api/crm/pipelines")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          if (session.operator.role !== "admin") {
-            return new Response(
-              JSON.stringify({ error: "Permissão insuficiente. Apenas administradores podem criar funis.", code: "FORBIDDEN" }),
-              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
+          const permError = requireCrmPermission(session, "canManagePipelines");
+          if (permError) return permError;
+
+          const body = await request.json().catch(() => ({}));
+
+          // Ação administrativa explícita de inicializar funil comercial padrão
+          if (body.action === "init-default") {
+            const pipeline = await crmService.initDefaultPipeline(tenantId, session.operator.id);
+            return new Response(JSON.stringify({ pipeline }), {
+              status: 201,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
           }
 
-          const body = await request.json();
           if (!body.name || !body.name.trim()) {
             return new Response(
               JSON.stringify({ error: "O nome do funil é obrigatório.", code: "BAD_REQUEST" }),
@@ -79,10 +88,7 @@ export const Route = createFileRoute("/api/crm/pipelines")({
           });
         } catch (err: any) {
           console.error("[CRM Pipelines API] Erro no POST:", err);
-          return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleCrmError(err, corsHeaders);
         }
       },
     },

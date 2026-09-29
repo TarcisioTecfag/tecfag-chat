@@ -1,4 +1,12 @@
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, SystemTooltip } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
@@ -929,19 +937,22 @@ export function GroupsView() {
               <div className="space-y-1 flex flex-col justify-between">
                 <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">Grupo de Acesso</label>
                 <div className="flex gap-2">
-                  <div className="relative flex-1 flex items-center">
-                    <select
+                  <div className="flex-1">
+                    <Select
                       value={opForm.groupId}
-                      onChange={(e) => setOpForm({ ...opForm, groupId: e.target.value })}
-                      className="appearance-none h-10 w-full rounded-xl bg-muted pl-3.5 pr-10 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent cursor-pointer select-none"
+                      onValueChange={(val) => setOpForm({ ...opForm, groupId: val })}
                     >
-                      {accessGroups.map(g => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
-                      ))}
-                    </select>
-                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-                      <ChevronDown className="h-4 w-4" />
-                    </span>
+                      <SelectTrigger className="h-10 w-full rounded-xl bg-muted border-transparent text-xs text-foreground px-3.5 focus:ring-1 focus:ring-primary">
+                        <SelectValue placeholder="Selecione um grupo..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {accessGroups.map(g => (
+                          <SelectItem key={g.id} value={g.id} className="text-xs">
+                            {g.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1499,11 +1510,10 @@ export function GroupsView() {
                           const isChecked = perms.views[key as keyof typeof perms.views] ?? true;
                           return (
                             <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isChecked}
-                                onChange={(e) => updateGroupGranular(selectedGroupId, "views", key, e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "views", key, !!checked)}
+                                className="shrink-0 mt-0.5"
                               />
                               <div>
                                 <span className="text-xs font-bold block text-foreground">{label}</span>
@@ -1571,13 +1581,10 @@ export function GroupsView() {
                             <label key={key} className={`flex items-start gap-3 rounded-xl border p-3 transition cursor-pointer ${
                               isAdminOnly ? "border-red-200 bg-red-50/20 hover:bg-red-50/40" : "border-border bg-muted/20 hover:bg-muted/30"
                             }`}>
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isChecked}
-                                onChange={(e) => updateGroupGranular(selectedGroupId, "chat", key, e.target.checked)}
-                                className={`h-4 w-4 rounded border-gray-300 shrink-0 mt-0.5 cursor-pointer ${
-                                  isAdminOnly ? "text-red-500 focus:ring-red-400" : "text-primary focus:ring-primary"
-                                }`}
+                                onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "chat", key, !!checked)}
+                                className={`shrink-0 mt-0.5 ${isAdminOnly ? "border-red-400 data-[state=checked]:bg-red-500 data-[state=checked]:text-white" : ""}`}
                               />
                               <div>
                                 <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -1652,11 +1659,10 @@ export function GroupsView() {
                             const isChecked = perms.contacts[key as keyof typeof perms.contacts] ?? false;
                             return (
                               <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   checked={Boolean(isChecked)}
-                                  onChange={(e) => updateGroupGranular(selectedGroupId, "contacts", key, e.target.checked)}
-                                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                  onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "contacts", key, !!checked)}
+                                  className="shrink-0 mt-0.5"
                                 />
                                 <div>
                                   <span className="text-xs font-bold block text-foreground">{label}</span>
@@ -1720,11 +1726,10 @@ export function GroupsView() {
                           const isChecked = perms.valentina[key as keyof typeof perms.valentina] ?? false;
                           return (
                             <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isChecked}
-                                onChange={(e) => updateGroupGranular(selectedGroupId, "valentina", key, e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "valentina", key, !!checked)}
+                                className="shrink-0 mt-0.5"
                               />
                               <div>
                                 <span className="text-xs font-bold block text-foreground">{label}</span>
@@ -1786,11 +1791,10 @@ export function GroupsView() {
                           const isChecked = perms.ligacoes[key as keyof typeof perms.ligacoes] ?? false;
                           return (
                             <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isChecked}
-                                onChange={(e) => updateGroupGranular(selectedGroupId, "ligacoes", key, e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "ligacoes", key, !!checked)}
+                                className="shrink-0 mt-0.5"
                               />
                               <div>
                                 <span className="text-xs font-bold block text-foreground">{label}</span>
@@ -1851,11 +1855,10 @@ export function GroupsView() {
                           const isChecked = perms.monitor[key as keyof typeof perms.monitor] ?? false;
                           return (
                             <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isChecked}
-                                onChange={(e) => updateGroupGranular(selectedGroupId, "monitor", key, e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "monitor", key, !!checked)}
+                                className="shrink-0 mt-0.5"
                               />
                               <div>
                                 <span className="text-xs font-bold block text-foreground">{label}</span>
@@ -1919,11 +1922,10 @@ export function GroupsView() {
                             <label key={key} className={`flex items-start gap-3 rounded-xl border p-3 transition cursor-pointer ${
                               isCost ? "border-amber-200 bg-amber-50/20 hover:bg-amber-50/40" : "border-border bg-muted/20 hover:bg-muted/30"
                             }`}>
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isChecked}
-                                onChange={(e) => updateGroupGranular(selectedGroupId, "analytics", key, e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "analytics", key, !!checked)}
+                                className="shrink-0 mt-0.5"
                               />
                               <div>
                                 <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -1988,11 +1990,10 @@ export function GroupsView() {
                           const isChecked = perms.security[key as keyof typeof perms.security] ?? false;
                           return (
                             <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isChecked}
-                                onChange={(e) => updateGroupGranular(selectedGroupId, "security", key, e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "security", key, !!checked)}
+                                className="shrink-0 mt-0.5"
                               />
                               <div>
                                 <span className="text-xs font-bold block text-foreground">{label}</span>
@@ -2052,11 +2053,10 @@ export function GroupsView() {
                           const isChecked = perms.settings[key as keyof typeof perms.settings] ?? false;
                           return (
                             <label key={key} className="flex items-start gap-3 rounded-xl border border-border bg-muted/20 p-3 hover:bg-muted/30 transition cursor-pointer">
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isChecked}
-                                onChange={(e) => updateGroupGranular(selectedGroupId, "settings", key, e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 mt-0.5 cursor-pointer"
+                                onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "settings", key, !!checked)}
+                                className="mt-0.5"
                               />
                               <div>
                                 <span className="text-xs font-bold block text-foreground">{label}</span>
@@ -2219,16 +2219,15 @@ export function GroupsView() {
                             isMember ? "border-primary bg-primary-soft/5" : "border-border bg-card"
                           }`}
                         >
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={isMember}
-                            onChange={() => {
-                              const newOperatorIds = isMember
-                                ? selectedSectorObj.operatorIds.filter(id => id !== op.id)
-                                : [...selectedSectorObj.operatorIds, op.id];
+                            onCheckedChange={(checked) => {
+                              const isChecked = !!checked;
+                              const newOperatorIds = isChecked
+                                ? [...selectedSectorObj.operatorIds, op.id]
+                                : selectedSectorObj.operatorIds.filter(id => id !== op.id);
                               updateSector(selectedSectorObj.id, { operatorIds: newOperatorIds });
                             }}
-                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary shrink-0 cursor-pointer"
                           />
                           <img src={op.avatar} alt={op.name} className="h-8 w-8 rounded-full object-cover shrink-0" />
                           <div className="min-w-0 flex-1">
