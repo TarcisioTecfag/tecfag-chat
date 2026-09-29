@@ -6,6 +6,7 @@ import { getComercialOperatorIds } from "../../../lib/gestao-filter";
 import { SlaEngine } from "../../../lib/sla-engine";
 import { AuditService } from "../../../lib/audit-service";
 import { SupervisorEngine } from "../../../lib/valentina/supervisor-engine";
+import { requireSession } from "../../../lib/auth-session";
 
 // Inicializa os engines na primeira request desta rota (lazy init)
 SlaEngine.getInstance().start();
@@ -24,14 +25,25 @@ export const Route = createFileRoute("/api/gestao/alerts")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem acessar alertas.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const url = new URL(request.url);
+        const queryTenantId = url.searchParams.get("tenantId");
+        if (queryTenantId && queryTenantId !== tenantId) {
+          return new Response(
+            JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
         try {
