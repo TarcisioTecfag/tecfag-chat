@@ -321,6 +321,13 @@
 }
 
 /* Ficha de negociação com as cores do tenant ativo. */
+.dark .crm-deal-route {
+  --card: #141f32;
+  --muted: #1c2a40;
+  --border: #29384d;
+  --line: #29384d;
+}
+
 .crm-stage-track .crm-stage {
   min-width: 150px;
   background: var(--color-muted);

@@ -458,7 +458,7 @@ export function CreateDealDialog({
                     <Star
                       className={`h-4 w-4 ${
                         rating >= star
-                          ? "fill-amber-400 text-amber-400"
+                          ? "fill-primary text-primary"
                           : "text-muted-foreground/30"
                       }`}
                     />

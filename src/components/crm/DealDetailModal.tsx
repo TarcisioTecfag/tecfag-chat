@@ -50,6 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { formatDealEvent } from "@/lib/crm/deal-event-format";
 
 interface DealDetailModalProps {
   dealId: string | null;
@@ -940,30 +941,17 @@ export function DealDetailModal({
       date: Date;
       iconType: string;
       badgeColor: string;
+      technicalDetails?: Record<string, unknown> | null;
     }> = [];
 
     // 1. Eventos de auditoria
+    const stageNames = new Map<string, string>(
+      (deal.pipeline?.stages?.length ? deal.pipeline.stages : pipelineStages).map(
+        (stage: { id: string; name: string }) => [stage.id, stage.name],
+      ),
+    );
     (deal.events || []).forEach((evt: any) => {
-      let title = "Evento no Negócio";
-      let desc = evt.metadata ? JSON.stringify(evt.metadata) : null;
-      if (evt.eventType === "stage_change") {
-        title = `Etapa alterada para "${evt.metadata?.stageName || evt.metadata?.newStageId || "Nova Etapa"}"`;
-        desc = evt.metadata?.oldStageId ? `Anterior: ${evt.metadata.oldStageId}` : null;
-      } else if (evt.eventType === "status_change") {
-        title = `Status atualizado para "${evt.metadata?.status || "Atualizado"}"`;
-        desc = evt.metadata?.reason ? `Motivo: ${evt.metadata.reason}` : null;
-      } else if (evt.eventType === "created") {
-        title = "Negociação criada";
-        desc = "Registro inicial no CRM";
-      } else if (evt.eventType === "conversation_linked") {
-        title = "Atendimento vinculado";
-        desc = `Origem: ${evt.metadata?.origin || "chat"}`;
-      } else if (evt.eventType === "conversation_unlinked") {
-        title = "Atendimento desvinculado";
-        desc = "Conversa desassociada do card";
-      } else if (evt.eventType === "value_change") {
-        title = `Valor atualizado para R$ ${evt.metadata?.newValue || "0,00"}`;
-      }
+      const { title, description } = formatDealEvent(evt, stageNames, operatorsMap);
 
       const authorName = evt.operatorId
         ? operatorsMap.get(evt.operatorId) || "Operador"
@@ -973,11 +961,12 @@ export function DealDetailModal({
         id: `evt-${evt.id}`,
         category: "event",
         title,
-        description: desc,
+        description,
         author: authorName,
         date: new Date(evt.createdAt),
         iconType: "history",
-        badgeColor: "bg-primary/10 text-primary",
+        badgeColor: "bg-muted text-muted-foreground",
+        technicalDetails: { eventType: evt.eventType, ...(evt.metadata || {}) },
       });
     });
 
@@ -992,7 +981,7 @@ export function DealDetailModal({
         author: act.operatorName || act.assignedToOperatorName || "Operador",
         date: new Date(act.createdAt),
         iconType: isNote ? "note" : "task",
-        badgeColor: isNote ? "bg-amber-500/10 text-amber-600" : "bg-blue-500/10 text-blue-600",
+        badgeColor: "bg-muted text-muted-foreground",
       });
     });
 
@@ -1006,7 +995,7 @@ export function DealDetailModal({
         author: prop.createdByName || "Comercial",
         date: new Date(prop.createdAt),
         iconType: "proposal",
-        badgeColor: "bg-emerald-500/10 text-emerald-600",
+        badgeColor: "bg-muted text-muted-foreground",
       });
     });
 
@@ -1020,14 +1009,14 @@ export function DealDetailModal({
         author: evi.createdByName || evi.message?.senderName || "Chat",
         date: new Date(evi.createdAt),
         iconType: "evidence",
-        badgeColor: "bg-purple-500/10 text-purple-600",
+        badgeColor: "bg-muted text-muted-foreground",
       });
     });
 
     // Ordenação cronológica decrescente (mais recente primeiro)
     items.sort((a, b) => b.date.getTime() - a.date.getTime());
     return items;
-  }, [deal, operatorsMap]);
+  }, [deal, operatorsMap, pipelineStages]);
   const filteredTimeline = historyFilter === "all"
     ? unifiedTimeline
     : unifiedTimeline.filter((item) => item.category === historyFilter);
@@ -1168,7 +1157,7 @@ export function DealDetailModal({
                         onClick={() => updateDeal({ rating: s })}
                         className={`h-3.5 w-3.5 cursor-pointer hover:scale-110 transition-transform ${
                           (deal.rating || 0) >= s
-                            ? "fill-amber-400 text-amber-400"
+                            ? "fill-primary text-primary"
                             : "text-muted-foreground/30"
                         }`}
                       />
@@ -1178,13 +1167,9 @@ export function DealDetailModal({
                   {/* Status Badge */}
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase ${
-                      deal.status === "won"
-                        ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
-                        : deal.status === "lost"
-                        ? "bg-rose-500/20 text-rose-600 dark:text-rose-400"
-                        : deal.status === "paused"
-                        ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
-                        : "bg-blue-500/20 text-blue-600 dark:text-blue-400"
+                      deal.status === "lost"
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted text-foreground"
                     }`}
                   >
                     {deal.status === "won"
@@ -1205,11 +1190,7 @@ export function DealDetailModal({
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
                         deal.aiPriorityLevel === "critica"
-                          ? "bg-rose-500/20 text-rose-600 border border-rose-500/30"
-                          : deal.aiPriorityLevel === "alta"
-                          ? "bg-amber-500/20 text-amber-600 border border-amber-500/30"
-                          : deal.aiPriorityLevel === "media"
-                          ? "bg-blue-500/20 text-blue-600 border border-blue-500/30"
+                          ? "bg-primary/10 text-primary border border-primary/30"
                           : "bg-muted text-muted-foreground border border-border"
                       }`}
                     >
@@ -1247,7 +1228,7 @@ export function DealDetailModal({
                     <>
                       <button
                         onClick={() => setShowWinPrompt(true)}
-                        className="flex h-8 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition-colors cursor-pointer"
+                        className="flex h-8 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
                         title="Marcar como Ganho"
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
@@ -1263,7 +1244,7 @@ export function DealDetailModal({
                       </button>
                       <button
                         onClick={() => setShowPausePrompt(true)}
-                        className="flex h-8 items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                        className="flex h-8 items-center gap-1.5 rounded-xl border border-border bg-muted/50 px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
                         title="Pausar negociação"
                       >
                         <PauseCircle className="h-3.5 w-3.5" />
@@ -1305,8 +1286,8 @@ export function DealDetailModal({
 
           {/* Modal / Prompt de Ganho */}
           {showWinPrompt && (
-            <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 animate-in fade-in">
-              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 block mb-1">
+            <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-3 animate-in fade-in">
+              <span className="text-xs font-bold text-foreground block mb-1">
                 Confirmar Ganho da Negociação
               </span>
               <div className="flex gap-2">
@@ -1315,11 +1296,11 @@ export function DealDetailModal({
                   placeholder="Motivo do ganho (opcional, ex: Melhor preço / Atendimento rápido)..."
                   value={winReason}
                   onChange={(e) => setWinReason(e.target.value)}
-                  className="h-8 flex-1 rounded-lg border border-emerald-500/40 bg-card px-2.5 text-xs text-foreground focus:outline-none"
+                  className="h-8 flex-1 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <button
                   onClick={handleConfirmWin}
-                  className="h-8 px-4 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-700 cursor-pointer"
+                  className="h-8 px-4 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
                 >
                   Confirmar Venda
                 </button>
@@ -1365,8 +1346,8 @@ export function DealDetailModal({
 
           {/* Modal / Prompt de Pausa */}
           {showPausePrompt && (
-            <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 animate-in fade-in">
-              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 block mb-1">
+            <div className="mt-3 rounded-xl border border-border bg-muted/50 p-3 animate-in fade-in">
+              <span className="text-xs font-bold text-foreground block mb-1">
                 Confirmar Pausa da Negociação
               </span>
               <div className="flex gap-2">
@@ -1375,11 +1356,11 @@ export function DealDetailModal({
                   placeholder="Motivo da pausa (opcional, ex: Aguardando aprovação orçamentária do cliente)..."
                   value={pauseReason}
                   onChange={(e) => setPauseReason(e.target.value)}
-                  className="h-8 flex-1 rounded-lg border border-amber-500/40 bg-card px-2.5 text-xs text-foreground focus:outline-none"
+                  className="h-8 flex-1 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <button
                   onClick={handleConfirmPause}
-                  className="h-8 px-4 rounded-lg bg-amber-600 text-xs font-bold text-white hover:bg-amber-700 cursor-pointer"
+                  className="h-8 px-4 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
                 >
                   Confirmar Pausa
                 </button>
@@ -1434,7 +1415,7 @@ export function DealDetailModal({
                     deal.nextTask.isOverdue
                       ? "bg-rose-500/10 border-rose-500/30 text-rose-950 dark:text-rose-200"
                       : deal.nextTask.isToday
-                      ? "bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-200"
+                      ? "bg-muted/50 border-border text-foreground"
                       : "bg-primary/5 border-primary/20 text-foreground"
                   }`}
                 >
@@ -1444,7 +1425,7 @@ export function DealDetailModal({
                         deal.nextTask.isOverdue
                           ? "bg-rose-500/20 text-rose-600 dark:text-rose-400"
                           : deal.nextTask.isToday
-                          ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                          ? "bg-muted text-foreground"
                           : "bg-primary/10 text-primary"
                       }`}
                     >
@@ -1460,7 +1441,7 @@ export function DealDetailModal({
                             deal.nextTask.isOverdue
                               ? "bg-rose-600 text-white"
                               : deal.nextTask.isToday
-                              ? "bg-amber-600 text-white"
+                              ? "bg-primary/10 text-primary"
                               : "bg-primary text-primary-foreground"
                           }`}
                         >
@@ -1496,7 +1477,7 @@ export function DealDetailModal({
                     <button
                       type="button"
                       onClick={() => handleCompleteActivity(deal.nextTask.id)}
-                      className="flex h-7 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 text-[11px] font-bold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                      className="flex h-7 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
                       title="Marcar tarefa como concluída"
                     >
                       <Check className="h-3.5 w-3.5" />
@@ -1724,7 +1705,7 @@ export function DealDetailModal({
                           onClick={() => updateDeal({ rating: star })}
                           className={`h-4 w-4 cursor-pointer hover:scale-110 transition-transform ${
                             (deal?.rating || 0) >= star
-                              ? "fill-amber-400 text-amber-400"
+                              ? "fill-primary text-primary"
                               : "text-muted-foreground/30"
                           }`}
                         />
@@ -1852,7 +1833,7 @@ export function DealDetailModal({
                           {c.role || "buyer"}
                         </span>
                         {c.isPrimary ? (
-                          <span className="rounded bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.5 text-[9px] font-bold">
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold text-foreground">
                             Principal
                           </span>
                         ) : (
@@ -2081,7 +2062,7 @@ export function DealDetailModal({
                               onClick={() => setTasksSubTab("completed")}
                               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
                                 tasksSubTab === "completed"
-                                  ? "bg-emerald-600 text-white shadow-xs"
+                                  ? "bg-primary text-primary-foreground shadow-xs"
                                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
                               }`}
                             >
@@ -2111,7 +2092,7 @@ export function DealDetailModal({
                               onClick={() => setTasksSubTab("notes")}
                               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
                                 tasksSubTab === "notes"
-                                  ? "bg-amber-600 text-white shadow-xs"
+                                  ? "bg-primary text-primary-foreground shadow-xs"
                                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
                               }`}
                             >
@@ -2143,7 +2124,7 @@ export function DealDetailModal({
                                     key={act.id}
                                     className={`rounded-xl border p-3.5 shadow-xs transition-colors space-y-2 ${
                                       isNote
-                                        ? "border-amber-500/20 bg-amber-500/5"
+                                        ? "border-border bg-muted/20"
                                         : isCompleted
                                         ? "border-border/60 bg-muted/10 opacity-80"
                                         : isCancelled
@@ -2151,7 +2132,7 @@ export function DealDetailModal({
                                         : isOverdue
                                         ? "border-rose-500/30 bg-rose-500/5"
                                         : isToday
-                                        ? "border-amber-500/30 bg-amber-500/5"
+                                        ? "border-primary/30 bg-primary/5"
                                         : "border-border/80 bg-card"
                                     }`}
                                   >
@@ -2170,7 +2151,7 @@ export function DealDetailModal({
                                                 isOverdue
                                                   ? "bg-rose-600 text-white"
                                                   : isToday
-                                                  ? "bg-amber-600 text-white"
+                                                  ? "bg-primary/10 text-primary"
                                                   : act.dueDate
                                                   ? "bg-primary/10 text-primary"
                                                   : "bg-muted text-muted-foreground"
@@ -2182,7 +2163,7 @@ export function DealDetailModal({
 
                                           {/* Selo de Nota Imutável */}
                                           {isNote && (
-                                            <span className="rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 text-[9px] font-extrabold uppercase">
+                                            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-muted-foreground">
                                               Histórico Permanente
                                             </span>
                                           )}
@@ -2200,7 +2181,7 @@ export function DealDetailModal({
                                             <button
                                               type="button"
                                               onClick={() => handleCompleteActivity(act.id)}
-                                              className="flex h-7 items-center gap-1 rounded-lg bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                                              className="flex h-7 items-center gap-1 rounded-lg bg-primary px-2 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
                                               title="Marcar como concluída"
                                             >
                                               <Check className="h-3 w-3" />
@@ -2480,13 +2461,7 @@ export function DealDetailModal({
 
                                   {/* Canal Real */}
                                   <span
-                                    className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
-                                      channel.includes("whatsapp")
-                                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                        : channel.includes("instagram")
-                                        ? "bg-pink-500/10 text-pink-600 dark:text-pink-400"
-                                        : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                                    }`}
+                                    className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted-foreground"
                                   >
                                     {channel}
                                   </span>
@@ -2497,7 +2472,7 @@ export function DealDetailModal({
                                       queueState === "finalizados"
                                         ? "bg-muted text-muted-foreground"
                                         : queueState === "fila"
-                                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                        ? "bg-muted text-foreground"
                                         : "bg-primary/10 text-primary"
                                     }`}
                                   >
@@ -2630,7 +2605,7 @@ export function DealDetailModal({
 
                           {/* Nota Explicativa Comercial */}
                           {evi.note && (
-                            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-900 dark:text-amber-200">
+                            <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/50 p-2.5 text-xs text-foreground">
                               <span className="font-bold shrink-0">Nota:</span>
                               <span className="italic">{evi.note}</span>
                             </div>
@@ -2960,17 +2935,9 @@ export function DealDetailModal({
                         <div className="space-y-3">
                           {deal.proposals.map((prop: any) => {
                             const statusColor =
-                              prop.status === "accepted"
-                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                : prop.status === "sent"
-                                ? "bg-blue-500/10 text-blue-600 border-blue-500/20"
-                                : prop.status === "copied"
-                                ? "bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
-                                : prop.status === "rejected"
-                                ? "bg-red-500/10 text-red-600 border-red-500/20"
-                                : prop.status === "expired"
-                                ? "bg-zinc-500/10 text-zinc-600 border-zinc-500/20"
-                                : "bg-amber-500/10 text-amber-600 border-amber-500/20";
+                              prop.status === "rejected"
+                                ? "bg-primary/10 text-primary border-primary/20"
+                                : "bg-muted text-foreground border-border";
 
                             const statusLabel =
                               prop.status === "accepted"
@@ -3032,7 +2999,7 @@ export function DealDetailModal({
                                         <button
                                           type="button"
                                           onClick={() => handleUpdateProposalStatus(prop.id, "accepted")}
-                                          className="h-7 px-2.5 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-700 cursor-pointer"
+                                          className="h-7 px-2.5 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
                                         >
                                           Aceita
                                         </button>
@@ -3367,7 +3334,7 @@ export function DealDetailModal({
                         </div>
                       </div>
 
-                      <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-[11px] text-amber-700 dark:text-amber-300">
+                      <div className="rounded-lg border border-border bg-muted/50 p-2.5 text-[11px] text-muted-foreground">
                         O envio automático direto via SMTP depende da configuração do provedor do tenant. Utilize este formulário para registrar o histórico verificado e auditado de e-mails comerciais.
                       </div>
 
@@ -3446,11 +3413,7 @@ export function DealDetailModal({
                               <div className="flex items-center justify-between text-xs">
                                 <div className="flex items-center gap-2">
                                   <span
-                                    className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
-                                      m.direction === "inbound"
-                                        ? "bg-blue-500/10 text-blue-600 border border-blue-500/20"
-                                        : "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
-                                    }`}
+                                    className="rounded border border-border bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase text-foreground"
                                   >
                                     {m.direction === "inbound" ? "Recebido" : "Enviado"}
                                   </span>
@@ -3566,6 +3529,13 @@ export function DealDetailModal({
                                   <p className="text-xs text-muted-foreground whitespace-pre-wrap pl-5">
                                     {item.description}
                                   </p>
+                                )}
+
+                                {item.technicalDetails && (
+                                  <details className="pl-5 text-[11px] text-muted-foreground">
+                                    <summary className="w-fit cursor-pointer hover:text-foreground">Detalhes técnicos</summary>
+                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-[10px]">{JSON.stringify(item.technicalDetails, null, 2)}</pre>
+                                  </details>
                                 )}
 
                                 <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-1 border-t border-border/40 pl-5">
