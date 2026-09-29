@@ -1,7 +1,8 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { aiReports, aiReportVersions, aiReportFeedback } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,15 +29,27 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
+        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem alterar o workflow de relatórios.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         try {
           const body = await request.json();
-          const { tenantId, reportId, action } = body;
+          const { tenantId: bodyTenantId, reportId, action } = body;
 
-          if (!tenantId) {
-            return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+          if (bodyTenantId && bodyTenantId !== tenantId) {
+            return new Response(
+              JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
           if (!reportId || !action) {
