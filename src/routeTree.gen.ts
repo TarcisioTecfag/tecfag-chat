@@ -37,6 +37,7 @@ import { Route as ApiElevenlabsAudioRouteImport } from './routes/api/elevenlabs-
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
+import { Route as CrmDealsDealIdRouteImport } from './routes/crm/deals/$dealId'
 import { Route as ApiWhatsappSendRouteImport } from './routes/api/whatsapp/send'
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
 import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
@@ -76,6 +77,7 @@ import { Route as ApiCrmProductsRouteImport } from './routes/api/crm/products'
 import { Route as ApiCrmPipelinesRouteImport } from './routes/api/crm/pipelines'
 import { Route as ApiCrmInventoryRouteImport } from './routes/api/crm/inventory'
 import { Route as ApiCrmDealsRouteImport } from './routes/api/crm/deals'
+import { Route as ApiCrmContactsRouteImport } from './routes/api/crm/contacts'
 import { Route as ApiCrmCalendarRouteImport } from './routes/api/crm/calendar'
 import { Route as ApiCrmAccountsRouteImport } from './routes/api/crm/accounts'
 import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
@@ -267,6 +269,11 @@ const ApiChatsRoute = ApiChatsRouteImport.update({
 const ApiCallsRoute = ApiCallsRouteImport.update({
   id: '/api/calls',
   path: '/api/calls',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CrmDealsDealIdRoute = CrmDealsDealIdRouteImport.update({
+  id: '/crm/deals/$dealId',
+  path: '/crm/deals/$dealId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWhatsappSendRoute = ApiWhatsappSendRouteImport.update({
@@ -465,6 +472,11 @@ const ApiCrmInventoryRoute = ApiCrmInventoryRouteImport.update({
 const ApiCrmDealsRoute = ApiCrmDealsRouteImport.update({
   id: '/api/crm/deals',
   path: '/api/crm/deals',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmContactsRoute = ApiCrmContactsRouteImport.update({
+  id: '/api/crm/contacts',
+  path: '/api/crm/contacts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCrmCalendarRoute = ApiCrmCalendarRouteImport.update({
@@ -796,6 +808,7 @@ export interface FileRoutesByFullPath {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
+  '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
@@ -835,6 +848,7 @@ export interface FileRoutesByFullPath {
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
+  '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
@@ -916,6 +930,7 @@ export interface FileRoutesByTo {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
+  '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
@@ -955,6 +970,7 @@ export interface FileRoutesByTo {
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
+  '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
@@ -1037,6 +1053,7 @@ export interface FileRoutesById {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
+  '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
@@ -1076,6 +1093,7 @@ export interface FileRoutesById {
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
+  '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
@@ -1159,6 +1177,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
     | '/api/crm/calendar'
+    | '/api/crm/contacts'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1198,6 +1217,7 @@ export interface FileRouteTypes {
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/send'
+    | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deals'
     | '/api/contacts/$contactId/account-history'
@@ -1279,6 +1299,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
     | '/api/crm/calendar'
+    | '/api/crm/contacts'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1318,6 +1339,7 @@ export interface FileRouteTypes {
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/send'
+    | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deals'
     | '/api/contacts/$contactId/account-history'
@@ -1399,6 +1421,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
     | '/api/crm/calendar'
+    | '/api/crm/contacts'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1438,6 +1461,7 @@ export interface FileRouteTypes {
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/send'
+    | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deals'
     | '/api/contacts/$contactId/account-history'
@@ -1514,6 +1538,7 @@ export interface RootRouteChildren {
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
   ApiCrmAccountsRoute: typeof ApiCrmAccountsRouteWithChildren
   ApiCrmCalendarRoute: typeof ApiCrmCalendarRoute
+  ApiCrmContactsRoute: typeof ApiCrmContactsRoute
   ApiCrmDealsRoute: typeof ApiCrmDealsRouteWithChildren
   ApiCrmInventoryRoute: typeof ApiCrmInventoryRoute
   ApiCrmPipelinesRoute: typeof ApiCrmPipelinesRouteWithChildren
@@ -1552,6 +1577,7 @@ export interface RootRouteChildren {
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
   ApiWhatsappSendRoute: typeof ApiWhatsappSendRoute
+  CrmDealsDealIdRoute: typeof CrmDealsDealIdRoute
   ApiCrmImportRdCrmRoute: typeof ApiCrmImportRdCrmRoute
   ApiCrmStagesStageIdRoute: typeof ApiCrmStagesStageIdRoute
   ApiLivechatVisitorVisitorIdRoute: typeof ApiLivechatVisitorVisitorIdRoute
@@ -1753,6 +1779,13 @@ declare module '@tanstack/react-router' {
       path: '/api/calls'
       fullPath: '/api/calls'
       preLoaderRoute: typeof ApiCallsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/crm/deals/$dealId': {
+      id: '/crm/deals/$dealId'
+      path: '/crm/deals/$dealId'
+      fullPath: '/crm/deals/$dealId'
+      preLoaderRoute: typeof CrmDealsDealIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/whatsapp/send': {
@@ -2026,6 +2059,13 @@ declare module '@tanstack/react-router' {
       path: '/api/crm/deals'
       fullPath: '/api/crm/deals'
       preLoaderRoute: typeof ApiCrmDealsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/contacts': {
+      id: '/api/crm/contacts'
+      path: '/api/crm/contacts'
+      fullPath: '/api/crm/contacts'
+      preLoaderRoute: typeof ApiCrmContactsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/crm/calendar': {
@@ -2647,6 +2687,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
   ApiCrmAccountsRoute: ApiCrmAccountsRouteWithChildren,
   ApiCrmCalendarRoute: ApiCrmCalendarRoute,
+  ApiCrmContactsRoute: ApiCrmContactsRoute,
   ApiCrmDealsRoute: ApiCrmDealsRouteWithChildren,
   ApiCrmInventoryRoute: ApiCrmInventoryRoute,
   ApiCrmPipelinesRoute: ApiCrmPipelinesRouteWithChildren,
@@ -2685,6 +2726,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
   ApiWhatsappSendRoute: ApiWhatsappSendRoute,
+  CrmDealsDealIdRoute: CrmDealsDealIdRoute,
   ApiCrmImportRdCrmRoute: ApiCrmImportRdCrmRoute,
   ApiCrmStagesStageIdRoute: ApiCrmStagesStageIdRoute,
   ApiLivechatVisitorVisitorIdRoute: ApiLivechatVisitorVisitorIdRoute,

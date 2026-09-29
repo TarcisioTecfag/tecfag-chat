@@ -44,7 +44,7 @@ interface OperatorOption {
 interface CreateDealDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (newDeal: any) => void;
+  onSuccess: (newDeal: any, createAnother: boolean) => void;
   pipelines: PipelineOption[];
   operators: OperatorOption[];
   defaultPipelineId?: string;
@@ -102,6 +102,12 @@ export function CreateDealDialog({
   const [pipelineId, setPipelineId] = useState(defaultPipelineId || pipelines[0]?.id || "");
   const [stageId, setStageId] = useState(defaultStageId || "");
   const [value, setValue] = useState("");
+  const [source, setSource] = useState(defaultConversationId ? "chat" : "");
+  const [campaign, setCampaign] = useState("");
+  const [selectedContactId, setSelectedContactId] = useState(defaultContactId || "");
+  const [selectedContactName, setSelectedContactName] = useState("");
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactResults, setContactResults] = useState<Array<{ id: string; name: string; phone: string | null; email: string | null; accountId: string | null }>>([]);
   const [rating, setRating] = useState<number>(3);
   const [operatorId, setOperatorId] = useState(currentOperatorId || "");
 
@@ -120,12 +126,32 @@ export function CreateDealDialog({
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    setSelectedContactId(defaultContactId || "");
+    if (defaultConversationId) setSource("chat");
+  }, [defaultContactId, defaultConversationId]);
+
+  useEffect(() => {
+    if (!isOpen || selectedContactId || contactQuery.trim().length < 2) {
+      setContactResults([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetch(`/api/crm/contacts?search=${encodeURIComponent(contactQuery.trim())}`)
+        .then((response) => response.ok ? response.json() : { contacts: [] })
+        .then((data) => setContactResults(data.contacts || []))
+        .catch(() => setContactResults([]));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [contactQuery, isOpen, selectedContactId]);
+
   // Busca conta vinculada ao contato pré-selecionado (se houver)
   useEffect(() => {
     if (defaultContactId) {
       fetch(`/api/contacts/${defaultContactId}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
+          if (data?.name) setSelectedContactName(data.name);
           if (data?.account) {
             setContactOriginalAccount({ id: data.account.id, name: data.account.name });
             if (!selectedAccount) {
@@ -195,6 +221,7 @@ export function CreateDealDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const createAnother = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("data-create-another") === "true";
     if (!title.trim()) {
       toast.error("Por favor, informe o título da negociação.");
       return;
@@ -235,7 +262,9 @@ export function CreateDealDialog({
         operatorId: operatorId || null,
         value: dealValue,
         rating,
-        contactId: defaultContactId || undefined,
+        source: source || undefined,
+        campaign: campaign.trim() || undefined,
+        contactId: selectedContactId || undefined,
         conversationId: defaultConversationId || undefined,
         initialNote: note.trim() || undefined,
       };
@@ -266,8 +295,30 @@ export function CreateDealDialog({
 
       const data = await res.json();
       toast.success("Negociação criada com sucesso!");
-      onSuccess(data.deal);
-      onClose();
+      onSuccess(data.deal, createAnother);
+      if (createAnother) {
+        setTitle("");
+        setValue("");
+        setSource(defaultConversationId ? "chat" : "");
+        setCampaign("");
+        setNote("");
+        setRating(3);
+        if (!defaultContactId) {
+          setSelectedContactId("");
+          setSelectedContactName("");
+          setContactQuery("");
+          setSelectedAccount(null);
+          setHasAccount(false);
+          setIsCreatingNewAccount(false);
+          setAccountName("");
+          setAccountDocument("");
+          setAccountTradeName("");
+          setAccountPhone("");
+          setAccountEmail("");
+        }
+      } else {
+        onClose();
+      }
     } catch (err: any) {
       console.error("[CreateDealDialog] Erro:", err);
       toast.error(err.message || "Falha ao criar negociação.");
@@ -277,17 +328,13 @@ export function CreateDealDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="relative w-full max-w-lg rounded-2xl border border-border bg-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/50" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="crm-create-deal relative flex h-full w-full max-w-[420px] flex-col bg-card shadow-2xl animate-in slide-in-from-right duration-200" role="dialog" aria-modal="true" aria-labelledby="create-deal-title">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border p-4 bg-muted/20">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-4 bg-card">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Plus className="h-4 w-4" />
-            </div>
             <div>
-              <h3 className="text-sm font-bold text-foreground">Nova Negociação</h3>
-              <p className="text-[11px] text-muted-foreground">Cadastre um novo negócio com dados do cliente e vendedor</p>
+              <h3 id="create-deal-title" className="text-sm font-bold text-foreground">Criar Negociação</h3>
             </div>
           </div>
           <button
@@ -299,26 +346,53 @@ export function CreateDealDialog({
         </div>
 
         {/* Formulário */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          <div className="rounded-md border border-border border-l-4 border-l-primary bg-card px-3 py-2.5 text-[11px] text-foreground">
+            <span className="font-semibold">Dados da negociação</span>
+            <p className="mt-0.5 text-muted-foreground">Preencha o cadastro inicial. Você poderá completar a ficha depois.</p>
+          </div>
           {/* Título da Negociação */}
           <div>
             <label className="block text-xs font-bold text-foreground mb-1">
-              Título da Negociação <span className="text-red-500">*</span>
+              Nome da negociação <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               required
-              placeholder="Ex: Compra de 50.000 Válvulas Spray Recrave"
+              placeholder="Digite o nome da negociação"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-9 w-full rounded-lg border border-border bg-card px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
+          <div>
+            <label className="block text-xs font-bold text-foreground mb-1">Fonte</label>
+            <Select value={source || "__none__"} onValueChange={(next) => setSource(next === "__none__" ? "" : next)}>
+              <SelectTrigger className="h-9 w-full rounded-lg border-border bg-card text-xs"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Selecionar</SelectItem>
+                <SelectItem value="chat">Chat / Atendimento</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="meta">Meta Ads / Redes sociais</SelectItem>
+                <SelectItem value="site">Site / Formulário</SelectItem>
+                <SelectItem value="indicacao">Indicação</SelectItem>
+                <SelectItem value="telefone">Telefone</SelectItem>
+                <SelectItem value="prospeccao">Prospecção ativa</SelectItem>
+                <SelectItem value="outros">Outros</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-foreground mb-1">Campanha</label>
+            <input value={campaign} onChange={(event) => setCampaign(event.target.value)} placeholder="Nome da campanha" className="h-9 w-full rounded-lg border border-border bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary" />
+          </div>
+
           {/* Funil e Etapa */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-3">
             <div>
-              <label className="block text-xs font-bold text-foreground mb-1">Funil</label>
+              <label className="block text-xs font-bold text-foreground mb-1">Funil de vendas</label>
               <Select value={pipelineId} onValueChange={setPipelineId}>
                 <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
                   <SelectValue placeholder="Selecione um funil..." />
@@ -334,7 +408,7 @@ export function CreateDealDialog({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-foreground mb-1">Etapa Inicial</label>
+              <label className="block text-xs font-bold text-foreground mb-1">Etapa do funil de vendas</label>
               <Select value={stageId} onValueChange={setStageId}>
                 <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
                   <SelectValue placeholder="Selecione a etapa inicial..." />
@@ -418,7 +492,7 @@ export function CreateDealDialog({
           <div className="border-t border-border/60 pt-3 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
-                Cliente / Comprador
+                Informações da empresa
               </span>
               {!isCreatingNewAccount ? (
                 <button
@@ -430,7 +504,7 @@ export function CreateDealDialog({
                   }}
                   className="text-[11px] font-medium text-primary hover:underline cursor-pointer"
                 >
-                  + Cadastrar nova conta
+                  + Adicionar empresa
                 </button>
               ) : (
                 <button
@@ -574,6 +648,31 @@ export function CreateDealDialog({
             )}
           </div>
 
+          <div className="border-t border-border/60 pt-3 space-y-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Informações do contato</span>
+            <label className="block text-xs font-bold text-foreground">Contato</label>
+            {selectedContactId ? (
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
+                <span>{selectedContactName || (defaultContactId ? "Contato do atendimento vinculado" : "Contato selecionado")}</span>
+                {!defaultContactId && <button type="button" onClick={() => { setSelectedContactId(""); setSelectedContactName(""); }} className="text-primary hover:underline">Trocar</button>}
+              </div>
+            ) : (
+              <div className="relative">
+                <input value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder="Buscar contato por nome, telefone ou e-mail" className="h-9 w-full rounded-lg border border-border bg-card px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary" />
+                {contactQuery.trim().length >= 2 && (
+                  <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                    {contactResults.length ? contactResults.map((contact) => (
+                      <button key={contact.id} type="button" onClick={() => { setSelectedContactId(contact.id); setSelectedContactName(contact.name); setContactQuery(""); setContactResults([]); }} className="block w-full border-b border-border/50 px-3 py-2 text-left text-xs hover:bg-muted">
+                        <span className="block font-semibold">{contact.name}</span>
+                        <span className="text-muted-foreground">{contact.phone || contact.email || "Sem telefone"}</span>
+                      </button>
+                    )) : <p className="px-3 py-2 text-xs text-muted-foreground">Nenhum contato encontrado.</p>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Anotação Inicial */}
           <div>
             <label className="block text-xs font-bold text-foreground mb-1">Nota Inicial (Opcional)</label>
@@ -587,18 +686,22 @@ export function CreateDealDialog({
           </div>
 
           {/* Rodapé com botões de ação */}
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card p-3">
             <button
               type="button"
               onClick={onClose}
-              className="h-9 px-4 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+              className="h-9 px-2 rounded-lg text-xs font-semibold text-primary hover:bg-muted transition-colors cursor-pointer"
             >
               Cancelar
+            </button>
+            <button type="submit" data-create-another="true" disabled={isSubmitting} className="h-9 rounded-lg bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 disabled:opacity-50">
+              Salvar e criar outra
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
+              className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
             >
               {isSubmitting ? (
                 <>
@@ -608,7 +711,7 @@ export function CreateDealDialog({
               ) : (
                 <>
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span>Criar Negociação</span>
+                  <span>Criar</span>
                 </>
               )}
             </button>

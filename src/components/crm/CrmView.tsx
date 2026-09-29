@@ -5,14 +5,15 @@ import { PipelineBoard } from "./PipelineBoard";
 import { DealList } from "./DealList";
 import { DealCardData } from "./DealCard";
 import { CreateDealDialog } from "./CreateDealDialog";
-import { DealDetailModal } from "./DealDetailModal";
 import { PipelineSettingsModal } from "./PipelineSettingsModal";
 import { AdvancedFiltersModal, AdvancedFiltersState } from "./AdvancedFiltersModal";
 import { toast } from "sonner";
+import { useNavigate } from "@tanstack/react-router";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 export function CrmView() {
   const { tenant, currentOperatorId } = useChat();
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +46,6 @@ export function CrmView() {
 
   // Modais de Ação
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [selectedDealForDetail, setSelectedDealForDetail] = useState<DealCardData | null>(null);
   const [createAtStageId, setCreateAtStageId] = useState<string | undefined>(undefined);
 
   // Mapas para consulta rápida
@@ -156,7 +156,7 @@ export function CrmView() {
       const res = await fetch("/api/operators");
       if (res.ok) {
         const data = await res.json();
-        setOperators(data.operators || []);
+        setOperators(Array.isArray(data) ? data : data.operators || []);
       }
     } catch (e) {
       console.warn("[CrmView] Falha ao listar operadores:", e);
@@ -377,7 +377,7 @@ export function CrmView() {
             deals={deals}
             stagesSummaryMap={stagesSummaryMap}
             operatorsMap={operatorsMap}
-            onDealClick={(d) => setSelectedDealForDetail(d)}
+            onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
             onMoveDeal={handleMoveDeal}
             onNewDealAtStage={(stageId) => {
               setCreateAtStageId(stageId);
@@ -391,7 +391,7 @@ export function CrmView() {
             operators={operators}
             stagesMap={stagesMap}
             operatorsMap={operatorsMap}
-            onDealClick={(d) => setSelectedDealForDetail(d)}
+            onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
             total={totalDeals}
             limit={listLimit}
             offset={listOffset}
@@ -428,28 +428,16 @@ export function CrmView() {
       <CreateDealDialog
         isOpen={isCreateDialogOpen}
         onClose={() => setIsCreateDialogOpen(false)}
-        onSuccess={() => {
+        onSuccess={(newDeal, createAnother) => {
           fetchDeals();
           fetchStagesSummary();
+          if (!createAnother) navigate({ to: "/crm/deals/$dealId", params: { dealId: newDeal.id }, search: { from: "crm" } });
         }}
         pipelines={pipelines}
         operators={operators}
         defaultPipelineId={selectedPipelineId}
         defaultStageId={createAtStageId}
         currentOperatorId={currentOperatorId}
-      />
-
-      {/* Modal de Detalhes da Negociação */}
-      <DealDetailModal
-        isOpen={!!selectedDealForDetail}
-        dealId={selectedDealForDetail?.id || null}
-        onClose={() => setSelectedDealForDetail(null)}
-        onDealUpdated={() => {
-          fetchDeals();
-          fetchStagesSummary();
-        }}
-        pipelineStages={activeStages}
-        operatorsMap={operatorsMap}
       />
 
       {/* Modal de Gestão de Funis e Etapas */}

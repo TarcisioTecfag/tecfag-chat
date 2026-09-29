@@ -15,8 +15,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateDealDialog } from "./CreateDealDialog";
-import { DealDetailModal } from "./DealDetailModal";
 import { useChat } from "@/hooks/useChatState";
+import { useNavigate } from "@tanstack/react-router";
 
 interface ConversationDealsPanelProps {
   conversationId: string;
@@ -30,12 +30,12 @@ export function ConversationDealsPanel({
   customerName,
 }: ConversationDealsPanelProps) {
   const { tenant, currentOperatorId } = useChat();
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [deals, setDeals] = useState<any[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isLinkingOpen, setIsLinkingOpen] = useState(false);
-  const [selectedDealForDetail, setSelectedDealForDetail] = useState<string | null>(null);
 
   // Dados para os modais
   const [pipelines, setPipelines] = useState<any[]>([]);
@@ -62,7 +62,7 @@ export function ConversationDealsPanel({
 
     fetch("/api/operators")
       .then((res) => (res.ok ? res.json() : { operators: [] }))
-      .then((data) => setOperators(data.operators || []))
+      .then((data) => setOperators(Array.isArray(data) ? data : data.operators || []))
       .catch(() => {});
   }, []);
 
@@ -160,9 +160,6 @@ export function ConversationDealsPanel({
     }
   };
 
-  const defaultPipeline = pipelines.find((p) => p.isDefault) || pipelines[0];
-  const allStages = defaultPipeline?.stages || [];
-  const operatorsMap = new Map<string, string>(operators.map((op: any) => [op.id, op.name]));
 
   return (
     <div className="space-y-3 bg-muted/40 p-3.5 rounded-2xl border border-line">
@@ -226,7 +223,7 @@ export function ConversationDealsPanel({
             return (
               <div
                 key={deal.id}
-                onClick={() => setSelectedDealForDetail(deal.id)}
+                onClick={() => navigate({ to: "/crm/deals/$dealId", params: { dealId: deal.id }, search: { from: "chat" } })}
                 className="group relative rounded-xl border border-border/80 bg-card p-2.5 shadow-xs hover:border-primary/40 transition-all cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-1">
@@ -338,7 +335,10 @@ export function ConversationDealsPanel({
       <CreateDealDialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        onSuccess={() => fetchLinkedDeals()}
+        onSuccess={(newDeal, createAnother) => {
+          fetchLinkedDeals();
+          if (!createAnother) navigate({ to: "/crm/deals/$dealId", params: { dealId: newDeal.id }, search: { from: "chat" } });
+        }}
         pipelines={pipelines}
         operators={operators}
         defaultContactId={contactId}
@@ -347,15 +347,6 @@ export function ConversationDealsPanel({
         currentOperatorId={currentOperatorId}
       />
 
-      {/* Modal de Detalhes da Negociação */}
-      <DealDetailModal
-        isOpen={!!selectedDealForDetail}
-        dealId={selectedDealForDetail}
-        onClose={() => setSelectedDealForDetail(null)}
-        onDealUpdated={() => fetchLinkedDeals()}
-        pipelineStages={allStages}
-        operatorsMap={operatorsMap}
-      />
     </div>
   );
 }

@@ -41,7 +41,6 @@ import {
   Download,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useChat } from "@/hooks/useChatState";
 import { AccountDetailModal } from "./AccountDetailModal";
 import {
   Select,
@@ -57,6 +56,7 @@ interface DealDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDealUpdated: (updatedDeal: any) => void;
+  onOpenConversation: (conversationId: string) => void;
   pipelineStages: Array<{ id: string; name: string; orderIndex: number }>;
   operatorsMap: Map<string, string>;
 }
@@ -66,16 +66,16 @@ export function DealDetailModal({
   isOpen,
   onClose,
   onDealUpdated,
+  onOpenConversation,
   pipelineStages,
   operatorsMap,
 }: DealDetailModalProps) {
-  const { setActiveView, setSelectedChatId } = useChat();
-
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [deal, setDeal] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<
     "history" | "tasks" | "conversations" | "evidence" | "products" | "files" | "questionnaires" | "emails"
-  >("products");
+  >("history");
 
   // Edição rápida de título e valor
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -98,7 +98,7 @@ export function DealDetailModal({
 
   // E-mails
   const [emailTo, setEmailTo] = useState("");
-  const [emailFrom, setEmailFrom] = useState("comercial@valem.com.br");
+  const [emailFrom, setEmailFrom] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [emailDirection, setEmailDirection] = useState<"outbound" | "inbound">("outbound");
@@ -149,6 +149,7 @@ export function DealDetailModal({
 
   // Sub-abas e ações de atividades
   const [tasksSubTab, setTasksSubTab] = useState<"pending" | "completed" | "cancelled" | "notes">("pending");
+  const [historyFilter, setHistoryFilter] = useState<"all" | "event" | "activity" | "proposal" | "evidence">("all");
   const [reschedulingActivityId, setReschedulingActivityId] = useState<string | null>(null);
   const [rescheduleDueDate, setRescheduleDueDate] = useState("");
   const [reschedulingLoading, setReschedulingLoading] = useState(false);
@@ -230,10 +231,12 @@ export function DealDetailModal({
   const loadDealDetail = async () => {
     if (!dealId) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`/api/crm/deals/${dealId}`);
       if (!res.ok) {
-        throw new Error("Não foi possível carregar a negociação.");
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Não foi possível carregar a negociação.");
       }
       const data = await res.json();
       setDeal(data.deal);
@@ -241,6 +244,7 @@ export function DealDetailModal({
       setEditValue(data.deal.value ? String(data.deal.value) : "");
     } catch (err: any) {
       console.error("[DealDetailModal] Erro ao carregar deal:", err);
+      setLoadError(err.message || "Erro ao carregar detalhes.");
       toast.error(err.message || "Erro ao carregar detalhes.");
     } finally {
       setLoading(false);
@@ -888,9 +892,7 @@ export function DealDetailModal({
 
   // Abrir conversa vinculada diretamente no chat
   const handleOpenConversation = (conversationId: string) => {
-    setSelectedChatId(conversationId);
-    setActiveView("chat");
-    onClose();
+    onOpenConversation(conversationId);
   };
 
   // Remover evidência comercial
@@ -1026,12 +1028,15 @@ export function DealDetailModal({
     items.sort((a, b) => b.date.getTime() - a.date.getTime());
     return items;
   }, [deal, operatorsMap]);
+  const filteredTimeline = historyFilter === "all"
+    ? unifiedTimeline
+    : unifiedTimeline.filter((item) => item.category === historyFilter);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="relative flex flex-col h-[90vh] w-full max-w-4xl rounded-2xl border border-border bg-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="crm-deal-detail bg-card">
+      <div className="relative flex flex-col min-h-[calc(100vh-42px)] w-full bg-card">
         {/* Cabeçalho */}
-        <div className="border-b border-border bg-muted/20 p-5">
+        <div className="border-b border-border bg-card px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
               {/* Título Editável */}
@@ -1061,17 +1066,20 @@ export function DealDetailModal({
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 group">
-                  <h2 className="text-base font-extrabold text-foreground truncate">
-                    {loading ? "Carregando negociação..." : deal?.title}
-                  </h2>
-                  <button
-                    onClick={() => setIsEditingTitle(true)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-                    title="Editar título"
-                  >
-                    <Edit2 className="h-3.5 w-3.5" />
-                  </button>
+                <div className="group">
+                  {!loading && deal?.account?.name && <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{deal.account.name}</p>}
+                  <div className="flex items-center gap-2">
+                    <h2 className="truncate text-xl font-extrabold text-foreground">
+                      {loading ? "Carregando negociação..." : deal?.title}
+                    </h2>
+                    <button
+                      onClick={() => setIsEditingTitle(true)}
+                      className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 cursor-pointer"
+                      title="Editar título"
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1387,7 +1395,7 @@ export function DealDetailModal({
 
           {/* Trilha de Etapas do Funil */}
           {!loading && deal && sortedStages.length > 0 && (
-            <div className="mt-4 flex items-center gap-1 overflow-x-auto pb-1">
+            <div className="crm-stage-track mt-5 flex items-center gap-1 overflow-x-auto pb-1">
               {sortedStages.map((stage, idx) => {
                 const isPassed = idx < currentStageIndex;
                 const isCurrent = stage.id === deal.stageId;
@@ -1395,7 +1403,7 @@ export function DealDetailModal({
                   <button
                     key={stage.id}
                     onClick={() => handleStageChange(stage.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    className={`crm-stage flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       isCurrent
                         ? "bg-primary text-primary-foreground shadow-sm"
                         : isPassed
@@ -1416,6 +1424,10 @@ export function DealDetailModal({
           {/* Bloco de Próxima Ação Comercial em Destaque */}
           {!loading && deal && (
             <div className="mt-3 pt-3 border-t border-border/60">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-xs font-bold text-foreground">Próximas tarefas</h3>
+                <Calendar className="h-4 w-4 text-primary" />
+              </div>
               {deal.nextTask ? (
                 <div
                   className={`flex flex-wrap items-center justify-between gap-3 rounded-xl p-3 border transition-colors ${
@@ -1510,7 +1522,7 @@ export function DealDetailModal({
                 <div className="flex items-center justify-between rounded-xl border border-dashed border-border/80 bg-muted/20 px-3.5 py-2 text-xs text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 text-muted-foreground/60 shrink-0" />
-                    <span>Nenhuma ação comercial pendente nesta negociação.</span>
+                    <span>Não existem tarefas pendentes para esta negociação.</span>
                   </div>
                   <button
                     type="button"
@@ -1522,7 +1534,7 @@ export function DealDetailModal({
                     className="flex items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
                   >
                     <Plus className="h-3 w-3" />
-                    <span>Agendar Tarefa</span>
+                    <span>Criar tarefa</span>
                   </button>
                 </div>
               )}
@@ -1535,14 +1547,20 @@ export function DealDetailModal({
           <div className="flex flex-1 items-center justify-center p-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
+        ) : loadError ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
+            <AlertCircle className="h-8 w-8 text-destructive" />
+            <p className="text-sm font-semibold text-foreground">{loadError}</p>
+            <button type="button" onClick={onClose} className="text-sm font-semibold text-primary hover:underline">Voltar ao CRM</button>
+          </div>
         ) : (
-          <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-1 min-h-0 max-lg:flex-col">
             {/* Painel Esquerdo: Dados do Comprador / Empresa */}
-            <div className="w-72 border-r border-border p-4 bg-muted/10 overflow-y-auto space-y-4">
+            <div className="crm-deal-sidebar flex w-80 shrink-0 flex-col gap-3 border-r border-border bg-muted/40 p-4 max-lg:w-full">
               {/* Card da Conta */}
-              <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+              <div className="crm-side-account rounded-xl border border-border bg-card p-3.5 space-y-3">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                  Cliente / Empresa
+                  Empresa
                 </span>
 
                 {deal?.account ? (
@@ -1625,10 +1643,17 @@ export function DealDetailModal({
               </div>
 
               {/* Informações Comerciais Editáveis */}
-              <div className="rounded-xl border border-border bg-card p-3.5 space-y-3">
+              <div className="crm-side-deal rounded-xl border border-border bg-card p-3.5 space-y-3">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                  Informações Comerciais
+                  Negociação
                 </span>
+
+                <dl className="space-y-2 border-b border-border/60 pb-3 text-[11px]">
+                  <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Nome</dt><dd className="max-w-[60%] truncate text-right font-semibold" title={deal?.title}>{deal?.title}</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Qualificação</dt><dd className="font-semibold">{deal?.rating ? `${deal.rating} / 5` : "—"}</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Valor total</dt><dd className="font-semibold">{formattedValue}</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Responsável</dt><dd className="max-w-[60%] truncate text-right font-semibold">{operatorsMap.get(deal?.operatorId || "") || "Não atribuído"}</dd></div>
+                </dl>
 
                 <div className="space-y-2.5 text-xs">
                   {/* Origem */}
@@ -1745,10 +1770,10 @@ export function DealDetailModal({
               </div>
 
               {/* Contatos Participantes */}
-              <div className="rounded-xl border border-border bg-card p-3.5 space-y-2.5">
+              <div className="crm-side-contacts rounded-xl border border-border bg-card p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                    Participantes ({deal?.contacts?.length || 0})
+                    Contatos ({deal?.contacts?.length || 0})
                   </span>
                   <button
                     type="button"
@@ -1849,9 +1874,18 @@ export function DealDetailModal({
             </div>
 
             {/* Painel Direito: Abas (Histórico, Tarefas, Conversas) */}
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 min-w-0 flex flex-col">
               {/* Barra de Abas */}
-              <div className="flex border-b border-border bg-muted/20 px-4">
+              <div className="crm-deal-tabs flex overflow-x-auto border-b border-border bg-card px-4">
+                <button
+                  onClick={() => setActiveTab("history")}
+                  className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === "history" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <History className="h-3.5 w-3.5" />
+                  <span>Histórico ({deal?.events?.length || 0})</span>
+                </button>
                 <button
                   onClick={() => setActiveTab("tasks")}
                   className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold transition-all cursor-pointer ${
@@ -1936,21 +1970,10 @@ export function DealDetailModal({
                   <span>E-mails ({deal?.emails?.length || 0})</span>
                 </button>
 
-                <button
-                  onClick={() => setActiveTab("history")}
-                  className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === "history"
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <History className="h-3.5 w-3.5" />
-                  <span>Histórico ({deal?.events?.length || 0})</span>
-                </button>
               </div>
 
               {/* Conteúdo da Aba */}
-              <div className="flex-1 overflow-y-auto p-5">
+              <div className="crm-deal-tab-content flex-1 p-5">
                 {/* ABA 1: TAREFAS & NOTAS */}
                 {activeTab === "tasks" && (
                   <div className="space-y-6">
@@ -2997,7 +3020,7 @@ export function DealDetailModal({
                                       <button
                                         type="button"
                                         onClick={() => handleUpdateProposalStatus(prop.id, "sent")}
-                                        className="h-7 px-2.5 rounded-lg bg-blue-600 text-xs font-bold text-white hover:bg-blue-700 cursor-pointer"
+                                        className="h-7 px-2.5 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
                                         title="Confirmar que a proposta foi efetivamente enviada ao cliente"
                                       >
                                         Confirmar Envio
@@ -3471,16 +3494,27 @@ export function DealDetailModal({
                 {/* ABA 5: HISTÓRICO UNIFICADO */}
                 {activeTab === "history" && (
                   <div className="space-y-4">
-                    <div className="border-b border-border/60 pb-2">
-                      <h4 className="text-xs font-bold text-foreground">Linha do Tempo Comercial</h4>
-                      <p className="text-[11px] text-muted-foreground">
-                        Histórico cronológico de mudanças de etapas, tarefas, notas, propostas e evidências deste negócio
-                      </p>
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
+                      <div>
+                        <h4 className="text-xs font-bold text-foreground">Histórico</h4>
+                        <p className="text-[11px] text-muted-foreground">Atividades e alterações desta negociação</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label htmlFor="crm-history-filter" className="text-[11px] font-semibold">Exibir</label>
+                        <select id="crm-history-filter" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value as typeof historyFilter)} className="h-8 rounded-md border border-border bg-card px-2 text-[11px]">
+                          <option value="all">Todos os eventos</option>
+                          <option value="event">Alterações</option>
+                          <option value="activity">Atividades</option>
+                          <option value="proposal">Propostas</option>
+                          <option value="evidence">Evidências</option>
+                        </select>
+                        <button type="button" onClick={() => { setNewActivityType("note"); setActiveTab("tasks"); }} className="inline-flex h-8 items-center gap-1 rounded-md bg-primary/10 px-2 text-[11px] font-bold text-primary hover:bg-primary/20"><Plus className="h-3 w-3" /> Criar anotação</button>
+                      </div>
                     </div>
 
-                    {unifiedTimeline.length > 0 ? (
-                      <div className="relative pl-6 border-l-2 border-border/70 space-y-4 pt-1">
-                        {unifiedTimeline.map((item: any) => {
+                    {filteredTimeline.length > 0 ? (
+                      <div className="crm-deal-timeline relative pl-6 border-l-2 border-border/70 space-y-4 pt-1">
+                        {filteredTimeline.map((item: any) => {
                           const IconComp =
                             item.iconType === "note"
                               ? FileText
@@ -3499,7 +3533,7 @@ export function DealDetailModal({
                                 <div className="h-1.5 w-1.5 rounded-full bg-primary" />
                               </div>
 
-                              <div className="rounded-xl border border-border/80 bg-card p-3 shadow-2xs space-y-1.5 hover:border-primary/40 transition-colors">
+                              <div className="crm-timeline-item rounded-xl border border-border/80 bg-card p-3 shadow-2xs space-y-1.5 hover:border-primary/40 transition-colors">
                                 <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
                                   <div className="flex items-center gap-2">
                                     <IconComp className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -3563,9 +3597,7 @@ export function DealDetailModal({
           onAccountUpdated={() => loadDealDetail()}
           onOpenChat={(convId) => {
             setIsAccountDetailOpen(false);
-            onClose();
-            setSelectedChatId?.(convId);
-            setActiveView?.("chat");
+            onOpenConversation(convId);
           }}
         />
       )}
