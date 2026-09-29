@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db/index.js";
-import { operators, conversations, internalMessages } from "../../db/schema.js";
+import { operators, conversations, internalMessages, accessGroups, platformAccounts } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import {
   requireSession,
@@ -8,6 +8,7 @@ import {
   revokeAllOperatorSessions,
 } from "../../lib/auth-session.js";
 import { hashPassword, needsPasswordMigration } from "../../lib/auth-crypto.js";
+import { revokeAccountSessions } from "../../lib/platform-access.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -103,8 +104,16 @@ export const Route = createFileRoute("/api/operators")({
 
           // Verificar se o operador já existe
           const existing = await db.query.operators.findFirst({
-            where: eq(operators.id, id),
+            where: and(eq(operators.id, id), eq(operators.tenantId, tenantId)),
           });
+          if (groupId) {
+            const group = await db.query.accessGroups.findFirst({
+              where: and(eq(accessGroups.id, groupId), eq(accessGroups.tenantId, tenantId)),
+            });
+            if (!group) return new Response(JSON.stringify({ error: "Grupo não encontrado neste tenant." }), {
+              status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
 
           // Tratar senha: se veio 'password' ou 'passwordHash' em texto simples, migrar para scrypt
           const incomingSecret = password || passwordHash;
@@ -116,6 +125,11 @@ export const Route = createFileRoute("/api/operators")({
           }
 
           if (existing) {
+            if (existing.accountId && existing.email !== email.trim().toLowerCase()) {
+              return new Response(JSON.stringify({ error: "O e-mail de uma conta multiempresa deve ser alterado pela gestão de acesso global." }), {
+                status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
             // SEGURANÇA: Impedir que um operador existente tenha seu tenant alterado!
             if (existing.tenantId !== tenantId) {
               return new Response(
@@ -137,7 +151,13 @@ export const Route = createFileRoute("/api/operators")({
             if (safePasswordHash) {
               updatePayload.passwordHash = safePasswordHash;
               // Revogar sessões antigas deste operador por segurança
-              await revokeAllOperatorSessions(existing.id);
+              if (existing.accountId) {
+                await db.update(platformAccounts).set({ passwordHash: safePasswordHash })
+                  .where(eq(platformAccounts.id, existing.accountId));
+                await revokeAccountSessions(existing.accountId);
+              } else {
+                await revokeAllOperatorSessions(existing.id);
+              }
             }
 
             await db
@@ -145,7 +165,9 @@ export const Route = createFileRoute("/api/operators")({
               .set(updatePayload)
               .where(and(eq(operators.id, id), eq(operators.tenantId, tenantId)));
 
-            const updatedOp = await db.query.operators.findFirst({ where: eq(operators.id, id) });
+            const updatedOp = await db.query.operators.findFirst({
+              where: and(eq(operators.id, id), eq(operators.tenantId, tenantId)),
+            });
             return new Response(
               JSON.stringify({ success: true, operator: sanitizeOperator(updatedOp) }),
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -174,7 +196,9 @@ export const Route = createFileRoute("/api/operators")({
               createdAt: new Date(),
             });
 
-            const createdOp = await db.query.operators.findFirst({ where: eq(operators.id, id) });
+            const createdOp = await db.query.operators.findFirst({
+              where: and(eq(operators.id, id), eq(operators.tenantId, tenantId)),
+            });
             return new Response(
               JSON.stringify({ success: true, operator: sanitizeOperator(createdOp) }),
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -223,6 +247,11 @@ export const Route = createFileRoute("/api/operators")({
               { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+          if (existing.accountId) {
+            return new Response(JSON.stringify({ error: "Remova o acesso multiempresa antes de excluir este operador." }), {
+              status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
 
           // Revogar todas as sessões do operador deletado
           await revokeAllOperatorSessions(existing.id);
@@ -241,7 +270,7 @@ export const Route = createFileRoute("/api/operators")({
           // Limpar internalMessages do operador
           await db
             .delete(internalMessages)
-            .where(eq(internalMessages.operatorId, id));
+            .where(and(eq(internalMessages.operatorId, id), eq(internalMessages.tenantId, tenantId)));
 
           await db
             .delete(operators)

@@ -81,6 +81,29 @@ export const accessGroups = pgTable("access_groups", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Autorizações entre empresas são globais; permissões de trabalho continuam em access_groups.
+export const platformAccessGroups = pgTable("platform_access_groups", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  allowedTenants: jsonb("allowed_tenants").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const platformAccessManagers = pgTable("platform_access_managers", {
+  email: text("email").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const platformAccounts = pgTable("platform_accounts", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  homeTenantId: text("home_tenant_id").references(() => tenants.id).notNull(),
+  groupId: text("group_id").references(() => platformAccessGroups.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── 2.6. SETORES (Sectors) ─────────────────────────────────────────────────
 export const sectors = pgTable("sectors", {
   id: text("id").primaryKey(),
@@ -94,6 +117,7 @@ export const sectors = pgTable("sectors", {
 export const operators = pgTable("operators", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  accountId: text("account_id").references(() => platformAccounts.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   email: text("email").notNull(),
   passwordHash: text("password_hash").notNull(),
@@ -103,7 +127,9 @@ export const operators = pgTable("operators", {
   groupId: text("group_id").references(() => accessGroups.id, { onDelete: "set null" }), // Referência para grupo de acesso/RBAC
   isOnline: boolean("is_online").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  accountTenantUnique: uniqueIndex("idx_operators_account_tenant_unique").on(table.accountId, table.tenantId).where(sql`account_id IS NOT NULL`),
+}));
 
 // ─── 3.5. SESSÕES DE AUTENTICAÇÃO DO SERVIDOR (HttpOnly Cookie Sessions) ──────
 export const authSessions = pgTable("auth_sessions", {

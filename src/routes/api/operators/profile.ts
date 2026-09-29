@@ -38,6 +38,16 @@ export const Route = createFileRoute("/api/operators/profile")({
           // Campos que um atendente pode alterar no próprio perfil.
           // role, groupId, tenantId, passwordHash são ignorados mesmo que enviados.
           const { name, email, avatar, status } = body;
+          if (email !== undefined && typeof email !== "string") {
+            return new Response(JSON.stringify({ error: "E-mail inválido." }), {
+              status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          if (session.accountId && email !== undefined && email.trim().toLowerCase() !== session.operator.email) {
+            return new Response(JSON.stringify({ error: "O e-mail de uma conta multiempresa não pode ser alterado no perfil local." }), {
+              status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
 
           if (!name && !email && !avatar && !status) {
             return new Response(
@@ -47,9 +57,9 @@ export const Route = createFileRoute("/api/operators/profile")({
           }
 
           // Construir objeto de atualização apenas com campos presentes
-          const updateFields: Record<string, any> = { updatedAt: new Date() };
+          const updateFields: Record<string, any> = {};
           if (name !== undefined) updateFields.name = name;
-          if (email !== undefined) updateFields.email = email;
+          if (email !== undefined) updateFields.email = email.trim().toLowerCase();
           if (avatar !== undefined) updateFields.avatar = avatar;
           if (status !== undefined) updateFields.status = status;
 

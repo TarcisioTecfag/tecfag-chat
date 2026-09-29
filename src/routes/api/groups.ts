@@ -81,7 +81,7 @@ export const Route = createFileRoute("/api/groups")({
           const safeAllowedTenants = [tenantId];
 
           const existing = await db.query.accessGroups.findFirst({
-            where: eq(accessGroups.id, id),
+            where: and(eq(accessGroups.id, id), eq(accessGroups.tenantId, tenantId)),
           });
 
           if (existing) {
@@ -130,7 +130,9 @@ export const Route = createFileRoute("/api/groups")({
             });
           }
 
-          const savedGroup = await db.query.accessGroups.findFirst({ where: eq(accessGroups.id, id) });
+          const savedGroup = await db.query.accessGroups.findFirst({
+            where: and(eq(accessGroups.id, id), eq(accessGroups.tenantId, tenantId)),
+          });
           return new Response(JSON.stringify(savedGroup), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });

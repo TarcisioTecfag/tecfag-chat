@@ -75,6 +75,7 @@ export type Sector = {
 type ChatContextType = {
   tenant: "tecfag" | "valem";
   setTenant: (tenant: "tecfag" | "valem") => void;
+  availableTenants: ("tecfag" | "valem")[];
   activeQueue: QueueType;
   setActiveQueue: (queue: QueueType) => void;
   selectedChatId: string | null;
@@ -184,6 +185,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return null;
   });
+  const [availableTenants, setAvailableTenants] = useState<("tecfag" | "valem")[]>([]);
+  const switchingTenantRef = useRef(false);
   const [activeQueue, setActiveQueue] = useState<QueueType>(() => {
     if (typeof window !== "undefined") {
       const savedQueue = localStorage.getItem("chat_active_queue");
@@ -259,6 +262,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     tenantRef.current = tenant;
   }, [tenant]);
 
+  // Cookies são compartilhados entre abas; todas precisam acompanhar a troca real de sessão.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "chat_tenant" && event.newValue !== tenantRef.current) {
+        window.location.reload();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   const [isClient, setIsClient] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
@@ -295,6 +309,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const activeTenant = data.tenantId || (data.operator.tenantId as "tecfag" | "valem") || null;
             if (activeTenant) {
               setTenantState(activeTenant);
+              setAvailableTenants(Array.isArray(data.availableTenants) ? data.availableTenants : [activeTenant]);
             }
             if (data.channelConfig?.activeProvider) {
               setActiveProvider(data.channelConfig.activeProvider);
@@ -449,7 +464,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const defaultAdminGroup: AccessGroup = {
     id: "group-admin",
     name: "Administradores",
-    allowedTenants: ["tecfag", "valem"],
+    allowedTenants: tenant ? [tenant] : [],
     allowedChannels: ["whatsapp", "instagram", "messenger", "livechat"],
     canCreateUser: true,
     canResetPassword: true,
@@ -692,39 +707,45 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const newGroup: AccessGroup = {
       ...groupData,
       id,
+      allowedTenants: tenant ? [tenant] : [],
     };
     
     // Update local state optimistically
     setAccessGroups((prev) => [...prev, newGroup]);
 
     try {
-      await fetch(`${BACKEND_URL}/api/groups`, {
+      const response = await fetch(`${BACKEND_URL}/api/groups`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newGroup, tenantId: tenant }),
+        body: JSON.stringify(newGroup),
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       toast.success("Grupo de acesso criado com sucesso!");
     } catch (err) {
       console.error("Erro ao criar grupo de acesso no DB:", err);
+      setAccessGroups((prev) => prev.filter((group) => group.id !== id));
       toast.error("Erro ao salvar grupo de acesso.");
     }
   };
 
   const updateAccessGroup = async (id: string, fields: Partial<AccessGroup>) => {
-    setAccessGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...fields } : g)));
+    const safeFields = { ...fields, allowedTenants: tenant ? [tenant] : [] };
+    setAccessGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...safeFields } : g)));
 
     const targetGroup = accessGroups.find((g) => g.id === id);
     if (targetGroup) {
       try {
-        await fetch(`${BACKEND_URL}/api/groups`, {
+        const response = await fetch(`${BACKEND_URL}/api/groups`, {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...targetGroup,
-            ...fields,
-            tenantId: tenant,
+            ...safeFields,
           }),
         });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
       } catch (err) {
         console.error("Erro ao atualizar grupo de acesso no DB:", err);
       }
@@ -1006,35 +1027,30 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentOperatorId, operators, isAuthenticated]);
 
-  const setTenant = (newTenant: "tecfag" | "valem") => {
-    if (currentGroup && !currentGroup.allowedTenants.includes(newTenant)) {
+  const setTenant = async (newTenant: "tecfag" | "valem") => {
+    if (newTenant === tenant) return;
+    if (switchingTenantRef.current) return;
+    if (!availableTenants.includes(newTenant)) {
       toast.error(`Acesso bloqueado: você não tem permissão para acessar o tenant ${newTenant.toUpperCase()}`);
       return;
     }
-    setTenantState(newTenant);
-    setActiveView("chat");
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("chat_tenant", newTenant);
-        localStorage.setItem("chat_active_view", "chat");
-      } catch (e) {
-        console.error("Erro ao persistir chat_tenant no localStorage:", e);
-      }
+    switchingTenantRef.current = true;
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/auth/switch-tenant`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: newTenant }),
+      });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Acesso negado.");
+      // Recarregar encerra conexões em tempo real e limpa estados do tenant anterior.
+      localStorage.setItem("chat_tenant", newTenant);
+      localStorage.setItem("chat_active_view", "chat");
+      localStorage.removeItem("rbac_operators");
+      window.location.reload();
+    } catch (error: any) {
+      toast.error(error?.message || "Não foi possível alternar a empresa.");
+    } finally {
+      switchingTenantRef.current = false;
     }
-    updateDocumentTitle(newTenant, activeProvider);
-
-    // Carrega o provedor ativo do novo tenant
-    fetch(`${BACKEND_URL}/api/settings/whatsapp`, { credentials: "include" })
-      .then((res) => res.json())
-      .then((channelData) => {
-        if (channelData?.activeProvider) {
-          setActiveProvider(channelData.activeProvider);
-          updateDocumentTitle(newTenant, channelData.activeProvider);
-        }
-      })
-      .catch(() => {});
-
-    toast.success(`Tenant alterado para ${newTenant === "tecfag" ? "Tecfag Chat" : "Valem Chat"}`);
   };
 
   // Carregar conversas persistidas no banco (Railway)
@@ -2735,6 +2751,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = await response.json();
         if (data.success && data.operator) {
           const matchedOp = data.operator;
+          setAvailableTenants(Array.isArray(data.availableTenants) ? data.availableTenants : [matchedOp.tenantId]);
 
           // Atualizar estado de operadores incluindo o operador logado sanitizado
           setOperators((prev) => {
@@ -2805,6 +2822,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsAuthenticated(false);
       setTenantState(null);
+      setAvailableTenants([]);
       setCurrentOperatorId("");
       setSelectedChatId(null);
       if (universalSseRef.current) {
@@ -2833,6 +2851,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         tenant: (tenant || "valem") as "tecfag" | "valem",
         setTenant,
+        availableTenants,
         activeQueue,
         setActiveQueue,
         selectedChatId,

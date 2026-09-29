@@ -3,6 +3,7 @@ import { authSessions, operators, accessGroups } from "../db/schema.js";
 import { eq, and, gt, isNull } from "drizzle-orm";
 import { generateSessionToken, hashSessionToken } from "./auth-crypto.js";
 import { DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "./rbac.js";
+import { getAvailableTenants } from "./platform-access.js";
 
 export const SESSION_COOKIE_NAME = "session_token";
 export const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
@@ -24,6 +25,8 @@ export interface AuthSessionContext {
   sessionId: string;
   tokenHash: string;
   tenantId: string;
+  accountId: string | null;
+  availableTenants: string[];
   operator: SanitizedOperator;
   accessGroup: any;
   permissions: any;
@@ -156,6 +159,11 @@ export async function getAuthSession(request: Request): Promise<AuthSessionConte
 
   if (!operatorRow) return null;
 
+  const availableTenants = operatorRow.accountId
+    ? await getAvailableTenants(operatorRow.accountId)
+    : [sessionRow.tenantId];
+  if (!availableTenants.includes(sessionRow.tenantId)) return null;
+
   // Carregar grupo de acesso e permissões
   let groupRow: any = null;
   if (operatorRow.groupId) {
@@ -191,6 +199,8 @@ export async function getAuthSession(request: Request): Promise<AuthSessionConte
     sessionId: sessionRow.id,
     tokenHash: sessionRow.tokenHash,
     tenantId: sessionRow.tenantId,
+    accountId: operatorRow.accountId,
+    availableTenants,
     operator: sanitizeOperator(operatorRow),
     accessGroup: currentGroup,
     permissions,

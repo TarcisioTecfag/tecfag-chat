@@ -21,13 +21,9 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 export function Sidebar() {
-  const { tenant, setTenant, activeView, setActiveView, operatorProfile, setIsProfileModalOpen, currentGroup } = useChat();
+  const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, setIsProfileModalOpen, currentGroup } = useChat();
   const { canAccessView } = usePermissions();
   const [showDropdown, setShowDropdown] = useState(false);
-
-  const toggleTenant = () => {
-    setTenant(tenant === "tecfag" ? "valem" : "tecfag");
-  };
 
   const navItems = [
     { id: "chat", icon: Users, label: "Chat" },
@@ -63,13 +59,13 @@ export function Sidebar() {
         {/* Tenant Switcher Logo */}
         <div className="relative">
           <motion.button
-            whileHover={currentGroup && currentGroup.allowedTenants.length > 1 ? { scale: 1.05 } : {}}
-            whileTap={currentGroup && currentGroup.allowedTenants.length > 1 ? { scale: 0.95 } : {}}
-            onClick={() => currentGroup && currentGroup.allowedTenants.length > 1 && setShowDropdown(!showDropdown)}
+            whileHover={availableTenants.length > 1 ? { scale: 1.05 } : {}}
+            whileTap={availableTenants.length > 1 ? { scale: 0.95 } : {}}
+            onClick={() => availableTenants.length > 1 && setShowDropdown(!showDropdown)}
             className={`group relative flex h-12 w-12 items-center justify-center rounded-2xl bg-card border border-border shadow-soft transition-all hover:border-primary ${
-              currentGroup && currentGroup.allowedTenants.length > 1 ? "cursor-pointer" : "cursor-default"
+              availableTenants.length > 1 ? "cursor-pointer" : "cursor-default"
             }`}
-            title={currentGroup && currentGroup.allowedTenants.length > 1 ? "Alternar Empresa" : `Empresa: ${tenant === "tecfag" ? "Tecfag" : "Valem"}`}
+            title={availableTenants.length > 1 ? "Alternar Empresa" : `Empresa: ${tenant === "tecfag" ? "Tecfag" : "Valem"}`}
           >
             <AnimatePresence mode="wait">
               <motion.img
@@ -83,7 +79,7 @@ export function Sidebar() {
                 className="h-10 w-10 rounded-xl object-cover"
               />
             </AnimatePresence>
-            {currentGroup && currentGroup.allowedTenants.length > 1 && (
+            {availableTenants.length > 1 && (
               <span className="absolute -bottom-1.5 right-0 grid h-4 w-4 place-items-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
                 <ChevronDown className="h-2.5 w-2.5" />
               </span>
@@ -92,7 +88,7 @@ export function Sidebar() {
 
           {/* Tenant Switcher Dropdown */}
           <AnimatePresence>
-            {showDropdown && currentGroup && currentGroup.allowedTenants.length > 1 && (
+            {showDropdown && availableTenants.length > 1 && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
                 <motion.div
@@ -105,7 +101,7 @@ export function Sidebar() {
                   <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Empresa Ativa
                   </div>
-                  {currentGroup.allowedTenants.includes("tecfag") && (
+                  {availableTenants.includes("tecfag") && (
                     <button
                       onClick={() => {
                         setTenant("tecfag");
@@ -122,11 +118,11 @@ export function Sidebar() {
                       />
                       <div>
                         <div>Tecfag Chat</div>
-                        <div className="text-[10px] font-normal text-muted-foreground">API Oficial Meta</div>
+                        <div className="text-[10px] font-normal text-muted-foreground">Abrir sistema Tecfag</div>
                       </div>
                     </button>
                   )}
-                  {currentGroup.allowedTenants.includes("valem") && (
+                  {availableTenants.includes("valem") && (
                     <button
                       onClick={() => {
                         setTenant("valem");
@@ -143,7 +139,7 @@ export function Sidebar() {
                       />
                       <div>
                         <div>Valem Chat</div>
-                        <div className="text-[10px] font-normal text-muted-foreground">Baileys API</div>
+                        <div className="text-[10px] font-normal text-muted-foreground">Abrir sistema Valem</div>
                       </div>
                     </button>
                   )}

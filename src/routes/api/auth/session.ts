@@ -3,6 +3,7 @@ import { getAuthSession } from "../../../lib/auth-session.js";
 import { db } from "../../../db/index.js";
 import { channelConfigs } from "../../../db/schema.js";
 import { eq } from "drizzle-orm";
+import { canManagePlatformAccess } from "../../../lib/platform-access.js";
 
 export const Route = createFileRoute("/api/auth/session")({
   server: {
@@ -41,6 +42,8 @@ export const Route = createFileRoute("/api/auth/session")({
             JSON.stringify({
               success: true,
               tenantId: session.tenantId,
+              availableTenants: session.availableTenants,
+              canManagePlatformAccess: await canManagePlatformAccess(session.operator).catch(() => false),
               operator: session.operator,
               permissions: session.permissions,
               accessGroup: {

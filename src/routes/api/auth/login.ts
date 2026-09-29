@@ -3,6 +3,8 @@ import { db } from "../../../db/index.js";
 import { operators } from "../../../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { verifyPassword, hashPassword, needsPasswordMigration } from "../../../lib/auth-crypto.js";
+import { getAvailableTenants, getPlatformMembership } from "../../../lib/platform-access.js";
+import { platformAccounts } from "../../../db/schema.js";
 import {
   createSession,
   buildSessionCookie,
@@ -75,8 +77,18 @@ export const Route = createFileRoute("/api/auth/login")({
             );
           }
 
+          const platformMembership = matchedOp.accountId
+            ? await getPlatformMembership(matchedOp.accountId, tenantId)
+            : null;
+          if (matchedOp.accountId && platformMembership?.operator.id !== matchedOp.id) {
+            recordFailedLogin(rateLimitKey);
+            return new Response(JSON.stringify({ success: false, error: "Credenciais inválidas. Tente novamente." }), {
+              status: 401, headers: { "Content-Type": "application/json" },
+            });
+          }
+          const storedHash = platformMembership?.account.passwordHash ?? matchedOp.passwordHash;
           // Validação segura com scrypt / timingSafeEqual
-          const isPasswordValid = verifyPassword(password, matchedOp.passwordHash);
+          const isPasswordValid = verifyPassword(password, storedHash);
           if (!isPasswordValid) {
             recordFailedLogin(rateLimitKey);
             return new Response(
@@ -89,12 +101,15 @@ export const Route = createFileRoute("/api/auth/login")({
           resetLoginRateLimit(rateLimitKey);
 
           // Migração suave de senha se ainda não estiver em scrypt
-          if (needsPasswordMigration(matchedOp.passwordHash)) {
+          if (needsPasswordMigration(storedHash)) {
             const upgradedHash = hashPassword(password);
-            await db
-              .update(operators)
-              .set({ passwordHash: upgradedHash })
-              .where(eq(operators.id, matchedOp.id));
+            if (platformMembership) {
+              await db.update(platformAccounts).set({ passwordHash: upgradedHash })
+                .where(eq(platformAccounts.id, platformMembership.account.id));
+            } else {
+              await db.update(operators).set({ passwordHash: upgradedHash })
+                .where(and(eq(operators.id, matchedOp.id), eq(operators.tenantId, tenantId)));
+            }
           }
 
           // Criar sessão de servidor segura
@@ -110,6 +125,9 @@ export const Route = createFileRoute("/api/auth/login")({
               success: true,
               operator: sanitized,
               tenantId: matchedOp.tenantId,
+              availableTenants: matchedOp.accountId
+                ? await getAvailableTenants(matchedOp.accountId)
+                : [matchedOp.tenantId],
             }),
             {
               status: 200,

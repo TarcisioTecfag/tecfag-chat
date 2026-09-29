@@ -120,14 +120,12 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
     setActiveView,
     logout,
     setTenant,
-    currentGroup,
+    availableTenants,
   } = useChat();
 
   const [showStatusMenu, setShowStatusMenu] = useState(false);
 
-  const canSwitchTenant = currentGroup
-    ? currentGroup.allowedTenants.includes("tecfag") && currentGroup.allowedTenants.includes("valem")
-    : true;
+  const canSwitchTenant = availableTenants.length > 1;
 
   const currentOp = operators.find((o) => o.id === currentOperatorId);
   const opName = operatorProfile?.name || currentOp?.name || "Operador";

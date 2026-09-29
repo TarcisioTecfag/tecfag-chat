@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireSession } from "../../lib/auth-session";
+import { getAuthSession, requireSession } from "../../lib/auth-session";
 import { SessionManager } from "../../lib/baileys/session-manager";
 
 export const Route = createFileRoute("/api/events")({
@@ -23,35 +23,37 @@ export const Route = createFileRoute("/api/events")({
               encoder.encode(`data: ${JSON.stringify({ type: "connected", tenantId, operatorId: session.operator.id })}\n\n`)
             );
 
-            // Listener de eventos do tenant
-            const onEvent = (data: any) => {
-              try {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-              } catch (e) {
-                // Stream possivelmente fechado pelo cliente
-              }
-            };
-
             const sessionManager = SessionManager.getInstance();
+            let heartbeatTimer: ReturnType<typeof setInterval>;
+            let closed = false;
+            const close = () => {
+              if (closed) return;
+              closed = true;
+              clearInterval(heartbeatTimer);
+              sessionManager.unregisterListener(tenantId, onEvent);
+              try { controller.close(); } catch {}
+            };
+            // Uma sessão revogada não recebe o próximo evento do tenant.
+            const onEvent = async (data: any) => {
+              try {
+                const stillAuthorized = await getAuthSession(request);
+                if (!stillAuthorized || stillAuthorized.tenantId !== tenantId) return close();
+                if (!closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+              } catch { close(); }
+            };
             sessionManager.registerListener(tenantId, onEvent);
 
             // Heartbeat a cada 15 segundos para evitar encerramento por proxies intermediários
-            const heartbeatTimer = setInterval(() => {
+            heartbeatTimer = setInterval(async () => {
               try {
-                controller.enqueue(encoder.encode(`: ping\n\n`));
-              } catch {
-                clearInterval(heartbeatTimer);
-              }
+                const stillAuthorized = await getAuthSession(request);
+                if (!stillAuthorized || stillAuthorized.tenantId !== tenantId) return close();
+                if (!closed) controller.enqueue(encoder.encode(`: ping\n\n`));
+              } catch { close(); }
             }, 15000);
 
             // Cleanup ao encerrar ou cancelar conexão
-            request.signal.addEventListener("abort", () => {
-              clearInterval(heartbeatTimer);
-              sessionManager.unregisterListener(tenantId, onEvent);
-              try {
-                controller.close();
-              } catch {}
-            });
+            request.signal.addEventListener("abort", close);
           },
         });
 

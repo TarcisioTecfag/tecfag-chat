@@ -51,6 +51,7 @@ import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/a
 import { Route as ApiSettingsWhatsappRouteImport } from './routes/api/settings/whatsapp'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
+import { Route as ApiPlatformAccessRouteImport } from './routes/api/platform/access'
 import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
 import { Route as ApiLivechatVisitorsRouteImport } from './routes/api/livechat/visitors'
 import { Route as ApiLivechatTrayConfigRouteImport } from './routes/api/livechat/tray-config'
@@ -90,6 +91,7 @@ import { Route as ApiBaileysPresenceRouteImport } from './routes/api/baileys/pre
 import { Route as ApiBaileysMediaRouteImport } from './routes/api/baileys/media'
 import { Route as ApiBaileysDisconnectRouteImport } from './routes/api/baileys/disconnect'
 import { Route as ApiBaileysConnectRouteImport } from './routes/api/baileys/connect'
+import { Route as ApiAuthSwitchTenantRouteImport } from './routes/api/auth/switch-tenant'
 import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
@@ -323,6 +325,11 @@ const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
   path: '/api/settings/rd-crm',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPlatformAccessRoute = ApiPlatformAccessRouteImport.update({
+  id: '/api/platform/access',
+  path: '/api/platform/access',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiOperatorsProfileRoute = ApiOperatorsProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
@@ -522,6 +529,11 @@ const ApiBaileysConnectRoute = ApiBaileysConnectRouteImport.update({
   path: '/api/baileys/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthSwitchTenantRoute = ApiAuthSwitchTenantRouteImport.update({
+  id: '/api/auth/switch-tenant',
+  path: '/api/auth/switch-tenant',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
   id: '/api/auth/session',
   path: '/api/auth/session',
@@ -668,6 +680,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
+  '/api/auth/switch-tenant': typeof ApiAuthSwitchTenantRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -707,6 +720,7 @@ export interface FileRoutesByFullPath {
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
+  '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
@@ -771,6 +785,7 @@ export interface FileRoutesByTo {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
+  '/api/auth/switch-tenant': typeof ApiAuthSwitchTenantRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -810,6 +825,7 @@ export interface FileRoutesByTo {
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
+  '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
@@ -875,6 +891,7 @@ export interface FileRoutesById {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
+  '/api/auth/switch-tenant': typeof ApiAuthSwitchTenantRoute
   '/api/baileys/connect': typeof ApiBaileysConnectRoute
   '/api/baileys/disconnect': typeof ApiBaileysDisconnectRoute
   '/api/baileys/media': typeof ApiBaileysMediaRoute
@@ -914,6 +931,7 @@ export interface FileRoutesById {
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
+  '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
@@ -980,6 +998,7 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/session'
+    | '/api/auth/switch-tenant'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -1019,6 +1038,7 @@ export interface FileRouteTypes {
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
     | '/api/operators/profile'
+    | '/api/platform/access'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
@@ -1083,6 +1103,7 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/session'
+    | '/api/auth/switch-tenant'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -1122,6 +1143,7 @@ export interface FileRouteTypes {
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
     | '/api/operators/profile'
+    | '/api/platform/access'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
@@ -1186,6 +1208,7 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/session'
+    | '/api/auth/switch-tenant'
     | '/api/baileys/connect'
     | '/api/baileys/disconnect'
     | '/api/baileys/media'
@@ -1225,6 +1248,7 @@ export interface FileRouteTypes {
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
     | '/api/operators/profile'
+    | '/api/platform/access'
     | '/api/settings/rd-crm'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
@@ -1290,6 +1314,7 @@ export interface RootRouteChildren {
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
+  ApiAuthSwitchTenantRoute: typeof ApiAuthSwitchTenantRoute
   ApiBaileysConnectRoute: typeof ApiBaileysConnectRoute
   ApiBaileysDisconnectRoute: typeof ApiBaileysDisconnectRoute
   ApiBaileysMediaRoute: typeof ApiBaileysMediaRoute
@@ -1322,6 +1347,7 @@ export interface RootRouteChildren {
   ApiLivechatMetricsRoute: typeof ApiLivechatMetricsRoute
   ApiLivechatTrayConfigRoute: typeof ApiLivechatTrayConfigRoute
   ApiLivechatVisitorsRoute: typeof ApiLivechatVisitorsRoute
+  ApiPlatformAccessRoute: typeof ApiPlatformAccessRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
   ApiSettingsWhatsappRoute: typeof ApiSettingsWhatsappRouteWithChildren
@@ -1636,6 +1662,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSettingsRdCrmRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/platform/access': {
+      id: '/api/platform/access'
+      path: '/api/platform/access'
+      fullPath: '/api/platform/access'
+      preLoaderRoute: typeof ApiPlatformAccessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/operators/profile': {
       id: '/api/operators/profile'
       path: '/profile'
@@ -1907,6 +1940,13 @@ declare module '@tanstack/react-router' {
       path: '/api/baileys/connect'
       fullPath: '/api/baileys/connect'
       preLoaderRoute: typeof ApiBaileysConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/switch-tenant': {
+      id: '/api/auth/switch-tenant'
+      path: '/api/auth/switch-tenant'
+      fullPath: '/api/auth/switch-tenant'
+      preLoaderRoute: typeof ApiAuthSwitchTenantRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/session': {
@@ -2213,6 +2253,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiAuthSessionRoute: ApiAuthSessionRoute,
+  ApiAuthSwitchTenantRoute: ApiAuthSwitchTenantRoute,
   ApiBaileysConnectRoute: ApiBaileysConnectRoute,
   ApiBaileysDisconnectRoute: ApiBaileysDisconnectRoute,
   ApiBaileysMediaRoute: ApiBaileysMediaRoute,
@@ -2245,6 +2286,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLivechatMetricsRoute: ApiLivechatMetricsRoute,
   ApiLivechatTrayConfigRoute: ApiLivechatTrayConfigRoute,
   ApiLivechatVisitorsRoute: ApiLivechatVisitorsRoute,
+  ApiPlatformAccessRoute: ApiPlatformAccessRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
   ApiSettingsWhatsappRoute: ApiSettingsWhatsappRouteWithChildren,

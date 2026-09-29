@@ -2,6 +2,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
+import { MultiTenantAccessPanel } from "./MultiTenantAccessPanel";
 
 interface OperatorWalletCardProps {
   op: Operator;
@@ -638,17 +639,13 @@ export function GroupsView() {
       toast.error("Por favor, preencha o nome do grupo.");
       return;
     }
-    if (groupForm.allowedTenants.length === 0) {
-      toast.error("Selecione pelo menos uma empresa permitida.");
-      return;
-    }
     if (groupForm.allowedChannels.length === 0) {
       toast.error("Selecione pelo menos um canal permitido.");
       return;
     }
     createAccessGroup({
       name: groupForm.name,
-      allowedTenants: groupForm.allowedTenants,
+      allowedTenants: [tenant],
       allowedChannels: groupForm.allowedChannels,
       canCreateUser: groupForm.canCreateUser,
       canResetPassword: groupForm.canResetPassword,
@@ -694,16 +691,6 @@ export function GroupsView() {
     createSector(sectorFormName);
     setSectorFormName("");
     setShowSectorForm(false);
-  };
-
-  const toggleTenantSelection = (tenant: "tecfag" | "valem") => {
-    setGroupForm(prev => {
-      const alreadySelected = prev.allowedTenants.includes(tenant);
-      const allowedTenants = alreadySelected
-        ? prev.allowedTenants.filter(t => t !== tenant)
-        : [...prev.allowedTenants, tenant];
-      return { ...prev, allowedTenants };
-    });
   };
 
   const toggleChannelSelection = (channel: "whatsapp" | "instagram" | "messenger") => {
@@ -817,9 +804,13 @@ export function GroupsView() {
   };
 
   const updateGroupPermission = (groupId: string, field: keyof AccessGroup, value: any) => {
+    if (field === "allowedTenants") {
+      toast.info("O acesso a outras empresas é configurado no grupo multiempresa acima.");
+      return;
+    }
     // Prevent removing admin permission entirely
-    if (groupId === "group-admin" && (field === "allowedTenants" || field === "allowedChannels") && value.length === 0) {
-      toast.warning("O grupo Administradores precisa ter acesso a pelo menos um tenant/canal.");
+    if (groupId === "group-admin" && field === "allowedChannels" && value.length === 0) {
+      toast.warning("O grupo Administradores precisa ter acesso a pelo menos um canal.");
       return;
     }
     updateAccessGroup(groupId, { [field]: value });
@@ -1142,6 +1133,7 @@ export function GroupsView() {
       ) : activeTab === "groups" ? (
         /* ACCESS GROUPS TAB */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <MultiTenantAccessPanel />
           
           {/* Left Column: Access Groups List */}
           <div className="lg:col-span-1 space-y-4">
@@ -1176,35 +1168,6 @@ export function GroupsView() {
                     placeholder="Ex: Comercial WhatsApp"
                     className="h-9 w-full rounded-xl bg-muted px-3 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent"
                   />
-                </div>
-
-                {/* Tenants Selectors */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">Empresas Permitidas</label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleTenantSelection("tecfag")}
-                      className={`flex-1 h-8 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
-                        groupForm.allowedTenants.includes("tecfag")
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-muted text-muted-foreground border-transparent hover:bg-border"
-                      }`}
-                    >
-                      Tecfag Chat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleTenantSelection("valem")}
-                      className={`flex-1 h-8 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
-                        groupForm.allowedTenants.includes("valem")
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-muted text-muted-foreground border-transparent hover:bg-border"
-                      }`}
-                    >
-                      Valem Chat
-                    </button>
-                  </div>
                 </div>
 
                 {/* Channels Selectors */}
@@ -1390,70 +1353,8 @@ export function GroupsView() {
                 {/* Blocos Granulares de Permissões */}
                 <div className="space-y-4 max-h-[calc(100vh-320px)] overflow-y-auto pr-1 scrollbar-thin">
 
-                  {/* ── Bloco 1: Boundary de Tenants ── */}
-                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => toggleSection("tenants")}
-                      className="w-full px-4 py-3 bg-muted/20 hover:bg-muted/40 flex items-center justify-between text-left transition"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-primary" />
-                        <span className="text-xs font-black uppercase tracking-wide text-foreground">Boundary de Tenants (Empresas)</span>
-                      </div>
-                      <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${openSections.tenants ? "rotate-180" : ""}`} />
-                    </button>
-
-                    {openSections.tenants && (
-                      <div className="p-4 space-y-3">
-                        <p className="text-[11px] text-muted-foreground">
-                          Determine quais empresas este grupo pode visualizar e alternar no topo do painel.
-                        </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div 
-                            onClick={() => {
-                              const alreadySelected = selectedGroupObj.allowedTenants.includes("tecfag");
-                              const allowedTenants = alreadySelected
-                                ? selectedGroupObj.allowedTenants.filter(t => t !== "tecfag")
-                                : [...selectedGroupObj.allowedTenants, "tecfag"];
-                              updateGroupPermission(selectedGroupId, "allowedTenants", allowedTenants);
-                            }}
-                            className={`rounded-xl p-3 border-2 transition cursor-pointer hover:bg-muted/10 flex items-center gap-3 ${
-                              selectedGroupObj.allowedTenants.includes("tecfag")
-                                ? "border-primary bg-primary-soft/5"
-                                : "border-border bg-card opacity-60"
-                            }`}
-                          >
-                            <img src="/logo_tecfag.png" alt="Tecfag" className="h-7 w-7 rounded-lg object-cover bg-white shrink-0" />
-                            <div>
-                              <span className="font-bold text-xs block text-foreground">Tecfag Chat</span>
-                              <span className="text-[10px] text-muted-foreground">Meta Cloud API (WhatsApp Oficial)</span>
-                            </div>
-                          </div>
-
-                          <div 
-                            onClick={() => {
-                              const alreadySelected = selectedGroupObj.allowedTenants.includes("valem");
-                              const allowedTenants = alreadySelected
-                                ? selectedGroupObj.allowedTenants.filter(t => t !== "valem")
-                                : [...selectedGroupObj.allowedTenants, "valem"];
-                              updateGroupPermission(selectedGroupId, "allowedTenants", allowedTenants);
-                            }}
-                            className={`rounded-xl p-3 border-2 transition cursor-pointer hover:bg-muted/10 flex items-center gap-3 ${
-                              selectedGroupObj.allowedTenants.includes("valem")
-                                ? "border-primary bg-primary-soft/5"
-                                : "border-border bg-card opacity-60"
-                            }`}
-                          >
-                            <img src="/logo_valem.jpg" alt="Valem" className="h-7 w-7 rounded-lg object-cover bg-white shrink-0" />
-                            <div>
-                              <span className="font-bold text-xs block text-foreground">Valem Chat</span>
-                              <span className="text-[10px] text-muted-foreground">Baileys API (WhatsApp Web)</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                  <div className="rounded-2xl border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
+                    Este grupo define permissões somente em {tenant === "tecfag" ? "Tecfag" : "Valem"}. O acesso às duas empresas é configurado em Acesso multiempresa acima.
                   </div>
 
                   {/* ── Bloco 2: Boundary de Canais ── */}
