@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { channelConfigs } from "../../../db/schema";
 import { eq } from "drizzle-orm";
+import { requireSession } from "../../../lib/auth-session";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,14 +16,18 @@ export const Route = createFileRoute("/api/settings/reports")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const tenantId = url.searchParams.get("tenantId");
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
 
-        if (!tenantId) {
-          return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+        const url = new URL(request.url);
+        const queryTenantId = url.searchParams.get("tenantId");
+        if (queryTenantId && queryTenantId !== tenantId) {
+          return new Response(
+            JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
         try {
@@ -37,7 +42,7 @@ export const Route = createFileRoute("/api/settings/reports")({
             });
           }
 
-          // Retorna apenas os campos pertinentes a relatórios e SMTP
+          // Retorna apenas os campos pertinentes a relatórios e SMTP (NUNCA devolve a senha em texto puro)
           const reportSettings = {
             reportDailyWhatsapp: config.reportDailyWhatsapp,
             reportDailyEmail: config.reportDailyEmail,
@@ -49,7 +54,8 @@ export const Route = createFileRoute("/api/settings/reports")({
             smtpHost: config.smtpHost || "",
             smtpPort: config.smtpPort || null,
             smtpUser: config.smtpUser || "",
-            smtpPass: config.smtpPass || "",
+            hasSmtpPass: Boolean(config.smtpPass),
+            smtpPass: "", // Senha nunca é exposta ao frontend por segurança
             smtpFrom: config.smtpFrom || "",
           };
 
@@ -66,10 +72,23 @@ export const Route = createFileRoute("/api/settings/reports")({
       },
 
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
+        // Gravação de configurações de SMTP e relatórios exige papel de administrador
+        if (session.operator.role !== "admin") {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores podem configurar SMTP e relatórios.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         try {
           const body = await request.json();
           const {
-            tenantId,
+            tenantId: bodyTenantId,
             reportDailyWhatsapp,
             reportDailyEmail,
             reportWeeklyWhatsapp,
@@ -84,31 +103,36 @@ export const Route = createFileRoute("/api/settings/reports")({
             smtpFrom
           } = body;
 
-          if (!tenantId) {
-            return new Response(JSON.stringify({ error: "tenantId é obrigatório" }), {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+          if (bodyTenantId && bodyTenantId !== tenantId) {
+            return new Response(
+              JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
-          // Atualiza as configurações no banco
+          // Se a senha não for informada no body (string vazia ou undefined), mantém a senha já gravada
+          const updateData: Record<string, any> = {
+            reportDailyWhatsapp: !!reportDailyWhatsapp,
+            reportDailyEmail: !!reportDailyEmail,
+            reportWeeklyWhatsapp: !!reportWeeklyWhatsapp,
+            reportWeeklyEmail: !!reportWeeklyEmail,
+            reportWhatsappNumbers: reportWhatsappNumbers || null,
+            reportEmailAddresses: reportEmailAddresses || null,
+            reportRequiresApproval: !!reportRequiresApproval,
+            smtpHost: smtpHost || null,
+            smtpPort: smtpPort ? parseInt(smtpPort) : null,
+            smtpUser: smtpUser || null,
+            smtpFrom: smtpFrom || null,
+            updatedAt: new Date(),
+          };
+
+          if (smtpPass && smtpPass.trim().length > 0) {
+            updateData.smtpPass = smtpPass.trim();
+          }
+
           await db
             .update(channelConfigs)
-            .set({
-              reportDailyWhatsapp: !!reportDailyWhatsapp,
-              reportDailyEmail: !!reportDailyEmail,
-              reportWeeklyWhatsapp: !!reportWeeklyWhatsapp,
-              reportWeeklyEmail: !!reportWeeklyEmail,
-              reportWhatsappNumbers: reportWhatsappNumbers || null,
-              reportEmailAddresses: reportEmailAddresses || null,
-              reportRequiresApproval: !!reportRequiresApproval,
-              smtpHost: smtpHost || null,
-              smtpPort: smtpPort ? parseInt(smtpPort) : null,
-              smtpUser: smtpUser || null,
-              smtpPass: smtpPass || null,
-              smtpFrom: smtpFrom || null,
-              updatedAt: new Date(),
-            })
+            .set(updateData)
             .where(eq(channelConfigs.tenantId, tenantId));
 
           return new Response(JSON.stringify({ success: true }), {
