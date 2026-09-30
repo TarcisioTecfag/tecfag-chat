@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AccountPicker } from "./AccountPicker";
+import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import type { CrmAccountDTO } from "../../lib/crm/crm-types";
 import {
   Select,
@@ -28,6 +29,7 @@ import {
 interface StageOption {
   id: string;
   name: string;
+  requiredFields?: string[];
 }
 
 interface PipelineOption {
@@ -124,6 +126,8 @@ export function CreateDealDialog({
   const [accountEmail, setAccountEmail] = useState("");
 
   const [note, setNote] = useState("");
+  const [dealCustomFields, setDealCustomFields] = useState<Record<string, unknown>>({});
+  const [accountCustomFields, setAccountCustomFields] = useState<Record<string, unknown>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -267,6 +271,7 @@ export function CreateDealDialog({
         contactId: selectedContactId || undefined,
         conversationId: defaultConversationId || undefined,
         initialNote: note.trim() || undefined,
+        customFields: dealCustomFields,
       };
 
       if (selectedAccount) {
@@ -279,6 +284,7 @@ export function CreateDealDialog({
           document: cleanDoc || undefined,
           phone: accountPhone.replace(/\D/g, "") || undefined,
           email: accountEmail.trim() || undefined,
+          customFields: accountCustomFields,
         };
       }
 
@@ -303,6 +309,8 @@ export function CreateDealDialog({
         setCampaign("");
         setNote("");
         setRating(3);
+        setDealCustomFields({});
+        setAccountCustomFields({});
         if (!defaultContactId) {
           setSelectedContactId("");
           setSelectedContactName("");
@@ -648,6 +656,10 @@ export function CreateDealDialog({
             )}
           </div>
 
+          {hasAccount && isCreatingNewAccount && (
+            <CustomFieldsEditor entity="company" values={accountCustomFields} onChange={setAccountCustomFields} create />
+          )}
+
           <div className="border-t border-border/60 pt-3 space-y-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Informações do contato</span>
             <label className="block text-xs font-bold text-foreground">Contato</label>
@@ -672,6 +684,9 @@ export function CreateDealDialog({
               </div>
             )}
           </div>
+
+          <CustomFieldsEditor entity="deal" pipelineId={pipelineId} values={dealCustomFields} onChange={setDealCustomFields}
+            requiredIds={stages.find((stage) => stage.id === stageId)?.requiredFields || []} create />
 
           {/* Anotação Inicial */}
           <div>

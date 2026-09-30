@@ -130,6 +130,7 @@ export function usePermissions() {
       case "whatsapp": return s.canManageWhatsapp;
       case "voz": return s.canManageVoiceSettings;
       case "rd": return s.canManageRdCrmSettings;
+      case "crm": return permissions.crm.canViewCrm;
       case "email": return s.canManageEmailSmtp;
       case "livechat": return s.canManageLiveChatSettings;
       default: return true;

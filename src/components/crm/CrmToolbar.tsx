@@ -58,6 +58,7 @@ interface CrmToolbarProps {
   onCreateContactClick: () => void;
   onCreateTaskClick: () => void;
   onManagePipelinesClick?: () => void;
+  onManageFieldsClick?: () => void;
 }
 
 export function CrmToolbar({
@@ -83,6 +84,7 @@ export function CrmToolbar({
   onCreateContactClick,
   onCreateTaskClick,
   onManagePipelinesClick,
+  onManageFieldsClick,
 }: CrmToolbarProps) {
   // Estado local para busca com debounce
   const [localSearch, setLocalSearch] = useState(searchQuery);
@@ -140,6 +142,14 @@ export function CrmToolbar({
                   className="flex h-8 w-8 items-center justify-center rounded-xl border border-border bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer"
                 >
                   <Settings2 className="h-3.5 w-3.5" />
+                </button>
+              </SystemTooltip>
+            )}
+            {onManageFieldsClick && (
+              <SystemTooltip content="Configurar campos de cadastro">
+                <button type="button" onClick={onManageFieldsClick} aria-label="Configurar campos de cadastro"
+                  className="flex h-8 items-center gap-1 rounded-xl border border-border bg-muted/30 px-2 text-xs font-semibold text-muted-foreground hover:text-foreground">
+                  <Settings2 className="h-3.5 w-3.5" /> Campos
                 </button>
               </SystemTooltip>
             )}

@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { contacts } from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -34,6 +35,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             cnpjDetails?: any;
             accountId?: string | null;
             accountChangeReason?: string;
+            customFields?: Record<string, unknown>;
           };
 
           // 1. Se alteração de cliente/conta compradora foi solicitada
@@ -57,6 +59,13 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           if ("cpf"   in body) updates.cpf   = body.cpf;
           if ("tags"  in body) updates.tags  = body.tags;
           if ("cnpjDetails" in body) updates.cnpjDetails = body.cnpjDetails;
+          if (body.customFields !== undefined) {
+            const [current] = await db.select({ customFields: contacts.customFields }).from(contacts)
+              .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId))).limit(1);
+            if (!current) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
+            const patch = validateFieldValues(await listCustomFields(session.tenantId, "contact"), body.customFields);
+            updates.customFields = { ...current.customFields, ...patch };
+          }
 
           if (Object.keys(updates).length > 0) {
             await db

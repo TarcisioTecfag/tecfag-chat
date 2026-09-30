@@ -21,7 +21,7 @@ export type ViewId =
 export type ValentinaTabId = "chat" | "sdr" | "rodizio" | "supervisor" | "vendedor" | "knowledge";
 export type MonitorTabId = "live" | "alerts" | "operators" | "audits" | "tasks" | "site";
 export type AnalyticsTabId = "overview" | "performance" | "sla" | "contacts" | "reports" | "costs";
-export type SettingsTabId = "whatsapp" | "voz" | "rd" | "email" | "livechat";
+export type SettingsTabId = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 export type LigacoesTabId = "dashboard" | "agenda" | "historico" | "clientes" | "campanhas" | "objetivos";
 
 // ── 10 Blocos Estruturados de Permissão ─────────────────────────────────────

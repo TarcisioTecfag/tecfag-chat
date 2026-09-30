@@ -17,6 +17,7 @@ export interface CrmAccountDTO {
   website?: string | null;
   address?: Record<string, any> | null;
   notes?: string | null;
+  customFields?: Record<string, unknown>;
 }
 
 export interface CrmDealContactDTO {
@@ -63,6 +64,7 @@ export interface CrmDealDTO {
   source?: string | null;
   campaign?: string | null;
   rating?: number | null;
+  customFields?: Record<string, unknown>;
   lossReason?: string | null;
   pausedReason?: string | null;
   version: number;

@@ -7,6 +7,7 @@ import { DealCardData } from "./DealCard";
 import { CreateDealDialog } from "./CreateDealDialog";
 import { CrmQuickCreateDialog, CrmQuickCreateKind } from "./CrmQuickCreateDialog";
 import { PipelineSettingsModal } from "./PipelineSettingsModal";
+import { CustomFieldsSettingsModal } from "./CustomFieldsSettingsModal";
 import { AdvancedFiltersModal, AdvancedFiltersState } from "./AdvancedFiltersModal";
 import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
@@ -25,6 +26,7 @@ export function CrmView() {
 
   // Modais de Configuração
   const [isPipelineSettingsOpen, setIsPipelineSettingsOpen] = useState(false);
+  const [isCustomFieldsSettingsOpen, setIsCustomFieldsSettingsOpen] = useState(false);
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
 
   // Filtros Globais Compartilhados entre Kanban e Lista
@@ -370,6 +372,7 @@ export function CrmView() {
         onCreateContactClick={() => setQuickCreateKind("contact")}
         onCreateTaskClick={() => setQuickCreateKind("task")}
         onManagePipelinesClick={() => setIsPipelineSettingsOpen(true)}
+        onManageFieldsClick={() => setIsCustomFieldsSettingsOpen(true)}
       />
 
       {/* Conteúdo Principal */}
@@ -492,6 +495,7 @@ export function CrmView() {
         }}
         selectedPipelineId={selectedPipelineId}
       />
+      <CustomFieldsSettingsModal isOpen={isCustomFieldsSettingsOpen} onClose={() => setIsCustomFieldsSettingsOpen(false)} />
     </div>
   );
 }

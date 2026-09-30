@@ -98,6 +98,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
             body.rating !== undefined ||
             body.source !== undefined ||
             body.campaign !== undefined
+            || body.customFields !== undefined
           ) {
             const editPerm = requireCrmPermission(session, "canEditDeals");
             if (editPerm) return editPerm;
@@ -119,6 +120,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
             lossReason: body.lossReason,
             pausedReason: body.pausedReason,
             expectedVersion: body.expectedVersion,
+            customFields: body.customFields,
           });
 
           return new Response(JSON.stringify({ deal: updated }), {

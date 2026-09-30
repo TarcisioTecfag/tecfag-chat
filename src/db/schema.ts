@@ -192,6 +192,7 @@ export const contacts = pgTable("contacts", {
   rdCrmDealId: text("rd_crm_deal_id"),
   rdCrmDealLink: text("rd_crm_deal_link"),
   cnpjDetails: jsonb("cnpj_details").default({}).notNull(),
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().default({}).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -676,6 +677,7 @@ export const crmProducts = pgTable("crm_products", {
   unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).default("0.00").notNull(),
   unit: text("unit").default("UN").notNull(), // 'UN' | 'MILHEIRO' | 'CX' | 'PC' | 'KG' | 'L'
   category: text("category"),
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().default({}).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -683,6 +685,26 @@ export const crmProducts = pgTable("crm_products", {
   tenantActiveIdx: index("idx_crm_products_tenant_active").on(table.tenantId, table.isActive),
   tenantSkuIdx: index("idx_crm_products_tenant_sku").on(table.tenantId, table.sku),
   tenantIdUniqIdx: uniqueIndex("idx_crm_products_tenant_id_uniq").on(table.tenantId, table.id),
+}));
+
+// Definições configuradas por administradores. Valores ficam no cadastro de cada entidade.
+export const crmCustomFieldDefinitions = pgTable("crm_custom_field_definitions", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  entityType: text("entity_type").notNull(), // deal | company | contact | product
+  name: text("name").notNull(),
+  fieldType: text("field_type").notNull(), // text | date | single | multiple | number | url
+  options: jsonb("options").$type<Array<{ id: string; label: string }>>().default([]).notNull(),
+  required: boolean("required").default(false).notNull(),
+  visibleOnCreate: boolean("visible_on_create").default(true).notNull(),
+  allPipelines: boolean("all_pipelines").default(true).notNull(),
+  pipelineIds: jsonb("pipeline_ids").$type<string[]>().default([]).notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  archivedAt: timestamp("archived_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantEntityOrderIdx: index("idx_crm_custom_fields_tenant_entity_order").on(table.tenantId, table.entityType, table.sortOrder),
 }));
 
 // ─── 14.12. ITENS / PRODUTOS DA NEGOCIAÇÃO ───────────────────────────────────

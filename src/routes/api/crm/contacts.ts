@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { db } from "../../../db";
 import { contacts } from "../../../db/schema";
+import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
 
@@ -83,6 +84,7 @@ export const Route = createFileRoute("/api/crm/contacts")({
         }
 
         try {
+          const customFields = validateFieldValues(await listCustomFields(tenantId, "contact"), input.customFields, { requireOnCreate: true });
           const [contact] = await db
             .insert(contacts)
             .values({
@@ -92,6 +94,7 @@ export const Route = createFileRoute("/api/crm/contacts")({
               phone: phone || null,
               email: email || null,
               mainChannel: "whatsapp",
+              customFields,
             })
             .returning({
               id: contacts.id,
@@ -101,6 +104,7 @@ export const Route = createFileRoute("/api/crm/contacts")({
             });
           return Response.json({ contact }, { status: 201 });
         } catch (error) {
+          if (error instanceof Error && "statusCode" in error) return Response.json({ error: error.message }, { status: 400 });
           console.error("[CRM Contacts API] Erro ao criar contato:", error);
           return Response.json({ error: "Não foi possível criar o contato." }, { status: 500 });
         }

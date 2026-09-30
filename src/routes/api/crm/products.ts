@@ -74,6 +74,7 @@ export const Route = createFileRoute("/api/crm/products")({
             unit: body.unit,
             category: body.category,
             isActive: body.isActive,
+            customFields: body.customFields,
           });
 
           return new Response(JSON.stringify({ product }), {

@@ -8,8 +8,9 @@ import {
 import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/ConfiguracaoTab";
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
 import { usePermissions } from "@/hooks/usePermissions";
+import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
 
-type SettingsTab = "whatsapp" | "voz" | "rd" | "email" | "livechat";
+type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 
 export function SettingsView() {
   const {
@@ -22,6 +23,7 @@ export function SettingsView() {
   } = useChat();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("whatsapp");
+  const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
 
   const [metaForm, setMetaForm] = useState({ ...metaConfig });
   const [isSaved, setIsSaved] = useState(false);
@@ -392,6 +394,7 @@ export function SettingsView() {
     { id: "whatsapp" as const, label: "WhatsApp (Meta / Baileys)", icon: Smartphone },
     { id: "voz" as const, label: "Voz & Telefonia (Valentina)", icon: PhoneCall },
     { id: "rd" as const, label: "RD Station CRM", icon: Link },
+    { id: "crm" as const, label: "Campos do CRM", icon: FileText },
     { id: "email" as const, label: "E-mail & Automações", icon: Mail },
     { id: "livechat" as const, label: "Live Chat (Site)", icon: Globe },
   ];
@@ -905,6 +908,16 @@ export function SettingsView() {
           </div>
         )}
 
+        {activeTab === "crm" && (
+          <div className="max-w-4xl rounded-2xl border border-border bg-card p-6 shadow-soft">
+            <h3 className="text-base font-bold text-foreground">Campos de cadastro do CRM</h3>
+            <p className="mt-2 text-xs text-muted-foreground">Organize os campos de negociações, empresas, contatos e produtos. Administradores podem criar, editar e arquivar campos.</p>
+            <button type="button" onClick={() => setCustomFieldsOpen(true)} className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground">
+              Configurar campos de cadastro
+            </button>
+          </div>
+        )}
+
         {/* ABA 4: E-MAIL & AUTOMATION (PREFERÊNCIAS DE ENVIO REDESENHADAS) */}
         {activeTab === "email" && (
           <div className="space-y-6 max-w-5xl">
@@ -1253,6 +1266,7 @@ export function SettingsView() {
         {/* ABA 5: LIVE CHAT */}
         {activeTab === "livechat" && <LiveChatSettingsTab />}
       </div>
+      <CustomFieldsSettingsModal isOpen={customFieldsOpen} onClose={() => setCustomFieldsOpen(false)} />
     </section>
   );
 }

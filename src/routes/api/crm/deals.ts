@@ -138,6 +138,7 @@ export const Route = createFileRoute("/api/crm/deals")({
             contactId: body.contactId,
             conversationId: body.conversationId,
             initialNote: body.initialNote,
+            customFields: body.customFields,
           });
 
           return new Response(JSON.stringify({ deal }), {

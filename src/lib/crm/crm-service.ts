@@ -42,6 +42,7 @@ import type {
   CrmDealEmail,
 } from "../../db/schema";
 import { vertexAi } from "../vertex-ai";
+import { listCustomFields, missingStageFields, validateFieldValues, type CustomFieldValues } from "./custom-fields";
 
 /**
  * Normaliza documento (CPF ou CNPJ) mantendo estritamente dígitos.
@@ -125,6 +126,12 @@ export class CrmConcurrencyError extends CrmError {
 }
 
 export function handleCrmError(err: any, corsHeaders: Record<string, string> = {}): Response {
+  if (err?.statusCode && err?.code) {
+    return new Response(JSON.stringify({ error: err.message, code: err.code }), {
+      status: err.statusCode,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
   if (err instanceof CrmError) {
     return new Response(JSON.stringify({ error: err.message, code: err.code }), {
       status: err.statusCode,
@@ -646,7 +653,15 @@ export class CrmService {
     if (updates.orderIndex !== undefined) setPayload.orderIndex = updates.orderIndex;
     if (updates.isWinStage !== undefined) setPayload.isWinStage = updates.isWinStage;
     if (updates.isLossStage !== undefined) setPayload.isLossStage = updates.isLossStage;
-    if (updates.requiredFields !== undefined) setPayload.requiredFields = updates.requiredFields;
+    if (updates.requiredFields !== undefined) {
+      if (!Array.isArray(updates.requiredFields) || updates.requiredFields.some((id) => typeof id !== "string")) {
+        throw new CrmValidationError("Lista de campos obrigatórios inválida.");
+      }
+      const definitions = await listCustomFields(tenantId, "deal");
+      const allowed = new Set(definitions.filter((field) => field.allPipelines || field.pipelineIds.includes(existing.pipelineId)).map((field) => field.id));
+      if (updates.requiredFields.some((id) => !allowed.has(id))) throw new CrmValidationError("Campo obrigatório inválido para este funil.");
+      setPayload.requiredFields = [...new Set(updates.requiredFields)];
+    }
 
     const [updated] = await db
       .update(crmStages)
@@ -959,6 +974,7 @@ export class CrmService {
       validateDocument(accountType, cleanDoc);
     }
     const accountId = `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const accountFields = validateFieldValues(await listCustomFields(tenantId, "company"), data.customFields, { requireOnCreate: true });
 
     const [account] = await db
       .insert(crmAccounts)
@@ -974,7 +990,7 @@ export class CrmService {
         phone: data.phone?.trim() || null,
         website: data.website?.trim() || null,
         address: data.address || {},
-        customFields: data.customFields || {},
+        customFields: accountFields,
         notes: data.notes?.trim() || null,
         rdOrganizationId: data.rdOrganizationId || null,
         createdAt: new Date(),
@@ -1190,7 +1206,10 @@ export class CrmService {
     if (data.phone !== undefined) updates.phone = data.phone ? normalizeDocument(data.phone) : null;
     if (data.website !== undefined) updates.website = data.website?.trim() || null;
     if (data.address !== undefined) updates.address = data.address || {};
-    if (data.customFields !== undefined) updates.customFields = data.customFields || {};
+    if (data.customFields !== undefined) {
+      const patch = validateFieldValues(await listCustomFields(tenantId, "company"), data.customFields);
+      updates.customFields = { ...(current.customFields as Record<string, unknown>), ...patch };
+    }
     if (data.notes !== undefined) updates.notes = data.notes?.trim() || null;
 
     if (data.document !== undefined) {
@@ -2412,6 +2431,7 @@ export class CrmService {
         document?: string | null;
         phone?: string | null;
         email?: string | null;
+        customFields?: CustomFieldValues;
       } | null;
       value?: string | number | null;
       currency?: string;
@@ -2424,6 +2444,7 @@ export class CrmService {
       contactId?: string; // Contato principal a associar
       conversationId?: string; // Conversa de origem
       initialNote?: string | null;
+      customFields?: CustomFieldValues;
     }
   ): Promise<CrmDeal> {
     if (!data.title || !data.title.trim()) {
@@ -2447,7 +2468,7 @@ export class CrmService {
 
       // 2. Validação estrita da Etapa no tenant E pertencimento ao Funil selecionado
       const [stage] = await tx
-        .select({ id: crmStages.id, pipelineId: crmStages.pipelineId })
+        .select({ id: crmStages.id, pipelineId: crmStages.pipelineId, requiredFields: crmStages.requiredFields })
         .from(crmStages)
         .where(and(eq(crmStages.id, data.stageId), eq(crmStages.tenantId, tenantId)))
         .limit(1);
@@ -2462,6 +2483,13 @@ export class CrmService {
           "STAGE_NOT_IN_PIPELINE"
         );
       }
+
+      const dealFieldDefinitions = await listCustomFields(tenantId, "deal", tx);
+      const dealCustomFields = validateFieldValues(dealFieldDefinitions, data.customFields, {
+        pipelineId: data.pipelineId, requireOnCreate: true,
+      });
+      const missingInitialFields = missingStageFields(stage.requiredFields, dealFieldDefinitions, dealCustomFields, data.pipelineId);
+      if (missingInitialFields.length) throw new CrmValidationError(`Preencha os campos exigidos pela etapa inicial: ${missingInitialFields.join(", ")}.`, "REQUIRED_STAGE_FIELDS");
 
       const now = new Date();
       let targetAccountId: string | null = data.accountId || null;
@@ -2493,6 +2521,9 @@ export class CrmService {
         }
 
         if (!targetAccountId) {
+          const companyCustomFields = validateFieldValues(
+            await listCustomFields(tenantId, "company", tx), data.account.customFields, { requireOnCreate: true },
+          );
           const newAccId = `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
           const [createdAcc] = await tx
             .insert(crmAccounts)
@@ -2507,7 +2538,7 @@ export class CrmService {
               phone: data.account.phone ? normalizeDocument(data.account.phone) : null,
               email: data.account.email?.trim() || null,
               address: {},
-              customFields: {},
+              customFields: companyCustomFields,
               createdAt: now,
               updatedAt: now,
             })
@@ -2596,6 +2627,7 @@ export class CrmService {
           source: data.source || "manual",
           campaign: data.campaign || null,
           rating: data.rating ?? 0,
+          customFields: dealCustomFields,
           version: 1,
           lastActivityAt: now,
           createdAt: now,
@@ -2702,6 +2734,7 @@ export class CrmService {
       lossReason?: string | null;
       pausedReason?: string | null;
       expectedVersion?: number;
+      customFields?: CustomFieldValues;
     }
   ): Promise<CrmDeal> {
     return await db.transaction(async (tx) => {
@@ -2746,6 +2779,12 @@ export class CrmService {
       if (updates.campaign !== undefined) setPayload.campaign = updates.campaign ? updates.campaign.trim() : null;
       if (updates.lossReason !== undefined) setPayload.lossReason = updates.lossReason;
       if (updates.pausedReason !== undefined) setPayload.pausedReason = updates.pausedReason;
+      const dealFields = updates.customFields !== undefined || updates.stageId !== undefined
+        ? await listCustomFields(tenantId, "deal", tx) : [];
+      if (updates.customFields !== undefined) {
+        const patch = validateFieldValues(dealFields, updates.customFields, { pipelineId: current.pipelineId });
+        setPayload.customFields = { ...(current.customFields as CustomFieldValues), ...patch };
+      }
 
       // Validação de operador se alterado
       const targetOpId = updates.operatorId !== undefined ? updates.operatorId : updates.ownerId;
@@ -2789,6 +2828,7 @@ export class CrmService {
             pipelineId: crmStages.pipelineId,
             isWinStage: crmStages.isWinStage,
             isLossStage: crmStages.isLossStage,
+            requiredFields: crmStages.requiredFields,
           })
           .from(crmStages)
           .where(and(eq(crmStages.id, updates.stageId!), eq(crmStages.tenantId, tenantId)))
@@ -2804,6 +2844,14 @@ export class CrmService {
             "STAGE_NOT_IN_PIPELINE"
           );
         }
+
+        const missing = missingStageFields(
+          stage.requiredFields,
+          dealFields,
+          (setPayload.customFields ?? current.customFields) as CustomFieldValues,
+          current.pipelineId,
+        );
+        if (missing.length) throw new CrmValidationError(`Preencha os campos exigidos pela etapa: ${missing.join(", ")}.`, "REQUIRED_STAGE_FIELDS");
 
         setPayload.stageId = updates.stageId;
         setPayload.lastActivityAt = now;
@@ -2914,6 +2962,7 @@ export class CrmService {
 
       // 2. Se stageId informado, valida se a etapa pertence ao mesmo funil de cada deal
       let targetStage: CrmStage | null = null;
+      let targetStageFields: Awaited<ReturnType<typeof listCustomFields>> = [];
       if (params.stageId) {
         const [stg] = await tx
           .select()
@@ -2925,6 +2974,7 @@ export class CrmService {
           throw new CrmCrossTenantError(`A etapa (${params.stageId}) não pertence ao tenant.`);
         }
         targetStage = stg;
+        targetStageFields = await listCustomFields(tenantId, "deal", tx);
       }
 
       // 3. Se operatorId informado, valida operador no tenant
@@ -2956,6 +3006,10 @@ export class CrmService {
               `A negociação '${deal.title}' pertence a outro funil (${deal.pipelineId}) e não pode ser movida para a etapa de funil distinto (${targetStage.pipelineId}).`,
               "STAGE_PIPELINE_MISMATCH"
             );
+          }
+          if (deal.stageId !== params.stageId) {
+            const missing = missingStageFields(targetStage.requiredFields, targetStageFields, deal.customFields as CustomFieldValues, deal.pipelineId);
+            if (missing.length) throw new CrmValidationError(`A negociação '${deal.title}' precisa preencher: ${missing.join(", ")}.`, "REQUIRED_STAGE_FIELDS");
           }
           setPayload.stageId = params.stageId;
         }
@@ -3831,11 +3885,13 @@ export class CrmService {
       unit?: string;
       category?: string | null;
       isActive?: boolean;
+      customFields?: CustomFieldValues;
     }
   ): Promise<CrmProduct> {
     const id = `prod-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date();
     const price = typeof data.unitPrice === "number" ? data.unitPrice.toFixed(2) : (data.unitPrice || "0.00");
+    const customFields = validateFieldValues(await listCustomFields(tenantId, "product"), data.customFields, { requireOnCreate: true });
 
     const [product] = await db
       .insert(crmProducts)
@@ -3848,6 +3904,7 @@ export class CrmService {
         unitPrice: price,
         unit: data.unit || "UN",
         category: data.category?.trim() || null,
+        customFields,
         isActive: data.isActive !== undefined ? data.isActive : true,
         createdAt: now,
         updatedAt: now,
@@ -3871,6 +3928,7 @@ export class CrmService {
       unit: string;
       category: string | null;
       isActive: boolean;
+      customFields: CustomFieldValues;
     }>
   ): Promise<CrmProduct> {
     const updates: Record<string, any> = { updatedAt: new Date() };
@@ -3884,6 +3942,13 @@ export class CrmService {
     if (data.unit !== undefined) updates.unit = data.unit;
     if (data.category !== undefined) updates.category = data.category?.trim() || null;
     if (data.isActive !== undefined) updates.isActive = data.isActive;
+    if (data.customFields !== undefined) {
+      const [current] = await db.select({ customFields: crmProducts.customFields }).from(crmProducts)
+        .where(and(eq(crmProducts.id, productId), eq(crmProducts.tenantId, tenantId))).limit(1);
+      if (!current) throw new CrmNotFoundError("Produto não encontrado.");
+      const patch = validateFieldValues(await listCustomFields(tenantId, "product"), data.customFields);
+      updates.customFields = { ...current.customFields, ...patch };
+    }
 
     const [updated] = await db
       .update(crmProducts)

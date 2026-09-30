@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
+import { CustomFieldsEditor } from "./CustomFieldsEditor";
 
 export type CrmQuickCreateKind = "company" | "contact" | "task";
 
@@ -49,6 +50,7 @@ export function CrmQuickCreateDialog({
   const [selectedDeal, setSelectedDeal] = useState<DealOption | null>(null);
   const [searchingDeals, setSearchingDeals] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
 
   useEffect(() => {
     if (!kind) return;
@@ -64,6 +66,7 @@ export function CrmQuickCreateDialog({
     setSelectedDeal(null);
     setDealOptions([]);
     setSaving(false);
+    setCustomFields({});
   }, [kind, currentOperatorId]);
 
   useEffect(() => {
@@ -115,12 +118,14 @@ export function CrmQuickCreateDialog({
               document: document.trim() || undefined,
               phone: phone.trim() || undefined,
               email: email.trim() || undefined,
+              customFields,
             }
           : kind === "contact"
             ? {
                 name: name.trim(),
                 phone: phone.trim() || undefined,
                 email: email.trim() || undefined,
+                customFields,
               }
             : {
                 type: "task",
@@ -267,6 +272,9 @@ export function CrmQuickCreateDialog({
                 />
               </div>
             </div>
+          )}
+          {(kind === "company" || kind === "contact") && (
+            <CustomFieldsEditor entity={kind} values={customFields} onChange={setCustomFields} create />
           )}
           {kind === "task" && (
             <>

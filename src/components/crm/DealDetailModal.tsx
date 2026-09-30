@@ -42,6 +42,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AccountDetailModal } from "./AccountDetailModal";
+import { CustomFieldsEditor, CustomFieldsSummary, changedCustomFieldValues } from "./CustomFieldsEditor";
+import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
 import {
   Select,
   SelectContent,
@@ -74,6 +76,8 @@ export function DealDetailModal({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deal, setDeal] = useState<any>(null);
+  const [customFieldDraft, setCustomFieldDraft] = useState<Record<string, unknown>>({});
+  useEffect(() => { setCustomFieldDraft((deal?.customFields || {}) as Record<string, unknown>); }, [deal?.id, deal?.customFields]);
   const [activeTab, setActiveTab] = useState<
     "history" | "tasks" | "conversations" | "evidence" | "products" | "files" | "questionnaires" | "emails"
   >("history");
@@ -1615,6 +1619,7 @@ export function DealDetailModal({
                         {deal.account.address.city}{deal.account.address.state ? ` - ${deal.account.address.state}` : ""}
                       </div>
                     )}
+                    <CustomFieldsSummary entity="company" values={deal.account.customFields || {}} />
                   </div>
                 ) : (
                   <div className="text-xs text-muted-foreground/60 italic py-2">
@@ -1748,6 +1753,13 @@ export function DealDetailModal({
                     </div>
                   </div>
                 </div>
+                <CustomFieldsEditor entity="deal" pipelineId={deal?.pipelineId} values={customFieldDraft} onChange={setCustomFieldDraft} />
+                {JSON.stringify(customFieldDraft) !== JSON.stringify(deal?.customFields || {}) && (
+                  <button type="button" onClick={() => updateDeal({ customFields: changedCustomFieldValues(deal?.customFields || {}, customFieldDraft) })}
+                    className="w-full rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:opacity-90">
+                    Salvar campos personalizados
+                  </button>
+                )}
               </div>
 
               {/* Contatos Participantes */}
@@ -1846,6 +1858,7 @@ export function DealDetailModal({
                           </button>
                         )}
                       </div>
+                      <ContactCustomFieldsCard contactId={c.contactId} />
                     </div>
                   ))
                 ) : (

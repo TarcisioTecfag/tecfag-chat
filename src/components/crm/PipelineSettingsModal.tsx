@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useCustomFields } from "./CustomFieldsEditor";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -29,6 +30,7 @@ interface StageItem {
   orderIndex: number;
   isWinStage: boolean;
   isLossStage: boolean;
+  requiredFields: string[];
 }
 
 interface PipelineItem {
@@ -60,6 +62,7 @@ interface StageDraft {
   coolingDays: number;
   isWinStage: boolean;
   isLossStage: boolean;
+  requiredFields: string[];
 }
 
 interface PipelineDraft {
@@ -98,6 +101,7 @@ export function PipelineSettingsModal({
   const [busy, setBusy] = useState(false);
   const [pipelineDraft, setPipelineDraft] = useState<PipelineDraft | null>(null);
   const [stageDraft, setStageDraft] = useState<StageDraft | null>(null);
+  const { fields: dealCustomFields } = useCustomFields("deal", isOpen);
   const [addingStageTo, setAddingStageTo] = useState<string | null>(null);
   const [newStageName, setNewStageName] = useState("");
   const [selectedStages, setSelectedStages] = useState<string[]>([]);
@@ -160,6 +164,7 @@ export function PipelineSettingsModal({
       coolingDays: settings?.coolingDays ?? pipeline.coolingDays,
       isWinStage: stage.isWinStage,
       isLossStage: stage.isLossStage,
+      requiredFields: stage.requiredFields || [],
     });
   };
 
@@ -215,6 +220,7 @@ export function PipelineSettingsModal({
           name: draft.name.trim(),
           isWinStage: draft.isWinStage,
           isLossStage: draft.isLossStage,
+          requiredFields: draft.requiredFields,
         }),
       );
     }, "Etapa atualizada.");
@@ -788,6 +794,21 @@ export function PipelineSettingsModal({
                       />
                     </label>
                   )}
+                </div>
+                <div className="space-y-3 rounded-xl border border-border p-3">
+                  <p className="font-semibold">Campos exigidos para entrar nesta etapa</p>
+                  <p className="text-[11px] text-muted-foreground">Ao mover uma negociação, os campos selecionados devem estar preenchidos.</p>
+                  {dealCustomFields.filter((field) => field.allPipelines || field.pipelineIds.includes(stageDraft.pipelineId)).map((field) => (
+                    <label key={field.id} className="flex items-center gap-2">
+                      <Checkbox checked={stageDraft.requiredFields.includes(field.id)}
+                        onCheckedChange={(checked) => setStageDraft((current) => current && ({
+                          ...current, requiredFields: checked
+                            ? [...current.requiredFields, field.id]
+                            : current.requiredFields.filter((id) => id !== field.id),
+                        }))} /> {field.name}
+                    </label>
+                  ))}
+                  {dealCustomFields.length === 0 && <p className="text-[11px] text-muted-foreground">Crie campos personalizados em Configurar campos de cadastro.</p>}
                 </div>
                 <div className="space-y-3 rounded-xl border border-border p-3">
                   <p className="font-semibold">Resultado da etapa</p>

@@ -20,6 +20,7 @@ import {
   FileText,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
 import type { CrmAccountDetailDTO } from "../../lib/crm/crm-types";
 
 interface AccountDetailModalProps {
@@ -82,6 +83,8 @@ export function AccountDetailModal({
   const [email, setEmail] = useState("");
   const [website, setWebsite] = useState("");
   const [notes, setNotes] = useState("");
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [originalCustomFields, setOriginalCustomFields] = useState<Record<string, unknown>>({});
 
   const loadAccount = async (id: string) => {
     setLoading(true);
@@ -106,6 +109,8 @@ export function AccountDetailModal({
       setEmail(data.account.email || "");
       setWebsite(data.account.website || "");
       setNotes(data.account.notes || "");
+      setCustomFields(data.account.customFields || {});
+      setOriginalCustomFields(data.account.customFields || {});
     } catch (err: any) {
       toast.error(err.message || "Erro ao buscar detalhes da conta.");
     } finally {
@@ -145,6 +150,7 @@ export function AccountDetailModal({
           email: email.trim() || null,
           website: website.trim() || null,
           notes: notes.trim() || null,
+          customFields: changedCustomFieldValues(originalCustomFields, customFields),
         }),
       });
 
@@ -453,6 +459,8 @@ export function AccountDetailModal({
                       className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 dark:text-slate-100"
                     />
                   </div>
+
+                  <CustomFieldsEditor entity="company" values={customFields} onChange={setCustomFields} />
 
                   <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
                     <button

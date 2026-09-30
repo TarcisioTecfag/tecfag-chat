@@ -78,6 +78,7 @@ import { Route as ApiCrmProductsRouteImport } from './routes/api/crm/products'
 import { Route as ApiCrmPipelinesRouteImport } from './routes/api/crm/pipelines'
 import { Route as ApiCrmInventoryRouteImport } from './routes/api/crm/inventory'
 import { Route as ApiCrmDealsRouteImport } from './routes/api/crm/deals'
+import { Route as ApiCrmCustomFieldsRouteImport } from './routes/api/crm/custom-fields'
 import { Route as ApiCrmContactsRouteImport } from './routes/api/crm/contacts'
 import { Route as ApiCrmCalendarRouteImport } from './routes/api/crm/calendar'
 import { Route as ApiCrmAccountsRouteImport } from './routes/api/crm/accounts'
@@ -106,10 +107,12 @@ import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/setting
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
 import { Route as ApiLivechatVisitorVisitorIdRouteImport } from './routes/api/livechat/visitor/$visitorId'
 import { Route as ApiCrmStagesStageIdRouteImport } from './routes/api/crm/stages/$stageId'
+import { Route as ApiCrmProductsProductIdRouteImport } from './routes/api/crm/products/$productId'
 import { Route as ApiCrmPipelinesPipelineIdRouteImport } from './routes/api/crm/pipelines/$pipelineId'
 import { Route as ApiCrmImportRdCrmRouteImport } from './routes/api/crm/import/rd-crm'
 import { Route as ApiCrmDealsBulkRouteImport } from './routes/api/crm/deals/bulk'
 import { Route as ApiCrmDealsDealIdRouteImport } from './routes/api/crm/deals/$dealId'
+import { Route as ApiCrmCustomFieldsFieldIdRouteImport } from './routes/api/crm/custom-fields/$fieldId'
 import { Route as ApiCrmAccountsAccountIdRouteImport } from './routes/api/crm/accounts/$accountId'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
 import { Route as ApiContactsContactIdAccountHistoryRouteImport } from './routes/api/contacts/$contactId/account-history'
@@ -480,6 +483,11 @@ const ApiCrmDealsRoute = ApiCrmDealsRouteImport.update({
   path: '/api/crm/deals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmCustomFieldsRoute = ApiCrmCustomFieldsRouteImport.update({
+  id: '/api/crm/custom-fields',
+  path: '/api/crm/custom-fields',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmContactsRoute = ApiCrmContactsRouteImport.update({
   id: '/api/crm/contacts',
   path: '/api/crm/contacts',
@@ -626,6 +634,11 @@ const ApiCrmStagesStageIdRoute = ApiCrmStagesStageIdRouteImport.update({
   path: '/api/crm/stages/$stageId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmProductsProductIdRoute = ApiCrmProductsProductIdRouteImport.update({
+  id: '/$productId',
+  path: '/$productId',
+  getParentRoute: () => ApiCrmProductsRoute,
+} as any)
 const ApiCrmPipelinesPipelineIdRoute =
   ApiCrmPipelinesPipelineIdRouteImport.update({
     id: '/$pipelineId',
@@ -647,6 +660,12 @@ const ApiCrmDealsDealIdRoute = ApiCrmDealsDealIdRouteImport.update({
   path: '/$dealId',
   getParentRoute: () => ApiCrmDealsRoute,
 } as any)
+const ApiCrmCustomFieldsFieldIdRoute =
+  ApiCrmCustomFieldsFieldIdRouteImport.update({
+    id: '/$fieldId',
+    path: '/$fieldId',
+    getParentRoute: () => ApiCrmCustomFieldsRoute,
+  } as any)
 const ApiCrmAccountsAccountIdRoute = ApiCrmAccountsAccountIdRouteImport.update({
   id: '/$accountId',
   path: '/$accountId',
@@ -815,10 +834,11 @@ export interface FileRoutesByFullPath {
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/contacts': typeof ApiCrmContactsRoute
+  '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
-  '/api/crm/products': typeof ApiCrmProductsRoute
+  '/api/crm/products': typeof ApiCrmProductsRouteWithChildren
   '/api/crm/stage-settings': typeof ApiCrmStageSettingsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -861,10 +881,12 @@ export interface FileRoutesByFullPath {
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
+  '/api/crm/custom-fields/$fieldId': typeof ApiCrmCustomFieldsFieldIdRoute
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
   '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
+  '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -938,10 +960,11 @@ export interface FileRoutesByTo {
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/contacts': typeof ApiCrmContactsRoute
+  '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
-  '/api/crm/products': typeof ApiCrmProductsRoute
+  '/api/crm/products': typeof ApiCrmProductsRouteWithChildren
   '/api/crm/stage-settings': typeof ApiCrmStageSettingsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -984,10 +1007,12 @@ export interface FileRoutesByTo {
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
+  '/api/crm/custom-fields/$fieldId': typeof ApiCrmCustomFieldsFieldIdRoute
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
   '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
+  '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -1062,10 +1087,11 @@ export interface FileRoutesById {
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/contacts': typeof ApiCrmContactsRoute
+  '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
-  '/api/crm/products': typeof ApiCrmProductsRoute
+  '/api/crm/products': typeof ApiCrmProductsRouteWithChildren
   '/api/crm/stage-settings': typeof ApiCrmStageSettingsRoute
   '/api/gestao/alerts': typeof ApiGestaoAlertsRoute
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
@@ -1108,10 +1134,12 @@ export interface FileRoutesById {
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
+  '/api/crm/custom-fields/$fieldId': typeof ApiCrmCustomFieldsFieldIdRoute
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
   '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
+  '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
@@ -1187,6 +1215,7 @@ export interface FileRouteTypes {
     | '/api/crm/accounts'
     | '/api/crm/calendar'
     | '/api/crm/contacts'
+    | '/api/crm/custom-fields'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1233,10 +1262,12 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/crm/accounts/$accountId'
+    | '/api/crm/custom-fields/$fieldId'
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
     | '/api/crm/pipelines/$pipelineId'
+    | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
@@ -1310,6 +1341,7 @@ export interface FileRouteTypes {
     | '/api/crm/accounts'
     | '/api/crm/calendar'
     | '/api/crm/contacts'
+    | '/api/crm/custom-fields'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1356,10 +1388,12 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/crm/accounts/$accountId'
+    | '/api/crm/custom-fields/$fieldId'
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
     | '/api/crm/pipelines/$pipelineId'
+    | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
@@ -1433,6 +1467,7 @@ export interface FileRouteTypes {
     | '/api/crm/accounts'
     | '/api/crm/calendar'
     | '/api/crm/contacts'
+    | '/api/crm/custom-fields'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1479,10 +1514,12 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/crm/accounts/$accountId'
+    | '/api/crm/custom-fields/$fieldId'
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
     | '/api/crm/pipelines/$pipelineId'
+    | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
@@ -1551,10 +1588,11 @@ export interface RootRouteChildren {
   ApiCrmAccountsRoute: typeof ApiCrmAccountsRouteWithChildren
   ApiCrmCalendarRoute: typeof ApiCrmCalendarRoute
   ApiCrmContactsRoute: typeof ApiCrmContactsRoute
+  ApiCrmCustomFieldsRoute: typeof ApiCrmCustomFieldsRouteWithChildren
   ApiCrmDealsRoute: typeof ApiCrmDealsRouteWithChildren
   ApiCrmInventoryRoute: typeof ApiCrmInventoryRoute
   ApiCrmPipelinesRoute: typeof ApiCrmPipelinesRouteWithChildren
-  ApiCrmProductsRoute: typeof ApiCrmProductsRoute
+  ApiCrmProductsRoute: typeof ApiCrmProductsRouteWithChildren
   ApiCrmStageSettingsRoute: typeof ApiCrmStageSettingsRoute
   ApiGestaoAlertsRoute: typeof ApiGestaoAlertsRoute
   ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
@@ -2081,6 +2119,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmDealsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/custom-fields': {
+      id: '/api/crm/custom-fields'
+      path: '/api/crm/custom-fields'
+      fullPath: '/api/crm/custom-fields'
+      preLoaderRoute: typeof ApiCrmCustomFieldsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/crm/contacts': {
       id: '/api/crm/contacts'
       path: '/api/crm/contacts'
@@ -2277,6 +2322,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmStagesStageIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/products/$productId': {
+      id: '/api/crm/products/$productId'
+      path: '/$productId'
+      fullPath: '/api/crm/products/$productId'
+      preLoaderRoute: typeof ApiCrmProductsProductIdRouteImport
+      parentRoute: typeof ApiCrmProductsRoute
+    }
     '/api/crm/pipelines/$pipelineId': {
       id: '/api/crm/pipelines/$pipelineId'
       path: '/$pipelineId'
@@ -2304,6 +2356,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/crm/deals/$dealId'
       preLoaderRoute: typeof ApiCrmDealsDealIdRouteImport
       parentRoute: typeof ApiCrmDealsRoute
+    }
+    '/api/crm/custom-fields/$fieldId': {
+      id: '/api/crm/custom-fields/$fieldId'
+      path: '/$fieldId'
+      fullPath: '/api/crm/custom-fields/$fieldId'
+      preLoaderRoute: typeof ApiCrmCustomFieldsFieldIdRouteImport
+      parentRoute: typeof ApiCrmCustomFieldsRoute
     }
     '/api/crm/accounts/$accountId': {
       id: '/api/crm/accounts/$accountId'
@@ -2551,6 +2610,17 @@ const ApiCrmAccountsRouteWithChildren = ApiCrmAccountsRoute._addFileChildren(
   ApiCrmAccountsRouteChildren,
 )
 
+interface ApiCrmCustomFieldsRouteChildren {
+  ApiCrmCustomFieldsFieldIdRoute: typeof ApiCrmCustomFieldsFieldIdRoute
+}
+
+const ApiCrmCustomFieldsRouteChildren: ApiCrmCustomFieldsRouteChildren = {
+  ApiCrmCustomFieldsFieldIdRoute: ApiCrmCustomFieldsFieldIdRoute,
+}
+
+const ApiCrmCustomFieldsRouteWithChildren =
+  ApiCrmCustomFieldsRoute._addFileChildren(ApiCrmCustomFieldsRouteChildren)
+
 interface ApiCrmDealsDealIdActivitiesRouteChildren {
   ApiCrmDealsDealIdActivitiesActivityIdRoute: typeof ApiCrmDealsDealIdActivitiesActivityIdRoute
 }
@@ -2639,6 +2709,18 @@ const ApiCrmPipelinesRouteWithChildren = ApiCrmPipelinesRoute._addFileChildren(
   ApiCrmPipelinesRouteChildren,
 )
 
+interface ApiCrmProductsRouteChildren {
+  ApiCrmProductsProductIdRoute: typeof ApiCrmProductsProductIdRoute
+}
+
+const ApiCrmProductsRouteChildren: ApiCrmProductsRouteChildren = {
+  ApiCrmProductsProductIdRoute: ApiCrmProductsProductIdRoute,
+}
+
+const ApiCrmProductsRouteWithChildren = ApiCrmProductsRoute._addFileChildren(
+  ApiCrmProductsRouteChildren,
+)
+
 interface ApiSettingsRdCrmRouteChildren {
   ApiSettingsRdCrmCallbackRoute: typeof ApiSettingsRdCrmCallbackRoute
   ApiSettingsRdCrmFieldsRoute: typeof ApiSettingsRdCrmFieldsRoute
@@ -2708,10 +2790,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCrmAccountsRoute: ApiCrmAccountsRouteWithChildren,
   ApiCrmCalendarRoute: ApiCrmCalendarRoute,
   ApiCrmContactsRoute: ApiCrmContactsRoute,
+  ApiCrmCustomFieldsRoute: ApiCrmCustomFieldsRouteWithChildren,
   ApiCrmDealsRoute: ApiCrmDealsRouteWithChildren,
   ApiCrmInventoryRoute: ApiCrmInventoryRoute,
   ApiCrmPipelinesRoute: ApiCrmPipelinesRouteWithChildren,
-  ApiCrmProductsRoute: ApiCrmProductsRoute,
+  ApiCrmProductsRoute: ApiCrmProductsRouteWithChildren,
   ApiCrmStageSettingsRoute: ApiCrmStageSettingsRoute,
   ApiGestaoAlertsRoute: ApiGestaoAlertsRoute,
   ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
