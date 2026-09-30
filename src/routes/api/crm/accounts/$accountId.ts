@@ -61,6 +61,7 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId")({
           const updated = await crmService.updateAccount(tenantId, accountId, {
             name: body.name,
             tradeName: body.tradeName,
+            segment: body.segment,
             type: body.type,
             document: body.document,
             email: body.email,

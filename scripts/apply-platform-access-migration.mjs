@@ -43,6 +43,10 @@ const migrations = [
     name: "0017_crm_custom_fields",
     url: new URL("../src/db/migrations/0017_crm_custom_fields.sql", import.meta.url),
   },
+  {
+    name: "0018_crm_catalogs",
+    url: new URL("../src/db/migrations/0018_crm_catalogs.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

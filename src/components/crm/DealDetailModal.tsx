@@ -44,6 +44,7 @@ import { toast } from "sonner";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { CustomFieldsEditor, CustomFieldsSummary, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
+import { CatalogSelect } from "./CatalogSelect";
 import {
   Select,
   SelectContent,
@@ -1325,13 +1326,7 @@ export function DealDetailModal({
                 Confirmar Perda da Negociação
               </span>
               <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Motivo da perda (ex: Concorrente mais barato / Cliente desistiu)..."
-                  value={lossReason}
-                  onChange={(e) => setLossReason(e.target.value)}
-                  className="h-8 flex-1 rounded-lg border border-red-500/40 bg-card px-2.5 text-xs text-foreground focus:outline-none"
-                />
+                <CatalogSelect kind="loss_reason" value={lossReason} onChange={setLossReason} className="h-8 flex-1 rounded-lg border-red-500/40 bg-card text-xs" placeholder="Selecione o motivo" />
                 <button
                   onClick={handleConfirmLoss}
                   className="h-8 px-4 rounded-lg bg-red-600 text-xs font-bold text-white hover:bg-red-700 cursor-pointer"
@@ -1586,6 +1581,7 @@ export function DealDetailModal({
                         Nome Fantasia: <span className="text-foreground">{deal.account.tradeName}</span>
                       </p>
                     )}
+                    {deal.account.segment && <p className="truncate text-[11px] text-muted-foreground">Segmento: <span className="text-foreground">{deal.account.segment}</span></p>}
 
                     {deal.account.document && (
                       <div className="text-[11px] text-muted-foreground">
@@ -1645,45 +1641,13 @@ export function DealDetailModal({
                   {/* Origem */}
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground font-semibold block">Origem do Lead</label>
-                    <Select
-                      value={deal?.source || "chat"}
-                      onValueChange={(val) => updateDeal({ source: val })}
-                    >
-                      <SelectTrigger className="w-full h-7 rounded-lg border border-border bg-card px-2 text-xs font-medium text-foreground hover:border-primary transition-colors">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="chat" className="text-xs">Chat / Atendimento</SelectItem>
-                        <SelectItem value="whatsapp" className="text-xs">WhatsApp Direto</SelectItem>
-                        <SelectItem value="meta" className="text-xs">Meta Ads / FB / IG</SelectItem>
-                        <SelectItem value="site" className="text-xs">Site / Formulário</SelectItem>
-                        <SelectItem value="indicacao" className="text-xs">Indicação / Parceiro</SelectItem>
-                        <SelectItem value="telefone" className="text-xs">Telefone / Ligação</SelectItem>
-                        <SelectItem value="prospeccao" className="text-xs">Prospecção Ativa</SelectItem>
-                        <SelectItem value="outros" className="text-xs">Outros</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <CatalogSelect kind="source" value={deal?.source || ""} onChange={(val) => updateDeal({ source: val })} className="w-full h-7 rounded-lg border-border bg-card px-2 text-xs" />
                   </div>
 
                   {/* Campanha */}
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground font-semibold block">Campanha</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Google Ads - Campanha X"
-                      defaultValue={deal?.campaign || ""}
-                      onBlur={(e) => {
-                        if (e.target.value !== (deal?.campaign || "")) {
-                          updateDeal({ campaign: e.target.value });
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          (e.target as HTMLInputElement).blur();
-                        }
-                      }}
-                      className="w-full h-7 rounded-lg border border-border bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
-                    />
+                    <CatalogSelect kind="campaign" value={deal?.campaign || ""} onChange={(val) => updateDeal({ campaign: val })} className="w-full h-7 rounded-lg border-border bg-card px-2 text-xs" />
                   </div>
 
                   {/* Previsão de Fechamento */}

@@ -33,6 +33,7 @@ export const Route = createFileRoute("/api/crm/accounts")({
           const search = url.searchParams.get("search") || undefined;
           const document = url.searchParams.get("document") || undefined;
           const type = (url.searchParams.get("type") as "person" | "company") || undefined;
+          const segment = url.searchParams.get("segment") || undefined;
           const limit = parseInt(url.searchParams.get("limit") || "50", 10);
           const offset = parseInt(url.searchParams.get("offset") || "0", 10);
 
@@ -40,6 +41,7 @@ export const Route = createFileRoute("/api/crm/accounts")({
             search,
             document,
             type,
+            segment,
             limit,
             offset,
           });
@@ -79,6 +81,7 @@ export const Route = createFileRoute("/api/crm/accounts")({
             name: body.name,
             type: body.type,
             tradeName: body.tradeName,
+            segment: body.segment,
             document: body.document,
             email: body.email,
             phone: body.phone,

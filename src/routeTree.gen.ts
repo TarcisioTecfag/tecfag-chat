@@ -80,6 +80,7 @@ import { Route as ApiCrmInventoryRouteImport } from './routes/api/crm/inventory'
 import { Route as ApiCrmDealsRouteImport } from './routes/api/crm/deals'
 import { Route as ApiCrmCustomFieldsRouteImport } from './routes/api/crm/custom-fields'
 import { Route as ApiCrmContactsRouteImport } from './routes/api/crm/contacts'
+import { Route as ApiCrmCatalogsRouteImport } from './routes/api/crm/catalogs'
 import { Route as ApiCrmCalendarRouteImport } from './routes/api/crm/calendar'
 import { Route as ApiCrmAccountsRouteImport } from './routes/api/crm/accounts'
 import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
@@ -113,6 +114,7 @@ import { Route as ApiCrmImportRdCrmRouteImport } from './routes/api/crm/import/r
 import { Route as ApiCrmDealsBulkRouteImport } from './routes/api/crm/deals/bulk'
 import { Route as ApiCrmDealsDealIdRouteImport } from './routes/api/crm/deals/$dealId'
 import { Route as ApiCrmCustomFieldsFieldIdRouteImport } from './routes/api/crm/custom-fields/$fieldId'
+import { Route as ApiCrmCatalogsItemIdRouteImport } from './routes/api/crm/catalogs/$itemId'
 import { Route as ApiCrmAccountsAccountIdRouteImport } from './routes/api/crm/accounts/$accountId'
 import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/contacts/$contactId/rd-deal'
 import { Route as ApiContactsContactIdAccountHistoryRouteImport } from './routes/api/contacts/$contactId/account-history'
@@ -493,6 +495,11 @@ const ApiCrmContactsRoute = ApiCrmContactsRouteImport.update({
   path: '/api/crm/contacts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmCatalogsRoute = ApiCrmCatalogsRouteImport.update({
+  id: '/api/crm/catalogs',
+  path: '/api/crm/catalogs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmCalendarRoute = ApiCrmCalendarRouteImport.update({
   id: '/api/crm/calendar',
   path: '/api/crm/calendar',
@@ -666,6 +673,11 @@ const ApiCrmCustomFieldsFieldIdRoute =
     path: '/$fieldId',
     getParentRoute: () => ApiCrmCustomFieldsRoute,
   } as any)
+const ApiCrmCatalogsItemIdRoute = ApiCrmCatalogsItemIdRouteImport.update({
+  id: '/$itemId',
+  path: '/$itemId',
+  getParentRoute: () => ApiCrmCatalogsRoute,
+} as any)
 const ApiCrmAccountsAccountIdRoute = ApiCrmAccountsAccountIdRouteImport.update({
   id: '/$accountId',
   path: '/$accountId',
@@ -833,6 +845,7 @@ export interface FileRoutesByFullPath {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
+  '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
@@ -881,6 +894,7 @@ export interface FileRoutesByFullPath {
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
+  '/api/crm/catalogs/$itemId': typeof ApiCrmCatalogsItemIdRoute
   '/api/crm/custom-fields/$fieldId': typeof ApiCrmCustomFieldsFieldIdRoute
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
@@ -959,6 +973,7 @@ export interface FileRoutesByTo {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
+  '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
@@ -1007,6 +1022,7 @@ export interface FileRoutesByTo {
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
+  '/api/crm/catalogs/$itemId': typeof ApiCrmCatalogsItemIdRoute
   '/api/crm/custom-fields/$fieldId': typeof ApiCrmCustomFieldsFieldIdRoute
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
@@ -1086,6 +1102,7 @@ export interface FileRoutesById {
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
+  '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
@@ -1134,6 +1151,7 @@ export interface FileRoutesById {
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/rd-deal': typeof ApiContactsContactIdRdDealRoute
   '/api/crm/accounts/$accountId': typeof ApiCrmAccountsAccountIdRouteWithChildren
+  '/api/crm/catalogs/$itemId': typeof ApiCrmCatalogsItemIdRoute
   '/api/crm/custom-fields/$fieldId': typeof ApiCrmCustomFieldsFieldIdRoute
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
@@ -1214,6 +1232,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
     | '/api/crm/calendar'
+    | '/api/crm/catalogs'
     | '/api/crm/contacts'
     | '/api/crm/custom-fields'
     | '/api/crm/deals'
@@ -1262,6 +1281,7 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/crm/accounts/$accountId'
+    | '/api/crm/catalogs/$itemId'
     | '/api/crm/custom-fields/$fieldId'
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
@@ -1340,6 +1360,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
     | '/api/crm/calendar'
+    | '/api/crm/catalogs'
     | '/api/crm/contacts'
     | '/api/crm/custom-fields'
     | '/api/crm/deals'
@@ -1388,6 +1409,7 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/crm/accounts/$accountId'
+    | '/api/crm/catalogs/$itemId'
     | '/api/crm/custom-fields/$fieldId'
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
@@ -1466,6 +1488,7 @@ export interface FileRouteTypes {
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
     | '/api/crm/calendar'
+    | '/api/crm/catalogs'
     | '/api/crm/contacts'
     | '/api/crm/custom-fields'
     | '/api/crm/deals'
@@ -1514,6 +1537,7 @@ export interface FileRouteTypes {
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/rd-deal'
     | '/api/crm/accounts/$accountId'
+    | '/api/crm/catalogs/$itemId'
     | '/api/crm/custom-fields/$fieldId'
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
@@ -1587,6 +1611,7 @@ export interface RootRouteChildren {
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
   ApiCrmAccountsRoute: typeof ApiCrmAccountsRouteWithChildren
   ApiCrmCalendarRoute: typeof ApiCrmCalendarRoute
+  ApiCrmCatalogsRoute: typeof ApiCrmCatalogsRouteWithChildren
   ApiCrmContactsRoute: typeof ApiCrmContactsRoute
   ApiCrmCustomFieldsRoute: typeof ApiCrmCustomFieldsRouteWithChildren
   ApiCrmDealsRoute: typeof ApiCrmDealsRouteWithChildren
@@ -2133,6 +2158,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmContactsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/catalogs': {
+      id: '/api/crm/catalogs'
+      path: '/api/crm/catalogs'
+      fullPath: '/api/crm/catalogs'
+      preLoaderRoute: typeof ApiCrmCatalogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/crm/calendar': {
       id: '/api/crm/calendar'
       path: '/api/crm/calendar'
@@ -2363,6 +2395,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/crm/custom-fields/$fieldId'
       preLoaderRoute: typeof ApiCrmCustomFieldsFieldIdRouteImport
       parentRoute: typeof ApiCrmCustomFieldsRoute
+    }
+    '/api/crm/catalogs/$itemId': {
+      id: '/api/crm/catalogs/$itemId'
+      path: '/$itemId'
+      fullPath: '/api/crm/catalogs/$itemId'
+      preLoaderRoute: typeof ApiCrmCatalogsItemIdRouteImport
+      parentRoute: typeof ApiCrmCatalogsRoute
     }
     '/api/crm/accounts/$accountId': {
       id: '/api/crm/accounts/$accountId'
@@ -2610,6 +2649,18 @@ const ApiCrmAccountsRouteWithChildren = ApiCrmAccountsRoute._addFileChildren(
   ApiCrmAccountsRouteChildren,
 )
 
+interface ApiCrmCatalogsRouteChildren {
+  ApiCrmCatalogsItemIdRoute: typeof ApiCrmCatalogsItemIdRoute
+}
+
+const ApiCrmCatalogsRouteChildren: ApiCrmCatalogsRouteChildren = {
+  ApiCrmCatalogsItemIdRoute: ApiCrmCatalogsItemIdRoute,
+}
+
+const ApiCrmCatalogsRouteWithChildren = ApiCrmCatalogsRoute._addFileChildren(
+  ApiCrmCatalogsRouteChildren,
+)
+
 interface ApiCrmCustomFieldsRouteChildren {
   ApiCrmCustomFieldsFieldIdRoute: typeof ApiCrmCustomFieldsFieldIdRoute
 }
@@ -2789,6 +2840,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
   ApiCrmAccountsRoute: ApiCrmAccountsRouteWithChildren,
   ApiCrmCalendarRoute: ApiCrmCalendarRoute,
+  ApiCrmCatalogsRoute: ApiCrmCatalogsRouteWithChildren,
   ApiCrmContactsRoute: ApiCrmContactsRoute,
   ApiCrmCustomFieldsRoute: ApiCrmCustomFieldsRouteWithChildren,
   ApiCrmDealsRoute: ApiCrmDealsRouteWithChildren,

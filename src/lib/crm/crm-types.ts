@@ -10,6 +10,7 @@ export interface CrmAccountDTO {
   type: "person" | "company";
   name: string;
   tradeName?: string | null;
+  segment?: string | null;
   documentType?: "cpf" | "cnpj" | "foreign" | "other" | null;
   document?: string | null;
   email?: string | null;

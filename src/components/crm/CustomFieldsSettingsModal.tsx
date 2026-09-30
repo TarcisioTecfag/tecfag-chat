@@ -31,7 +31,7 @@ const standardFields: Record<CustomFieldEntity, string[]> = {
     "Funil",
     "Etapa do funil",
   ],
-  company: ["Nome da empresa", "Nome fantasia", "CNPJ ou CPF", "Telefone", "E-mail", "URL"],
+  company: ["Nome da empresa", "Nome fantasia", "Segmento", "CNPJ ou CPF", "Telefone", "E-mail", "URL"],
   contact: ["Nome do contato", "Telefone", "E-mail", "Empresa vinculada"],
   product: ["Nome", "SKU", "Descrição", "Valor", "Unidade", "Categoria"],
 };

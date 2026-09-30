@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
+import { CatalogSelect } from "./CatalogSelect";
 import type { CrmAccountDetailDTO } from "../../lib/crm/crm-types";
 
 interface AccountDetailModalProps {
@@ -77,6 +78,7 @@ export function AccountDetailModal({
   // Form states
   const [name, setName] = useState("");
   const [tradeName, setTradeName] = useState("");
+  const [segment, setSegment] = useState("");
   const [type, setType] = useState<"person" | "company">("company");
   const [document, setDocument] = useState("");
   const [phone, setPhone] = useState("");
@@ -97,6 +99,7 @@ export function AccountDetailModal({
       setAccountData(data);
       setName(data.account.name || "");
       setTradeName(data.account.tradeName || "");
+      setSegment(data.account.segment || "");
       setType(data.account.type || "company");
       setDocument(
         data.account.document
@@ -144,6 +147,7 @@ export function AccountDetailModal({
         body: JSON.stringify({
           name: name.trim(),
           tradeName: tradeName.trim() || null,
+          segment: type === "company" ? segment || null : null,
           type,
           document: document ? document.replace(/\D/g, "") : null,
           phone: phone ? phone.replace(/\D/g, "") : null,
@@ -391,6 +395,7 @@ export function AccountDetailModal({
                         />
                       </div>
                     )}
+                    {type === "company" && <div><label className="mb-1 block text-xs font-medium text-foreground">Segmento</label><CatalogSelect kind="segment" value={segment} onChange={setSegment} /></div>}
 
                     <div>
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">

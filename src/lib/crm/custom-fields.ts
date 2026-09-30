@@ -42,6 +42,7 @@ const standardNames: Record<CustomFieldEntity, string[]> = {
   company: [
     "nome da empresa",
     "nome fantasia",
+    "segmento",
     "cnpj",
     "cpf",
     "cnpj ou cpf",

@@ -9,6 +9,8 @@ import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/Configurac
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
+import { CrmCatalogSettingsModal } from "@/components/crm/CrmCatalogSettingsModal";
+import type { CatalogKind } from "@/lib/crm/catalogs";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 
@@ -24,6 +26,7 @@ export function SettingsView() {
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("whatsapp");
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
+  const [catalogKind, setCatalogKind] = useState<CatalogKind | null>(null);
 
   const [metaForm, setMetaForm] = useState({ ...metaConfig });
   const [isSaved, setIsSaved] = useState(false);
@@ -909,12 +912,23 @@ export function SettingsView() {
         )}
 
         {activeTab === "crm" && (
-          <div className="max-w-4xl rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <div className="grid max-w-4xl gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
             <h3 className="text-base font-bold text-foreground">Campos de cadastro do CRM</h3>
             <p className="mt-2 text-xs text-muted-foreground">Organize os campos de negociações, empresas, contatos e produtos. Administradores podem criar, editar e arquivar campos.</p>
             <button type="button" onClick={() => setCustomFieldsOpen(true)} className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground">
               Configurar campos de cadastro
             </button>
+          </div>
+          {([
+            ["segment", "Segmentos", "Organize os segmentos das empresas."],
+            ["source", "Fontes e campanhas", "Padronize a origem e as campanhas das negociações."],
+            ["loss_reason", "Motivos de perda", "Configure os motivos usados no fechamento de negociações."],
+          ] as const).map(([kind, title, description]) => <div key={kind} className="rounded-2xl border border-border bg-card p-6 shadow-soft">
+            <h3 className="text-base font-bold text-foreground">{title}</h3>
+            <p className="mt-2 text-xs text-muted-foreground">{description}</p>
+            <button type="button" onClick={() => setCatalogKind(kind)} className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground">Configurar {title.toLowerCase()}</button>
+          </div>)}
           </div>
         )}
 
@@ -1267,6 +1281,7 @@ export function SettingsView() {
         {activeTab === "livechat" && <LiveChatSettingsTab />}
       </div>
       <CustomFieldsSettingsModal isOpen={customFieldsOpen} onClose={() => setCustomFieldsOpen(false)} />
+      {catalogKind && <CrmCatalogSettingsModal isOpen initialKind={catalogKind} onClose={() => setCatalogKind(null)} />}
     </section>
   );
 }

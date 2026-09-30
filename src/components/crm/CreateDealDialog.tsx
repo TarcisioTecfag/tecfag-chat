@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { AccountPicker } from "./AccountPicker";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
+import { CatalogSelect } from "./CatalogSelect";
 import type { CrmAccountDTO } from "../../lib/crm/crm-types";
 import {
   Select,
@@ -106,6 +107,7 @@ export function CreateDealDialog({
   const [value, setValue] = useState("");
   const [source, setSource] = useState(defaultConversationId ? "chat" : "");
   const [campaign, setCampaign] = useState("");
+  const [accountSegment, setAccountSegment] = useState("");
   const [selectedContactId, setSelectedContactId] = useState(defaultContactId || "");
   const [selectedContactName, setSelectedContactName] = useState("");
   const [contactQuery, setContactQuery] = useState("");
@@ -281,6 +283,7 @@ export function CreateDealDialog({
           name: accountName.trim(),
           type: accountType,
           tradeName: accountTradeName.trim() || undefined,
+          segment: accountType === "company" ? accountSegment || undefined : undefined,
           document: cleanDoc || undefined,
           phone: accountPhone.replace(/\D/g, "") || undefined,
           email: accountEmail.trim() || undefined,
@@ -377,24 +380,11 @@ export function CreateDealDialog({
 
           <div>
             <label className="block text-xs font-bold text-foreground mb-1">Fonte</label>
-            <Select value={source || "__none__"} onValueChange={(next) => setSource(next === "__none__" ? "" : next)}>
-              <SelectTrigger className="h-9 w-full rounded-lg border-border bg-card text-xs"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Selecionar</SelectItem>
-                <SelectItem value="chat">Chat / Atendimento</SelectItem>
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                <SelectItem value="meta">Meta Ads / Redes sociais</SelectItem>
-                <SelectItem value="site">Site / Formulário</SelectItem>
-                <SelectItem value="indicacao">Indicação</SelectItem>
-                <SelectItem value="telefone">Telefone</SelectItem>
-                <SelectItem value="prospeccao">Prospecção ativa</SelectItem>
-                <SelectItem value="outros">Outros</SelectItem>
-              </SelectContent>
-            </Select>
+            <CatalogSelect kind="source" value={source} onChange={setSource} />
           </div>
           <div>
             <label className="block text-xs font-bold text-foreground mb-1">Campanha</label>
-            <input value={campaign} onChange={(event) => setCampaign(event.target.value)} placeholder="Nome da campanha" className="h-9 w-full rounded-lg border border-border bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary" />
+            <CatalogSelect kind="campaign" value={campaign} onChange={setCampaign} />
           </div>
 
           {/* Funil e Etapa */}
@@ -605,6 +595,10 @@ export function CreateDealDialog({
                     />
                   </div>
                 )}
+                {accountType === "company" && <div>
+                  <label className="block text-[11px] font-semibold text-foreground mb-1">Segmento</label>
+                  <CatalogSelect kind="segment" value={accountSegment} onChange={setAccountSegment} />
+                </div>}
 
                 {/* Documento (CPF / CNPJ) */}
                 <div>

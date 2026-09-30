@@ -153,6 +153,7 @@ export const crmAccounts = pgTable("crm_accounts", {
   type: text("type").notNull(), // 'person' | 'company'
   name: text("name").notNull(),
   tradeName: text("trade_name"),
+  segment: text("segment"),
   documentType: text("document_type"), // 'cpf' | 'cnpj' | 'foreign' | 'other'
   document: text("document"), // Dígitos normalizados (sem pontuação)
   email: text("email"),
@@ -838,6 +839,30 @@ export const agentConfigs = pgTable("agent_configs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Catálogos administráveis do CRM. Os registros operacionais mantêm o nome
+// selecionado para preservar o histórico mesmo após o arquivamento da opção.
+export const crmCatalogItems = pgTable("crm_catalog_items", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  kind: text("kind").notNull(), // segment | source | campaign | loss_reason
+  name: text("name").notNull(),
+  description: text("description"),
+  archivedAt: timestamp("archived_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantKindIdx: index("idx_crm_catalog_items_tenant_kind").on(table.tenantId, table.kind),
+}));
+
+export const crmCatalogPolicies = pgTable("crm_catalog_policies", {
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  kind: text("kind").notNull(),
+  allowUserCreate: boolean("allow_user_create").default(false).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantKindUnique: uniqueIndex("idx_crm_catalog_policies_tenant_kind").on(table.tenantId, table.kind),
+}));
 
 // ─── 16. ESTADO DO FLUXO DO AGENTE POR CONVERSA ─────────────────────────────
 // Rastreia em qual passo da conversa o agente está para cada atendimento ativo.

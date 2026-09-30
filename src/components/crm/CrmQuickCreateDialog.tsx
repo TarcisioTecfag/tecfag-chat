@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
+import { CatalogSelect } from "./CatalogSelect";
 
 export type CrmQuickCreateKind = "company" | "contact" | "task";
 
@@ -39,6 +40,7 @@ export function CrmQuickCreateDialog({
 }: CrmQuickCreateDialogProps) {
   const [name, setName] = useState("");
   const [tradeName, setTradeName] = useState("");
+  const [segment, setSegment] = useState("");
   const [document, setDocument] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -56,6 +58,7 @@ export function CrmQuickCreateDialog({
     if (!kind) return;
     setName("");
     setTradeName("");
+    setSegment("");
     setDocument("");
     setPhone("");
     setEmail("");
@@ -115,6 +118,7 @@ export function CrmQuickCreateDialog({
               name: name.trim(),
               type: "company",
               tradeName: tradeName.trim() || undefined,
+              segment: segment || undefined,
               document: document.trim() || undefined,
               phone: phone.trim() || undefined,
               email: email.trim() || undefined,
@@ -250,6 +254,7 @@ export function CrmQuickCreateDialog({
                   onChange={(event) => setDocument(event.target.value)}
                 />
               </div>
+              <div className="space-y-1.5"><Label>Segmento</Label><CatalogSelect kind="segment" value={segment} onChange={setSegment} /></div>
             </>
           )}
           {(kind === "company" || kind === "contact") && (

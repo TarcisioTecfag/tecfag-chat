@@ -43,6 +43,7 @@ import type {
 } from "../../db/schema";
 import { vertexAi } from "../vertex-ai";
 import { listCustomFields, missingStageFields, validateFieldValues, type CustomFieldValues } from "./custom-fields";
+import { validateCatalogChoice } from "./catalogs";
 
 /**
  * Normaliza documento (CPF ou CNPJ) mantendo estritamente dígitos.
@@ -842,6 +843,7 @@ export class CrmService {
       query?: string;
       document?: string;
       type?: "person" | "company";
+      segment?: string;
       includeArchived?: boolean;
       limit?: number;
       offset?: number;
@@ -864,6 +866,9 @@ export class CrmService {
 
     if (params.type) {
       conditions.push(eq(crmAccounts.type, params.type));
+    }
+    if (params.segment) {
+      conditions.push(eq(crmAccounts.segment, params.segment));
     }
 
     const termInput = params.search || params.query;
@@ -917,6 +922,7 @@ export class CrmService {
       query?: string;
       document?: string;
       type?: "person" | "company";
+      segment?: string;
       includeArchived?: boolean;
       limit?: number;
       offset?: number;
@@ -934,6 +940,7 @@ export class CrmService {
       name: string;
       type?: "person" | "company";
       tradeName?: string;
+      segment?: string;
       document?: string;
       email?: string;
       phone?: string;
@@ -974,6 +981,7 @@ export class CrmService {
       validateDocument(accountType, cleanDoc);
     }
     const accountId = `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const segment = data.segment ? await validateCatalogChoice(tenantId, "segment", data.segment) : null;
     const accountFields = validateFieldValues(await listCustomFields(tenantId, "company"), data.customFields, { requireOnCreate: true });
 
     const [account] = await db
@@ -984,6 +992,7 @@ export class CrmService {
         type: accountType,
         name: data.name.trim(),
         tradeName: data.tradeName?.trim() || null,
+        segment: accountType === "company" ? segment : null,
         documentType: docType,
         document: cleanDoc || null,
         email: data.email?.trim() || null,
@@ -1166,6 +1175,7 @@ export class CrmService {
     data: {
       name?: string;
       tradeName?: string | null;
+      segment?: string | null;
       type?: "person" | "company";
       document?: string | null;
       email?: string | null;
@@ -1201,6 +1211,7 @@ export class CrmService {
       updates.name = data.name.trim();
     }
     if (data.tradeName !== undefined) updates.tradeName = data.tradeName?.trim() || null;
+    if (data.segment !== undefined) updates.segment = data.segment ? await validateCatalogChoice(tenantId, "segment", data.segment, current.segment) : null;
     if (data.type !== undefined) updates.type = data.type;
     if (data.email !== undefined) updates.email = data.email?.trim() || null;
     if (data.phone !== undefined) updates.phone = data.phone ? normalizeDocument(data.phone) : null;
@@ -2428,6 +2439,7 @@ export class CrmService {
         name: string;
         type?: "person" | "company";
         tradeName?: string | null;
+        segment?: string | null;
         document?: string | null;
         phone?: string | null;
         email?: string | null;
@@ -2533,6 +2545,7 @@ export class CrmService {
               type: accType,
               name: accName,
               tradeName: data.account.tradeName?.trim() || null,
+              segment: accType === "company" && data.account.segment ? await validateCatalogChoice(tenantId, "segment", data.account.segment) : null,
               documentType: rawDoc ? (accType === "company" ? "cnpj" : "cpf") : null,
               document: rawDoc || null,
               phone: data.account.phone ? normalizeDocument(data.account.phone) : null,
