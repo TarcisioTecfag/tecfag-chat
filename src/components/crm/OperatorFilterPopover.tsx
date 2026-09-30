@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Users, Search, Check, X, UserCheck, ChevronDown } from "lucide-react";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 interface OperatorOption {
   id: string;
@@ -104,7 +105,6 @@ export function OperatorFilterPopover({
         <button
           type="button"
           disabled={disabled}
-          title={triggerLabel}
           aria-label={`Responsável: ${triggerLabel}`}
           className={`flex h-9 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             selectedOperatorIds.length > 0

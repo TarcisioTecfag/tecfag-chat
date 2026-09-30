@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
 import { outboundQueue } from "../../../lib/whatsapp/outbound";
+import { db } from "../../../db";
+import { channelConfigs, contacts, conversations } from "../../../db/schema";
+import { and, eq } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,20 +23,37 @@ export const Route = createFileRoute("/api/baileys/send")({
           const session = auth.session;
 
           const body = await request.json();
-          const { phone, text, conversationId, quotedMessageId, clientMessageId } = body;
+          const { text, conversationId, quotedMessageId, clientMessageId } = body;
 
-          if (!phone || !text || !text.trim()) {
+          if (!conversationId || !text || !text.trim()) {
             return new Response(
-              JSON.stringify({ error: "phone e text são obrigatórios" }),
+              JSON.stringify({ error: "conversationId e text são obrigatórios" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 
-          // Roteia SEMPRE pelo tenant da sessão através da OutboundQueue unificada
+          const tenantId = session.tenantId;
+          const [config] = await db.select({ activeProvider: channelConfigs.activeProvider, connectionStatus: channelConfigs.connectionStatus })
+            .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
+          if (config?.connectionStatus === "switching") return Response.json({ error: "Canal em transição." }, { status: 409 });
+
+          const [conversation] = await db.select({ contactId: conversations.contactId, operatorId: conversations.operatorId })
+            .from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+          if (!conversation) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
+          if (!["admin", "supervisor"].includes(session.operator.role) && conversation.operatorId !== session.operator.id) {
+            return Response.json({ error: "Sem permissão para responder nesta conversa." }, { status: 403 });
+          }
+          if (!conversation.contactId) return Response.json({ error: "Conversa sem contato." }, { status: 400 });
+          const [contact] = await db.select({ phone: contacts.phone }).from(contacts).where(and(
+            eq(contacts.id, conversation.contactId), eq(contacts.tenantId, tenantId)
+          ));
+          if (!contact?.phone) return Response.json({ error: "Contato sem telefone." }, { status: 400 });
+
+          // Mantém a rota antiga para a chamada de voz, com o mesmo destino e política do canal unificado.
           const result = await outboundQueue.enqueueAndSend({
-            tenantId: session.tenantId,
-            conversationId: conversationId || undefined,
-            recipientPhone: phone.replace(/\D/g, ""),
+            tenantId,
+            conversationId,
+            recipientPhone: contact.phone,
             text: text.trim(),
             senderName: session.operator.name,
             senderId: session.operator.id,

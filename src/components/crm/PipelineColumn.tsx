@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { DealCard, DealCardData } from "./DealCard";
 import { Plus } from "lucide-react";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 export interface PipelineStageData {
   id: string;
@@ -98,9 +99,9 @@ export function PipelineColumn({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`flex flex-col h-full min-w-[280px] max-w-[320px] flex-1 rounded-2xl border transition-colors ${
+      className={`flex flex-col h-full min-w-[280px] max-w-[320px] flex-1 rounded-2xl border transition-all duration-200 ${
         isOver
-          ? "border-primary bg-primary/5"
+          ? "border-primary/80 ring-2 ring-primary/30 bg-primary/[0.04] scale-[1.008]"
           : "border-border/60 bg-muted/20"
       }`}
     >
@@ -108,27 +109,29 @@ export function PipelineColumn({
       <div className="shrink-0 px-3.5 py-3 border-b border-border/50">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <h3 title={stage.name} className="text-sm font-semibold text-foreground line-clamp-2 break-words">
-              {stage.name}
-            </h3>
-            <span
-              title={`${displayCount} negociações no total nesta etapa`}
-              className="flex h-6 shrink-0 items-center justify-center rounded-md bg-muted px-2 text-xs font-semibold tabular-nums text-muted-foreground"
-            >
-              {displayCount}
-            </span>
+            <SystemTooltip content={stage.name}>
+              <h3 className="text-sm font-semibold text-foreground line-clamp-2 break-words cursor-default">
+                {stage.name}
+              </h3>
+            </SystemTooltip>
+            <SystemTooltip content={`${displayCount} negociações no total nesta etapa`}>
+              <span className="flex h-6 shrink-0 items-center justify-center rounded-md bg-muted px-2 text-xs font-semibold tabular-nums text-muted-foreground cursor-default">
+                {displayCount}
+              </span>
+            </SystemTooltip>
           </div>
 
           {onNewDealAtStage && (
-            <button
-              onClick={() => onNewDealAtStage(stage.id)}
-              type="button"
-              aria-label={`Nova negociação em ${stage.name}`}
-              title="Nova negociação nesta etapa"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
+            <SystemTooltip content={`Nova negociação em ${stage.name}`}>
+              <button
+                onClick={() => onNewDealAtStage(stage.id)}
+                type="button"
+                aria-label={`Nova negociação em ${stage.name}`}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
           )}
         </div>
 

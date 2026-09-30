@@ -25,6 +25,9 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           let fileName: string | undefined;
           let quotedMessageId: string | undefined;
           let clientMessageId: string | undefined;
+          let templateName: string | undefined;
+          let templateLanguage: string | undefined;
+          let templateComponents: any[] | undefined;
           let isInternalNote: boolean = false;
 
           const contentType = request.headers.get("content-type") || "";
@@ -89,6 +92,9 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             fileName = body.fileName;
             quotedMessageId = body.quotedMessageId;
             clientMessageId = body.clientMessageId;
+            templateName = typeof body.templateName === "string" ? body.templateName.trim() : undefined;
+            templateLanguage = typeof body.templateLanguage === "string" ? body.templateLanguage.trim() : undefined;
+            templateComponents = Array.isArray(body.templateComponents) ? body.templateComponents : undefined;
             isInternalNote = !!body.isInternalNote;
           }
 
@@ -100,10 +106,14 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             );
           }
 
+          if (templateName && (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2}_[A-Z]{2}$/.test(templateLanguage || "pt_BR"))) {
+            return Response.json({ error: "Nome ou idioma do template inválido." }, { status: 400 });
+          }
+
           // Verificar se o canal está em transição ('switching') de provedor
           if (!isInternalNote) {
             const [channelConfig] = await db
-              .select({ connectionStatus: channelConfigs.connectionStatus })
+              .select({ connectionStatus: channelConfigs.connectionStatus, activeProvider: channelConfigs.activeProvider })
               .from(channelConfigs)
               .where(eq(channelConfigs.tenantId, session.tenantId));
 
@@ -115,6 +125,9 @@ export const Route = createFileRoute("/api/whatsapp/send")({
                 }),
                 { status: 409, headers: { "Content-Type": "application/json" } }
               );
+            }
+            if (templateName && channelConfig?.activeProvider !== "meta") {
+              return Response.json({ error: "Templates oficiais exigem o canal Meta ativo." }, { status: 400 });
             }
           }
 
@@ -197,12 +210,15 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             mediaType,
             fileName,
             quotedMessageId,
+            templateName,
+            templateLanguage,
+            templateComponents,
             operatorId: session.operator.id,
             isInternalNote: !!isInternalNote,
           });
 
           return new Response(JSON.stringify(result), {
-            status: result.success ? 200 : 400,
+            status: result.success ? 200 : result.code === "META_TEMPLATE_REQUIRED" ? 409 : 400,
             headers: { "Content-Type": "application/json" },
           });
 

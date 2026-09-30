@@ -1,9 +1,10 @@
 import { WhatsAppAdapter, UniversalOutboundMessage, DeliveryStatus, ChannelSettings } from "../types";
 import { db } from "../../../db";
-import { channelConfigs, mediaFiles } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { channelConfigs, mediaFiles, messages } from "../../../db/schema";
+import { and, eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
+import { getMetaServiceWindow } from "../meta-policy";
 
 const META_GRAPH_VERSION = "v21.0";
 const META_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
@@ -11,7 +12,50 @@ const META_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 export class MetaAdapter implements WhatsAppAdapter {
   readonly provider = "meta" as const;
 
-  private async getCredentials(tenantId: string): Promise<{ phoneNumberId: string; accessToken: string }> {
+  async downloadInboundMedia(tenantId: string, phoneNumberId: string, mediaId: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const credentials = await this.getCredentials(tenantId);
+    if (credentials.phoneNumberId !== phoneNumberId) throw new Error("Mídia não pertence ao número configurado para o tenant");
+
+    const metadataResponse = await fetch(`${META_BASE_URL}/${encodeURIComponent(mediaId)}?phone_number_id=${encodeURIComponent(phoneNumberId)}`, {
+      headers: { Authorization: `Bearer ${credentials.accessToken}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    const metadata = await metadataResponse.json().catch(() => ({}));
+    if (!metadataResponse.ok || typeof metadata.url !== "string" || !metadata.url.startsWith("https://")) {
+      throw new Error(metadata?.error?.message || "Meta não retornou URL segura para mídia recebida");
+    }
+
+    const mediaResponse = await fetch(metadata.url, {
+      headers: { Authorization: `Bearer ${credentials.accessToken}` },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!mediaResponse.ok) throw new Error(`Download de mídia Meta falhou: HTTP ${mediaResponse.status}`);
+    const maxBytes = 20 * 1024 * 1024;
+    const declaredSize = Number(mediaResponse.headers.get("content-length") || 0);
+    if (declaredSize > maxBytes) throw new Error("Mídia Meta excede o limite operacional de 20 MB");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    if (!mediaResponse.body) throw new Error("Mídia Meta retornou corpo vazio");
+    const reader = mediaResponse.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error("Mídia Meta excede o limite operacional de 20 MB");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const buffer = Buffer.concat(chunks, size);
+    return { buffer, mimeType: metadata.mime_type || mediaResponse.headers.get("content-type") || "application/octet-stream" };
+  }
+
+  private async getCredentials(tenantId: string): Promise<{ phoneNumberId: string; accessToken: string; businessAccountId: string | null }> {
     const [config] = await db
       .select()
       .from(channelConfigs)
@@ -24,7 +68,35 @@ export class MetaAdapter implements WhatsAppAdapter {
     return {
       phoneNumberId: config.metaPhoneNumberId,
       accessToken: config.metaAccessToken,
+      businessAccountId: config.metaBusinessAccountId,
     };
+  }
+
+  async listApprovedTemplates(tenantId: string): Promise<Array<{ name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean }>> {
+    const { accessToken, businessAccountId } = await this.getCredentials(tenantId);
+    if (!businessAccountId) throw new Error("Meta Business Account ID não configurado para este tenant");
+
+    const templates: Array<{ name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean }> = [];
+    let url: string | null = `${META_BASE_URL}/${encodeURIComponent(businessAccountId)}/message_templates?fields=name,language,status,category,components&limit=100`;
+    for (let page = 0; url && page < 10; page++) {
+      const response: Response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const data: any = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error?.message || "Falha ao consultar templates aprovados na Meta");
+      for (const item of data.data || []) {
+        if (item.status === "APPROVED" && item.name && item.language) {
+          const components = Array.isArray(item.components) ? item.components : [];
+          const bodyText = String(components.find((c: any) => c.type === "BODY")?.text || "");
+          const variableCount = Math.max(0, ...Array.from(bodyText.matchAll(/\{\{(\d+)\}\}/g), (m) => Number(m[1])));
+          const supported = components.every((c: any) =>
+            c.type === "BODY" || c.type === "FOOTER" || (c.type === "HEADER" && c.format === "TEXT" && !/\{\{\d+\}\}/.test(c.text || ""))
+          );
+          templates.push({ name: item.name, language: item.language, category: item.category || "", bodyText, variableCount, supported });
+        }
+      }
+      const next: unknown = data.paging?.next;
+      url = typeof next === "string" && next.startsWith("https://graph.facebook.com/") ? next : null;
+    }
+    return templates;
   }
 
   private async uploadMediaToMeta(
@@ -69,6 +141,24 @@ export class MetaAdapter implements WhatsAppAdapter {
     try {
       const { phoneNumberId, accessToken } = await this.getCredentials(tenantId);
 
+      if (message.templateName) {
+        const approved = await this.listApprovedTemplates(tenantId);
+        const language = message.templateLanguage || "pt_BR";
+        const selected = approved.find((t) => t.name === message.templateName && t.language === language);
+        if (!selected?.supported) {
+          return { externalId: "", status: "failed", error: "Template não aprovado ou formato ainda não suportado neste painel." };
+        }
+        const bodyParameters = message.templateComponents?.find((c: any) => c.type === "body")?.parameters;
+        if (selected.variableCount !== (Array.isArray(bodyParameters) ? bodyParameters.length : 0)) {
+          return { externalId: "", status: "failed", error: "Preencha todas as variáveis do template aprovado." };
+        }
+      } else {
+        const window = await getMetaServiceWindow(tenantId, message.conversationId);
+        if (!window.open) {
+          return { externalId: "", status: "failed", error: "Janela de 24 horas encerrada. Selecione um template aprovado pela Meta." };
+        }
+      }
+
       // Limpa caracteres especiais do telefone de destino (apenas dígitos)
       const cleanTo = message.recipientPhone.replace(/\D/g, "");
       if (!cleanTo) {
@@ -112,13 +202,14 @@ export class MetaAdapter implements WhatsAppAdapter {
             const urlMatch = message.mediaUrl.match(/messageId=([^&]+)/);
             const messageId = urlMatch ? urlMatch[1] : (message.mediaUrl.startsWith("media-") ? message.mediaUrl : null);
             if (messageId) {
+              const [record] = await db.select().from(mediaFiles).where(and(eq(mediaFiles.id, messageId), eq(mediaFiles.tenantId, tenantId)));
+              if (!record) throw new Error("Mídia não pertence ao tenant da mensagem");
               const localPath = path.join(process.cwd(), "media", messageId);
               const mimePath = path.join(process.cwd(), "media", `${messageId}.mime`);
               if (fs.existsSync(localPath)) {
                 mediaBuffer = fs.readFileSync(localPath);
                 if (fs.existsSync(mimePath)) mimeType = fs.readFileSync(mimePath, "utf-8").trim();
               } else {
-                const [record] = await db.select().from(mediaFiles).where(eq(mediaFiles.id, messageId));
                 if (record?.base64Data) {
                   mediaBuffer = Buffer.from(record.base64Data, "base64");
                   mimeType = record.mimeType;
@@ -159,9 +250,16 @@ export class MetaAdapter implements WhatsAppAdapter {
 
         // Contexto de resposta a mensagem anterior (quoted) se fornecido
         if (message.quotedMessageId) {
-          bodyPayload.context = {
-            message_id: message.quotedMessageId,
-          };
+          const [quoted] = await db.select({ externalId: messages.externalId }).from(messages).where(and(
+            eq(messages.id, message.quotedMessageId),
+            eq(messages.tenantId, tenantId),
+            eq(messages.conversationId, message.conversationId)
+          ));
+          if (quoted?.externalId) {
+            const inboundPrefix = `meta:${tenantId}:`;
+            bodyPayload.context = { message_id: quoted.externalId.startsWith(inboundPrefix)
+              ? quoted.externalId.slice(inboundPrefix.length) : quoted.externalId };
+          }
         }
       } else {
         return { externalId: "", status: "failed", error: "Mensagem sem texto, mídia ou template" };
@@ -169,6 +267,7 @@ export class MetaAdapter implements WhatsAppAdapter {
 
       const response = await fetch(`${META_BASE_URL}/${phoneNumberId}/messages`, {
         method: "POST",
+        signal: AbortSignal.timeout(30000),
         headers: {
           "Authorization": `Bearer ${accessToken}`,
           "Content-Type": "application/json",
@@ -196,6 +295,9 @@ export class MetaAdapter implements WhatsAppAdapter {
       }
 
       const externalId = data.messages?.[0]?.id || "";
+      if (!externalId) {
+        return { externalId: "", status: "unknown", error: "Meta respondeu sem ID da mensagem. Confira os webhooks antes de tentar novamente." };
+      }
       return {
         externalId,
         status: "accepted",
@@ -203,10 +305,15 @@ export class MetaAdapter implements WhatsAppAdapter {
 
     } catch (err: any) {
       console.error(`[MetaAdapter] Exceção durante envio (tenant: ${tenantId}):`, err);
+      const uncertain = err?.name === "TimeoutError" || err?.name === "AbortError"
+        || err?.code === "ECONNRESET" || err?.code === "ETIMEDOUT"
+        || /fetch failed|network|timeout/i.test(err?.message || "");
       return {
         externalId: "",
-        status: "failed",
-        error: err.message || "Erro inesperado ao despachar para a Meta API",
+        status: uncertain ? "unknown" : "failed",
+        error: uncertain
+          ? "Confirmação de envio não recebida da Meta. Não reenvie automaticamente; aguarde o webhook ou reconcilie manualmente."
+          : err.message || "Erro inesperado ao despachar para a Meta API",
       };
     }
   }
@@ -265,13 +372,11 @@ export class MetaAdapter implements WhatsAppAdapter {
     details?: any;
   }> {
     try {
-      let phoneNumberId = customConfig?.metaPhoneNumberId;
-      let accessToken = customConfig?.metaAccessToken;
-
+      const [stored] = await db.select().from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
+      const phoneNumberId = customConfig?.metaPhoneNumberId || stored?.metaPhoneNumberId;
+      const accessToken = customConfig?.metaAccessToken || stored?.metaAccessToken;
       if (!phoneNumberId || !accessToken) {
-        const creds = await this.getCredentials(tenantId);
-        phoneNumberId = creds.phoneNumberId;
-        accessToken = creds.accessToken;
+        return { valid: false, error: "Phone Number ID e Access Token são obrigatórios para testar." };
       }
 
       const res = await fetch(`${META_BASE_URL}/${phoneNumberId}?fields=verified_name,display_phone_number,quality_rating,code_verification_status`, {

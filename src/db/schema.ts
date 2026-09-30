@@ -27,6 +27,7 @@ export const channelConfigs = pgTable("channel_configs", {
   metaAccessToken: text("meta_access_token"),
   metaVerifyToken: text("meta_verify_token"),
   metaAppSecret: text("meta_app_secret"), // Segredo da aplicação Meta para validar assinatura HMAC SHA-256 do webhook
+  metaWebhookLastSeenAt: timestamp("meta_webhook_last_seen_at"),
 
   // Configurações exclusivas do Baileys (Valem Chat)
   baileysSessionStatus: text("baileys_session_status").default("disconnected"), // 'disconnected' | 'qr_ready' | 'connected'
@@ -244,6 +245,9 @@ export const messages = pgTable("messages", {
   idempotencyKey: text("idempotency_key"), // clientMessageId enviado pelo frontend para evitar envios duplicados
   errorMessage: text("error_message"),
   retryCount: integer("retry_count").default(0).notNull(),
+  metaDetails: jsonb("meta_details").$type<Record<string, unknown>>().default({}).notNull(),
+  metaPricing: jsonb("meta_pricing").$type<Record<string, unknown>>(),
+  metaStatusAt: timestamp("meta_status_at"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 
   sentAt: timestamp("sent_at").defaultNow().notNull(),

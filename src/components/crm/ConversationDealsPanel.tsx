@@ -12,11 +12,13 @@ import {
   Star,
   Search,
   Check,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateDealDialog } from "./CreateDealDialog";
 import { useChat } from "@/hooks/useChatState";
 import { useNavigate } from "@tanstack/react-router";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 interface ConversationDealsPanelProps {
   conversationId: string;
@@ -174,23 +176,27 @@ export function ConversationDealsPanel({
         </div>
 
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => {
-              handleSearchDeals();
-              setIsLinkingOpen(true);
-            }}
-            title="Vincular negociação existente"
-            className="flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground transition-colors cursor-pointer"
-          >
-            <Link2 className="h-3 w-3" />
-          </button>
-          <button
-            onClick={() => setIsCreateOpen(true)}
-            title="Criar nova negociação para este atendimento"
-            className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <SystemTooltip content="Vincular negociação existente">
+            <button
+              onClick={() => {
+                handleSearchDeals();
+                setIsLinkingOpen(true);
+              }}
+              aria-label="Vincular negociação existente"
+              className="flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground transition-colors cursor-pointer"
+            >
+              <Link2 className="h-3 w-3" />
+            </button>
+          </SystemTooltip>
+          <SystemTooltip content="Criar nova negociação para este atendimento">
+            <button
+              onClick={() => setIsCreateOpen(true)}
+              aria-label="Criar nova negociação para este atendimento"
+              className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </SystemTooltip>
         </div>
       </div>
 
@@ -224,23 +230,25 @@ export function ConversationDealsPanel({
               <div
                 key={deal.id}
                 onClick={() => navigate({ to: "/crm/deals/$dealId", params: { dealId: deal.id }, search: { from: "chat" } })}
-                className="group relative rounded-xl border border-border/80 bg-card p-2.5 shadow-xs hover:border-primary/40 transition-all cursor-pointer"
+                className="group relative rounded-xl border border-border/80 bg-card p-2.5 shadow-xs hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-150 cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-1">
                   <h5 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors">
                     {deal.title}
                   </h5>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleUnlink(deal.id);
-                    }}
-                    title="Desvincular negociação"
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-muted-foreground/60 hover:text-red-500 transition-opacity cursor-pointer"
-                  >
-                    <Unlink className="h-3 w-3" />
-                  </button>
+                  <SystemTooltip content="Desvincular negociação deste atendimento">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleUnlink(deal.id);
+                      }}
+                      aria-label="Desvincular negociação"
+                      className="opacity-0 group-hover:opacity-100 p-0.5 text-muted-foreground/60 hover:text-red-500 transition-opacity cursor-pointer"
+                    >
+                      <Unlink className="h-3 w-3" />
+                    </button>
+                  </SystemTooltip>
                 </div>
 
                 <div className="mt-1 flex items-center justify-between text-[11px]">
@@ -307,9 +315,12 @@ export function ConversationDealsPanel({
                       <p className="text-xs font-bold text-foreground truncate">{d.title}</p>
                       <div className="flex items-center gap-2 flex-wrap">
                         {d.account?.name && (
-                          <span className="text-[10px] text-primary font-medium truncate max-w-[140px]" title={d.account.name}>
-                            🏢 {d.account.name}
-                          </span>
+                          <SystemTooltip content={`Empresa: ${d.account.name}`}>
+                            <span className="inline-flex items-center gap-1 text-[10px] text-primary font-medium truncate max-w-[140px] cursor-default">
+                              <Building2 className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{d.account.name}</span>
+                            </span>
+                          </SystemTooltip>
                         )}
                         <span className="text-[10px] text-muted-foreground">
                           {d.value ? `R$ ${Number(d.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "Sem valor"}

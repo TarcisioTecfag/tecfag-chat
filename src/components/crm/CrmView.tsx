@@ -405,44 +405,48 @@ export function CrmView() {
             </div>
           </div>
         ) : viewMode === "kanban" ? (
-          <PipelineBoard
-            pipeline={activePipeline}
-            deals={deals}
-            stageSettings={stageSettings}
-            stagesSummaryMap={stagesSummaryMap}
-            operatorsMap={operatorsMap}
-            onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
-            onMoveDeal={handleMoveDeal}
-            onNewDealAtStage={(stageId) => {
-              setCreateAtStageId(stageId);
-              setIsCreateDialogOpen(true);
-            }}
-          />
+          <div key="crm-kanban-view" className="h-full w-full animate-in fade-in-50 duration-200">
+            <PipelineBoard
+              pipeline={activePipeline}
+              deals={deals}
+              stageSettings={stageSettings}
+              stagesSummaryMap={stagesSummaryMap}
+              operatorsMap={operatorsMap}
+              onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
+              onMoveDeal={handleMoveDeal}
+              onNewDealAtStage={(stageId) => {
+                setCreateAtStageId(stageId);
+                setIsCreateDialogOpen(true);
+              }}
+            />
+          </div>
         ) : (
-          <DealList
-            deals={deals}
-            stages={activeStages}
-            operators={operators}
-            stagesMap={stagesMap}
-            operatorsMap={operatorsMap}
-            onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
-            total={totalDeals}
-            limit={listLimit}
-            offset={listOffset}
-            onPageChange={setListOffset}
-            onLimitChange={(newLimit) => {
-              setListLimit(newLimit);
-              setListOffset(0);
-            }}
-            loading={loading}
-            error={error}
-            onRetry={fetchDeals}
-            onClearFilters={handleClearAllFilters}
-            onRefreshData={() => {
-              fetchDeals();
-              fetchStagesSummary();
-            }}
-          />
+          <div key="crm-list-view" className="h-full w-full animate-in fade-in-50 duration-200">
+            <DealList
+              deals={deals}
+              stages={activeStages}
+              operators={operators}
+              stagesMap={stagesMap}
+              operatorsMap={operatorsMap}
+              onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
+              total={totalDeals}
+              limit={listLimit}
+              offset={listOffset}
+              onPageChange={setListOffset}
+              onLimitChange={(newLimit) => {
+                setListLimit(newLimit);
+                setListOffset(0);
+              }}
+              loading={loading}
+              error={error}
+              onRetry={fetchDeals}
+              onClearFilters={handleClearAllFilters}
+              onRefreshData={() => {
+                fetchDeals();
+                fetchStagesSummary();
+              }}
+            />
+          </div>
         )}
       </div>
 

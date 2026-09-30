@@ -8,6 +8,8 @@ import {
 } from "./types";
 import { metaAdapter } from "./adapters/meta";
 import { baileysAdapter } from "./adapters/baileys";
+import { getMetaServiceWindow } from "./meta-policy";
+import { replayPendingMetaStatuses } from "./meta-status";
 
 export class OutboundQueue {
   private static instance: OutboundQueue;
@@ -129,6 +131,27 @@ function isIdempotencyConflict(err: any): boolean {
     const activeProvider: WhatsAppProviderType =
       (channelConfig?.activeProvider as WhatsAppProviderType) || "baileys";
 
+    if (activeProvider === "meta" && !payload.templateName) {
+      const window = await getMetaServiceWindow(tenantId, conversationId);
+      if (!window.open) {
+        return {
+          success: false,
+          messageId: "",
+          status: "failed",
+          code: "META_TEMPLATE_REQUIRED",
+          error: "A janela de 24 horas terminou. Envie um template aprovado pela Meta para retomar a conversa.",
+        };
+      }
+    }
+
+    const localMediaId = payload.mediaUrl?.match(/messageId=([^&]+)/)?.[1];
+    const mediaContent = payload.mediaType && localMediaId
+      ? `[MEDIA:${payload.mediaType}]${localMediaId}${payload.fileName ? `:${payload.fileName}` : ""}${payload.text ? `\n${payload.text}` : ""}`
+      : payload.mediaType ? `[Mídia: ${payload.fileName || payload.mediaType}]` : "";
+    const content = payload.templateName
+      ? `[Template Meta: ${payload.templateName}]`
+      : mediaContent || payload.text || "";
+
     // 4. Inserção durável no PostgreSQL em status 'sending' (com proteção atômica contra race conditions)
     try {
       await db.insert(messages).values({
@@ -137,7 +160,7 @@ function isIdempotencyConflict(err: any): boolean {
         conversationId,
         senderType: "agent",
         senderName: "Operador",
-        content: payload.text || "",
+        content,
         quotedMessageId: payload.quotedMessageId || null,
         isInternalNote: false,
         direction: "outbound",
@@ -145,6 +168,14 @@ function isIdempotencyConflict(err: any): boolean {
         status: "sending",
         idempotencyKey: idempotencyKey || null,
         retryCount: 0,
+        metaDetails: activeProvider === "meta" ? {
+          templateName: payload.templateName || null,
+          templateLanguage: payload.templateLanguage || null,
+          templateComponents: payload.templateComponents || null,
+          mediaUrl: payload.mediaUrl || null,
+          mediaType: payload.mediaType || null,
+          fileName: payload.fileName || null,
+        } : {},
         sentAt: now,
         updatedAt: now,
       });
@@ -195,6 +226,10 @@ function isIdempotencyConflict(err: any): boolean {
           })
           .where(and(eq(messages.id, messageId), eq(messages.tenantId, tenantId)));
 
+        if (activeProvider === "meta" && dispatchResult.externalId) {
+          await replayPendingMetaStatuses(tenantId, dispatchResult.externalId);
+        }
+
         await db
           .update(conversations)
           .set({ lastMessageTime: new Date(), updatedAt: new Date() })
@@ -210,7 +245,7 @@ function isIdempotencyConflict(err: any): boolean {
         await db
           .update(messages)
           .set({
-            status: "failed",
+            status: dispatchResult.status === "unknown" ? "unknown" : "failed",
             errorMessage: dispatchResult.error || "Falha no envio pelo provedor",
             retryCount: 1,
             updatedAt: new Date(),
@@ -220,7 +255,7 @@ function isIdempotencyConflict(err: any): boolean {
         return {
           success: false,
           messageId,
-          status: "failed",
+          status: dispatchResult.status === "unknown" ? "unknown" : "failed",
           error: dispatchResult.error,
         };
       }

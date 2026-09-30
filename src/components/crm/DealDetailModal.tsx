@@ -1066,13 +1066,14 @@ export function DealDetailModal({
                     <h2 className="truncate text-xl font-extrabold text-foreground">
                       {loading ? "Carregando negociação..." : deal?.title}
                     </h2>
-                    <button
-                      onClick={() => setIsEditingTitle(true)}
-                      className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 cursor-pointer"
-                      title="Editar título"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                    </button>
+                    <SystemTooltip content="Editar título">
+                      <button
+                        onClick={() => setIsEditingTitle(true)}
+                        className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 cursor-pointer"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
                   </div>
                 </div>
               )}
@@ -1087,15 +1088,16 @@ export function DealDetailModal({
 
                   {/* Cliente / Empresa */}
                   {deal.account && (
-                    <button
-                      type="button"
-                      onClick={() => setIsAccountDetailOpen(true)}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-foreground hover:text-primary transition-colors cursor-pointer"
-                      title="Ver ficha do cliente"
-                    >
-                      <Building2 className="h-3 w-3 text-primary" />
-                      <span className="underline decoration-dotted truncate max-w-[160px]">{deal.account.name}</span>
-                    </button>
+                    <SystemTooltip content="Ver ficha do cliente">
+                      <button
+                        type="button"
+                        onClick={() => setIsAccountDetailOpen(true)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-foreground hover:text-primary transition-colors cursor-pointer"
+                      >
+                        <Building2 className="h-3 w-3 text-primary" />
+                        <span className="underline decoration-dotted truncate max-w-[160px]">{deal.account.name}</span>
+                      </button>
+                    </SystemTooltip>
                   )}
 
                   <span className="text-muted-foreground/40">•</span>
@@ -1155,19 +1157,21 @@ export function DealDetailModal({
                   <span className="text-muted-foreground/40">•</span>
 
                   {/* Estrelas */}
-                  <div className="flex items-center gap-0.5" title="Qualificação do negócio">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star
-                        key={s}
-                        onClick={() => updateDeal({ rating: s })}
-                        className={`h-3.5 w-3.5 cursor-pointer hover:scale-110 transition-transform ${
-                          (deal.rating || 0) >= s
-                            ? "fill-primary text-primary"
-                            : "text-muted-foreground/30"
-                        }`}
-                      />
-                    ))}
-                  </div>
+                  <SystemTooltip content="Qualificação do negócio">
+                    <div className="flex items-center gap-0.5">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star
+                          key={s}
+                          onClick={() => updateDeal({ rating: s })}
+                          className={`h-3.5 w-3.5 cursor-pointer hover:scale-110 transition-transform ${
+                            (deal.rating || 0) >= s
+                              ? "fill-primary text-primary"
+                              : "text-muted-foreground/30"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </SystemTooltip>
 
                   {/* Status Badge */}
                   <span
@@ -1188,30 +1192,30 @@ export function DealDetailModal({
 
                   {/* Prioridade Comercial IA */}
                   <span className="text-muted-foreground/40">•</span>
-                  <div
-                    className="flex items-center gap-1.5"
-                    title={deal.aiPriorityReason || "Prioridade comercial calculada por critérios explicáveis e IA"}
-                  >
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                        deal.aiPriorityLevel === "critica"
-                          ? "bg-primary/10 text-primary border border-primary/30"
-                          : "bg-muted text-muted-foreground border border-border"
-                      }`}
-                    >
-                      <Sparkles className="h-2.5 w-2.5" />
-                      <span>
-                        {deal.aiPriorityScore !== null && deal.aiPriorityScore !== undefined
-                          ? `IA: ${deal.aiPriorityScore} pts (${deal.aiPriorityLevel || "normal"})`
-                          : "IA: Não avaliado"}
+                  <SystemTooltip content={deal.aiPriorityReason || "Prioridade comercial calculada por critérios explicáveis e IA"}>
+                    <div className="flex items-center gap-1.5 cursor-help">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          deal.aiPriorityLevel === "critica"
+                            ? "bg-primary/10 text-primary border border-primary/30"
+                            : "bg-muted text-muted-foreground border border-border"
+                        }`}
+                      >
+                        <Sparkles className="h-2.5 w-2.5" />
+                        <span>
+                          {deal.aiPriorityScore !== null && deal.aiPriorityScore !== undefined
+                            ? `IA: ${deal.aiPriorityScore} pts (${deal.aiPriorityLevel || "normal"})`
+                            : "IA: Não avaliado"}
+                        </span>
                       </span>
-                    </span>
+                    </div>
+                  </SystemTooltip>
+                  <SystemTooltip content="Recalcular prioridade comercial com IA">
                     <button
                       type="button"
                       disabled={calculatingPriority}
                       onClick={handleCalculateAiPriority}
                       className="text-[10px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
-                      title="Recalcular prioridade comercial com IA"
                     >
                       {calculatingPriority ? (
                         <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -1220,7 +1224,7 @@ export function DealDetailModal({
                       )}
                       <span>Avaliar</span>
                     </button>
-                  </div>
+                  </SystemTooltip>
                 </div>
               )}
             </div>
@@ -1231,30 +1235,33 @@ export function DealDetailModal({
                 <>
                   {deal.status === "open" && (
                     <>
-                      <button
-                        onClick={() => setShowLossPrompt(true)}
-                        className="flex h-8 items-center gap-1.5 rounded-xl bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
-                        title="Marcar como Perdido"
-                      >
-                        <XCircle className="h-3.5 w-3.5" />
-                        <span>Marcar perda</span>
-                      </button>
-                      <button
-                        onClick={() => setShowWinPrompt(true)}
-                        className="flex h-8 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
-                        title="Marcar como Ganho"
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        <span>Marcar venda</span>
-                      </button>
-                      <button
-                        onClick={() => setShowPausePrompt(true)}
-                        className="flex h-8 items-center gap-1.5 rounded-xl border border-border bg-muted/50 px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                        title="Pausar negociação"
-                      >
-                        <PauseCircle className="h-3.5 w-3.5" />
-                        <span>Pausar</span>
-                      </button>
+                      <SystemTooltip content="Marcar como Perdido">
+                        <button
+                          onClick={() => setShowLossPrompt(true)}
+                          className="flex h-8 items-center gap-1.5 rounded-xl bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                          <span>Marcar perda</span>
+                        </button>
+                      </SystemTooltip>
+                      <SystemTooltip content="Marcar como Ganho">
+                        <button
+                          onClick={() => setShowWinPrompt(true)}
+                          className="flex h-8 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-bold text-primary-foreground shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span>Marcar venda</span>
+                        </button>
+                      </SystemTooltip>
+                      <SystemTooltip content="Pausar negociação">
+                        <button
+                          onClick={() => setShowPausePrompt(true)}
+                          className="flex h-8 items-center gap-1.5 rounded-xl border border-border bg-muted/50 px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                        >
+                          <PauseCircle className="h-3.5 w-3.5" />
+                          <span>Pausar</span>
+                        </button>
+                      </SystemTooltip>
                     </>
                   )}
 
@@ -1473,29 +1480,31 @@ export function DealDetailModal({
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleCompleteActivity(deal.nextTask.id)}
-                      className="flex h-7 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
-                      title="Marcar tarefa como concluída"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                      <span>Concluir</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReschedulingActivityId(deal.nextTask.id);
-                        setRescheduleDueDate(deal.nextTask.dueDate ? deal.nextTask.dueDate.slice(0, 16) : "");
-                        setActiveTab("tasks");
-                        setTasksSubTab("pending");
-                      }}
-                      className="flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                      title="Reagendar prazo da tarefa"
-                    >
-                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>Reagendar</span>
-                    </button>
+                    <SystemTooltip content="Marcar tarefa como concluída">
+                      <button
+                        type="button"
+                        onClick={() => handleCompleteActivity(deal.nextTask.id)}
+                        className="flex h-7 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        <span>Concluir</span>
+                      </button>
+                    </SystemTooltip>
+                    <SystemTooltip content="Reagendar prazo da tarefa">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReschedulingActivityId(deal.nextTask.id);
+                          setRescheduleDueDate(deal.nextTask.dueDate ? deal.nextTask.dueDate.slice(0, 16) : "");
+                          setActiveTab("tasks");
+                          setTasksSubTab("pending");
+                        }}
+                        className="flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>Reagendar</span>
+                      </button>
+                    </SystemTooltip>
                   </div>
                 </div>
               ) : (
@@ -1553,27 +1562,29 @@ export function DealDetailModal({
                           <User className="h-4 w-4 text-primary shrink-0" />
                         )}
                         <div className="min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => setIsAccountDetailOpen(true)}
-                            className="text-xs font-bold text-primary hover:underline block truncate text-left"
-                            title="Ver ficha completa do cliente"
-                          >
-                            {deal.account.name}
-                          </button>
+                          <SystemTooltip content="Ver ficha completa do cliente">
+                            <button
+                              type="button"
+                              onClick={() => setIsAccountDetailOpen(true)}
+                              className="text-xs font-bold text-primary hover:underline block truncate text-left"
+                            >
+                              {deal.account.name}
+                            </button>
+                          </SystemTooltip>
                           <span className="text-[10px] text-muted-foreground block">
                             {deal.account.type === "company" ? "Pessoa Jurídica (PJ)" : "Pessoa Física (PF)"}
                           </span>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsAccountDetailOpen(true)}
-                        className="p-1 text-muted-foreground hover:text-primary rounded-md transition-colors"
-                        title="Abrir ficha cadastral do cliente"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </button>
+                      <SystemTooltip content="Abrir ficha cadastral do cliente">
+                        <button
+                          type="button"
+                          onClick={() => setIsAccountDetailOpen(true)}
+                          className="p-1 text-muted-foreground hover:text-primary rounded-md transition-colors"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                      </SystemTooltip>
                     </div>
 
                     {deal.account.tradeName && (
@@ -1631,7 +1642,14 @@ export function DealDetailModal({
                 </span>
 
                 <dl className="space-y-2 border-b border-border/60 pb-3 text-[11px]">
-                  <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Nome</dt><dd className="max-w-[60%] truncate text-right font-semibold" title={deal?.title}>{deal?.title}</dd></div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Nome</dt>
+                    <SystemTooltip content={deal?.title || ""}>
+                      <dd className="max-w-[60%] truncate text-right font-semibold cursor-default">
+                        {deal?.title}
+                      </dd>
+                    </SystemTooltip>
+                  </div>
                   <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Qualificação</dt><dd className="font-semibold">{deal?.rating ? `${deal.rating} / 5` : "—"}</dd></div>
                   <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Valor total</dt><dd className="font-semibold">{formattedValue}</dd></div>
                   <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Responsável</dt><dd className="max-w-[60%] truncate text-right font-semibold">{operatorsMap.get(deal?.operatorId || "") || "Não atribuído"}</dd></div>
@@ -1792,14 +1810,15 @@ export function DealDetailModal({
                     <div key={c.id} className="rounded-lg bg-muted/40 p-2 text-xs space-y-1">
                       <div className="flex items-center justify-between">
                         <div className="font-bold text-foreground truncate">{c.contact?.name || "Contato"}</div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveParticipant(c.contactId)}
-                          className="text-muted-foreground hover:text-rose-500 p-0.5 rounded transition-colors"
-                          title="Remover participante"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
+                        <SystemTooltip content="Remover participante">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveParticipant(c.contactId)}
+                            className="text-muted-foreground hover:text-rose-500 p-0.5 rounded transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </SystemTooltip>
                       </div>
                       {c.contact?.phone && (
                         <div className="text-[11px] text-muted-foreground">{c.contact.phone}</div>
@@ -1834,7 +1853,7 @@ export function DealDetailModal({
             {/* Painel Direito: Abas (Histórico, Tarefas, Conversas) */}
             <div className="flex-1 min-w-0 flex flex-col">
               {/* Barra de Abas */}
-              <div className="crm-deal-tabs flex overflow-x-auto border-b border-border bg-card px-4">
+              <div className="crm-deal-tabs flex overflow-x-auto scrollbar-thin border-b border-border bg-card px-4">
                 <button
                   onClick={() => setActiveTab("history")}
                   className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold transition-all cursor-pointer ${
@@ -1931,10 +1950,10 @@ export function DealDetailModal({
               </div>
 
               {/* Conteúdo da Aba */}
-              <div className="crm-deal-tab-content flex-1 p-5">
+              <div className="crm-deal-tab-content flex-1 p-5 overflow-y-auto scrollbar-thin">
                 {/* ABA 1: TAREFAS & NOTAS */}
                 {activeTab === "tasks" && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
                     {/* Formulário de Nova Nota / Tarefa */}
                     <form onSubmit={handleCreateActivity} className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
                       <div className="flex items-center justify-between">
@@ -2155,66 +2174,71 @@ export function DealDetailModal({
                                       <div className="flex items-center gap-1.5 shrink-0">
                                         {isPending && !isNote && (
                                           <>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleCompleteActivity(act.id)}
-                                              className="flex h-7 items-center gap-1 rounded-lg bg-primary px-2 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
-                                              title="Marcar como concluída"
-                                            >
-                                              <Check className="h-3 w-3" />
-                                              <span>Concluir</span>
-                                            </button>
+                                            <SystemTooltip content="Marcar como concluída">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleCompleteActivity(act.id)}
+                                                className="flex h-7 items-center gap-1 rounded-lg bg-primary px-2 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+                                              >
+                                                <Check className="h-3 w-3" />
+                                                <span>Concluir</span>
+                                              </button>
+                                            </SystemTooltip>
 
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                if (reschedulingActivityId === act.id) {
-                                                  setReschedulingActivityId(null);
-                                                } else {
-                                                  setReschedulingActivityId(act.id);
-                                                  setRescheduleDueDate(act.dueDate ? act.dueDate.slice(0, 16) : "");
-                                                }
-                                              }}
-                                              className="flex h-7 items-center gap-1 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                                              title="Reagendar prazo"
-                                            >
-                                              <Calendar className="h-3 w-3 text-muted-foreground" />
-                                              <span>Reagendar</span>
-                                            </button>
+                                            <SystemTooltip content="Reagendar prazo">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (reschedulingActivityId === act.id) {
+                                                    setReschedulingActivityId(null);
+                                                  } else {
+                                                    setReschedulingActivityId(act.id);
+                                                    setRescheduleDueDate(act.dueDate ? act.dueDate.slice(0, 16) : "");
+                                                  }
+                                                }}
+                                                className="flex h-7 items-center gap-1 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                              >
+                                                <Calendar className="h-3 w-3 text-muted-foreground" />
+                                                <span>Reagendar</span>
+                                              </button>
+                                            </SystemTooltip>
 
-                                            <button
-                                              type="button"
-                                              onClick={() => handleCancelActivity(act.id)}
-                                              className="flex h-7 items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/5 px-2 text-[11px] font-semibold text-red-600 hover:bg-red-500/10 transition-colors cursor-pointer"
-                                              title="Cancelar tarefa"
-                                            >
-                                              <XCircle className="h-3 w-3" />
-                                              <span>Cancelar</span>
-                                            </button>
+                                            <SystemTooltip content="Cancelar tarefa">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleCancelActivity(act.id)}
+                                                className="flex h-7 items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/5 px-2 text-[11px] font-semibold text-red-600 hover:bg-red-500/10 transition-colors cursor-pointer"
+                                              >
+                                                <XCircle className="h-3 w-3" />
+                                                <span>Cancelar</span>
+                                              </button>
+                                            </SystemTooltip>
                                           </>
                                         )}
 
                                         {(isCompleted || isCancelled) && (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleReopenActivity(act.id)}
-                                            className="flex h-7 items-center gap-1 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                                            title="Reabrir tarefa como pendente"
-                                          >
-                                            <RotateCcw className="h-3 w-3 text-primary" />
-                                            <span>Reabrir</span>
-                                          </button>
+                                          <SystemTooltip content="Reabrir tarefa como pendente">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleReopenActivity(act.id)}
+                                              className="flex h-7 items-center gap-1 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                            >
+                                              <RotateCcw className="h-3 w-3 text-primary" />
+                                              <span>Reabrir</span>
+                                            </button>
+                                          </SystemTooltip>
                                         )}
 
                                         {!isNote && (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleDeleteActivity(act.id)}
-                                            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                                            title="Excluir tarefa"
-                                          >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                          </button>
+                                          <SystemTooltip content="Excluir tarefa">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteActivity(act.id)}
+                                              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                            </button>
+                                          </SystemTooltip>
                                         )}
                                       </div>
                                     </div>
@@ -2294,7 +2318,7 @@ export function DealDetailModal({
 
                 {/* ABA 2: CONVERSAS VINCULADAS */}
                 {activeTab === "conversations" && (
-                  <div className="space-y-4">
+                  <div className="space-y-4 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
                     {/* Topo da aba com ação de vincular */}
                     <div className="flex items-center justify-between border-b border-border/60 pb-3">
                       <div>
@@ -2486,25 +2510,27 @@ export function DealDetailModal({
 
                             <div className="flex items-center gap-1.5 shrink-0 ml-3">
                               {/* Botão Abrir Chat */}
-                              <button
-                                type="button"
-                                onClick={() => handleOpenConversation(c.conversationId || c.id)}
-                                className="flex items-center gap-1.5 rounded-xl bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
-                                title="Abrir conversa no chat principal"
-                              >
-                                <span>Abrir Chat</span>
-                                <ExternalLink className="h-3.5 w-3.5" />
-                              </button>
+                              <SystemTooltip content="Abrir conversa no chat principal">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenConversation(c.conversationId || c.id)}
+                                  className="flex items-center gap-1.5 rounded-xl bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                                >
+                                  <span>Abrir Chat</span>
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </button>
+                              </SystemTooltip>
 
                               {/* Botão Desvincular */}
-                              <button
-                                type="button"
-                                onClick={() => handleUnlinkConversation(c.conversationId || c.id)}
-                                className="flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-colors cursor-pointer"
-                                title="Desvincular atendimento deste negócio"
-                              >
-                                <Unlink className="h-3.5 w-3.5" />
-                              </button>
+                              <SystemTooltip content="Desvincular atendimento deste negócio">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnlinkConversation(c.conversationId || c.id)}
+                                  className="flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-colors cursor-pointer"
+                                >
+                                  <Unlink className="h-3.5 w-3.5" />
+                                </button>
+                              </SystemTooltip>
                             </div>
                           </div>
                         );
@@ -2533,7 +2559,7 @@ export function DealDetailModal({
 
                 {/* ABA DE EVIDÊNCIAS COMERCIAIS */}
                 {activeTab === "evidence" && (
-                  <div className="space-y-3">
+                  <div className="space-y-3 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
                     {deal?.evidences && deal.evidences.length > 0 ? (
                       deal.evidences.map((evi: any) => (
                         <div
@@ -2553,25 +2579,27 @@ export function DealDetailModal({
 
                             <div className="flex items-center gap-2">
                               {evi.message?.conversationId && (
+                                <SystemTooltip content="Abrir no Chat">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenConversation(evi.message.conversationId)}
+                                    className="flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+                                  >
+                                    <MessageCircle className="h-3 w-3" />
+                                    <span>Ver no Chat</span>
+                                  </button>
+                                </SystemTooltip>
+                              )}
+                              <SystemTooltip content="Desmarcar evidência">
                                 <button
                                   type="button"
-                                  onClick={() => handleOpenConversation(evi.message.conversationId)}
-                                  className="flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
-                                  title="Abrir no Chat"
+                                  onClick={() => handleRemoveEvidence(evi.id)}
+                                  className="flex items-center gap-1 rounded-lg bg-red-500/10 px-2 py-1 text-[11px] font-bold text-red-600 hover:bg-red-500 hover:text-white transition-colors cursor-pointer"
                                 >
-                                  <MessageCircle className="h-3 w-3" />
-                                  <span>Ver no Chat</span>
+                                  <Trash2 className="h-3 w-3" />
+                                  <span>Remover</span>
                                 </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveEvidence(evi.id)}
-                                className="flex items-center gap-1 rounded-lg bg-red-500/10 px-2 py-1 text-[11px] font-bold text-red-600 hover:bg-red-500 hover:text-white transition-colors cursor-pointer"
-                                title="Desmarcar evidência"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                <span>Remover</span>
-                              </button>
+                              </SystemTooltip>
                             </div>
                           </div>
 
@@ -2605,7 +2633,7 @@ export function DealDetailModal({
 
                 {/* ABA 4: PRODUTOS & PROPOSTA COMERCIAL */}
                 {activeTab === "products" && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
                     {/* Cabeçalho da Seção de Produtos */}
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
                       <div>
@@ -2809,14 +2837,15 @@ export function DealDetailModal({
                         </div>
 
                         <div className="md:col-span-1 flex items-center">
-                          <button
-                            type="submit"
-                            disabled={addingProduct || !newProductName.trim() || !newProductUnitPrice}
-                            className="flex h-8 w-full items-center justify-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
-                            title="Adicionar produto"
-                          >
-                            {addingProduct ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-4 w-4" />}
-                          </button>
+                          <SystemTooltip content="Adicionar produto">
+                            <button
+                              type="submit"
+                              disabled={addingProduct || !newProductName.trim() || !newProductUnitPrice}
+                              className="flex h-8 w-full items-center justify-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
+                            >
+                              {addingProduct ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-4 w-4" />}
+                            </button>
+                          </SystemTooltip>
                         </div>
                       </div>
                     </form>
@@ -2864,14 +2893,15 @@ export function DealDetailModal({
                                     R$ {parseFloat(item.totalPrice).toFixed(2)}
                                   </td>
                                   <td className="p-3 text-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveProduct(item.id)}
-                                      className="p-1 rounded text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
-                                      title="Remover item"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
+                                    <SystemTooltip content="Remover item">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveProduct(item.id)}
+                                        className="p-1 rounded text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </SystemTooltip>
                                   </td>
                                 </tr>
                               ))}
@@ -2949,26 +2979,28 @@ export function DealDetailModal({
                                   </div>
 
                                   <div className="flex items-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCopyProposalText(prop)}
-                                      className="flex h-7 items-center gap-1 rounded-lg border border-border bg-muted/30 px-2.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                                      title="Copiar texto formatado para o WhatsApp (marca como 'Texto Copiado')"
-                                    >
-                                      <Copy className="h-3 w-3" />
-                                      <span>Copiar p/ WhatsApp</span>
-                                    </button>
+                                    <SystemTooltip content="Copiar texto formatado para o WhatsApp (marca como 'Texto Copiado')">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopyProposalText(prop)}
+                                        className="flex h-7 items-center gap-1 rounded-lg border border-border bg-muted/30 px-2.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                      >
+                                        <Copy className="h-3 w-3" />
+                                        <span>Copiar p/ WhatsApp</span>
+                                      </button>
+                                    </SystemTooltip>
 
                                     {/* Ações de Status */}
                                     {(prop.status === "draft" || prop.status === "copied") && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateProposalStatus(prop.id, "sent")}
-                                        className="h-7 px-2.5 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
-                                        title="Confirmar que a proposta foi efetivamente enviada ao cliente"
-                                      >
-                                        Confirmar Envio
-                                      </button>
+                                      <SystemTooltip content="Confirmar que a proposta foi efetivamente enviada ao cliente">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateProposalStatus(prop.id, "sent")}
+                                          className="h-7 px-2.5 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
+                                        >
+                                          Confirmar Envio
+                                        </button>
+                                      </SystemTooltip>
                                     )}
 
                                     {prop.status === "sent" && (
@@ -3020,7 +3052,7 @@ export function DealDetailModal({
 
                 {/* ABA 6: ARQUIVOS & DOCUMENTOS */}
                 {activeTab === "files" && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
                     {/* Formulário de Anexo */}
                     <form onSubmit={handleUploadFile} className="rounded-xl border border-border bg-card p-4 space-y-3">
                       <div className="flex items-center justify-between">
@@ -3043,16 +3075,17 @@ export function DealDetailModal({
                           />
                         </div>
                         <div className="flex gap-2">
-                          <input
-                            type="number"
-                            min="1"
-                            max="25600"
-                            placeholder="Tamanho em KB"
-                            value={newFileSizeKb}
-                            onChange={(e) => setNewFileSizeKb(e.target.value)}
-                            className="h-8 w-24 rounded-lg border border-border bg-muted/20 px-2 text-xs text-foreground focus:outline-none"
-                            title="Tamanho em Kilobytes (KB)"
-                          />
+                          <SystemTooltip content="Tamanho em Kilobytes (KB)">
+                            <input
+                              type="number"
+                              min="1"
+                              max="25600"
+                              placeholder="Tamanho em KB"
+                              value={newFileSizeKb}
+                              onChange={(e) => setNewFileSizeKb(e.target.value)}
+                              className="h-8 w-24 rounded-lg border border-border bg-muted/20 px-2 text-xs text-foreground focus:outline-none"
+                            />
+                          </SystemTooltip>
                           <button
                             type="submit"
                             disabled={uploadingFile}
@@ -3102,23 +3135,25 @@ export function DealDetailModal({
                               </div>
 
                               <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => toast.info(`Acesso ao arquivo: ${file.storagePath}`)}
-                                  className="h-7 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-1 cursor-pointer"
-                                  title="Baixar/Visualizar documento"
-                                >
-                                  <Download className="h-3 w-3" />
-                                  <span>Abrir</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteFile(file.id)}
-                                  className="h-7 w-7 rounded-lg border border-border hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
-                                  title="Excluir documento"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
+                                <SystemTooltip content="Baixar/Visualizar documento">
+                                  <button
+                                    type="button"
+                                    onClick={() => toast.info(`Acesso ao arquivo: ${file.storagePath}`)}
+                                    className="h-7 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Download className="h-3 w-3" />
+                                    <span>Abrir</span>
+                                  </button>
+                                </SystemTooltip>
+                                <SystemTooltip content="Excluir documento">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteFile(file.id)}
+                                    className="h-7 w-7 rounded-lg border border-border hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </SystemTooltip>
                               </div>
                             </div>
                           ))}
@@ -3134,7 +3169,7 @@ export function DealDetailModal({
 
                 {/* ABA 7: QUESTIONÁRIOS E BRIEFINGS */}
                 {activeTab === "questionnaires" && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
                     {/* Formulário de Qualificação Técnica */}
                     <form onSubmit={handleSaveQuestionnaire} className="rounded-xl border border-border bg-card p-4 space-y-3">
                       <div className="flex items-center justify-between">
@@ -3281,7 +3316,7 @@ export function DealDetailModal({
 
                 {/* ABA 8: E-MAILS COMERCIAIS */}
                 {activeTab === "emails" && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
                     {/* Formulário de Registro de E-mail */}
                     <form onSubmit={handleLogEmail} className="rounded-xl border border-border bg-card p-4 space-y-3">
                       <div className="flex items-center justify-between">
@@ -3433,22 +3468,30 @@ export function DealDetailModal({
 
                 {/* ABA 5: HISTÓRICO UNIFICADO */}
                 {activeTab === "history" && (
-                  <div className="space-y-4">
+                  <div className="space-y-4 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
                       <div>
                         <h4 className="text-xs font-bold text-foreground">Histórico</h4>
                         <p className="text-[11px] text-muted-foreground">Atividades e alterações desta negociação</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <label htmlFor="crm-history-filter" className="text-[11px] font-semibold">Exibir</label>
-                        <select id="crm-history-filter" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value as typeof historyFilter)} className="h-8 rounded-md border border-border bg-card px-2 text-[11px]">
-                          <option value="all">Todos os eventos</option>
-                          <option value="event">Alterações</option>
-                          <option value="activity">Atividades</option>
-                          <option value="proposal">Propostas</option>
-                          <option value="evidence">Evidências</option>
-                        </select>
-                        <button type="button" onClick={() => { setNewActivityType("note"); setActiveTab("tasks"); }} className="inline-flex h-8 items-center gap-1 rounded-md bg-primary/10 px-2 text-[11px] font-bold text-primary hover:bg-primary/20"><Plus className="h-3 w-3" /> Criar anotação</button>
+                        <label htmlFor="crm-history-filter" className="text-[11px] font-semibold text-muted-foreground">Exibir</label>
+                        <Select
+                          value={historyFilter}
+                          onValueChange={(val) => setHistoryFilter(val as typeof historyFilter)}
+                        >
+                          <SelectTrigger id="crm-history-filter" className="h-8 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground min-w-[140px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all" className="text-xs">Todos os eventos</SelectItem>
+                            <SelectItem value="event" className="text-xs">Alterações</SelectItem>
+                            <SelectItem value="activity" className="text-xs">Atividades</SelectItem>
+                            <SelectItem value="proposal" className="text-xs">Propostas</SelectItem>
+                            <SelectItem value="evidence" className="text-xs">Evidências</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <button type="button" onClick={() => { setNewActivityType("note"); setActiveTab("tasks"); }} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary/10 px-2.5 text-[11px] font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"><Plus className="h-3 w-3" /> Criar anotação</button>
                       </div>
                     </div>
 

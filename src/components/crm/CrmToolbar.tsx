@@ -268,8 +268,7 @@ export function CrmToolbar({
           <Select value={selectedPipelineId} onValueChange={onPipelineChange}>
             <SelectTrigger
               aria-label="Funil de negociações"
-              title={selectedPipeline?.name}
-              className="h-10 w-auto min-w-0 max-w-full gap-3 rounded-lg border-transparent bg-transparent px-1 text-base font-semibold shadow-none @[38rem]/crm-toolbar:max-w-80"
+              className="h-10 w-auto min-w-0 max-w-full gap-3 rounded-lg border-transparent bg-transparent px-1 text-base font-semibold shadow-none @[38rem]/crm-toolbar:max-w-80 cursor-pointer hover:bg-muted/30 transition-colors"
             >
               <div className="flex min-w-0 items-center gap-2">
                 <Layers className="h-4 w-4 shrink-0 text-primary" />
@@ -308,7 +307,7 @@ export function CrmToolbar({
                   type="button"
                   aria-pressed={viewMode === mode}
                   onClick={() => onViewModeChange(mode)}
-                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   <Icon className="h-4 w-4" />
                   {mode === "kanban" ? "Quadro" : "Lista"}

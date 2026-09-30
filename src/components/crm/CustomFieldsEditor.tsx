@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CustomFieldEntity, CustomFieldType } from "@/lib/crm/custom-fields";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 export interface FieldOption {
   id: string;
@@ -111,45 +120,50 @@ export function CustomFieldsEditor({
               )}
             </label>
             {field.fieldType === "multiple" ? (
-              <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg border border-border bg-card p-2">
+              <div className="max-h-36 space-y-2 overflow-y-auto rounded-lg border border-border bg-card p-2.5">
                 {field.options.map((option) => {
                   const selected = Array.isArray(value) ? (value as string[]) : [];
+                  const isChecked = selected.includes(option.id);
                   return (
                     <label
                       key={option.id}
-                      className="flex items-center gap-2 text-xs text-foreground"
+                      className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none"
                     >
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(option.id)}
-                        onChange={(event) =>
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={(checked) =>
                           update(
                             field.id,
-                            event.target.checked
+                            checked
                               ? [...selected, option.id]
                               : selected.filter((id) => id !== option.id),
                           )
                         }
                       />
-                      {option.label}
+                      <span>{option.label}</span>
                     </label>
                   );
                 })}
               </div>
             ) : field.fieldType === "single" ? (
-              <select
-                id={`cf-${field.id}`}
-                className={common}
-                value={typeof value === "string" ? value : ""}
-                onChange={(event) => update(field.id, event.target.value || null)}
+              <Select
+                value={typeof value === "string" && value ? value : "__empty__"}
+                onValueChange={(val) => update(field.id, val === "__empty__" ? null : val)}
               >
-                <option value="">Selecionar</option>
-                {field.options.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id={`cf-${field.id}`} className="h-9 w-full rounded-lg text-xs bg-background">
+                  <SelectValue placeholder="Selecionar..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__empty__" className="text-xs text-muted-foreground">
+                    Selecionar...
+                  </SelectItem>
+                  {field.options.map((option) => (
+                    <SelectItem key={option.id} value={option.id} className="text-xs">
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             ) : (
               <input
                 id={`cf-${field.id}`}
@@ -214,9 +228,11 @@ export function CustomFieldsSummary({
         return (
           <div key={field.id} className="flex justify-between gap-2">
             <dt className="text-muted-foreground">{field.name}</dt>
-            <dd className="max-w-[60%] truncate text-right font-semibold" title={display}>
-              {display}
-            </dd>
+            <SystemTooltip content={display}>
+              <dd className="max-w-[60%] truncate text-right font-semibold cursor-default">
+                {display}
+              </dd>
+            </SystemTooltip>
           </div>
         );
       })}

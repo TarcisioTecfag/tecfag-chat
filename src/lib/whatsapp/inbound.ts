@@ -11,6 +11,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { UniversalInboundMessage } from "./types";
 import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
+import crypto from "node:crypto";
 
 export class InboundProcessor {
   private static instance: InboundProcessor;
@@ -304,29 +305,35 @@ export class InboundProcessor {
           .where(and(eq(conversations.id, activeConv.id), eq(conversations.tenantId, tenantId)));
       }
 
-      // 4. Registro de Mídia (se houver)
-      if (media && (media.url || media.localPath)) {
+      // 4. Persistir bytes da mídia recebida antes de confirmar o webhook.
+      let mediaFileId: string | null = null;
+      if (media?.dataBuffer) {
+        mediaFileId = `med_${crypto.createHash("sha256").update(`${tenantId}:${externalEventId}`).digest("hex").slice(0, 32)}`;
         await db.insert(mediaFiles).values({
-          id: `med-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          id: mediaFileId,
           tenantId,
           conversationId: activeConv.id,
           fileName: media.fileName || "arquivo",
           mimeType: media.mimeType,
-          fileSize: media.fileSize || 0,
-          base64Data: media.url || media.localPath || "",
+          fileSize: media.dataBuffer.length,
+          base64Data: media.dataBuffer.toString("base64"),
           createdAt: timestamp,
-        });
+        }).onConflictDoNothing();
       }
 
       // 5. Inserção da Mensagem Recebida (messages)
       const messageId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const safeFileName = (media?.fileName || "arquivo").replace(/:/g, "_");
+      const messageContent = mediaFileId && media?.mediaType
+        ? `[MEDIA:${media.mediaType}]${mediaFileId}${media.mediaType === "document" ? `:${safeFileName}` : ""}${text ? `\n${text}` : ""}`
+        : text || (media ? `[Mídia: ${safeFileName}]` : "");
       await db.insert(messages).values({
         id: messageId,
         tenantId,
         conversationId: activeConv.id,
         senderType: "client",
         senderName: contact.name,
-        content: text || (media ? `[Mídia: ${media.fileName || media.mimeType}]` : ""),
+        content: messageContent,
         quotedMessageId: quotedExternalId || null,
         isInternalNote: false,
         direction: "inbound",
@@ -344,7 +351,7 @@ export class InboundProcessor {
           id: messageId,
           conversationId: activeConv.id,
           author: contact.name,
-          text: text || "",
+          text: messageContent,
           time: timestamp.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
           side: "in",
         },

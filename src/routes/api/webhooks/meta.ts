@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import crypto from "node:crypto";
 import { db } from "../../../db";
-import { channelConfigs, messages, pendingInbounds } from "../../../db/schema";
+import { channelConfigs, pendingInbounds } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { inboundProcessor } from "../../../lib/whatsapp/inbound";
+import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
+import { applyMetaStatus } from "../../../lib/whatsapp/meta-status";
 
 export const Route = createFileRoute("/api/webhooks/meta")({
   server: {
@@ -352,11 +354,50 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                   } else if (msg.type === "image" || msg.type === "audio" || msg.type === "video" || msg.type === "document") {
                     const mediaObj = msg[msg.type];
                     textContent = mediaObj?.caption;
+                    if (!mediaObj?.id) {
+                      const externalEventId = `meta:${tenantId}:${messageId || crypto.createHash("sha256").update(JSON.stringify(msg)).digest("hex")}`;
+                      await db.insert(pendingInbounds).values({
+                        id: `inb_media_${crypto.createHash("sha256").update(externalEventId).digest("hex").slice(0, 24)}`,
+                        tenantId,
+                        provider: "meta",
+                        externalEventId,
+                        payload: msg,
+                        status: "failed",
+                        attempts: 0,
+                        errorMessage: "Mídia sem ID no webhook da Meta",
+                        createdAt: new Date(),
+                      }).onConflictDoNothing();
+                      unprocessableItemsCount++;
+                      unprocessableErrors.push(`Mídia sem ID na mensagem ${messageId}`);
+                      continue;
+                    }
+                    let downloaded: Awaited<ReturnType<typeof metaAdapter.downloadInboundMedia>>;
+                    try {
+                      downloaded = await metaAdapter.downloadInboundMedia(tenantId, changePid, mediaObj.id);
+                    } catch (mediaErr: any) {
+                      // A mensagem bruta fica durável para o worker tentar o download novamente.
+                      const externalEventId = `meta:${tenantId}:${messageId}`;
+                      await db.insert(pendingInbounds).values({
+                        id: `inb_media_${crypto.createHash("sha256").update(externalEventId).digest("hex").slice(0, 24)}`,
+                        tenantId,
+                        provider: "meta",
+                        externalEventId,
+                        payload: msg,
+                        status: "pending",
+                        attempts: 0,
+                        errorMessage: mediaErr?.message || "Falha no download da mídia Meta",
+                        createdAt: new Date(),
+                      }).onConflictDoNothing();
+                      unprocessableItemsCount++;
+                      unprocessableErrors.push(`Download de mídia falhou para ${messageId}`);
+                      continue;
+                    }
                     mediaInfo = {
-                      mimeType: mediaObj?.mime_type || "application/octet-stream",
+                       mediaType: msg.type,
+                       mimeType: downloaded.mimeType,
                       fileName: mediaObj?.filename || `${msg.type}_${messageId}`,
-                      fileSize: mediaObj?.file_size,
-                      url: `https://graph.facebook.com/v21.0/${mediaObj?.id}`,
+                       fileSize: downloaded.buffer.length,
+                       dataBuffer: downloaded.buffer,
                     };
                   }
 
@@ -389,30 +430,12 @@ export const Route = createFileRoute("/api/webhooks/meta")({
               // 4.2. Atualizações de Status de Mensagens Enviadas (statuses)
               if (Array.isArray(statuses) && statuses.length > 0) {
                 for (const statusObj of statuses) {
-                  const wamid = statusObj.id;
-                  const metaStatus = statusObj.status; // 'sent', 'delivered', 'read', 'failed'
-
-                  let mappedStatus: "accepted" | "delivered" | "read" | "failed" = "accepted";
-
-                  if (metaStatus === "delivered") mappedStatus = "delivered";
-                  else if (metaStatus === "read") mappedStatus = "read";
-                  else if (metaStatus === "failed") mappedStatus = "failed";
-
-                  // Atualização SÍNCRONA no banco
-                  await db
-                    .update(messages)
-                    .set({
-                      status: mappedStatus,
-                      errorMessage: statusObj.errors?.[0]?.message || null,
-                      updatedAt: new Date(),
-                    })
-                    .where(
-                      and(
-                        eq(messages.tenantId, tenantId),
-                        eq(messages.externalId, wamid)
-                      )
-                    );
-
+                  if (!statusObj?.id || !["sent", "delivered", "read", "failed"].includes(statusObj.status)) {
+                    unprocessableItemsCount++;
+                    unprocessableErrors.push("Status Meta sem ID ou tipo reconhecido");
+                    continue;
+                  }
+                  await applyMetaStatus(tenantId, statusObj);
                   processedStatusesCount++;
                 } // fim for statusObj
               } // fim if statuses
@@ -438,6 +461,11 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                 headers: { "Content-Type": "application/json" },
               }
             );
+          }
+
+          if (processedMessagesCount > 0 || processedStatusesCount > 0) {
+            await db.update(channelConfigs).set({ metaWebhookLastSeenAt: new Date() })
+              .where(eq(channelConfigs.tenantId, tenantId));
           }
 
           // 6. Retorna 200 OK com confirmação de que 100% dos dados acionáveis foram persistidos com segurança

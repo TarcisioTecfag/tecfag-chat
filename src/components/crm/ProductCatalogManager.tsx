@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 interface Product {
   id: string;
@@ -120,14 +121,24 @@ export function ProductCatalogManager({ enabled }: { enabled: boolean }) {
       </div>
       {creating && (
         <div
-          className="fixed inset-0 z-[80] flex justify-end bg-black/40"
+          className="fixed inset-0 z-[80] flex justify-end bg-black/60 backdrop-blur-xs animate-in fade-in-0 duration-200"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setCreating(false);
           }}
         >
-          <aside className="flex h-full w-full max-w-[460px] flex-col bg-card">
-            <div className="border-b border-border p-5 text-sm font-bold">
-              {editing ? "Editar produto" : "Criar produto"}
+          <aside className="flex h-full w-full max-w-[460px] flex-col bg-card shadow-2xl animate-in slide-in-from-right duration-300 ease-out border-l border-border">
+            <div className="flex items-center justify-between border-b border-border p-5 text-sm font-bold text-foreground">
+              <span>{editing ? "Editar produto" : "Criar produto"}</span>
+              <SystemTooltip content="Fechar gaveta">
+                <button
+                  type="button"
+                  onClick={() => setCreating(false)}
+                  aria-label="Fechar"
+                  className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </SystemTooltip>
             </div>
             <form onSubmit={(event) => void save(event)} className="flex min-h-0 flex-1 flex-col">
               <div className="flex-1 space-y-4 overflow-y-auto p-5 text-xs">

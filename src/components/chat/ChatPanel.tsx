@@ -471,6 +471,7 @@ export function getFriendlyQuotedContent(content: string | null | undefined): st
 export function ChatPanel() {
   const {
     activeChat,
+    activeProvider,
     sendMessage,
     captureChat,
     transferChat,
@@ -519,7 +520,59 @@ export function ChatPanel() {
     : null;
 
   const [text, setText] = useState("");
+  const [metaWindow, setMetaWindow] = useState<{ open: boolean; expiresAt: string | null } | null>(null);
+  const [metaTemplates, setMetaTemplates] = useState<Array<{ name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean }>>([]);
+  const [showMetaTemplates, setShowMetaTemplates] = useState(false);
+  const [selectedMetaTemplate, setSelectedMetaTemplate] = useState("");
+  const [metaTemplateParameters, setMetaTemplateParameters] = useState<string[]>([]);
   const [replyingTo, setReplyingTo] = useState<any>(null);
+
+  useEffect(() => {
+    if (activeProvider !== "meta" || activeChat?.channel !== "whatsapp") {
+      setMetaWindow(null);
+      setShowMetaTemplates(false);
+      return;
+    }
+    let cancelled = false;
+    const refresh = () => fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}`, { credentials: "include" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (!cancelled) setMetaWindow(data?.window || null); })
+      .catch(() => { if (!cancelled) setMetaWindow(null); });
+    void refresh();
+    const timer = window.setInterval(refresh, 60000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [activeProvider, activeChat?.id, activeChat?.messages.length]);
+
+  const loadMetaTemplates = async () => {
+    if (!activeChat) return;
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}&templates=1`, { credentials: "include" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Falha ao carregar templates da Meta");
+      setMetaTemplates((data.templates || []).filter((item: { supported: boolean }) => item.supported));
+      setMetaWindow(data.window || null);
+      setShowMetaTemplates(true);
+    } catch (error: any) {
+      toast.error(error.message || "Falha ao consultar templates aprovados");
+    }
+  };
+
+  const sendSelectedMetaTemplate = async () => {
+    const selected = metaTemplates.find((item) => `${item.name}:${item.language}` === selectedMetaTemplate);
+    if (!selected || metaTemplateParameters.length !== selected.variableCount || metaTemplateParameters.some((value) => !value.trim())) {
+      toast.error("Selecione um template e preencha todas as variáveis.");
+      return;
+    }
+    const sent = await sendMessage("", false, undefined, null, {
+      name: selected.name,
+      language: selected.language,
+      parameters: metaTemplateParameters.map((value) => value.trim()),
+    });
+    if (!sent) return;
+    setShowMetaTemplates(false);
+    setSelectedMetaTemplate("");
+    setMetaTemplateParameters([]);
+  };
 
   useEffect(() => {
     setReplyingTo(null);
@@ -1052,7 +1105,12 @@ export function ChatPanel() {
     logSystemEvent(activeChat.id, `Clique no botão de ligação para o cliente por ${operatorName}`);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
+    if (activeProvider === "meta" && activeChat?.channel === "whatsapp" && msgMode !== "internal" && metaWindow && !metaWindow.open) {
+      toast.error("A janela de 24 horas terminou. Use um template aprovado pela Meta.");
+      loadMetaTemplates();
+      return;
+    }
     const quoted = replyingTo
       ? {
           id: replyingTo.id,
@@ -1075,7 +1133,7 @@ export function ChatPanel() {
       audioFile.lastModified = Date.now();
       const extras =
         attachments.length > 0 ? [...attachments, audioFile as File] : [audioFile as File];
-      sendMessage(text, false, extras, quoted);
+      if (!await sendMessage(text, false, extras, quoted)) return;
       setText("");
       setAttachments([]);
       setReplyingTo(null);
@@ -1083,12 +1141,12 @@ export function ChatPanel() {
       return;
     }
     if (!text.trim() && attachments.length === 0) return;
-    sendMessage(
+    if (!await sendMessage(
       text,
       msgMode === "internal",
       attachments.length > 0 ? attachments : undefined,
       quoted,
-    );
+    )) return;
     setText("");
     setAttachments([]);
     setReplyingTo(null);
@@ -2472,6 +2530,47 @@ export function ChatPanel() {
                 </TooltipTrigger>
                 <TooltipContent side="top">Cancelar resposta</TooltipContent>
               </Tooltip>
+            </div>
+          )}
+
+          {activeProvider === "meta" && activeChat.channel === "whatsapp" && msgMode !== "internal" && (
+            <div className="mb-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {metaWindow === null ? "Consultando janela de atendimento da Meta..." : metaWindow.open
+                    ? `Texto livre permitido até ${new Date(metaWindow.expiresAt!).toLocaleString("pt-BR")}. Mensagens entregues podem gerar cobrança.`
+                    : "Janela de 24 horas encerrada. Para retomar, envie um template aprovado."}
+                </span>
+                <button type="button" onClick={loadMetaTemplates} className="font-semibold text-primary underline">Templates Meta</button>
+              </div>
+              {showMetaTemplates && (
+                <div className="mt-3 space-y-2">
+                  <select
+                    value={selectedMetaTemplate}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const item = metaTemplates.find((template) => `${template.name}:${template.language}` === value);
+                      setSelectedMetaTemplate(value);
+                      setMetaTemplateParameters(Array(item?.variableCount || 0).fill(""));
+                    }}
+                    className="w-full rounded-lg border border-border bg-background p-2"
+                  >
+                    <option value="">Selecione um template aprovado</option>
+                    {metaTemplates.map((item) => <option key={`${item.name}:${item.language}`} value={`${item.name}:${item.language}`}>{item.name} · {item.language} · {item.category}</option>)}
+                  </select>
+                  {selectedMetaTemplate && <p className="text-muted-foreground">{metaTemplates.find((item) => `${item.name}:${item.language}` === selectedMetaTemplate)?.bodyText}</p>}
+                  {metaTemplateParameters.map((value, index) => (
+                    <input
+                      key={index}
+                      value={value}
+                      onChange={(event) => setMetaTemplateParameters((previous) => previous.map((entry, i) => i === index ? event.target.value : entry))}
+                      placeholder={`Variável {{${index + 1}}}`}
+                      className="w-full rounded-lg border border-border bg-background p-2"
+                    />
+                  ))}
+                  <button type="button" onClick={sendSelectedMetaTemplate} className="rounded-lg bg-primary px-3 py-2 font-semibold text-primary-foreground">Enviar template</button>
+                </div>
+              )}
             </div>
           )}
 

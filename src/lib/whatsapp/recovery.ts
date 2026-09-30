@@ -5,6 +5,7 @@ import { metaAdapter } from "./adapters/meta";
 import { baileysAdapter } from "./adapters/baileys";
 import { inboundProcessor } from "./inbound";
 import { WhatsAppProviderType } from "./types";
+import { applyMetaStatus } from "./meta-status";
 
 export interface RecoveryStats {
   stuckOutboundsChecked: number;
@@ -57,6 +58,8 @@ export class WhatsAppRecoveryService {
 
     try {
       const thresholdDate = new Date(Date.now() - timeoutSeconds * 1000);
+      const configuredTenants = await db.select({ tenantId: channelConfigs.tenantId }).from(channelConfigs);
+      for (const { tenantId } of configuredTenants) {
 
       // ── 1. Recuperar mensagens de saída presas em 'sending' ────────────────
       const stuckOutbounds = await db
@@ -65,12 +68,13 @@ export class WhatsAppRecoveryService {
         .where(
           and(
             eq(messages.direction, "outbound"),
+            eq(messages.tenantId, tenantId),
             eq(messages.status, "sending"),
             lt(messages.updatedAt, thresholdDate)
           )
         );
 
-      stats.stuckOutboundsChecked = stuckOutbounds.length;
+      stats.stuckOutboundsChecked += stuckOutbounds.length;
 
       for (const msg of stuckOutbounds) {
         try {
@@ -87,6 +91,17 @@ export class WhatsAppRecoveryService {
           }
 
           const currentRetries = msg.retryCount || 0;
+
+          // Um timeout da Cloud API pode ocorrer após a Meta aceitar a mensagem.
+          // Reenvio automático nessa situação cria duplicidade cobrável.
+          if (msg.provider === "meta") {
+            await db.update(messages).set({
+              status: "unknown",
+              errorMessage: "Envio Meta sem confirmação. Aguarde status do webhook ou reconcilie manualmente antes de reenviar.",
+              updatedAt: new Date(),
+            }).where(and(eq(messages.id, msg.id), eq(messages.tenantId, msg.tenantId)));
+            continue;
+          }
 
           if (currentRetries >= 3) {
             // Esgotou retentativas: marcar como falha definitiva
@@ -193,12 +208,13 @@ export class WhatsAppRecoveryService {
         .from(pendingInbounds)
         .where(
           and(
-            inArray(pendingInbounds.status, ["pending", "processing"]),
+            eq(pendingInbounds.tenantId, tenantId),
+            inArray(pendingInbounds.status, ["pending", "processing", "failed"]),
             lt(pendingInbounds.createdAt, thresholdDate)
           )
         );
 
-      stats.stuckInboundsChecked = stuckInbounds.length;
+      stats.stuckInboundsChecked += stuckInbounds.length;
 
       for (const inb of stuckInbounds) {
         try {
@@ -235,15 +251,40 @@ export class WhatsAppRecoveryService {
               .where(and(eq(pendingInbounds.id, inb.id), eq(pendingInbounds.tenantId, inb.tenantId)));
 
             const payload: any = inb.payload || {};
+            if (payload.kind === "meta_status" && payload.statusObj) {
+              if (await applyMetaStatus(inb.tenantId, payload.statusObj, false)) {
+                await db.update(pendingInbounds).set({ status: "processed", processedAt: new Date() })
+                  .where(and(eq(pendingInbounds.id, inb.id), eq(pendingInbounds.tenantId, inb.tenantId)));
+                stats.recoveredInbounds++;
+              }
+              continue;
+            }
+
+            let recoveredMedia: any;
+            if (inb.provider === "meta" && ["image", "audio", "video", "document"].includes(payload.type)) {
+              const mediaObject = payload[payload.type];
+              const [config] = await db.select({ metaPhoneNumberId: channelConfigs.metaPhoneNumberId })
+                .from(channelConfigs).where(eq(channelConfigs.tenantId, inb.tenantId));
+              if (!config?.metaPhoneNumberId || !mediaObject?.id) throw new Error("Mídia Meta sem número ou ID para recuperação");
+              const downloaded = await metaAdapter.downloadInboundMedia(inb.tenantId, config.metaPhoneNumberId, mediaObject.id);
+              recoveredMedia = {
+                mediaType: payload.type,
+                mimeType: downloaded.mimeType,
+                fileName: mediaObject.filename || `${payload.type}_${payload.id}`,
+                dataBuffer: downloaded.buffer,
+              };
+            }
             const result = await inboundProcessor.process({
               externalEventId: inb.externalEventId || inb.id,
               tenantId: inb.tenantId,
               provider: (inb.provider as WhatsAppProviderType) || "meta",
-              fromPhone: payload.fromPhone || "",
+              fromPhone: payload.fromPhone || payload.from || "",
               senderName: payload.senderName || "",
-              text: payload.text || "",
+              text: typeof payload.text === "string" ? payload.text : payload.text?.body || payload[payload.type]?.caption || "",
+              media: recoveredMedia,
+              quotedExternalId: payload.context?.id,
               rawPayload: payload,
-              timestamp: inb.createdAt,
+              timestamp: payload.timestamp ? new Date(Number(payload.timestamp) * 1000) : inb.createdAt,
             });
 
             if (result.success) {
@@ -254,6 +295,7 @@ export class WhatsAppRecoveryService {
         } catch (inbErr: any) {
           console.error(`[RecoveryWorker] Erro ao recuperar inbound ${inb.id}:`, inbErr);
         }
+      }
       }
     } finally {
       this.isRunningCycle = false;

@@ -26,6 +26,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 interface StageOption {
   id: string;
@@ -203,8 +210,6 @@ export function CreateDealDialog({
     }
   }, [currentOperatorId]);
 
-  if (!isOpen) return null;
-
   const divergentWarning =
     contactOriginalAccount &&
     selectedAccount &&
@@ -339,22 +344,17 @@ export function CreateDealDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/50" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="crm-create-deal relative flex h-full w-full max-w-[420px] flex-col bg-card shadow-2xl animate-in slide-in-from-right duration-200" role="dialog" aria-modal="true" aria-labelledby="create-deal-title">
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent
+        side="right"
+        className="flex h-full w-full max-w-[440px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[440px] shadow-2xl border-l border-border"
+      >
         {/* Header */}
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-4 bg-card">
-          <div className="flex items-center gap-2">
-            <div>
-              <h3 id="create-deal-title" className="text-sm font-bold text-foreground">Criar Negociação</h3>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <SheetHeader className="flex h-16 shrink-0 flex-row items-center justify-between border-b border-border px-5 bg-card space-y-0">
+          <SheetTitle id="create-deal-title" className="text-base font-bold text-foreground">
+            Criar Negociação
+          </SheetTitle>
+        </SheetHeader>
 
         {/* Formulário */}
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
@@ -447,20 +447,22 @@ export function CreateDealDialog({
               <label className="block text-xs font-bold text-foreground mb-1">Qualificação</label>
               <div className="flex h-9 items-center gap-1 px-1">
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    type="button"
-                    key={star}
-                    onClick={() => setRating(star)}
-                    className="p-1 hover:scale-110 transition-transform cursor-pointer"
-                  >
-                    <Star
-                      className={`h-4 w-4 ${
-                        rating >= star
-                          ? "fill-primary text-primary"
-                          : "text-muted-foreground/30"
-                      }`}
-                    />
-                  </button>
+                  <SystemTooltip key={star} content={`Qualificação: ${star} ${star === 1 ? "estrela" : "estrelas"}`}>
+                    <button
+                      type="button"
+                      aria-label={`${star} ${star === 1 ? "estrela" : "estrelas"}`}
+                      onClick={() => setRating(star)}
+                      className="p-1 hover:scale-110 transition-transform cursor-pointer"
+                    >
+                      <Star
+                        className={`h-4 w-4 ${
+                          rating >= star
+                            ? "fill-primary text-primary"
+                            : "text-muted-foreground/30"
+                        }`}
+                      />
+                    </button>
+                  </SystemTooltip>
                 ))}
               </div>
             </div>
@@ -726,7 +728,7 @@ export function CreateDealDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

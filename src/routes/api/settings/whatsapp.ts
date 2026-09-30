@@ -63,10 +63,11 @@ export const Route = createFileRoute("/api/settings/whatsapp")({
               baileysPairedPhone: config.baileysPairedPhone,
               metaPhoneNumberId: config.metaPhoneNumberId,
               metaBusinessAccountId: config.metaBusinessAccountId,
-              metaVerifyToken: config.metaVerifyToken,
+              metaVerifyToken: session.operator.role === "admin" ? config.metaVerifyToken : undefined,
               metaAccessTokenMasked: mask(config.metaAccessToken),
               hasMetaAccessToken: !!config.metaAccessToken,
               hasMetaAppSecret: !!config.metaAppSecret,
+              metaWebhookLastSeenAt: config.metaWebhookLastSeenAt,
               lastError: config.lastError,
             }),
             {
@@ -113,21 +114,8 @@ export const Route = createFileRoute("/api/settings/whatsapp")({
             .from(channelConfigs)
             .where(eq(channelConfigs.tenantId, session.tenantId));
 
-          if (activeProvider && (activeProvider === "baileys" || activeProvider === "meta")) {
-            if (activeProvider === "meta") {
-              const hasPhoneId = metaPhoneNumberId || existing?.metaPhoneNumberId;
-              const hasToken = metaAccessToken || existing?.metaAccessToken;
-              if (!hasPhoneId || !hasToken) {
-                return new Response(
-                  JSON.stringify({
-                    error: "Para ativar o provedor Meta, é necessário configurar o Phone Number ID e o Access Token.",
-                    code: "MISSING_META_CREDENTIALS",
-                  }),
-                  { status: 400, headers: { "Content-Type": "application/json" } }
-                );
-              }
-            }
-            updates.activeProvider = activeProvider;
+          if (activeProvider && activeProvider !== existing?.activeProvider) {
+            return Response.json({ error: "Use a ação de troca de provedor após validar a conexão.", code: "USE_SWITCH_PROVIDER" }, { status: 400 });
           }
           const targetPhone = baileysPairedPhone !== undefined ? baileysPairedPhone : baileysPhoneNumber;
           if (targetPhone !== undefined) updates.baileysPairedPhone = targetPhone;
@@ -136,6 +124,11 @@ export const Route = createFileRoute("/api/settings/whatsapp")({
           if (metaAccessToken) updates.metaAccessToken = metaAccessToken; // Só altera se fornecido novo
           if (metaVerifyToken !== undefined) updates.metaVerifyToken = metaVerifyToken;
           if (metaAppSecret) updates.metaAppSecret = metaAppSecret; // Só altera se fornecido novo
+          if ((metaPhoneNumberId !== undefined && metaPhoneNumberId !== existing?.metaPhoneNumberId)
+            || (metaAppSecret && metaAppSecret !== existing?.metaAppSecret)
+            || (metaVerifyToken !== undefined && metaVerifyToken !== existing?.metaVerifyToken)) {
+            updates.metaWebhookLastSeenAt = null;
+          }
 
           if (existing) {
             updates.connectionVersion = (existing.connectionVersion || 1) + 1;
@@ -147,7 +140,7 @@ export const Route = createFileRoute("/api/settings/whatsapp")({
             await db.insert(channelConfigs).values({
               id: `cfg-${session.tenantId}`,
               tenantId: session.tenantId,
-              activeProvider: activeProvider || "baileys",
+              activeProvider: "baileys",
               connectionStatus: "disconnected",
               connectionVersion: 1,
               ...updates,

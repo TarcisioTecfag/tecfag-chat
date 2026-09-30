@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Search, Building2, User, Check, X, Plus, AlertCircle, Loader2 } from "lucide-react";
 import type { CrmAccountDTO } from "../../lib/crm/crm-types";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 interface AccountPickerProps {
   value?: string | null;
@@ -147,14 +148,16 @@ export function AccountPicker({
             </div>
           </div>
           {!disabled && (
-            <button
-              type="button"
-              onClick={handleClear}
-              className="text-slate-400 hover:text-rose-500 p-1 rounded-md transition-colors"
-              title="Trocar cliente"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <SystemTooltip content="Trocar cliente / Limpar seleção">
+              <button
+                type="button"
+                onClick={handleClear}
+                aria-label="Trocar cliente"
+                className="text-slate-400 hover:text-rose-500 p-1 rounded-md transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </SystemTooltip>
           )}
         </div>
       ) : (

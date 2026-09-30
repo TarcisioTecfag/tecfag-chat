@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import type { CatalogKind } from "@/lib/crm/catalogs";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 type Item = {
   id: string;
@@ -202,13 +204,12 @@ export function CrmCatalogSettingsModal({
             )}
           </div>
           {kind !== "loss_reason" && isAdmin && (
-            <label className="mt-5 flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
+            <label className="mt-5 flex items-center gap-2 text-xs cursor-pointer select-none">
+              <Checkbox
                 checked={allowUserCreate}
-                onChange={() => void togglePolicy()}
-              />{" "}
-              Permitir que usuários criem novos itens dessa lista
+                onCheckedChange={() => void togglePolicy()}
+              />
+              <span>Permitir que usuários criem novos itens dessa lista</span>
             </label>
           )}
           <input
@@ -274,15 +275,27 @@ export function CrmCatalogSettingsModal({
         </div>
       </div>
       {draft && (
-        <div className="fixed inset-0 z-[110] flex justify-end bg-black/50">
-          <div className="flex h-full w-full max-w-md flex-col bg-card p-5 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold">
+        <div
+          className="fixed inset-0 z-[110] flex justify-end bg-black/60 backdrop-blur-xs animate-in fade-in-0 duration-200"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDraft(null);
+          }}
+        >
+          <div className="flex h-full w-full max-w-md flex-col bg-card p-6 shadow-2xl animate-in slide-in-from-right duration-300 ease-out border-l border-border">
+            <div className="flex items-center justify-between pb-3 border-b border-border/60">
+              <h3 className="font-bold text-base text-foreground">
                 {draft === "new" ? "Adicionar" : "Editar"} {current.label.toLowerCase()}
               </h3>
-              <button type="button" onClick={() => setDraft(null)} aria-label="Fechar">
-                <X className="h-5 w-5" />
-              </button>
+              <SystemTooltip content="Fechar gaveta">
+                <button
+                  type="button"
+                  onClick={() => setDraft(null)}
+                  aria-label="Fechar"
+                  className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </SystemTooltip>
             </div>
             <label className="mt-7 text-xs font-semibold">Nome *</label>
             <input

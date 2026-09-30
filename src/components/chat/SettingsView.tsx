@@ -12,6 +12,7 @@ import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettings
 import { PipelineSettingsModal } from "@/components/crm/PipelineSettingsModal";
 import { CrmCatalogSettingsModal } from "@/components/crm/CrmCatalogSettingsModal";
 import type { CatalogKind } from "@/lib/crm/catalogs";
+import { toast } from "sonner";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 
@@ -129,6 +130,7 @@ export function SettingsView() {
     metaAppSecret: string;
     hasMetaAccessToken: boolean;
     hasMetaAppSecret: boolean;
+    metaWebhookLastSeenAt: string | null;
   }>({
     activeProvider: "baileys",
     connectionStatus: "disconnected",
@@ -136,19 +138,32 @@ export function SettingsView() {
     livePhone: "",
     metaBusinessAccountId: "",
     metaPhoneNumberId: "",
-    metaVerifyToken: "tecfag_chat_webhook_secret",
+    metaVerifyToken: "",
     metaAccessToken: "",
     metaAppSecret: "",
     hasMetaAccessToken: false,
     hasMetaAppSecret: false,
+    metaWebhookLastSeenAt: null,
   });
 
   const [loadingChannel, setLoadingChannel] = useState(false);
   const [switchingProvider, setSwitchingProvider] = useState(false);
+  const [showMetaConfiguration, setShowMetaConfiguration] = useState(false);
   const [testingMeta, setTestingMeta] = useState(false);
   const [metaTestResult, setMetaTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [savingChannel, setSavingChannel] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [metaUsage, setMetaUsage] = useState<{
+    delivered: number; serviceFree: number; serviceBillable: number; serviceUnclassified: number; otherCategories: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (whatsappChannel.activeProvider !== "meta") { setMetaUsage(null); return; }
+    fetch(`${BACKEND_URL}/api/settings/whatsapp/usage`, { credentials: "include" })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => setMetaUsage(data))
+      .catch(() => setMetaUsage(null));
+  }, [tenant, whatsappChannel.activeProvider]);
 
   // Estados do Diagnóstico de Envio
   const [testPhone, setTestPhone] = useState("");
@@ -174,9 +189,10 @@ export function SettingsView() {
           livePhone: data.livePhone || data.baileysPairedPhone || "",
           metaBusinessAccountId: data.metaBusinessAccountId || "",
           metaPhoneNumberId: data.metaPhoneNumberId || "",
-          metaVerifyToken: data.metaVerifyToken || "tecfag_chat_webhook_secret",
+          metaVerifyToken: data.metaVerifyToken || "",
           hasMetaAccessToken: !!data.hasMetaAccessToken,
           hasMetaAppSecret: !!data.hasMetaAppSecret,
+          metaWebhookLastSeenAt: data.metaWebhookLastSeenAt || null,
         }));
       }
     } catch (e) {
@@ -209,13 +225,17 @@ export function SettingsView() {
           ...prev,
           activeProvider: targetProvider,
           connectionVersion: data.connectionVersion,
+          connectionStatus: data.connectionStatus,
         }));
         if (targetProvider === "baileys") {
           connectBaileys(true);
         }
+      } else {
+        toast.error(data.error || "Falha ao alternar o provedor.");
       }
     } catch (e) {
       console.error("Erro ao alternar provedor:", e);
+      toast.error("Falha de rede ao alternar o provedor.");
     } finally {
       setSwitchingProvider(false);
     }
@@ -230,7 +250,6 @@ export function SettingsView() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          activeProvider: whatsappChannel.activeProvider,
           metaBusinessAccountId: whatsappChannel.metaBusinessAccountId,
           metaPhoneNumberId: whatsappChannel.metaPhoneNumberId,
           metaVerifyToken: whatsappChannel.metaVerifyToken,
@@ -242,6 +261,9 @@ export function SettingsView() {
         setIsSaved(true);
         setTimeout(() => setIsSaved(false), 3000);
         await loadWhatsAppConfig();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Falha ao salvar credenciais Meta.");
       }
     } catch (e) {
       console.error("Erro ao salvar credenciais Meta:", e);
@@ -261,16 +283,16 @@ export function SettingsView() {
         body: JSON.stringify({
           action: "test_credentials",
           customConfig: {
-            phoneNumberId: whatsappChannel.metaPhoneNumberId,
-            accessToken: whatsappChannel.metaAccessToken || undefined,
+            metaPhoneNumberId: whatsappChannel.metaPhoneNumberId,
+            metaAccessToken: whatsappChannel.metaAccessToken || undefined,
           },
         }),
       });
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (res.ok && data.valid) {
         setMetaTestResult({
           success: true,
-          message: `Conexão válida! Número verificado: ${data.details?.display_phone_number || "OK"} (${data.details?.verified_name || "Meta Cloud"})`,
+          message: `Credenciais válidas para ${data.details?.phoneNumber || "o número configurado"} (${data.details?.verifiedName || "Meta Cloud"}). Confirme o recebimento do webhook antes de ativar.`,
         });
       } else {
         setMetaTestResult({
@@ -295,7 +317,7 @@ export function SettingsView() {
     setTestStatus({ type: "sending", message: "Disparando mensagem pelo provedor ativo..." });
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/whatsapp/send`, {
+      const response = await fetch(`${BACKEND_URL}/api/settings/whatsapp/test-send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -491,7 +513,7 @@ export function SettingsView() {
 
                 <div className="flex items-center gap-2">
                   {whatsappChannel.activeProvider === "meta" ? (
-                    (whatsappChannel.hasMetaAccessToken && whatsappChannel.metaPhoneNumberId) || whatsappChannel.connectionStatus === "connected" ? (
+                    whatsappChannel.connectionStatus === "connected" && !!whatsappChannel.metaWebhookLastSeenAt ? (
                       <div className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-3.5 py-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                         <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                         Meta WhatsApp API (Conectado)
@@ -575,10 +597,17 @@ export function SettingsView() {
                   </p>
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowMetaConfiguration((open) => !open)}
+                className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground"
+              >
+                {showMetaConfiguration ? "Ocultar configuração Meta" : "Configurar Meta antes da ativação"}
+              </button>
             </div>
 
             {/* 2. CONTEÚDO ESPECÍFICO DO PROVEDOR ATIVO */}
-            {whatsappChannel.activeProvider === "meta" ? (
+            {(whatsappChannel.activeProvider === "meta" || showMetaConfiguration) ? (
               /* PAINEL META OFICIAL */
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <form onSubmit={handleSaveMetaCredentials} className="lg:col-span-2 rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
@@ -698,6 +727,11 @@ export function SettingsView() {
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     Configure este endpoint no Meta App Dashboard para receber mensagens recebidas e atualizações de entrega.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Último webhook assinado recebido: {whatsappChannel.metaWebhookLastSeenAt
+                      ? new Date(whatsappChannel.metaWebhookLastSeenAt).toLocaleString("pt-BR")
+                      : "nenhum confirmado"}
                   </p>
 
                   <div className="space-y-1.5">
@@ -826,6 +860,22 @@ export function SettingsView() {
               </div>
             )}
 
+            {whatsappChannel.activeProvider === "meta" && (
+              <div className="rounded-2xl border border-border bg-card p-6 text-xs space-y-2">
+                <h4 className="text-sm font-bold">Mensagens Meta entregues neste mês</h4>
+                {metaUsage ? (
+                  <div className="flex flex-wrap gap-4">
+                    <span>Total: <strong>{metaUsage.delivered}</strong></span>
+                    <span>Serviço gratuito informado pela Meta: <strong>{metaUsage.serviceFree}</strong></span>
+                    <span>Serviço cobrável informado pela Meta: <strong>{metaUsage.serviceBillable}</strong></span>
+                    <span>Sem classificação: <strong>{metaUsage.serviceUnclassified}</strong></span>
+                    <span>Outras categorias: <strong>{metaUsage.otherCategories}</strong></span>
+                  </div>
+                ) : <p>Carregando classificação de entrega...</p>}
+                <p className="text-muted-foreground">Contagem indicativa por mês UTC. Confira valores e franquia no faturamento da Meta; o aceite de envio não comprova entrega nem cobrança.</p>
+              </div>
+            )}
+
             {/* 3. DIAGNÓSTICO E DISPARO DE TESTE UNIVERSAL */}
             <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
               <div className="flex items-center gap-2 border-b border-border pb-3">
@@ -835,7 +885,7 @@ export function SettingsView() {
                 </h4>
               </div>
               <p className="text-xs text-muted-foreground">
-                Envie uma mensagem instantânea de teste para validar a entrega em tempo real através do provedor ativo.
+                Envie para um contato de teste que já tenha uma conversa neste tenant. O teste usa o canal ativo{whatsappChannel.activeProvider === "meta" ? " e respeita a janela de 24 horas" : ""}; confira a entrega no aparelho e no histórico.
               </p>
 
               <form onSubmit={handleTestSend} className="space-y-4 max-w-xl">

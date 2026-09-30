@@ -128,7 +128,7 @@ type ChatContextType = {
   deleteTemplate: (id: string) => Promise<void>;
   
   // Actions
-  sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null) => Promise<void>;
+  sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null, metaTemplate?: { name: string; language: string; parameters: string[] }) => Promise<boolean>;
   captureChat: (id: string) => void;
   transferChat: (id: string, sectorName: string, targetOperatorId?: string | null) => void;
   finishChat: (id: string) => void;
@@ -1165,11 +1165,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const activeChat = conversations.find((c) => c.id === selectedChatId) || null;
 
   // Actions
-  const sendMessage = async (text: string, isInternalNote = false, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null) => {
-    if (!selectedChatId) return;
+  const sendMessage = async (text: string, isInternalNote = false, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null, metaTemplate?: { name: string; language: string; parameters: string[] }) => {
+    if (!selectedChatId) return false;
 
     const currentChat = conversations.find((c) => c.id === selectedChatId);
-    if (!currentChat) return;
+    if (!currentChat) return false;
 
     if (selectedChatId === "valentina") {
       const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -1343,7 +1343,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })();
 
-      return;
+      return true;
     }
 
     const shouldSendReal =
@@ -1368,10 +1368,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const clientMessageId = `cmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      let partAlreadySent = false;
 
       try {
         // Envia mensagem pelo endpoint unificado /api/whatsapp/send (Baileys ou Meta conforme activeProvider)
-        if (text.trim()) {
+        if (text.trim() || metaTemplate) {
           const response = await fetch(`${BACKEND_URL}/api/whatsapp/send`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1382,6 +1383,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               text,
               clientMessageId,
               quotedMessageId: quotedMessage?.id || null,
+              ...(metaTemplate ? {
+                templateName: metaTemplate.name,
+                templateLanguage: metaTemplate.language,
+                templateComponents: metaTemplate.parameters.length ? [{
+                  type: "body",
+                  parameters: metaTemplate.parameters.map((value) => ({ type: "text", text: value })),
+                }] : [],
+              } : {}),
             }),
           });
 
@@ -1389,6 +1398,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.error || "Erro na resposta do envio de mensagem");
           }
+          partAlreadySent = true;
         }
 
         // Enviar anexos via endpoint unificado /api/whatsapp/send (funciona para Baileys e Meta)
@@ -1411,17 +1421,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               });
               if (!mediaRes.ok) {
                 const errData = await mediaRes.json().catch(() => ({}));
-                console.error("Falha ao enviar anexo pelo canal unificado:", errData.error);
-                toast.error(`Falha ao enviar anexo: ${errData.error || "Erro no envio"}`);
+                throw new Error(errData.error || "Falha ao enviar anexo pelo canal unificado");
               }
+              partAlreadySent = true;
             } catch (err) {
               console.error("Falha ao enviar anexo:", err);
+              throw err;
             }
           }
         }
       } catch (err: any) {
         console.error("Falha ao enviar mensagem de WhatsApp pelo backend:", err);
-        toast.error(`Erro ao enviar mensagem: ${err.message || "Conexão falhou"}`);
+        toast.error(partAlreadySent
+          ? `Envio parcial: ${err.message || "um anexo falhou"}. Confira o histórico antes de repetir.`
+          : `Erro ao enviar mensagem: ${err.message || "Conexão falhou"}`);
+        return partAlreadySent;
       }
     } else {
       // Para mensagens internas, outras plataformas ou outros inquilinos (ex: Tecfag), persistir no banco de dados local
@@ -1444,10 +1458,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         if (!response.ok) {
-          console.error("Erro na resposta ao salvar mensagem local no banco");
+          toast.error("Erro ao salvar mensagem local no banco.");
+          return false;
         }
       } catch (err) {
         console.error("Falha ao salvar mensagem local no banco:", err);
+        toast.error("Falha ao salvar mensagem local no banco.");
+        return false;
       }
     }
 
@@ -1456,11 +1473,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Mensagem de texto (só adiciona se tiver conteúdo)
     const messagesToAdd: Message[] = [];
 
-    if (text.trim()) {
+    if (text.trim() || metaTemplate) {
       messagesToAdd.push({
         id: `msg-${Date.now()}`,
         author: isInternalNote ? operatorProfile.name : "Você",
-        text,
+        text: metaTemplate ? `[Template Meta: ${metaTemplate.name}]` : text,
         time: now,
         side: "out",
         isInternalNote,
@@ -1506,6 +1523,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return c;
       })
     );
+    return true;
   };
 
   const captureChat = async (id: string) => {

@@ -232,7 +232,6 @@ async function main() {
       await db.insert(channelConfigs).values({
         id: "tecfag-channel",
         tenantId: "tecfag",
-        metaVerifyToken: "tecfag_verify_token",
       });
     }
 

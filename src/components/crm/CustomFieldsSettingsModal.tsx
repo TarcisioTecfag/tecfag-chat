@@ -4,6 +4,15 @@ import { toast } from "sonner";
 import type { CustomFieldEntity, CustomFieldType } from "@/lib/crm/custom-fields";
 import type { FieldDefinition, FieldOption } from "./CustomFieldsEditor";
 import { ProductCatalogManager } from "./ProductCatalogManager";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 const entities: Array<{ id: CustomFieldEntity; label: string }> = [
   { id: "deal", label: "Negociação" },
@@ -387,27 +396,33 @@ export function CustomFieldsSettingsModal({
                     className="h-9 w-full rounded-lg border border-border bg-background px-3 font-normal"
                   />
                 </label>
-                <label className="block space-y-1.5 font-semibold">
-                  Tipo do campo *
-                  <select
+                <div className="space-y-1.5 font-semibold">
+                  <label htmlFor="custom-field-type" className="block text-xs font-semibold text-foreground">
+                    Tipo do campo *
+                  </label>
+                  <Select
                     disabled={!!draft.id}
                     value={draft.fieldType}
-                    onChange={(event) =>
+                    onValueChange={(val) =>
                       setDraft({
                         ...draft,
-                        fieldType: event.target.value as CustomFieldType,
+                        fieldType: val as CustomFieldType,
                         options: [],
                       })
                     }
-                    className="h-9 w-full rounded-lg border border-border bg-background px-3 font-normal"
                   >
-                    {types.map((type) => (
-                      <option key={type.id} value={type.id}>
-                        {type.label} — {type.hint}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    <SelectTrigger id="custom-field-type" className="h-9 w-full rounded-lg border border-border bg-background px-3 font-normal text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {types.map((type) => (
+                        <SelectItem key={type.id} value={type.id} className="text-xs">
+                          {type.label} — {type.hint}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 {(draft.fieldType === "single" || draft.fieldType === "multiple") && (
                   <div className="space-y-2">
                     <b>Opções *</b>
@@ -468,35 +483,33 @@ export function CustomFieldsSettingsModal({
                     </p>
                   </div>
                 )}
-                <label className="flex items-center justify-between border-t border-border pt-4 font-semibold">
-                  Obrigatório no cadastro
-                  <input
-                    type="checkbox"
+                <div className="flex items-center justify-between border-t border-border pt-4 font-semibold text-xs">
+                  <span>Obrigatório no cadastro</span>
+                  <Checkbox
                     checked={draft.required}
-                    onChange={(event) =>
+                    onCheckedChange={(checked) =>
                       setDraft({
                         ...draft,
-                        required: event.target.checked,
-                        visibleOnCreate: event.target.checked ? true : draft.visibleOnCreate,
+                        required: !!checked,
+                        visibleOnCreate: !!checked ? true : draft.visibleOnCreate,
                       })
                     }
                   />
-                </label>
-                <label className="flex items-center justify-between border-t border-border pt-4 font-semibold">
-                  Visível no cadastro
-                  <input
-                    type="checkbox"
+                </div>
+                <div className="flex items-center justify-between border-t border-border pt-4 font-semibold text-xs">
+                  <span>Visível no cadastro</span>
+                  <Checkbox
                     checked={draft.visibleOnCreate}
                     disabled={draft.required}
-                    onChange={(event) =>
-                      setDraft({ ...draft, visibleOnCreate: event.target.checked })
+                    onCheckedChange={(checked) =>
+                      setDraft({ ...draft, visibleOnCreate: !!checked })
                     }
                   />
-                </label>
+                </div>
                 {entity === "deal" && (
                   <div className="space-y-3 border-t border-border pt-4">
                     <b>Visibilidade por funil</b>
-                    <label className="flex gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs">
                       <input
                         type="radio"
                         checked={draft.allPipelines}
@@ -504,7 +517,7 @@ export function CustomFieldsSettingsModal({
                       />{" "}
                       Exibir em todos os funis
                     </label>
-                    <label className="flex gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs">
                       <input
                         type="radio"
                         checked={!draft.allPipelines}
@@ -515,20 +528,19 @@ export function CustomFieldsSettingsModal({
                     {!draft.allPipelines && (
                       <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border border-border p-3">
                         {pipelines.map((pipeline) => (
-                          <label key={pipeline.id} className="flex gap-2">
-                            <input
-                              type="checkbox"
+                          <label key={pipeline.id} className="flex items-center gap-2 cursor-pointer text-xs select-none">
+                            <Checkbox
                               checked={draft.pipelineIds.includes(pipeline.id)}
-                              onChange={(event) =>
+                              onCheckedChange={(checked) =>
                                 setDraft({
                                   ...draft,
-                                  pipelineIds: event.target.checked
+                                  pipelineIds: checked
                                     ? [...draft.pipelineIds, pipeline.id]
                                     : draft.pipelineIds.filter((id) => id !== pipeline.id),
                                 })
                               }
-                            />{" "}
-                            {pipeline.name}
+                            />
+                            <span>{pipeline.name}</span>
                           </label>
                         ))}
                       </div>

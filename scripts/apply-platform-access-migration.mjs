@@ -47,6 +47,10 @@ const migrations = [
     name: "0018_crm_catalogs",
     url: new URL("../src/db/migrations/0018_crm_catalogs.sql", import.meta.url),
   },
+  {
+    name: "0019_meta_message_tracking",
+    url: new URL("../src/db/migrations/0019_meta_message_tracking.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

@@ -42,14 +42,17 @@ export const Route = createFileRoute("/api/settings/whatsapp/actions")({
             const nextVersion = (config.connectionVersion || 1) + 1;
 
             if (targetProvider === "meta") {
-              if (!config.metaPhoneNumberId || !config.metaAccessToken) {
+              if (!config.metaPhoneNumberId || !config.metaAccessToken || !config.metaBusinessAccountId || !config.metaVerifyToken || !config.metaAppSecret) {
                 return new Response(
                   JSON.stringify({
-                    error: "Credenciais da Meta (Phone Number ID e Access Token) não configuradas. Configure-as antes de alternar para Meta.",
+                    error: "Configure Phone Number ID, WABA ID, Access Token, Verify Token e App Secret antes de ativar a Meta.",
                     code: "MISSING_META_CREDENTIALS",
                   }),
                   { status: 400, headers: { "Content-Type": "application/json" } }
                 );
+              }
+              if (!config.metaWebhookLastSeenAt || Date.now() - config.metaWebhookLastSeenAt.getTime() > 24 * 60 * 60 * 1000) {
+                return Response.json({ error: "Ainda não recebemos um webhook Meta assinado com sucesso nas últimas 24 horas para este número.", code: "META_WEBHOOK_NOT_VERIFIED" }, { status: 400 });
               }
 
               // Validação prévia e obrigatória com a Meta Graph API antes de ativar o provedor

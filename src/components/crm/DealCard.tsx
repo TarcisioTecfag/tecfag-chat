@@ -11,6 +11,9 @@ import {
   PauseCircle,
   MoreVertical,
   Plus,
+  Pencil,
+  ListTodo,
+  ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
@@ -119,14 +122,14 @@ export function DealCard({
       draggable
       onDragStart={handleDragStart}
       onClick={() => onClick(deal)}
-      className={`group relative rounded-xl border p-3.5 shadow-sm transition-all cursor-grab active:cursor-grabbing bg-card hover:shadow-md hover:-translate-y-0.5 ${
+      className={`group relative rounded-xl border p-3.5 shadow-xs transition-all duration-200 ease-out cursor-grab active:cursor-grabbing bg-card hover:shadow-md hover:-translate-y-1 hover:border-primary/50 active:scale-[0.99] select-none ${
         isCooling
           ? "border-amber-400/60 dark:border-amber-500/40 bg-amber-500/[0.03]"
           : deal.status === "won"
           ? "border-emerald-500/40 bg-emerald-500/[0.02]"
           : deal.status === "lost"
           ? "border-red-500/30 bg-red-500/[0.02]"
-          : "border-border hover:border-primary/50"
+          : "border-border"
       }`}
     >
       {/* Alerta de Esfriamento */}
@@ -139,9 +142,11 @@ export function DealCard({
 
       {/* Título com espaço próprio; status aparece nos metadados abaixo. */}
       <div className="flex items-start justify-between gap-2">
-        <h4 title={deal.title} className="min-w-0 flex-1 break-words text-sm font-semibold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-          {deal.title}
-        </h4>
+        <SystemTooltip content={deal.title}>
+          <h4 className="min-w-0 flex-1 break-words text-sm font-semibold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors cursor-pointer">
+            {deal.title}
+          </h4>
+        </SystemTooltip>
         <div className="flex items-center gap-1 shrink-0">
 
           {/* Menu Rápido de Ações */}
@@ -173,7 +178,7 @@ export function DealCard({
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
                 >
-                  <span>✏️</span>
+                  <Pencil className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span>Editar Negociação</span>
                 </button>
 
@@ -185,7 +190,7 @@ export function DealCard({
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
                 >
-                  <span>📋</span>
+                  <ListTodo className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span>Criar Tarefa</span>
                 </button>
 
@@ -207,7 +212,7 @@ export function DealCard({
                           }}
                           className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[10px] hover:bg-accent truncate cursor-pointer transition-colors"
                         >
-                          <span>➡️</span>
+                          <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                           <span className="truncate">{s.name}</span>
                         </button>
                       ))}
@@ -228,9 +233,11 @@ export function DealCard({
             ) : (
               <User className="h-3 w-3 text-primary/70 shrink-0" />
             )}
-            <span title={deal.account.name || deal.account.tradeName || undefined} className="truncate font-medium text-foreground/80">
-              {deal.account.name || deal.account.tradeName}
-            </span>
+            <SystemTooltip content={deal.account.name || deal.account.tradeName}>
+              <span className="truncate font-medium text-foreground/80 cursor-default">
+                {deal.account.name || deal.account.tradeName}
+              </span>
+            </SystemTooltip>
           </>
         ) : (
           <span className="text-xs text-muted-foreground">
@@ -319,24 +326,26 @@ export function DealCard({
                     : "text-muted-foreground"
                 }`}
               />
-              <span title={deal.nextTask.title} className="line-clamp-2 break-words">
-                {deal.nextTask.isOverdue && (
-                  <strong className="font-extrabold mr-1 text-red-600 dark:text-red-400">
-                    Atrasada:
-                  </strong>
-                )}
-                {deal.nextTask.isToday && (
-                  <strong className="font-extrabold mr-1 text-amber-600 dark:text-amber-400">
-                    Hoje:
-                  </strong>
-                )}
-                {deal.nextTask.title}
-                {deal.nextTask.dueDate && (
-                  <span className="opacity-70 ml-1">
-                    ({new Date(deal.nextTask.dueDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })})
-                  </span>
-                )}
-              </span>
+              <SystemTooltip content={deal.nextTask.title}>
+                <span className="line-clamp-2 break-words cursor-default">
+                  {deal.nextTask.isOverdue && (
+                    <strong className="font-extrabold mr-1 text-red-600 dark:text-red-400">
+                      Atrasada:
+                    </strong>
+                  )}
+                  {deal.nextTask.isToday && (
+                    <strong className="font-extrabold mr-1 text-amber-600 dark:text-amber-400">
+                      Hoje:
+                    </strong>
+                  )}
+                  {deal.nextTask.title}
+                  {deal.nextTask.dueDate && (
+                    <span className="opacity-70 ml-1">
+                      ({new Date(deal.nextTask.dueDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })})
+                    </span>
+                  )}
+                </span>
+              </SystemTooltip>
             </div>
 
             {deal.nextTask.id && (

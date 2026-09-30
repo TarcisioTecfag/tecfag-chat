@@ -155,14 +155,16 @@ export function DealList({
             <span>Status</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleClearSelection}
-            title="Desmarcar todas"
-            className="flex h-6 w-6 items-center justify-center rounded-lg hover:bg-background/20 text-background/80 hover:text-background cursor-pointer ml-1"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <SystemTooltip content="Desmarcar todas as negociações selecionadas">
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              aria-label="Desmarcar todas"
+              className="flex h-6 w-6 items-center justify-center rounded-lg hover:bg-background/20 text-background/80 hover:text-background cursor-pointer ml-1"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </SystemTooltip>
         </div>
       )}
 
@@ -391,21 +393,24 @@ export function DealList({
                       {/* Próxima Tarefa */}
                       <td className="py-3 px-3 max-w-[150px]">
                         {nextTask ? (
-                          <div
-                            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold border truncate ${
-                              nextTask.isOverdue
-                                ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
-                                : nextTask.isToday
-                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                                : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                            }`}
-                            title={`${nextTask.title} (${
-                              nextTask.dueDate ? new Date(nextTask.dueDate).toLocaleDateString("pt-BR") : ""
+                          <SystemTooltip
+                            content={`${nextTask.title} (${
+                              nextTask.dueDate ? new Date(nextTask.dueDate).toLocaleDateString("pt-BR") : "Sem prazo"
                             })`}
                           >
-                            <Clock className="h-2.5 w-2.5 shrink-0" />
-                            <span className="truncate">{nextTask.title}</span>
-                          </div>
+                            <div
+                              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold border truncate cursor-default ${
+                                nextTask.isOverdue
+                                  ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
+                                  : nextTask.isToday
+                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                  : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                              }`}
+                            >
+                              <Clock className="h-2.5 w-2.5 shrink-0" />
+                              <span className="truncate">{nextTask.title}</span>
+                            </div>
+                          </SystemTooltip>
                         ) : (
                           <span className="text-muted-foreground/40 text-[11px]">-</span>
                         )}

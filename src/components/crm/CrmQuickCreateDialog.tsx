@@ -8,6 +8,13 @@ import { Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { CatalogSelect } from "./CatalogSelect";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export type CrmQuickCreateKind = "company" | "contact" | "task";
 
@@ -294,19 +301,22 @@ export function CrmQuickCreateDialog({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="crm-quick-assignee">Responsável</Label>
-                <select
-                  id="crm-quick-assignee"
-                  value={assignedTo}
-                  onChange={(event) => setAssignedTo(event.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs"
+                <Select
+                  value={assignedTo || "__default__"}
+                  onValueChange={(val) => setAssignedTo(val === "__default__" ? "" : val)}
                 >
-                  <option value="">Responsável atual</option>
-                  {operators.map((operator) => (
-                    <option key={operator.id} value={operator.id}>
-                      {operator.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="crm-quick-assignee" className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs">
+                    <SelectValue placeholder="Responsável atual" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__" className="text-xs">Responsável atual</SelectItem>
+                    {operators.map((operator) => (
+                      <SelectItem key={operator.id} value={operator.id} className="text-xs">
+                        {operator.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="crm-quick-description">Descrição</Label>

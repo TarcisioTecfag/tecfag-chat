@@ -29,10 +29,12 @@ export interface UniversalOutboundResult {
   externalId?: string;
   status: DeliveryStatus;
   error?: string;
+  code?: string;
 }
 
 export interface UniversalInboundMedia {
   url?: string;
+  mediaType?: "image" | "audio" | "video" | "document";
   mimeType: string;
   fileName?: string;
   fileSize?: number;

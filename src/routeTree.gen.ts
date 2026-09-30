@@ -39,6 +39,7 @@ import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as CrmDealsDealIdRouteImport } from './routes/crm/deals/$dealId'
 import { Route as ApiWhatsappSendRouteImport } from './routes/api/whatsapp/send'
+import { Route as ApiWhatsappMetaStateRouteImport } from './routes/api/whatsapp/meta-state'
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
 import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
 import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
@@ -103,6 +104,8 @@ import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAdminResetRouteImport } from './routes/api/admin/reset'
 import { Route as ApiValentinaVoiceChatCompletionsRouteImport } from './routes/api/valentina-voice/chat/completions'
+import { Route as ApiSettingsWhatsappUsageRouteImport } from './routes/api/settings/whatsapp/usage'
+import { Route as ApiSettingsWhatsappTestSendRouteImport } from './routes/api/settings/whatsapp/test-send'
 import { Route as ApiSettingsWhatsappActionsRouteImport } from './routes/api/settings/whatsapp/actions'
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
@@ -285,6 +288,11 @@ const CrmDealsDealIdRoute = CrmDealsDealIdRouteImport.update({
 const ApiWhatsappSendRoute = ApiWhatsappSendRouteImport.update({
   id: '/api/whatsapp/send',
   path: '/api/whatsapp/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWhatsappMetaStateRoute = ApiWhatsappMetaStateRouteImport.update({
+  id: '/api/whatsapp/meta-state',
+  path: '/api/whatsapp/meta-state',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWebhooksMetaRoute = ApiWebhooksMetaRouteImport.update({
@@ -613,6 +621,18 @@ const ApiValentinaVoiceChatCompletionsRoute =
     path: '/chat/completions',
     getParentRoute: () => ApiValentinaVoiceRoute,
   } as any)
+const ApiSettingsWhatsappUsageRoute =
+  ApiSettingsWhatsappUsageRouteImport.update({
+    id: '/usage',
+    path: '/usage',
+    getParentRoute: () => ApiSettingsWhatsappRoute,
+  } as any)
+const ApiSettingsWhatsappTestSendRoute =
+  ApiSettingsWhatsappTestSendRouteImport.update({
+    id: '/test-send',
+    path: '/test-send',
+    getParentRoute: () => ApiSettingsWhatsappRoute,
+  } as any)
 const ApiSettingsWhatsappActionsRoute =
   ApiSettingsWhatsappActionsRouteImport.update({
     id: '/actions',
@@ -887,6 +907,7 @@ export interface FileRoutesByFullPath {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
@@ -906,6 +927,8 @@ export interface FileRoutesByFullPath {
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
+  '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
+  '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
@@ -1015,6 +1038,7 @@ export interface FileRoutesByTo {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
@@ -1034,6 +1058,8 @@ export interface FileRoutesByTo {
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
+  '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
+  '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
@@ -1144,6 +1170,7 @@ export interface FileRoutesById {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
@@ -1163,6 +1190,8 @@ export interface FileRoutesById {
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
+  '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
+  '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
@@ -1274,6 +1303,7 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
+    | '/api/whatsapp/meta-state'
     | '/api/whatsapp/send'
     | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
@@ -1293,6 +1323,8 @@ export interface FileRouteTypes {
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
+    | '/api/settings/whatsapp/test-send'
+    | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
@@ -1402,6 +1434,7 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
+    | '/api/whatsapp/meta-state'
     | '/api/whatsapp/send'
     | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
@@ -1421,6 +1454,8 @@ export interface FileRouteTypes {
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
+    | '/api/settings/whatsapp/test-send'
+    | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
@@ -1530,6 +1565,7 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
+    | '/api/whatsapp/meta-state'
     | '/api/whatsapp/send'
     | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
@@ -1549,6 +1585,8 @@ export interface FileRouteTypes {
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
     | '/api/settings/whatsapp/actions'
+    | '/api/settings/whatsapp/test-send'
+    | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
@@ -1652,6 +1690,7 @@ export interface RootRouteChildren {
   ApiValentinaSdrRoute: typeof ApiValentinaSdrRoute
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
+  ApiWhatsappMetaStateRoute: typeof ApiWhatsappMetaStateRoute
   ApiWhatsappSendRoute: typeof ApiWhatsappSendRoute
   CrmDealsDealIdRoute: typeof CrmDealsDealIdRoute
   ApiCrmImportRdCrmRoute: typeof ApiCrmImportRdCrmRoute
@@ -1869,6 +1908,13 @@ declare module '@tanstack/react-router' {
       path: '/api/whatsapp/send'
       fullPath: '/api/whatsapp/send'
       preLoaderRoute: typeof ApiWhatsappSendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/whatsapp/meta-state': {
+      id: '/api/whatsapp/meta-state'
+      path: '/api/whatsapp/meta-state'
+      fullPath: '/api/whatsapp/meta-state'
+      preLoaderRoute: typeof ApiWhatsappMetaStateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/webhooks/meta': {
@@ -2318,6 +2364,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/valentina-voice/chat/completions'
       preLoaderRoute: typeof ApiValentinaVoiceChatCompletionsRouteImport
       parentRoute: typeof ApiValentinaVoiceRoute
+    }
+    '/api/settings/whatsapp/usage': {
+      id: '/api/settings/whatsapp/usage'
+      path: '/usage'
+      fullPath: '/api/settings/whatsapp/usage'
+      preLoaderRoute: typeof ApiSettingsWhatsappUsageRouteImport
+      parentRoute: typeof ApiSettingsWhatsappRoute
+    }
+    '/api/settings/whatsapp/test-send': {
+      id: '/api/settings/whatsapp/test-send'
+      path: '/test-send'
+      fullPath: '/api/settings/whatsapp/test-send'
+      preLoaderRoute: typeof ApiSettingsWhatsappTestSendRouteImport
+      parentRoute: typeof ApiSettingsWhatsappRoute
     }
     '/api/settings/whatsapp/actions': {
       id: '/api/settings/whatsapp/actions'
@@ -2787,10 +2847,14 @@ const ApiSettingsRdCrmRouteWithChildren =
 
 interface ApiSettingsWhatsappRouteChildren {
   ApiSettingsWhatsappActionsRoute: typeof ApiSettingsWhatsappActionsRoute
+  ApiSettingsWhatsappTestSendRoute: typeof ApiSettingsWhatsappTestSendRoute
+  ApiSettingsWhatsappUsageRoute: typeof ApiSettingsWhatsappUsageRoute
 }
 
 const ApiSettingsWhatsappRouteChildren: ApiSettingsWhatsappRouteChildren = {
   ApiSettingsWhatsappActionsRoute: ApiSettingsWhatsappActionsRoute,
+  ApiSettingsWhatsappTestSendRoute: ApiSettingsWhatsappTestSendRoute,
+  ApiSettingsWhatsappUsageRoute: ApiSettingsWhatsappUsageRoute,
 }
 
 const ApiSettingsWhatsappRouteWithChildren =
@@ -2881,6 +2945,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaSdrRoute: ApiValentinaSdrRoute,
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
+  ApiWhatsappMetaStateRoute: ApiWhatsappMetaStateRoute,
   ApiWhatsappSendRoute: ApiWhatsappSendRoute,
   CrmDealsDealIdRoute: CrmDealsDealIdRoute,
   ApiCrmImportRdCrmRoute: ApiCrmImportRdCrmRoute,

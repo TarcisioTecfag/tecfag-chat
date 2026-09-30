@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager, resolveRealJid } from "../../../lib/baileys/session-manager";
 import { db } from "../../../db";
-import { messages, conversations, contacts, mediaFiles } from "../../../db/schema";
+import { messages, conversations, contacts, mediaFiles, channelConfigs } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 
 import { requireSession } from "../../../lib/auth-session";
@@ -26,17 +26,32 @@ export const Route = createFileRoute("/api/baileys/send-media")({
 
           const formData = await request.formData();
           const tenantId = session.tenantId; // Sempre derivado da sessão autenticada
-          const phone = formData.get("phone") as string;
           const conversationId = formData.get("conversationId") as string;
-          const senderName = (formData.get("senderName") as string) || session.operator.name;
+          const senderName = session.operator.name;
           const file = formData.get("file") as File | null;
 
-          if (!file) {
+          if (!file || !conversationId) {
             return new Response(
-              JSON.stringify({ error: "file é obrigatório" }),
+              JSON.stringify({ error: "file e conversationId são obrigatórios" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+
+          const [config] = await db.select({ activeProvider: channelConfigs.activeProvider, connectionStatus: channelConfigs.connectionStatus })
+            .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
+          if (config?.activeProvider !== "baileys" || config.connectionStatus === "switching") {
+            return Response.json({ error: "Canal Baileys não está ativo." }, { status: 409 });
+          }
+          const [conv] = await db.select({ contactId: conversations.contactId, operatorId: conversations.operatorId })
+            .from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+          if (!conv) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
+          if (!["admin", "supervisor"].includes(session.operator.role) && conv.operatorId !== session.operator.id) {
+            return Response.json({ error: "Sem permissão para responder nesta conversa." }, { status: 403 });
+          }
+          if (!conv.contactId) return Response.json({ error: "Conversa sem contato." }, { status: 400 });
+          const [contact] = await db.select({ phone: contacts.phone, whatsappJid: contacts.whatsappJid })
+            .from(contacts).where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
+          if (!contact?.phone) return Response.json({ error: "Contato sem telefone." }, { status: 400 });
 
           const sessionManager = SessionManager.getInstance();
           const sock = sessionManager.getSession(tenantId);
@@ -50,39 +65,21 @@ export const Route = createFileRoute("/api/baileys/send-media")({
 
           // Resolver o JID pelo conversationId → contato
           let jid: string;
-          let contactId: string | undefined;
-
-          if (conversationId) {
-            try {
-              const conv = await db.query.conversations.findFirst({
-                where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
-              });
-              contactId = conv?.contactId;
-            } catch {}
-          }
-
-          let contact: any;
-          if (contactId) {
-            contact = await db.query.contacts.findFirst({
-              where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, contactId!), dEq(t.tenantId, tenantId)),
-            });
-          }
-
           if (contact?.whatsappJid) {
             jid = contact.whatsappJid;
             console.log(`[Baileys SendMedia] Usando JID salvo do contato: ${jid}`);
           } else {
             // Resolve o JID real via onWhatsApp e salva no banco de dados para envios futuros
-            const cleanPhone = phone.replace(/\D/g, "");
+            const cleanPhone = contact.phone.replace(/\D/g, "");
             jid = await resolveRealJid(sock, cleanPhone);
             console.log(`[Baileys SendMedia] JID resolvido via WhatsApp: ${jid}`);
 
-            if (contactId && jid) {
+            if (jid) {
               try {
                 await db.update(contacts)
                   .set({ whatsappJid: jid })
-                  .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
-                console.log(`[Baileys SendMedia] JID ${jid} salvo no contato ${contactId}`);
+                  .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
+                console.log(`[Baileys SendMedia] JID ${jid} salvo no contato ${conv.contactId}`);
               } catch (err: any) {
                 console.error(`[Baileys SendMedia] Erro ao salvar JID no contato:`, err.message);
               }
