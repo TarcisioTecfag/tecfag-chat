@@ -6,14 +6,13 @@ import {
   Plus,
   Filter,
   Layers,
-  Settings2,
   ArrowUpDown,
   X,
   Building2,
   ContactRound,
   ClipboardList,
-  BriefcaseBusiness,
   Activity,
+  ChevronDown,
 } from "lucide-react";
 import { OperatorFilterPopover } from "./OperatorFilterPopover";
 import { AdvancedFiltersState, countActiveAdvancedFilters } from "./AdvancedFiltersModal";
@@ -25,7 +24,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SystemTooltip } from "@/components/ui/tooltip";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export interface PipelineOption {
   id: string;
@@ -50,16 +58,30 @@ interface CrmToolbarProps {
   sortBy: string;
   onSortByChange: (sortBy: string) => void;
   advancedFilters: AdvancedFiltersState;
+  stages: Array<{ id: string; name: string }>;
+  onAdvancedFiltersChange: (filters: AdvancedFiltersState) => void;
   onOpenAdvancedFilters: () => void;
+  onClearFilters: () => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   onNewDealClick: () => void;
   onCreateCompanyClick: () => void;
   onCreateContactClick: () => void;
   onCreateTaskClick: () => void;
-  onManagePipelinesClick?: () => void;
-  onManageFieldsClick?: () => void;
 }
+
+const sortOptions = [
+  { value: "updated_desc", label: "Atualizadas por último", shortLabel: "Atualização" },
+  { value: "created_desc", label: "Criação (mais recentes)", shortLabel: "Mais recentes" },
+  { value: "created_asc", label: "Criação (mais antigas)", shortLabel: "Mais antigas" },
+  { value: "name_asc", label: "Nome (A - Z)", shortLabel: "Nome A–Z" },
+  { value: "name_desc", label: "Nome (Z - A)", shortLabel: "Nome Z–A" },
+  { value: "next_task_asc", label: "Próxima tarefa (urgente)", shortLabel: "Próxima tarefa" },
+  { value: "close_date_asc", label: "Previsão (mais próxima)", shortLabel: "Previsão próxima" },
+  { value: "close_date_desc", label: "Previsão (mais distante)", shortLabel: "Previsão distante" },
+  { value: "rating_desc", label: "Qualificação (maior)", shortLabel: "Qualificação" },
+  { value: "contact_recent", label: "Última atividade", shortLabel: "Última atividade" },
+];
 
 export function CrmToolbar({
   viewMode,
@@ -76,18 +98,19 @@ export function CrmToolbar({
   sortBy,
   onSortByChange,
   advancedFilters,
+  stages,
+  onAdvancedFiltersChange,
   onOpenAdvancedFilters,
+  onClearFilters,
   searchQuery,
   onSearchQueryChange,
   onNewDealClick,
   onCreateCompanyClick,
   onCreateContactClick,
   onCreateTaskClick,
-  onManagePipelinesClick,
-  onManageFieldsClick,
 }: CrmToolbarProps) {
-  // Estado local para busca com debounce
   const [localSearch, setLocalSearch] = useState(searchQuery);
+  const [compactFiltersOpen, setCompactFiltersOpen] = useState(false);
 
   useEffect(() => {
     setLocalSearch(searchQuery);
@@ -95,193 +118,336 @@ export function CrmToolbar({
 
   useEffect(() => {
     const handler = setTimeout(() => {
-      if (localSearch !== searchQuery) {
-        onSearchQueryChange(localSearch);
-      }
+      if (localSearch !== searchQuery) onSearchQueryChange(localSearch);
     }, 300);
     return () => clearTimeout(handler);
   }, [localSearch, searchQuery, onSearchQueryChange]);
 
   const activeAdvancedCount = countActiveAdvancedFilters(advancedFilters);
+  const activeFilterCount =
+    activeAdvancedCount + Number(statusFilter !== "all") + Number(selectedOperatorIds.length > 0);
+  const hasFilters = activeFilterCount > 0 || localSearch.trim().length > 0;
+  const selectedPipeline = pipelines.find((pipeline) => pipeline.id === selectedPipelineId);
+  const selectedSort = sortOptions.find((option) => option.value === sortBy) || sortOptions[0];
+  const filterChips: Array<{ key: keyof AdvancedFiltersState; label: string }> = [];
+  const currency = (value: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+  const dateLabel = (value: string) => value.split("-").reverse().join("/");
+
+  if (advancedFilters.stageIds?.length) {
+    const names = advancedFilters.stageIds.map(
+      (id) => stages.find((stage) => stage.id === id)?.name || "Etapa indisponível",
+    );
+    filterChips.push({ key: "stageIds", label: `Etapas: ${names.join(", ")}` });
+  }
+  if (advancedFilters.minValue != null)
+    filterChips.push({
+      key: "minValue",
+      label: `Valor mínimo: ${currency(advancedFilters.minValue)}`,
+    });
+  if (advancedFilters.maxValue != null)
+    filterChips.push({
+      key: "maxValue",
+      label: `Valor máximo: ${currency(advancedFilters.maxValue)}`,
+    });
+  if (advancedFilters.createdAfter)
+    filterChips.push({
+      key: "createdAfter",
+      label: `Criadas a partir de ${dateLabel(advancedFilters.createdAfter)}`,
+    });
+  if (advancedFilters.createdBefore)
+    filterChips.push({
+      key: "createdBefore",
+      label: `Criadas até ${dateLabel(advancedFilters.createdBefore)}`,
+    });
+  if (advancedFilters.hasOverdueTask)
+    filterChips.push({ key: "hasOverdueTask", label: "Com tarefas vencidas" });
+  if (advancedFilters.coolingOnly)
+    filterChips.push({
+      key: "coolingOnly",
+      label: `Sem atividade há ${advancedFilters.coolingDays ?? 10} dias`,
+    });
+
+  const removeFilter = (key: keyof AdvancedFiltersState) => {
+    const next = { ...advancedFilters };
+    delete next[key];
+    if (key === "coolingOnly") delete next.coolingDays;
+    onAdvancedFiltersChange(next);
+  };
+
+  const clearFilters = () => {
+    setLocalSearch("");
+    onClearFilters();
+  };
+
+  const renderResponsibleFilter = () => (
+    <OperatorFilterPopover
+      operators={operators}
+      currentOperatorId={currentOperatorId}
+      selectedOperatorIds={selectedOperatorIds}
+      onChange={onOperatorIdsChange}
+    />
+  );
+
+  const renderStatusFilter = () => (
+    <Select
+      value={statusFilter}
+      onValueChange={(value) => onStatusFilterChange(value as CrmStatusFilter)}
+    >
+      <SelectTrigger
+        aria-label="Status da negociação"
+        className="h-9 w-full gap-2 rounded-lg bg-background px-3 text-sm shadow-none"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <Activity className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <SelectValue />
+        </div>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">Todos os status</SelectItem>
+        <SelectItem value="open">Em andamento</SelectItem>
+        <SelectItem value="won">Vendido</SelectItem>
+        <SelectItem value="lost">Perdido</SelectItem>
+        <SelectItem value="paused">Pausado</SelectItem>
+        <SelectItem value="not_paused">Não pausado</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+
+  const renderSort = () => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Ordenar negociações: ${selectedSort.label}`}
+          className="flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ArrowUpDown className="h-4 w-4 shrink-0" />
+          <span>
+            Ordenar: <span className="text-foreground">{selectedSort.shortLabel}</span>
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>Ordenar negociações</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={sortBy} onValueChange={onSortByChange}>
+          {sortOptions.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value}>
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const renderAdvancedButton = () => (
+    <button
+      type="button"
+      onClick={() => {
+        setCompactFiltersOpen(false);
+        onOpenAdvancedFilters();
+      }}
+      className={`flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeAdvancedCount ? "border-primary/30 bg-primary/5 text-primary" : "border-border hover:bg-muted"}`}
+    >
+      <Filter className="h-4 w-4" />
+      Mais filtros
+      {activeAdvancedCount > 0 && (
+        <span className="rounded-full bg-primary/10 px-1.5 text-xs tabular-nums">
+          {activeAdvancedCount}
+        </span>
+      )}
+    </button>
+  );
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-3 shadow-xs">
-      {/* Linha Superior: Seletor de Funil + Alternância Kanban/Lista + Responsável + Status + Ações */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {/* Bloco Esquerda: Funil, Kanban/Lista, Vendedor */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Seletor de Funis */}
-          <div className="relative flex items-center gap-1">
-            <Select value={selectedPipelineId} onValueChange={onPipelineChange}>
-              <SelectTrigger className="h-8 border-border bg-muted/30 text-xs font-bold text-foreground rounded-xl px-2.5 gap-1.5 focus:ring-1 focus:ring-primary">
-                <div className="flex items-center gap-1.5 truncate">
-                  <Layers className="h-3.5 w-3.5 text-primary shrink-0" />
-                  <SelectValue placeholder="Selecione um funil..." />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                {pipelines.length === 0 ? (
-                  <SelectItem value="__none__" disabled className="text-xs text-muted-foreground">
-                    Nenhum funil
-                  </SelectItem>
-                ) : (
-                  pipelines.map((p) => (
-                    <SelectItem key={p.id} value={p.id} className="text-xs font-medium">
-                      {p.name} {p.isDefault ? "(Padrão)" : ""}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-
-            {onManagePipelinesClick && (
-              <SystemTooltip content="Gerenciar funis e etapas">
-                <button
-                  type="button"
-                  onClick={onManagePipelinesClick}
-                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-border bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer"
-                >
-                  <Settings2 className="h-3.5 w-3.5" />
-                </button>
-              </SystemTooltip>
-            )}
-            {onManageFieldsClick && (
-              <SystemTooltip content="Configurar campos de cadastro">
-                <button type="button" onClick={onManageFieldsClick} aria-label="Configurar campos de cadastro"
-                  className="flex h-8 items-center gap-1 rounded-xl border border-border bg-muted/30 px-2 text-xs font-semibold text-muted-foreground hover:text-foreground">
-                  <Settings2 className="h-3.5 w-3.5" /> Campos
-                </button>
-              </SystemTooltip>
-            )}
-          </div>
-
-          {/* Toggle Kanban / Lista */}
-          <div className="flex items-center rounded-xl border border-border bg-muted/30 p-0.5">
-            <button
-              onClick={() => onViewModeChange("kanban")}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
-                viewMode === "kanban"
-                  ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+    <div className="@container/crm-toolbar min-w-0 shrink-0 rounded-2xl border border-border bg-card shadow-xs">
+      <div className="flex flex-col gap-3 px-4 py-3 @[38rem]/crm-toolbar:flex-row @[38rem]/crm-toolbar:items-center @[38rem]/crm-toolbar:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2">
+          <Select value={selectedPipelineId} onValueChange={onPipelineChange}>
+            <SelectTrigger
+              aria-label="Funil de negociações"
+              title={selectedPipeline?.name}
+              className="h-10 w-auto min-w-0 max-w-full gap-3 rounded-lg border-transparent bg-transparent px-1 text-base font-semibold shadow-none @[38rem]/crm-toolbar:max-w-80"
             >
-              <Columns3 className="h-3.5 w-3.5" />
-              <span>Quadro</span>
-            </button>
-            <button
-              onClick={() => onViewModeChange("list")}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
-                viewMode === "list"
-                  ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <List className="h-3.5 w-3.5" />
-              <span>Lista</span>
-            </button>
-          </div>
-
-          {/* Filtro de Vendedor / Responsável com Popover */}
-          <OperatorFilterPopover
-            operators={operators}
-            currentOperatorId={currentOperatorId}
-            selectedOperatorIds={selectedOperatorIds}
-            onChange={onOperatorIdsChange}
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={statusFilter} onValueChange={(value) => onStatusFilterChange(value as CrmStatusFilter)}>
-            <SelectTrigger aria-label="Status da negociação" className="h-8 min-w-40 rounded-xl border-border bg-muted/30 px-2.5 text-xs font-semibold">
-              <div className="flex items-center gap-1.5"><Activity className="h-3.5 w-3.5 text-muted-foreground" /><SelectValue /></div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os status</SelectItem>
-              <SelectItem value="open">Em andamento</SelectItem>
-              <SelectItem value="won">Vendido</SelectItem>
-              <SelectItem value="lost">Perdido</SelectItem>
-              <SelectItem value="paused">Pausado</SelectItem>
-              <SelectItem value="not_paused">Não pausado</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={sortBy} onValueChange={onSortByChange}>
-            <SelectTrigger aria-label="Ordenar negociações" className="h-8 min-w-44 border-border bg-muted/30 text-xs font-semibold text-foreground rounded-xl px-2.5 gap-1.5 focus:ring-1 focus:ring-primary">
-              <div className="flex items-center gap-1.5 truncate">
-                <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <SelectValue />
+              <div className="flex min-w-0 items-center gap-2">
+                <Layers className="h-4 w-4 shrink-0 text-primary" />
+                <span className="truncate">
+                  <SelectValue placeholder="Selecione um funil">
+                    {selectedPipeline?.name}
+                  </SelectValue>
+                </span>
               </div>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="updated_desc" className="text-xs font-medium">Atualizadas por último</SelectItem>
-              <SelectItem value="created_desc" className="text-xs font-medium">Criação (mais recentes)</SelectItem>
-              <SelectItem value="created_asc" className="text-xs font-medium">Criação (mais antigas)</SelectItem>
-              <SelectItem value="name_asc" className="text-xs font-medium">Nome (A - Z)</SelectItem>
-              <SelectItem value="name_desc" className="text-xs font-medium">Nome (Z - A)</SelectItem>
-              <SelectItem value="next_task_asc" className="text-xs font-medium">Próxima tarefa (urgente)</SelectItem>
-              <SelectItem value="close_date_asc" className="text-xs font-medium">Previsão (mais próxima)</SelectItem>
-              <SelectItem value="close_date_desc" className="text-xs font-medium">Previsão (mais distante)</SelectItem>
-              <SelectItem value="rating_desc" className="text-xs font-medium">Qualificação (maior)</SelectItem>
-              <SelectItem value="contact_recent" className="text-xs font-medium">Última atividade</SelectItem>
+              {pipelines.length === 0 ? (
+                <SelectItem value="__none__" disabled>
+                  Nenhum funil
+                </SelectItem>
+              ) : (
+                pipelines.map((pipeline) => (
+                  <SelectItem key={pipeline.id} value={pipeline.id}>
+                    {pipeline.name}
+                    {pipeline.isDefault ? " (Padrão)" : ""}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
-
-          {/* Botão Filtros Avançados */}
+          <div
+            role="group"
+            aria-label="Visualização das negociações"
+            className="flex shrink-0 items-center rounded-lg bg-muted/60 p-1"
+          >
+            {(["kanban", "list"] as const).map((mode) => {
+              const Icon = mode === "kanban" ? Columns3 : List;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={viewMode === mode}
+                  onClick={() => onViewModeChange(mode)}
+                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {mode === "kanban" ? "Quadro" : "Lista"}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex shrink-0 self-start rounded-lg bg-primary text-primary-foreground shadow-xs">
           <button
             type="button"
-            onClick={onOpenAdvancedFilters}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1 text-xs font-semibold transition-colors cursor-pointer ${
-              activeAdvancedCount > 0
-                ? "border-primary bg-primary/10 text-primary font-bold"
-                : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-            }`}
+            onClick={onNewDealClick}
+            className="flex h-10 items-center gap-2 rounded-l-lg px-4 text-sm font-semibold hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
-            <Filter className="h-3.5 w-3.5" />
-            <span>Filtros</span>
-            {activeAdvancedCount > 0 && (
-              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-extrabold text-primary-foreground">
-                {activeAdvancedCount}
-              </span>
-            )}
+            <Plus className="h-4 w-4" />
+            Nova negociação
           </button>
-
-          {/* Campo de Busca Abrangente com Debounce */}
-          <div className="relative w-44 sm:w-52">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Buscar título, conta, contato, ID..."
-              value={localSearch}
-              onChange={(e) => setLocalSearch(e.target.value)}
-              className="h-8 w-full rounded-xl border border-border bg-muted/20 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            {localSearch && (
-              <button
-                type="button"
-                onClick={() => {
-                  setLocalSearch("");
-                  onSearchQueryChange("");
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button type="button" className="flex h-8 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-90 transition-opacity cursor-pointer whitespace-nowrap">
-                <Plus className="h-4 w-4" /><span>Criar</span>
+              <button
+                type="button"
+                aria-label="Outras opções de criação"
+                className="flex h-10 w-10 items-center justify-center rounded-r-lg border-l border-primary-foreground/25 hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <ChevronDown className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44 rounded-xl p-1.5">
-              <DropdownMenuItem onSelect={onNewDealClick} className="text-xs font-semibold"><BriefcaseBusiness /> Criar negociação</DropdownMenuItem>
-              <DropdownMenuItem onSelect={onCreateCompanyClick} className="text-xs font-semibold"><Building2 /> Criar empresa</DropdownMenuItem>
-              <DropdownMenuItem onSelect={onCreateContactClick} className="text-xs font-semibold"><ContactRound /> Criar contato</DropdownMenuItem>
-              <DropdownMenuItem onSelect={onCreateTaskClick} className="text-xs font-semibold"><ClipboardList /> Criar tarefa</DropdownMenuItem>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Outras criações</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={onCreateCompanyClick}>
+                <Building2 />
+                Criar empresa
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onCreateContactClick}>
+                <ContactRound />
+                Criar contato
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onCreateTaskClick}>
+                <ClipboardList />
+                Criar tarefa
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
+
+      <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            aria-label="Buscar negociações por título, empresa, contato ou ID"
+            placeholder="Buscar..."
+            value={localSearch}
+            onChange={(event) => setLocalSearch(event.target.value)}
+            className="h-9 w-full min-w-0 rounded-lg border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </div>
+        <div className="hidden shrink-0 items-center gap-2 @[64rem]/crm-toolbar:flex">
+          <div className="w-56">{renderResponsibleFilter()}</div>
+          <div className="w-44">{renderStatusFilter()}</div>
+          {renderAdvancedButton()}
+          <div className="ml-1 border-l border-border pl-2">{renderSort()}</div>
+        </div>
+        <div className="shrink-0 @[64rem]/crm-toolbar:hidden">
+          <Popover open={compactFiltersOpen} onOpenChange={setCompactFiltersOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Filtros e ordenação, ${activeFilterCount} filtros ativos`}
+                className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Filter className="h-4 w-4" />
+                <span className="hidden @[24rem]/crm-toolbar:inline">Filtros</span>
+                {activeFilterCount > 0 && (
+                  <span className="rounded-full bg-primary/10 px-1.5 text-xs text-primary">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] space-y-4 p-4">
+              <p className="text-sm font-semibold">Filtros e ordenação</p>
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Responsável</p>
+                {renderResponsibleFilter()}
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Status</p>
+                {renderStatusFilter()}
+              </div>
+              <div className="border-t border-border pt-2">{renderSort()}</div>
+              {renderAdvancedButton()}
+              {hasFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="text-sm text-muted-foreground underline underline-offset-4"
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </PopoverContent>
+          </Popover>
+        </div>
+        {hasFilters && (
+          <SystemTooltip content="Limpar filtros e busca">
+            <button
+              type="button"
+              aria-label="Limpar filtros e busca"
+              onClick={clearFilters}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </SystemTooltip>
+        )}
+      </div>
+
+      {filterChips.length > 0 && (
+        <div
+          aria-label="Filtros avançados aplicados"
+          className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2.5"
+        >
+          {filterChips.map(({ key, label }) => (
+            <SystemTooltip key={key} content={label}>
+              <button
+                type="button"
+                aria-label={`Remover filtro: ${label}`}
+                onClick={() => removeFilter(key)}
+                className="flex min-h-7 max-w-full items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="truncate">{label}</span>
+                <X className="h-3.5 w-3.5 shrink-0" />
+              </button>
+            </SystemTooltip>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

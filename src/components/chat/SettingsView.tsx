@@ -9,6 +9,7 @@ import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/Configurac
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
+import { PipelineSettingsModal } from "@/components/crm/PipelineSettingsModal";
 import { CrmCatalogSettingsModal } from "@/components/crm/CrmCatalogSettingsModal";
 import type { CatalogKind } from "@/lib/crm/catalogs";
 
@@ -26,6 +27,7 @@ export function SettingsView() {
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("whatsapp");
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
+  const [pipelineSettingsOpen, setPipelineSettingsOpen] = useState(false);
   const [catalogKind, setCatalogKind] = useState<CatalogKind | null>(null);
 
   const [metaForm, setMetaForm] = useState({ ...metaConfig });
@@ -397,7 +399,7 @@ export function SettingsView() {
     { id: "whatsapp" as const, label: "WhatsApp (Meta / Baileys)", icon: Smartphone },
     { id: "voz" as const, label: "Voz & Telefonia (Valentina)", icon: PhoneCall },
     { id: "rd" as const, label: "RD Station CRM", icon: Link },
-    { id: "crm" as const, label: "Campos do CRM", icon: FileText },
+    { id: "crm" as const, label: "Configurações do CRM", icon: FileText },
     { id: "email" as const, label: "E-mail & Automações", icon: Mail },
     { id: "livechat" as const, label: "Live Chat (Site)", icon: Globe },
   ];
@@ -914,6 +916,13 @@ export function SettingsView() {
         {activeTab === "crm" && (
           <div className="grid max-w-4xl gap-4 md:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
+            <h3 className="text-base font-bold text-foreground">Funis e etapas</h3>
+            <p className="mt-2 text-xs text-muted-foreground">Organize os funis comerciais, suas etapas e regras de movimentação das negociações.</p>
+            <button type="button" onClick={() => setPipelineSettingsOpen(true)} className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground">
+              Gerenciar funis e etapas
+            </button>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
             <h3 className="text-base font-bold text-foreground">Campos de cadastro do CRM</h3>
             <p className="mt-2 text-xs text-muted-foreground">Organize os campos de negociações, empresas, contatos e produtos. Administradores podem criar, editar e arquivar campos.</p>
             <button type="button" onClick={() => setCustomFieldsOpen(true)} className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground">
@@ -1281,6 +1290,7 @@ export function SettingsView() {
         {activeTab === "livechat" && <LiveChatSettingsTab />}
       </div>
       <CustomFieldsSettingsModal isOpen={customFieldsOpen} onClose={() => setCustomFieldsOpen(false)} />
+      <PipelineSettingsModal isOpen={pipelineSettingsOpen} onClose={() => setPipelineSettingsOpen(false)} />
       {catalogKind && <CrmCatalogSettingsModal isOpen initialKind={catalogKind} onClose={() => setCatalogKind(null)} />}
     </section>
   );

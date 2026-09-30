@@ -131,35 +131,30 @@ export function DealCard({
     >
       {/* Alerta de Esfriamento */}
       {isCooling && (
-        <div className="mb-2 flex items-center gap-1.5 rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+        <div className="mb-2 flex items-center gap-1.5 rounded-md bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">
           <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400 animate-pulse" />
           <span>Esfriando há {diffDays} {diffDays === 1 ? "dia" : "dias"}</span>
         </div>
       )}
 
-      {/* Topo do Card: Título + Badge de Status + Menu Rápido */}
+      {/* Título com espaço próprio; status aparece nos metadados abaixo. */}
       <div className="flex items-start justify-between gap-2">
-        <h4 className="text-xs font-bold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors flex-1">
+        <h4 title={deal.title} className="min-w-0 flex-1 break-words text-sm font-semibold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
           {deal.title}
         </h4>
         <div className="flex items-center gap-1 shrink-0">
-          {statusBadge && (
-            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${statusBadge.color}`}>
-              <statusBadge.icon className="h-2.5 w-2.5" />
-              {statusBadge.label}
-            </span>
-          )}
 
           {/* Menu Rápido de Ações */}
           <div className="relative">
             <SystemTooltip content="Ações rápidas">
               <button
                 type="button"
+                aria-label={`Ações da negociação ${deal.title}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowQuickMenu(!showQuickMenu);
                 }}
-                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-70 group-hover:opacity-100 cursor-pointer"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <MoreVertical className="h-3.5 w-3.5" />
               </button>
@@ -225,7 +220,7 @@ export function DealCard({
       </div>
 
       {/* Identificação do Cliente / Empresa */}
-      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
         {deal.account ? (
           <>
             {deal.account.type === "company" ? (
@@ -233,43 +228,23 @@ export function DealCard({
             ) : (
               <User className="h-3 w-3 text-primary/70 shrink-0" />
             )}
-            <span className="truncate font-medium text-foreground/80">
+            <span title={deal.account.name || deal.account.tradeName || undefined} className="truncate font-medium text-foreground/80">
               {deal.account.name || deal.account.tradeName}
             </span>
           </>
         ) : (
-          <span className="text-[10px] italic text-muted-foreground/60">
+          <span className="text-xs text-muted-foreground">
             Cliente não definido
           </span>
         )}
       </div>
 
-      {/* Qualificação Comercial (Estrelas) */}
-      <div className="mt-2 flex items-center gap-0.5">
-        {[1, 2, 3, 4, 5].map((star) => {
-          const filled = (deal.rating || 0) >= star;
-          return (
-            <Star
-              key={star}
-              className={`h-2.5 w-2.5 ${
-                filled
-                  ? "fill-amber-400 text-amber-400"
-                  : "text-muted-foreground/25"
-              }`}
-            />
-          );
-        })}
-      </div>
-
-      {/* Linha Divisória Sutil */}
-      <div className="my-2.5 h-px bg-border/50" />
-
       {/* Rodapé do Card: Valor Comercial + Vendedor + Contador de Conversas */}
-      <div className="flex items-center justify-between gap-1 text-[11px]">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-xs">
         {/* Valor Comercial ou "Adicionar valor" */}
         <div>
           {formattedValue !== null ? (
-            <span className="font-extrabold text-foreground tracking-tight text-xs">
+            <span className="font-semibold text-foreground tabular-nums text-sm">
               {formattedValue}
             </span>
           ) : (
@@ -280,7 +255,7 @@ export function DealCard({
                   e.stopPropagation();
                   onClick(deal);
                 }}
-                className="text-[10px] font-semibold text-primary/80 hover:text-primary hover:underline transition-colors cursor-pointer"
+                className="text-xs font-medium text-primary hover:underline transition-colors cursor-pointer"
               >
                 + Adicionar valor
               </button>
@@ -289,7 +264,7 @@ export function DealCard({
         </div>
 
         {/* Informações da Direita: Conversas + Vendedor */}
-        <div className="flex items-center gap-2">
+        <div className="flex w-full min-w-0 items-center justify-between gap-2">
           {/* Contador de conversas clicável */}
           {(deal.conversationsCount || 0) > 0 && (
             <SystemTooltip content={`${deal.conversationsCount} conversas vinculadas (clique para abrir ficha)`}>
@@ -299,7 +274,7 @@ export function DealCard({
                   e.stopPropagation();
                   onClick(deal);
                 }}
-                className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors cursor-pointer"
               >
                 <MessageSquare className="h-2.5 w-2.5" />
                 {deal.conversationsCount}
@@ -310,13 +285,13 @@ export function DealCard({
           {/* Vendedor / Responsável */}
           {operatorName ? (
             <SystemTooltip content={`Responsável: ${operatorName}`}>
-              <span className="inline-flex h-5 max-w-[70px] truncate items-center rounded-full bg-muted px-2 text-[9px] font-semibold text-muted-foreground">
-                {operatorName}
+              <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                <User className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{operatorName}</span>
               </span>
             </SystemTooltip>
           ) : (
-            <span className="text-[9px] text-muted-foreground/50">
-              Sem resp.
+            <span className="text-xs text-muted-foreground">
+              Sem responsável
             </span>
           )}
         </div>
@@ -326,7 +301,7 @@ export function DealCard({
       <div className="mt-2.5 pt-2 border-t border-border/50">
         {deal.nextTask ? (
           <div
-            className={`flex items-center justify-between gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium border transition-colors ${
+            className={`flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-xs font-medium border transition-colors ${
               deal.nextTask.isOverdue
                 ? "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/25"
                 : deal.nextTask.isToday
@@ -344,7 +319,7 @@ export function DealCard({
                     : "text-muted-foreground"
                 }`}
               />
-              <span className="truncate">
+              <span title={deal.nextTask.title} className="line-clamp-2 break-words">
                 {deal.nextTask.isOverdue && (
                   <strong className="font-extrabold mr-1 text-red-600 dark:text-red-400">
                     Atrasada:
@@ -368,6 +343,7 @@ export function DealCard({
                 <SystemTooltip content="Concluir tarefa rapidamente">
                   <button
                     type="button"
+                    aria-label={`Concluir tarefa: ${deal.nextTask.title}`}
                     onClick={async (e) => {
                       e.stopPropagation();
                       if (!deal.nextTask?.id || completingTask) return;
@@ -391,7 +367,7 @@ export function DealCard({
                       }
                     }}
                     disabled={completingTask}
-                    className="shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-primary transition cursor-pointer"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-primary transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 hover:scale-110 transition-transform" />
                   </button>
@@ -399,7 +375,7 @@ export function DealCard({
             )}
           </div>
         ) : (
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground/60 px-1 py-0.5">
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground py-1">
             <span>Sem tarefas pendentes</span>
             <button
               type="button"
@@ -407,12 +383,20 @@ export function DealCard({
                 e.stopPropagation();
                 onCreateTaskClick ? onCreateTaskClick(deal) : onClick(deal);
               }}
-              className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
+              className="shrink-0 text-xs font-medium text-primary hover:underline cursor-pointer"
             >
               + Tarefa
             </button>
           </div>
         )}
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        {statusBadge && <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${statusBadge.color}`}>
+          <statusBadge.icon className="h-3 w-3" />{statusBadge.label}
+        </span>}
+        <div aria-label={`Qualificação: ${deal.rating || 0} de 5`} className="flex items-center gap-0.5">
+          {[1, 2, 3, 4, 5].map((star) => <Star key={star} aria-hidden="true" className={`h-3 w-3 ${(deal.rating || 0) >= star ? "fill-amber-400 text-amber-400" : "text-muted-foreground/25"}`} />)}
+        </div>
       </div>
     </div>
   );

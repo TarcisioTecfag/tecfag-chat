@@ -6,8 +6,6 @@ import { DealList } from "./DealList";
 import { DealCardData } from "./DealCard";
 import { CreateDealDialog } from "./CreateDealDialog";
 import { CrmQuickCreateDialog, CrmQuickCreateKind } from "./CrmQuickCreateDialog";
-import { PipelineSettingsModal } from "./PipelineSettingsModal";
-import { CustomFieldsSettingsModal } from "./CustomFieldsSettingsModal";
 import { AdvancedFiltersModal, AdvancedFiltersState } from "./AdvancedFiltersModal";
 import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
@@ -24,9 +22,7 @@ export function CrmView() {
   const [deals, setDeals] = useState<DealCardData[]>([]);
   const [totalDeals, setTotalDeals] = useState(0);
 
-  // Modais de Configuração
-  const [isPipelineSettingsOpen, setIsPipelineSettingsOpen] = useState(false);
-  const [isCustomFieldsSettingsOpen, setIsCustomFieldsSettingsOpen] = useState(false);
+  // Painel de filtros
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
 
   // Filtros Globais Compartilhados entre Kanban e Lista
@@ -324,7 +320,6 @@ export function CrmView() {
     setSelectedOperatorIds([]);
     setSearchQuery("");
     setAdvancedFilters({});
-    setSortBy("updated_desc");
     setListOffset(0);
   };
 
@@ -358,7 +353,13 @@ export function CrmView() {
           setListOffset(0);
         }}
         advancedFilters={advancedFilters}
+        stages={activeStages}
+        onAdvancedFiltersChange={(filters) => {
+          setAdvancedFilters(filters);
+          setListOffset(0);
+        }}
         onOpenAdvancedFilters={() => setIsAdvancedFiltersOpen(true)}
+        onClearFilters={handleClearAllFilters}
         searchQuery={searchQuery}
         onSearchQueryChange={(q) => {
           setSearchQuery(q);
@@ -371,12 +372,10 @@ export function CrmView() {
         onCreateCompanyClick={() => setQuickCreateKind("company")}
         onCreateContactClick={() => setQuickCreateKind("contact")}
         onCreateTaskClick={() => setQuickCreateKind("task")}
-        onManagePipelinesClick={() => setIsPipelineSettingsOpen(true)}
-        onManageFieldsClick={() => setIsCustomFieldsSettingsOpen(true)}
       />
 
       {/* Conteúdo Principal */}
-      <div className="flex-1 overflow-hidden relative">
+      <div className="min-h-0 flex-1 overflow-hidden relative">
         {loading && deals.length === 0 ? (
           <div className="flex h-full w-full items-center justify-center">
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
@@ -482,20 +481,6 @@ export function CrmView() {
         operators={operators}
         currentOperatorId={currentOperatorId}
       />
-
-      {/* Modal de Gestão de Funis e Etapas */}
-      <PipelineSettingsModal
-        isOpen={isPipelineSettingsOpen}
-        onClose={() => setIsPipelineSettingsOpen(false)}
-        onPipelinesChanged={() => {
-          fetchPipelines();
-          fetchStagesSummary();
-          fetchDeals();
-          fetchStageSettings();
-        }}
-        selectedPipelineId={selectedPipelineId}
-      />
-      <CustomFieldsSettingsModal isOpen={isCustomFieldsSettingsOpen} onClose={() => setIsCustomFieldsSettingsOpen(false)} />
     </div>
   );
 }

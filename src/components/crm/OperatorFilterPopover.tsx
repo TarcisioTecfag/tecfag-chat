@@ -7,7 +7,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Users, Search, Check, X, UserCheck } from "lucide-react";
+import { Users, Search, Check, X, UserCheck, ChevronDown } from "lucide-react";
 
 interface OperatorOption {
   id: string;
@@ -104,18 +104,21 @@ export function OperatorFilterPopover({
         <button
           type="button"
           disabled={disabled}
-          className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+          title={triggerLabel}
+          aria-label={`Responsável: ${triggerLabel}`}
+          className={`flex h-9 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             selectedOperatorIds.length > 0
               ? "border-primary bg-primary/10 text-primary font-bold"
               : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
           }`}
         >
-          <Users className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate max-w-[130px]">{triggerLabel}</span>
+          <Users className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className="w-64 p-3" align="start">
+      <PopoverContent className="w-80 max-w-[calc(100vw-2rem)] p-3" align="start">
         <div className="space-y-3">
           {/* Topo: Atalhos rápidos Minhas / Todas */}
           <div className="flex items-center gap-1 border-b border-border pb-2">
@@ -151,7 +154,8 @@ export function OperatorFilterPopover({
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Buscar vendedor..."
+              aria-label="Buscar responsável"
+              placeholder="Buscar responsável..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-7 pl-8 text-xs"
@@ -162,7 +166,7 @@ export function OperatorFilterPopover({
           <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
             {filteredOperators.length === 0 ? (
               <p className="text-center py-4 text-[11px] text-muted-foreground italic">
-                Nenhum vendedor encontrado
+                Nenhum responsável encontrado
               </p>
             ) : (
               filteredOperators.map((op) => {
@@ -176,7 +180,7 @@ export function OperatorFilterPopover({
                       checked={isChecked}
                       onCheckedChange={() => handleToggle(op.id)}
                     />
-                    <span className="truncate flex-1 font-medium">{op.name}</span>
+                    <span className="min-w-0 flex-1 break-words font-medium">{op.name}</span>
                     {op.id === currentOperatorId && (
                       <span className="text-[10px] text-primary font-bold">(Você)</span>
                     )}

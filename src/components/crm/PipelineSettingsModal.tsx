@@ -75,7 +75,7 @@ interface PipelineDraft {
 interface PipelineSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onPipelinesChanged: () => void;
+  onPipelinesChanged?: () => void;
   selectedPipelineId?: string;
 }
 
@@ -141,7 +141,7 @@ export function PipelineSettingsModal({
       await action();
       toast.success(successMessage);
       await reload();
-      onPipelinesChanged();
+      onPipelinesChanged?.();
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível salvar.");
@@ -338,7 +338,7 @@ export function PipelineSettingsModal({
     }
     setSelectedStages([]);
     await reload();
-    onPipelinesChanged();
+    onPipelinesChanged?.();
     setBusy(false);
     if (failures.length) toast.error(failures.join(" | "));
     else toast.success("Etapas selecionadas excluídas.");

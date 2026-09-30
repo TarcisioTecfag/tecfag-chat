@@ -121,7 +121,7 @@ export function AdvancedFiltersModal({
         <SheetHeader className="border-b border-border px-5 py-5">
           <SheetTitle className="flex items-center gap-2 text-base font-bold">
             <Filter className="h-4 w-4 text-primary" />
-            <span>Filtros</span>
+            <span>Filtros avançados</span>
           </SheetTitle>
         </SheetHeader>
 
@@ -270,7 +270,7 @@ export function AdvancedFiltersModal({
             className="text-xs text-muted-foreground hover:text-foreground"
           >
             <RotateCcw className="h-3.5 w-3.5 mr-1" />
-            Limpar filtros
+            Limpar avançados
           </Button>
 
           <div className="flex items-center gap-2">

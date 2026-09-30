@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { DealCard, DealCardData } from "./DealCard";
-import { Plus, MoreHorizontal } from "lucide-react";
+import { Plus } from "lucide-react";
 
 export interface PipelineStageData {
   id: string;
@@ -105,15 +105,15 @@ export function PipelineColumn({
       }`}
     >
       {/* Cabeçalho da Coluna */}
-      <div className="p-3.5 border-b border-border/50">
+      <div className="shrink-0 px-3.5 py-3 border-b border-border/50">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <h3 className="text-xs font-bold text-foreground truncate">
+            <h3 title={stage.name} className="text-sm font-semibold text-foreground line-clamp-2 break-words">
               {stage.name}
             </h3>
             <span
               title={`${displayCount} negociações no total nesta etapa`}
-              className="flex h-5 items-center justify-center rounded-full bg-muted px-2 text-[10px] font-extrabold text-muted-foreground"
+              className="flex h-6 shrink-0 items-center justify-center rounded-md bg-muted px-2 text-xs font-semibold tabular-nums text-muted-foreground"
             >
               {displayCount}
             </span>
@@ -122,8 +122,10 @@ export function PipelineColumn({
           {onNewDealAtStage && (
             <button
               onClick={() => onNewDealAtStage(stage.id)}
+              type="button"
+              aria-label={`Nova negociação em ${stage.name}`}
               title="Nova negociação nesta etapa"
-              className="flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
@@ -131,17 +133,17 @@ export function PipelineColumn({
         </div>
 
         {/* Totalizador Financeiro da Etapa */}
-        <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>Total conhecido:</span>
-          <span className="font-bold text-foreground/80">{displayFormattedTotal}</span>
+          <span className="font-medium tabular-nums text-foreground/80">{displayFormattedTotal}</span>
         </div>
       </div>
 
       {/* Lista de Cards da Etapa com scroll vertical */}
-      <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2.5 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
         {deals.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center px-4">
-            <p className="text-[11px] text-muted-foreground/60 italic">
+            <p className="text-xs text-muted-foreground">
               Nenhuma negociação nesta etapa
             </p>
           </div>
@@ -161,7 +163,7 @@ export function PipelineColumn({
             ))}
 
             {summary && summary.dealsCount > deals.length && (
-              <div className="py-2 text-center text-[10px] text-muted-foreground/70 border-t border-dashed border-border/60">
+              <div className="py-2 text-center text-xs text-muted-foreground border-t border-dashed border-border/60">
                 Mostrando {deals.length} de {summary.dealsCount} negociações
               </div>
             )}
