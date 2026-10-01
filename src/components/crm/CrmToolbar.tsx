@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Columns3,
   List,
@@ -62,8 +62,7 @@ interface CrmToolbarProps {
   onAdvancedFiltersChange: (filters: AdvancedFiltersState) => void;
   onOpenAdvancedFilters: () => void;
   onClearFilters: () => void;
-  searchQuery: string;
-  onSearchQueryChange: (query: string) => void;
+  onOpenSearch: () => void;
   onNewDealClick: () => void;
   onCreateCompanyClick: () => void;
   onCreateContactClick: () => void;
@@ -102,31 +101,18 @@ export function CrmToolbar({
   onAdvancedFiltersChange,
   onOpenAdvancedFilters,
   onClearFilters,
-  searchQuery,
-  onSearchQueryChange,
+  onOpenSearch,
   onNewDealClick,
   onCreateCompanyClick,
   onCreateContactClick,
   onCreateTaskClick,
 }: CrmToolbarProps) {
-  const [localSearch, setLocalSearch] = useState(searchQuery);
   const [compactFiltersOpen, setCompactFiltersOpen] = useState(false);
-
-  useEffect(() => {
-    setLocalSearch(searchQuery);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      if (localSearch !== searchQuery) onSearchQueryChange(localSearch);
-    }, 300);
-    return () => clearTimeout(handler);
-  }, [localSearch, searchQuery, onSearchQueryChange]);
 
   const activeAdvancedCount = countActiveAdvancedFilters(advancedFilters);
   const activeFilterCount =
     activeAdvancedCount + Number(statusFilter !== "all") + Number(selectedOperatorIds.length > 0);
-  const hasFilters = activeFilterCount > 0 || localSearch.trim().length > 0;
+  const hasFilters = activeFilterCount > 0;
   const selectedPipeline = pipelines.find((pipeline) => pipeline.id === selectedPipelineId);
   const selectedSort = sortOptions.find((option) => option.value === sortBy) || sortOptions[0];
   const filterChips: Array<{ key: keyof AdvancedFiltersState; label: string }> = [];
@@ -176,7 +162,6 @@ export function CrmToolbar({
   };
 
   const clearFilters = () => {
-    setLocalSearch("");
     onClearFilters();
   };
 
@@ -355,17 +340,15 @@ export function CrmToolbar({
       </div>
 
       <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            aria-label="Buscar negociações por título, empresa, contato ou ID"
-            placeholder="Buscar..."
-            value={localSearch}
-            onChange={(event) => setLocalSearch(event.target.value)}
-            className="h-9 w-full min-w-0 rounded-lg border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </div>
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          aria-label="Buscar negociações, empresas e contatos"
+          className="flex h-9 min-w-0 flex-1 items-center gap-3 rounded-lg border border-border bg-background px-3 text-left text-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="truncate">Buscar negociações, empresas ou contatos...</span>
+        </button>
         <div className="hidden shrink-0 items-center gap-2 @[64rem]/crm-toolbar:flex">
           <div className="w-56">{renderResponsibleFilter()}</div>
           <div className="w-44">{renderStatusFilter()}</div>
@@ -414,10 +397,10 @@ export function CrmToolbar({
           </Popover>
         </div>
         {hasFilters && (
-          <SystemTooltip content="Limpar filtros e busca">
+          <SystemTooltip content="Limpar filtros">
             <button
               type="button"
-              aria-label="Limpar filtros e busca"
+              aria-label="Limpar filtros"
               onClick={clearFilters}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >

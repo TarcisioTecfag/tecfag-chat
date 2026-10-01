@@ -6,6 +6,8 @@ import { DealList } from "./DealList";
 import { DealCardData } from "./DealCard";
 import { CreateDealDialog } from "./CreateDealDialog";
 import { CrmQuickCreateDialog, CrmQuickCreateKind } from "./CrmQuickCreateDialog";
+import { CrmSearchModal } from "./CrmSearchModal";
+import { AccountDetailModal } from "./AccountDetailModal";
 import { AdvancedFiltersModal, AdvancedFiltersState } from "./AdvancedFiltersModal";
 import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
@@ -31,7 +33,8 @@ export function CrmView() {
   const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<string>("updated_desc");
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFiltersState>({});
-  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchAccountId, setSearchAccountId] = useState<string | null>(null);
 
   // Paginação separada para a Lista
   const [listLimit, setListLimit] = useState(50);
@@ -94,9 +97,6 @@ export function CrmView() {
     if (selectedOperatorIds.length > 0) {
       params.set("operatorIds", selectedOperatorIds.join(","));
     }
-    if (searchQuery.trim()) {
-      params.set("search", searchQuery.trim());
-    }
     if (sortBy) {
       params.set("sortBy", sortBy);
     }
@@ -128,7 +128,7 @@ export function CrmView() {
     }
 
     return params;
-  }, [selectedPipelineId, statusFilter, selectedOperatorIds, searchQuery, sortBy, advancedFilters]);
+  }, [selectedPipelineId, statusFilter, selectedOperatorIds, sortBy, advancedFilters]);
 
   // Carrega pipelines
   const fetchPipelines = useCallback(async () => {
@@ -172,11 +172,16 @@ export function CrmView() {
       const response = await fetch("/api/crm/stage-settings");
       if (!response.ok) return;
       const data = await response.json();
-      const settings: Array<{ stageId: string; coolingEnabled: boolean; coolingDays: number }> = data.settings || [];
-      setStageSettings(Object.fromEntries(settings.map((item) => [
-        item.stageId,
-        { coolingEnabled: item.coolingEnabled, coolingDays: item.coolingDays },
-      ])));
+      const settings: Array<{ stageId: string; coolingEnabled: boolean; coolingDays: number }> =
+        data.settings || [];
+      setStageSettings(
+        Object.fromEntries(
+          settings.map((item) => [
+            item.stageId,
+            { coolingEnabled: item.coolingEnabled, coolingDays: item.coolingDays },
+          ]),
+        ),
+      );
     } catch (error) {
       console.warn("[CrmView] Falha ao carregar configurações das etapas:", error);
     }
@@ -187,7 +192,9 @@ export function CrmView() {
     if (!selectedPipelineId) return;
     try {
       const params = buildFilterQueryParams();
-      const res = await fetch(`/api/crm/pipelines/${selectedPipelineId}/stages-summary?${params.toString()}`);
+      const res = await fetch(
+        `/api/crm/pipelines/${selectedPipelineId}/stages-summary?${params.toString()}`,
+      );
       if (res.ok) {
         const data = await res.json();
         setStagesSummary(data.stages || []);
@@ -257,7 +264,7 @@ export function CrmView() {
     dealId: string,
     newStageId: string,
     currentVersion: number,
-    terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null }
+    terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null },
   ) => {
     // Atualização otimista imediata na UI
     setDeals((prev) =>
@@ -270,8 +277,8 @@ export function CrmView() {
               status: terminalData?.status || d.status,
               value: terminalData?.value !== undefined ? terminalData.value : d.value,
             }
-          : d
-      )
+          : d,
+      ),
     );
 
     try {
@@ -293,7 +300,9 @@ export function CrmView() {
       });
 
       if (res.status === 409) {
-        toast.error("Conflito: esta negociação foi alterada por outro usuário. Atualizando quadro...");
+        toast.error(
+          "Conflito: esta negociação foi alterada por outro usuário. Atualizando quadro...",
+        );
         fetchDeals();
         fetchStagesSummary();
         return;
@@ -318,7 +327,6 @@ export function CrmView() {
   const handleClearAllFilters = () => {
     setStatusFilter("all");
     setSelectedOperatorIds([]);
-    setSearchQuery("");
     setAdvancedFilters({});
     setListOffset(0);
   };
@@ -360,11 +368,7 @@ export function CrmView() {
         }}
         onOpenAdvancedFilters={() => setIsAdvancedFiltersOpen(true)}
         onClearFilters={handleClearAllFilters}
-        searchQuery={searchQuery}
-        onSearchQueryChange={(q) => {
-          setSearchQuery(q);
-          setListOffset(0);
-        }}
+        onOpenSearch={() => setIsSearchOpen(true)}
         onNewDealClick={() => {
           setCreateAtStageId(undefined);
           setIsCreateDialogOpen(true);
@@ -389,7 +393,8 @@ export function CrmView() {
               <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground/60" />
               <h3 className="text-sm font-bold text-foreground">Nenhum funil disponível</h3>
               <p className="text-xs text-muted-foreground">
-                Nenhum funil comercial foi detectado para o seu tenant ou as informações ainda estão sendo sincronizadas.
+                Nenhum funil comercial foi detectado para o seu tenant ou as informações ainda estão
+                sendo sincronizadas.
               </p>
               <button
                 type="button"
@@ -412,7 +417,13 @@ export function CrmView() {
               stageSettings={stageSettings}
               stagesSummaryMap={stagesSummaryMap}
               operatorsMap={operatorsMap}
-              onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
+              onDealClick={(d) =>
+                navigate({
+                  to: "/crm/deals/$dealId",
+                  params: { dealId: d.id },
+                  search: { from: "crm" },
+                })
+              }
               onMoveDeal={handleMoveDeal}
               onNewDealAtStage={(stageId) => {
                 setCreateAtStageId(stageId);
@@ -428,7 +439,13 @@ export function CrmView() {
               operators={operators}
               stagesMap={stagesMap}
               operatorsMap={operatorsMap}
-              onDealClick={(d) => navigate({ to: "/crm/deals/$dealId", params: { dealId: d.id }, search: { from: "crm" } })}
+              onDealClick={(d) =>
+                navigate({
+                  to: "/crm/deals/$dealId",
+                  params: { dealId: d.id },
+                  search: { from: "crm" },
+                })
+              }
               total={totalDeals}
               limit={listLimit}
               offset={listOffset}
@@ -469,7 +486,12 @@ export function CrmView() {
         onSuccess={(newDeal, createAnother) => {
           fetchDeals();
           fetchStagesSummary();
-          if (!createAnother) navigate({ to: "/crm/deals/$dealId", params: { dealId: newDeal.id }, search: { from: "crm" } });
+          if (!createAnother)
+            navigate({
+              to: "/crm/deals/$dealId",
+              params: { dealId: newDeal.id },
+              search: { from: "crm" },
+            });
         }}
         pipelines={pipelines}
         operators={operators}
@@ -481,9 +503,38 @@ export function CrmView() {
       <CrmQuickCreateDialog
         kind={quickCreateKind}
         onClose={() => setQuickCreateKind(null)}
-        onCreated={() => { fetchDeals(); fetchStagesSummary(); }}
+        onCreated={() => {
+          fetchDeals();
+          fetchStagesSummary();
+        }}
         operators={operators}
         currentOperatorId={currentOperatorId}
+      />
+
+      <CrmSearchModal
+        open={isSearchOpen}
+        onOpenChange={setIsSearchOpen}
+        onOpenDeal={(dealId) => {
+          setIsSearchOpen(false);
+          navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
+        }}
+        onOpenCompany={(accountId) => {
+          setIsSearchOpen(false);
+          setSearchAccountId(accountId);
+        }}
+      />
+      <AccountDetailModal
+        accountId={searchAccountId}
+        isOpen={searchAccountId !== null}
+        onClose={() => setSearchAccountId(null)}
+        onAccountUpdated={() => {
+          fetchDeals();
+          fetchStagesSummary();
+        }}
+        onOpenDeal={(dealId) => {
+          setSearchAccountId(null);
+          navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
+        }}
       />
     </div>
   );

@@ -95,16 +95,7 @@ function DealPage() {
   if (!authorized && !isAuthenticated) return <Login />;
 
   return (
-    <main className="crm-deal-route min-h-screen bg-background" style={themeStyles}>
-      <div className="border-b border-border bg-card px-5 py-2">
-        <button
-          type="button"
-          onClick={goBack}
-          className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
-        >
-          <ArrowLeft className="h-4 w-4" /> Voltar {from === "chat" ? "ao atendimento" : "ao CRM"}
-        </button>
-      </div>
+    <main className="crm-deal-route h-screen overflow-hidden bg-background" style={themeStyles}>
       <DealDetailModal
         isOpen
         dealId={dealId}
@@ -113,6 +104,7 @@ function DealPage() {
         onOpenConversation={openConversation}
         pipelineStages={stages}
         operatorsMap={operatorsMap}
+        backLabel={from === "chat" ? "Voltar ao atendimento" : "Voltar ao CRM"}
       />
     </main>
   );
