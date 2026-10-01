@@ -42,6 +42,7 @@ export const Route = createFileRoute("/api/crm/deals")({
           const offset = parseInt(url.searchParams.get("offset") || "0", 10);
           const perStageLimitRaw = url.searchParams.get("perStageLimit");
           const perStageLimit = perStageLimitRaw ? parseInt(perStageLimitRaw, 10) : undefined;
+          const includeTotal = url.searchParams.get("includeTotal") !== "false";
 
           const minValueRaw = url.searchParams.get("minValue");
           const minValue = minValueRaw !== null && minValueRaw !== "" ? parseFloat(minValueRaw) : undefined;
@@ -95,6 +96,7 @@ export const Route = createFileRoute("/api/crm/deals")({
             limit,
             offset,
             perStageLimit,
+            includeTotal,
           });
 
           return new Response(JSON.stringify(result), {

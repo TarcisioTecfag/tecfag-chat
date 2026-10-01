@@ -54,7 +54,13 @@ export async function useDrizzleAuthState(
     authData.creds = initAuthCreds();
   }
 
-  const saveState = async () => {
+  // Fila serial com debounce para evitar condições de corrida (race conditions)
+  // e dezenas de escritas concorrentes no PostgreSQL durante trocas rápidas de chaves
+  let savePromise: Promise<void> | null = null;
+  let hasPendingSave = false;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const performSave = async () => {
     try {
       const jsonb = JSON.parse(JSON.stringify(authData, BufferJSON.replacer));
       await db
@@ -64,6 +70,45 @@ export async function useDrizzleAuthState(
     } catch (e) {
       console.error(`[drizzle-auth] Erro ao salvar credenciais para tenant "${tenantId}":`, e);
     }
+  };
+
+  const triggerSave = async (): Promise<void> => {
+    if (savePromise) {
+      hasPendingSave = true;
+      return savePromise;
+    }
+
+    savePromise = (async () => {
+      try {
+        await performSave();
+      } finally {
+        savePromise = null;
+        if (hasPendingSave) {
+          hasPendingSave = false;
+          void triggerSave();
+        }
+      }
+    })();
+
+    return savePromise;
+  };
+
+  const scheduleSave = (immediate = false): Promise<void> => {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+
+    if (immediate) {
+      return triggerSave();
+    }
+
+    return new Promise<void>((resolve) => {
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        triggerSave().then(resolve);
+      }, 300);
+    });
   };
 
   return {
@@ -89,10 +134,10 @@ export async function useDrizzleAuthState(
               }
             }
           }
-          await saveState();
+          void scheduleSave(false);
         },
       },
     },
-    saveCreds: saveState,
+    saveCreds: () => scheduleSave(true),
   };
 }

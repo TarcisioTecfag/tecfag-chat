@@ -28,14 +28,41 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
             const [existing] = await tx.select({ id: conversations.id }).from(conversations)
               .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId), ne(conversations.queueState, "finalizados")))
               .orderBy(desc(conversations.lastMessageTime)).limit(1);
-            if (existing) return { conversationId: existing.id, created: false };
             const now = new Date();
+            if (existing) {
+              await tx.update(conversations)
+                .set({
+                  operatorId: session.operator.id,
+                  queueState: "meus",
+                  lastMessageTime: now,
+                  updatedAt: now,
+                })
+                .where(and(eq(conversations.id, existing.id), eq(conversations.tenantId, tenantId)));
+
+              await tx.update(contacts)
+                .set({
+                  walletOperatorId: session.operator.id,
+                  responsibleName: session.operator.name,
+                })
+                .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+
+              return { conversationId: existing.id, created: false };
+            }
+
             const conversationId = `conv-${crypto.randomUUID()}`;
             await tx.insert(conversations).values({
               id: conversationId, tenantId, contactId, operatorId: session.operator.id,
               queueState: "meus", lastMessageText: "Atendimento iniciado.",
               lastMessageTime: now, createdAt: now, updatedAt: now,
             });
+
+            await tx.update(contacts)
+              .set({
+                walletOperatorId: session.operator.id,
+                responsibleName: session.operator.name,
+              })
+              .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+
             return { conversationId, created: true };
           });
           if (!result) return Response.json({ error: "Contato não encontrado." }, { status: 404 });

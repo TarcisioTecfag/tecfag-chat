@@ -148,10 +148,10 @@ export function CrmView() {
       const list = data.pipelines || [];
       setPipelines(list);
       if (list.length > 0) {
-        if (!selectedPipelineId || !list.some((p: any) => p.id === selectedPipelineId)) {
-          const defaultPipe = list.find((p: any) => p.isDefault) || list[0];
-          setSelectedPipelineId(defaultPipe.id);
-        }
+        const defaultPipe = list.find((p: any) => p.isDefault) || list[0];
+        setSelectedPipelineId((current) =>
+          current && list.some((p: any) => p.id === current) ? current : defaultPipe.id,
+        );
       } else {
         setLoading(false);
       }
@@ -160,7 +160,7 @@ export function CrmView() {
       toast.error("Falha ao carregar funis comerciais.");
       setLoading(false);
     }
-  }, [selectedPipelineId, tenant]);
+  }, [tenant]);
 
   // Carrega operadores
   const fetchOperators = useCallback(async () => {
@@ -230,6 +230,7 @@ export function CrmView() {
       } else {
         // No modo kanban traz fatia equilibrada particionada por etapa (até 50 cards/etapa)
         params.set("perStageLimit", "50");
+        params.set("includeTotal", "false");
       }
 
       const res = await fetch(`/api/crm/deals?${params.toString()}`);
@@ -239,7 +240,7 @@ export function CrmView() {
       }
       const data = await res.json();
       setDeals(data.deals || []);
-      setTotalDeals(data.total || 0);
+      if (viewMode === "list") setTotalDeals(data.total || 0);
     } catch (err: any) {
       console.error("[CrmView] Erro deals:", err);
       setError(err.message || "Falha ao carregar negociações.");
@@ -261,6 +262,7 @@ export function CrmView() {
         params.set("stageId", stageId);
         params.set("limit", "50");
         params.set("offset", String(stageDealsCount));
+        params.set("includeTotal", "false");
 
         const res = await fetch(`/api/crm/deals?${params.toString()}`);
         if (!res.ok) {
@@ -302,8 +304,8 @@ export function CrmView() {
 
   useEffect(() => {
     fetchDeals();
-    fetchStagesSummary();
-  }, [fetchDeals, fetchStagesSummary]);
+    if (viewMode === "kanban") fetchStagesSummary();
+  }, [fetchDeals, fetchStagesSummary, viewMode]);
 
   // Movimentação de Card (Kanban) com concorrência otimista
   const handleMoveDeal = async (

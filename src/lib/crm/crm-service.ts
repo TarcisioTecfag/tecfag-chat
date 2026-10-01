@@ -778,9 +778,9 @@ export class CrmService {
     const aggregates = await db
       .select({
         stageId: crmDeals.stageId,
-        dealsCount: sql<number>`count(distinct ${crmDeals.id})::int`,
-        knownValueDealsCount: sql<number>`count(case when ${crmDeals.value} is not null then 1 end)::int`,
-        totalValue: sql<number>`coalesce(sum(case when ${crmDeals.value} is not null then ${crmDeals.value}::numeric else 0 end), 0)::float`,
+        dealsCount: sql<number>`count(*)::int`,
+        knownValueDealsCount: sql<number>`count(${crmDeals.value})::int`,
+        totalValue: sql<number>`coalesce(sum(${crmDeals.value}), 0)::float`,
       })
       .from(crmDeals)
       .where(and(...conditions))
@@ -903,7 +903,7 @@ export class CrmService {
       .select()
       .from(crmAccounts)
       .where(whereClause)
-      .orderBy(desc(crmAccounts.createdAt))
+      .orderBy(desc(crmAccounts.createdAt), desc(crmAccounts.id))
       .limit(limit)
       .offset(offset);
 
@@ -1904,6 +1904,7 @@ export class CrmService {
     params: CrmDealFilters & {
       limit?: number;
       offset?: number;
+      includeTotal?: boolean;
       sortBy?:
         | "name_asc"
         | "name_desc"
@@ -1934,10 +1935,14 @@ export class CrmService {
     const limit = Math.min(params.limit || 50, 500);
     const offset = params.offset || 0;
 
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(crmDeals)
-      .where(whereClause);
+    // O Kanban já recebe a contagem exata no resumo por etapa. Evita uma
+    // segunda varredura completa quando o chamador não precisa do total.
+    const [countResult] = params.includeTotal === false
+      ? [{ count: 0 }]
+      : await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(crmDeals)
+          .where(whereClause);
 
     let orderClause: any[];
     switch (params.sortBy) {
@@ -1981,15 +1986,17 @@ export class CrmService {
       case "contact_recent":
       case "updated_desc":
         orderClause = [
-          sql`COALESCE(${crmDeals.lastActivityAt}, ${crmDeals.updatedAt}, ${crmDeals.createdAt}) DESC`,
+          desc(crmDeals.lastActivityAt),
           desc(crmDeals.createdAt),
+          desc(crmDeals.id),
         ];
         break;
       case "contact_old":
       case "updated_asc":
         orderClause = [
-          sql`COALESCE(${crmDeals.lastActivityAt}, ${crmDeals.updatedAt}, ${crmDeals.createdAt}) ASC`,
+          asc(crmDeals.lastActivityAt),
           asc(crmDeals.createdAt),
+          asc(crmDeals.id),
         ];
         break;
       default:

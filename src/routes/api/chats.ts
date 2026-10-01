@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { conversations, contacts, messages, sectors, operators } from "../../db/schema";
-import { eq, and, desc, lt, inArray } from "drizzle-orm";
+import { eq, and, desc, lt, inArray, sql } from "drizzle-orm";
 import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
 import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
@@ -165,7 +165,7 @@ export const Route = createFileRoute("/api/chats")({
           const session = auth.session;
 
           const url = new URL(request.url);
-          const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10), 1), 100);
+          const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100", 10), 1), 300);
           const queueFilter = url.searchParams.get("queue");
           const beforeCursor = url.searchParams.get("before");
           const requestedConversationId = url.searchParams.get("conversationId");
@@ -196,6 +196,7 @@ export const Route = createFileRoute("/api/chats")({
           }
 
           // 2. Buscar conversas com contacts e sectors via INNER JOIN eficiente
+          // Prioriza sempre as conversas ativas (não finalizadas) na ordenação inicial
           const rows = await db
             .select({
               conversation: conversations,
@@ -206,7 +207,10 @@ export const Route = createFileRoute("/api/chats")({
             .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, session.tenantId)))
             .leftJoin(sectors, and(eq(conversations.sectorId, sectors.id), eq(sectors.tenantId, session.tenantId)))
             .where(and(...conditions))
-            .orderBy(desc(conversations.lastMessageTime))
+            .orderBy(
+              sql`CASE WHEN ${conversations.queueState} != 'finalizados' THEN 0 ELSE 1 END`,
+              desc(conversations.lastMessageTime)
+            )
             .limit(requestedConversationId ? 1 : limit);
 
           if (rows.length === 0) {

@@ -68,8 +68,27 @@ export class SessionManager {
   private initMutex = new Map<string, Promise<WASocket>>();
   // Flag para evitar boot duplo
   private booted = false;
+  // Flag de encerramento do processo (Railway deploy/restart)
+  private isShuttingDown = false;
 
   private constructor() {}
+
+  public async shutdown(): Promise<void> {
+    if (this.isShuttingDown) return;
+    this.isShuttingDown = true;
+    console.log("[SessionManager] Recebido sinal de encerramento do processo (SIGTERM/SIGINT). Fechando sockets Baileys com segurança...");
+
+    for (const [tenantId, sock] of this.sessions.entries()) {
+      try {
+        console.log(`[SessionManager] Encerrando socket para tenant ${tenantId}...`);
+        sock.end(undefined);
+      } catch (err) {
+        console.warn(`[SessionManager] Erro ao fechar socket tenant ${tenantId}:`, err);
+      }
+    }
+    this.sessions.clear();
+    console.log("[SessionManager] Sockets Baileys encerrados com segurança.");
+  }
 
   public static getInstance(): SessionManager {
     if (!SessionManager.instance) {
@@ -407,6 +426,11 @@ export class SessionManager {
       }
 
       if (connection === "close") {
+        if (this.isShuttingDown) {
+          console.log(`[SessionManager] Conexão fechada para tenant ${tenantId} durante encerramento do processo — ignorando persistência no banco.`);
+          return;
+        }
+
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const disconnectMessage = lastDisconnect?.error?.message;
         const loggedOut = statusCode === DisconnectReason.loggedOut;
@@ -424,14 +448,12 @@ export class SessionManager {
         //   Demais → reconectar (queda de rede, timeout, etc.)
         const connectionReplaced = statusCode === 440;
         const shouldReconnect = !loggedOut && !connectionReplaced;
-        const isPaired = !!sock.user?.id;
 
         if (connectionReplaced) {
           console.warn(`[SessionManager] Conexão substituída (440) para tenant ${tenantId} — NÃO reconectando para evitar loop.`);
         }
 
         console.log(`[SessionManager] Conexão fechada para tenant ${tenantId} — statusCode: ${statusCode}, motivo: ${disconnectMessage || "não informado"}, loggedOut: ${loggedOut}, sock.user: ${sock.user?.id || "null"}, reconectar: ${shouldReconnect}`);
-
 
         this.sessions.delete(tenantId);
         this.sessionStatuses.set(tenantId, "disconnected");
@@ -442,10 +464,11 @@ export class SessionManager {
           await db.update(channelConfigs)
             .set({
               baileysSessionStatus: "disconnected",
-              // Só apagar o telefone pareado se houve logout explícito
-              baileysPairedPhone: loggedOut ? null : (isPaired ? sock.user!.id.split(":")[0] : undefined),
-              // Só apagar as chaves se houve logout explícito
-              baileysAuthKeys: loggedOut ? null : undefined,
+              // NUNCA apagar baileysAuthKeys nem baileysPairedPhone em eventos de socket close!
+              // Durante deploys no Railway ou trocas de rede, o container antigo ou quedas temporárias
+              // não podem destruir as credenciais salvas no PostgreSQL.
+              // A limpeza das chaves é reservada exclusivamente para ações intencionais de admin
+              // via disconnectSession() ou resetAndInitSession().
               updatedAt: new Date(),
             })
             .where(eq(channelConfigs.tenantId, tenantId));
@@ -1499,3 +1522,15 @@ export async function resolveRealJid(sock: any, phone: string, fallbackJid?: str
   if (fallbackJid) return fallbackJid;
   return cleanPhone.startsWith("55") ? `${cleanPhone}@s.whatsapp.net` : `55${cleanPhone}@s.whatsapp.net`;
 }
+
+// Registrar desligamento gracioso para containers (Railway SIGTERM / SIGINT)
+if (typeof process !== "undefined" && typeof process.on === "function") {
+  const handleSignal = () => {
+    SessionManager.getInstance().shutdown().catch((err) => {
+      console.error("[SessionManager] Erro durante encerramento gracioso:", err);
+    });
+  };
+  process.once("SIGTERM", handleSignal);
+  process.once("SIGINT", handleSignal);
+}
+

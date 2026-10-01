@@ -195,7 +195,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return "meus";
   });
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("chat_selected_id");
+    }
+    return null;
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
   const [activeView, setActiveView] = useState<"chat" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">(() => {
@@ -461,6 +466,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
   }, [activeView, isClient]);
+
+  useEffect(() => {
+    if (isClient && typeof window !== "undefined") {
+      try {
+        if (selectedChatId) {
+          localStorage.setItem("chat_selected_id", selectedChatId);
+        } else {
+          localStorage.removeItem("chat_selected_id");
+        }
+      } catch (e) {
+        console.error("Erro ao persistir chat_selected_id no localStorage:", e);
+      }
+    }
+  }, [selectedChatId, isClient]);
 
   const defaultAdminGroup: AccessGroup = {
     id: "group-admin",
@@ -973,14 +992,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Load default selected chat when tenant changes
   useEffect(() => {
     const currentConvs = tenant === "tecfag" ? tecfagConvs : valemConvs;
-    const firstChat = currentConvs.find((c) => c.queue === activeQueue) || currentConvs[0];
+    if (currentConvs.length === 0) return;
+    const savedSelectedId = typeof window !== "undefined" ? localStorage.getItem("chat_selected_id") : null;
+    if (savedSelectedId && currentConvs.some((c) => c.id === savedSelectedId)) {
+      setSelectedChatId(savedSelectedId);
+      return;
+    }
+    const firstChat = currentConvs.find((c) => c.queue === activeQueue && (activeQueue !== "meus" || c.operatorId === currentOperatorId)) || currentConvs[0];
     setSelectedChatId(firstChat ? firstChat.id : null);
   }, [tenant]);
 
   // Sync tab/queue changes to first chat in that queue if present
   useEffect(() => {
     const currentConvs = tenant === "tecfag" ? tecfagConvs : valemConvs;
-    const firstInQueue = currentConvs.find((c) => c.queue === activeQueue);
+    if (currentConvs.length === 0) return;
+    const firstInQueue = currentConvs.find((c) => c.queue === activeQueue && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
     if (firstInQueue) {
       setSelectedChatId(firstInQueue.id);
     } else {
@@ -1057,7 +1083,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Carregar conversas persistidas no banco (Railway)
   useEffect(() => {
     if (!isAuthenticated) return;
-    fetch(`${BACKEND_URL}/api/chats`, { credentials: "include" })
+    fetch(`${BACKEND_URL}/api/chats?limit=150`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -1118,6 +1144,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             pinned: c.id === "valentina" ? true : pinnedIds.includes(c.id),
           }));
           setConversations(chatsWithPinned);
+
+          // Restaurar atendimento selecionado pós-deploy ou selecionar o primeiro disponível na fila ativa
+          const savedSelectedId = typeof window !== "undefined" ? localStorage.getItem("chat_selected_id") : null;
+          if (savedSelectedId && chatsWithPinned.some((c: any) => c.id === savedSelectedId)) {
+            setSelectedChatId(savedSelectedId);
+          } else if (!selectedChatIdRef.current) {
+            const firstInQueue = chatsWithPinned.find((c: any) => c.queue === activeQueue && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
+            if (firstInQueue) {
+              setSelectedChatId(firstInQueue.id);
+            }
+          }
         }
       })
       .catch((err) => console.error("Erro ao sincronizar conversas do banco:", err));
