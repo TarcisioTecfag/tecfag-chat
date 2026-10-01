@@ -414,10 +414,10 @@ function renderMessageContent(
               }}
             />
             <div
-              className="h-28 w-28 items-center justify-center text-5xl hidden"
+              className="h-28 w-28 items-center justify-center text-muted-foreground hidden"
               title="Figurinha"
             >
-              🪄
+              <Sparkles className="h-8 w-8" />
             </div>
             {onSaveSticker && (
               <button
@@ -451,19 +451,19 @@ function isEmojiOnly(text: string): boolean {
 export function getFriendlyQuotedContent(content: string | null | undefined): string {
   if (!content) return "";
   if (content.startsWith("[MEDIA:audio]") || content.startsWith("[LOCAL_MEDIA:audio]")) {
-    return "🎵 Áudio";
+    return "Áudio";
   }
   if (content.startsWith("[MEDIA:image]") || content.startsWith("[LOCAL_MEDIA:image]")) {
-    return "📷 Foto";
+    return "Foto";
   }
   if (content.startsWith("[MEDIA:video]") || content.startsWith("[LOCAL_MEDIA:video]")) {
-    return "🎥 Vídeo";
+    return "Vídeo";
   }
   if (content.startsWith("[MEDIA:document]") || content.startsWith("[LOCAL_MEDIA:document]")) {
-    return "📄 Documento";
+    return "Documento";
   }
   if (content.startsWith("[MEDIA:sticker]")) {
-    return "💟 Figurinha";
+    return "Figurinha";
   }
   return content;
 }
@@ -809,13 +809,13 @@ export function ChatPanel() {
         phone: activeChat.phone,
         conversationId: activeChat.id,
         senderName: operatorName,
-        text: `📞 ${operatorName} está te ligando!\n\nToque no link para atender pelo navegador:\n${callLink}\n\n⏱️ Link expira em 10 minutos.`,
+        text: `${operatorName} está te ligando!\n\nToque no link para atender pelo navegador:\n${callLink}\n\nLink expira em 10 minutos.`,
       }),
     }).catch((e) => console.warn("[Call] WhatsApp send falhou:", e));
 
     // ── 4. Nota interna no chat (não crítico) ──────────────────────────────
     sendMessage(
-      `📞 *Ligação iniciada por ${operatorName}*\n\nLink enviado para ${activeChat.name}:\n${callLink}`,
+      `*Ligação iniciada por ${operatorName}*\n\nLink enviado para ${activeChat.name}:\n${callLink}`,
       true
     ).catch((e) => console.warn("[Call] Nota interna falhou:", e));
 
@@ -1574,7 +1574,7 @@ export function ChatPanel() {
                 {callStatus === "waiting" && "Aguardando cliente atender..."}
                 {callStatus === "active" && "Em chamada"}
                 {callStatus === "transcribing" && "Transcrevendo chamada..."}
-                {callStatus === "done" && "Transcrição inserida no chat ✓"}
+                {callStatus === "done" && "Transcrição inserida no chat"}
                 {callStatus === "error" && "Microfone bloqueado ou erro ao conectar."}
               </p>
             </div>

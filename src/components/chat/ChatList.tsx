@@ -1,30 +1,41 @@
 import React from "react";
 import { useChat } from "@/hooks/useChatState";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut } from "lucide-react";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile } from "lucide-react";
 import { Channel, QueueType } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
-function formatLastMessage(text: string): { icon?: string; label: string } {
+function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
   if (!text) return { label: "Sem mensagens" };
   if (text.startsWith("[LOCAL_MEDIA:") || text.startsWith("[MEDIA:")) {
     const newlineIndex = text.indexOf("\n");
     const caption = newlineIndex !== -1 ? text.slice(newlineIndex + 1).trim() : "";
     
-    let icon = "📄";
+    let mediaType: "document" | "image" | "video" | "audio" | "sticker" = "document";
     let typeLabel = "Documento";
 
-    if (text.includes(":image]"))       { icon = "📷"; typeLabel = "Imagem"; }
-    else if (text.includes(":video]"))   { icon = "🎥"; typeLabel = "Vídeo"; }
-    else if (text.includes(":audio]"))   { icon = "🎵"; typeLabel = "Áudio"; }
-    else if (text.includes(":sticker]")) { icon = "💚"; typeLabel = "Figurinha"; }
+    if (text.includes(":image]"))       { mediaType = "image"; typeLabel = "Imagem"; }
+    else if (text.includes(":video]"))   { mediaType = "video"; typeLabel = "Vídeo"; }
+    else if (text.includes(":audio]"))   { mediaType = "audio"; typeLabel = "Áudio"; }
+    else if (text.includes(":sticker]")) { mediaType = "sticker"; typeLabel = "Figurinha"; }
 
     return {
-      icon,
+      mediaType,
       label: caption ? `${typeLabel}: ${caption}` : typeLabel
     };
   }
   return { label: text };
+}
+
+function renderMediaIcon(type?: string) {
+  switch (type) {
+    case "image": return <Camera className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+    case "video": return <Video className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+    case "audio": return <Mic className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+    case "sticker": return <Smile className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+    case "document": return <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+    default: return null;
+  }
 }
 
 // Premium Inline SVGs for Channel Logos
@@ -369,7 +380,7 @@ export function ChatList() {
               .map((c) => {
                 const isSelected = c.id === selectedChatId;
                 const lastMsg = c.messages[c.messages.length - 1];
-                const { icon: msgIcon, label: msgLabel } = formatLastMessage(lastMsg?.text || "");
+                const { mediaType: msgMediaType, label: msgLabel } = formatLastMessage(lastMsg?.text || "");
                 return (
                   <motion.div
                     key={c.id}
@@ -440,7 +451,7 @@ export function ChatList() {
                             {lastMsg?.isInternalNote && (
                               <span className="text-amber-500 font-semibold shrink-0">[Nota]</span>
                             )}
-                            {msgIcon && <span>{msgIcon}</span>}
+                            {renderMediaIcon(msgMediaType)}
                             <span className="truncate">{msgLabel}</span>
                           </p>
 

@@ -434,7 +434,7 @@ export function DealDetailModal({
             .join("\n")
         : "";
 
-      const text = `📋 *PROPOSTA COMERCIAL: ${prop.proposalNumber}*\n` +
+      const text = `*PROPOSTA COMERCIAL: ${prop.proposalNumber}*\n` +
         `*Cliente / Negócio:* ${deal.title}\n` +
         `*Data:* ${new Date(prop.createdAt).toLocaleDateString("pt-BR")}\n\n` +
         `*ITENS / ESPECIFICAÇÕES:*\n${itemsList || "• Conforme alinhamento comercial"}\n\n` +
