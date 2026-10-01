@@ -1,11 +1,16 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import React, { useState, useEffect } from "react";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import {
   X,
   Calendar as CalendarIcon,
@@ -21,11 +26,11 @@ import {
   MapPin,
   Search,
   Loader2,
-  UserPlus,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 
-// Ícone SVG idêntico do WhatsApp
+// Ícone SVG do WhatsApp
 function WhatsAppIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -56,6 +61,9 @@ const MONTH_NAMES_PT = [
 ];
 
 const WEEKDAY_NAMES_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
+
+const HOURS_LIST = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES_LIST = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
 interface DealOption {
   id: string;
@@ -92,13 +100,6 @@ export function CreateTaskModal({
   operators: initialOperators,
   currentOperatorId,
 }: CreateTaskModalProps) {
-  // Lista de operadores (pode ser incrementada ao convidar novo usuário)
-  const [operatorsList, setOperatorsList] = useState(initialOperators);
-
-  useEffect(() => {
-    setOperatorsList(initialOperators);
-  }, [initialOperators]);
-
   // Negociação e Empresa selecionadas
   const [selectedDealId, setSelectedDealId] = useState<string | null>(initialDealId || null);
   const [selectedDealTitle, setSelectedDealTitle] = useState<string>(initialDealTitle || "");
@@ -120,8 +121,9 @@ export function CreateTaskModal({
   const [isOperatorOpen, setIsOperatorOpen] = useState(false);
   const [isTypeOpen, setIsTypeOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [isTimeOpen, setIsTimeOpen] = useState(false);
 
-  // Busca de Deals e Empresas
+  // Busca de Deals e Empresas (quando não travado)
   const [dealQuery, setDealQuery] = useState("");
   const [dealOptions, setDealOptions] = useState<DealOption[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
@@ -133,17 +135,14 @@ export function CreateTaskModal({
   const [operatorSearch, setOperatorSearch] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Modal para convidar novo operador
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteName, setInviteName] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviting, setInviting] = useState(false);
-
   // Calendário customizado: mês e ano em exibição
   const [calendarMonth, setCalendarMonth] = useState<number>(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState<number>(new Date().getFullYear());
 
-  // Reset e inicialização ao abrir o modal
+  // Trava campos de empresa e negociação quando chamado para um deal específico
+  const isDealLocked = Boolean(initialDealId || selectedDealId);
+
+  // Reset e inicialização ao abrir o drawer
   useEffect(() => {
     if (!isOpen) return;
 
@@ -163,7 +162,7 @@ export function CreateTaskModal({
     setCalendarMonth(now.getMonth());
     setCalendarYear(now.getFullYear());
 
-    // Hora atual formatada HH:mm (ou arredondada)
+    // Hora atual formatada HH:mm
     const hours = String(now.getHours()).padStart(2, "0");
     const minutes = String(now.getMinutes()).padStart(2, "0");
     setScheduledTime(`${hours}:${minutes}`);
@@ -182,9 +181,33 @@ export function CreateTaskModal({
     setOperatorSearch("");
   }, [isOpen, initialDealId, initialDealTitle, initialAccountId, initialAccountName, currentOperatorId, initialOperators]);
 
-  // Busca de negociações quando o popover de deal abre ou busca muda
+  // Se tem initialDealId mas não tem initialAccountName, busca dados da negociação para preencher empresa
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !initialDealId || initialAccountName) return;
+    let isMounted = true;
+    fetch(`/api/crm/deals/${initialDealId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!isMounted || !data?.deal) return;
+        if (data.deal.account) {
+          setSelectedAccountId(data.deal.account.id);
+          setSelectedAccountName(data.deal.account.name);
+        } else if (data.deal.accountId) {
+          setSelectedAccountId(data.deal.accountId);
+        }
+        if (!selectedDealTitle && data.deal.title) {
+          setSelectedDealTitle(data.deal.title);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, initialDealId, initialAccountName]);
+
+  // Busca de negociações quando destravado
+  useEffect(() => {
+    if (!isOpen || isDealLocked) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoadingDeals(true);
@@ -209,11 +232,11 @@ export function CreateTaskModal({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [isOpen, dealQuery]);
+  }, [isOpen, dealQuery, isDealLocked]);
 
-  // Busca de empresas quando o popover de contas abre
+  // Busca de empresas quando destravado
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isDealLocked) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoadingAccounts(true);
@@ -238,9 +261,8 @@ export function CreateTaskModal({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [isOpen, accountQuery]);
+  }, [isOpen, accountQuery, isDealLocked]);
 
-  // Ao selecionar um deal da lista
   const handleSelectDeal = (deal: DealOption) => {
     setSelectedDealId(deal.id);
     setSelectedDealTitle(deal.title);
@@ -253,7 +275,6 @@ export function CreateTaskModal({
     setIsDealOpen(false);
   };
 
-  // Ao selecionar uma empresa da lista
   const handleSelectAccount = (acc: AccountOption | null) => {
     if (!acc) {
       setSelectedAccountId(null);
@@ -280,11 +301,11 @@ export function CreateTaskModal({
     setSelectedOperatorIds([]);
   };
 
-  // Operadores selecionados para exibir como chips
-  const selectedOperators = operatorsList.filter((op) => selectedOperatorIds.includes(op.id));
+  // Operadores selecionados para exibir como badges
+  const selectedOperators = initialOperators.filter((op) => selectedOperatorIds.includes(op.id));
 
   // Operadores filtrados pela busca
-  const filteredOperators = operatorsList.filter((op) =>
+  const filteredOperators = initialOperators.filter((op) =>
     op.name.toLowerCase().includes(operatorSearch.toLowerCase())
   );
 
@@ -297,7 +318,12 @@ export function CreateTaskModal({
     scheduledDate.getMonth() + 1
   ).padStart(2, "0")}/${scheduledDate.getFullYear()}`;
 
-  // Funções do calendário customizado (Imagem 5)
+  // Horário decomposto para o seletor visual
+  const [currentHour, currentMin] = (scheduledTime || "10:00").split(":");
+  const selectedHour = currentHour || "10";
+  const selectedMin = currentMin || "00";
+
+  // Funções do calendário customizado
   const prevMonth = () => {
     if (calendarMonth === 0) {
       setCalendarMonth(11);
@@ -333,7 +359,7 @@ export function CreateTaskModal({
     setIsCalendarOpen(false);
   };
 
-  // Matriz de dias para renderizar o calendário idêntico ao print
+  // Matriz de dias para renderizar o calendário idêntico ao padrão RD
   const renderCalendarDays = () => {
     const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay(); // 0 = Domingo
     const daysInCurrentMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
@@ -370,7 +396,7 @@ export function CreateTaskModal({
           onClick={() => handleSelectDay(day, 0)}
           className={`h-8 w-8 text-xs font-semibold rounded-lg flex items-center justify-center transition-all cursor-pointer ${
             isSelected
-              ? "bg-[#00c5ff] text-white font-bold shadow-xs hover:bg-[#00b0e6]"
+              ? "bg-primary text-primary-foreground font-bold shadow-xs hover:bg-primary/90"
               : "text-foreground hover:bg-muted"
           }`}
         >
@@ -457,73 +483,42 @@ export function CreateTaskModal({
     }
   };
 
-  // Convidar novo usuário
-  const handleInviteUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inviteName.trim() || !inviteEmail.trim()) {
-      toast.error("Nome e E-mail são obrigatórios.");
-      return;
-    }
-    setInviting(true);
-    try {
-      const generatedId = `op-${Date.now()}`;
-      const res = await fetch("/api/operators", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: generatedId,
-          name: inviteName.trim(),
-          email: inviteEmail.trim().toLowerCase(),
-          role: "atendente",
-          status: "online",
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Não foi possível convidar o usuário.");
-      }
-
-      const newOp = { id: generatedId, name: inviteName.trim() };
-      setOperatorsList((prev) => [...prev, newOp]);
-      setSelectedOperatorIds((prev) => [...prev, newOp.id]);
-      toast.success(`Usuário ${newOp.name} convidado e atribuído!`);
-      setShowInviteModal(false);
-      setInviteName("");
-      setInviteEmail("");
-    } catch (err: any) {
-      toast.error(err.message || "Falha ao convidar usuário.");
-    } finally {
-      setInviting(false);
-    }
-  };
-
   return (
-    <>
-      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="max-w-[480px] w-full p-0 gap-0 overflow-visible rounded-2xl bg-card border border-border shadow-2xl">
-          {/* Cabeçalho Limpo idêntico ao RD Station */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border/80">
-            <DialogTitle className="text-base font-bold text-foreground">
-              Criar Tarefa
-            </DialogTitle>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-muted-foreground hover:text-foreground p-1 rounded-md transition-colors cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent
+        side="right"
+        className="flex h-full w-full max-w-[460px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[460px] shadow-2xl border-l border-border"
+      >
+        {/* Cabeçalho do Drawer */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/80 shrink-0">
+          <SheetTitle className="text-base font-bold text-foreground">
+            Criar Tarefa
+          </SheetTitle>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground p-1 rounded-md transition-colors cursor-pointer"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-          <form onSubmit={handleSubmit}>
-            {/* Corpo do Formulário */}
-            <div className="max-h-[75vh] overflow-y-auto px-6 py-4 space-y-4 text-xs">
-              {/* 1. Empresa da negociação */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-foreground">
-                  Empresa da negociação
-                </Label>
+        <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
+          {/* Corpo do Formulário com Scroll Suave */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 text-xs scrollbar-thin">
+            {/* 1. Empresa da negociação */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Empresa da negociação
+              </Label>
+              {isDealLocked ? (
+                <SystemTooltip content="A empresa está vinculada à negociação atual e não pode ser alterada aqui.">
+                  <div className="flex h-10 w-full items-center justify-between rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-xs text-muted-foreground cursor-not-allowed select-none">
+                    <span className="truncate font-medium">{selectedAccountName || "Empresa vinculada à negociação"}</span>
+                    <Lock className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+                  </div>
+                </SystemTooltip>
+              ) : (
                 <Popover open={isAccountOpen} onOpenChange={setIsAccountOpen}>
                   <PopoverTrigger asChild>
                     <button
@@ -583,13 +578,22 @@ export function CreateTaskModal({
                     </div>
                   </PopoverContent>
                 </Popover>
-              </div>
+              )}
+            </div>
 
-              {/* 2. Negociação * */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-foreground">
-                  Negociação <span className="text-rose-500">*</span>
-                </Label>
+            {/* 2. Negociação * */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Negociação <span className="text-rose-500">*</span>
+              </Label>
+              {isDealLocked ? (
+                <SystemTooltip content="A tarefa será criada exclusivamente para esta negociação.">
+                  <div className="flex h-10 w-full items-center justify-between rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-xs text-muted-foreground cursor-not-allowed select-none">
+                    <span className="truncate font-semibold text-foreground/80">{selectedDealTitle || "Negociação atual"}</span>
+                    <Lock className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+                  </div>
+                </SystemTooltip>
+              ) : (
                 <Popover open={isDealOpen} onOpenChange={setIsDealOpen}>
                   <PopoverTrigger asChild>
                     <button
@@ -645,354 +649,351 @@ export function CreateTaskModal({
                     </div>
                   </PopoverContent>
                 </Popover>
-              </div>
+              )}
+            </div>
 
-              {/* 3. Assunto da tarefa * */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-foreground">
-                  Assunto da tarefa <span className="text-rose-500">*</span>
-                </Label>
-                <Input
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="Assunto da tarefa"
-                  className="h-10 text-xs rounded-lg border-input"
-                  required
-                />
-              </div>
+            {/* 3. Assunto da tarefa * */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Assunto da tarefa <span className="text-rose-500">*</span>
+              </Label>
+              <Input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Assunto da tarefa"
+                className="h-10 text-xs rounded-lg border-input"
+                required
+              />
+            </div>
 
-              {/* 4. Descrição da tarefa */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-foreground">
-                  Descrição da tarefa
-                </Label>
-                <Textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Descrição da tarefa"
-                  rows={3}
-                  className="text-xs rounded-lg border-input resize-y"
-                />
-              </div>
+            {/* 4. Descrição da tarefa */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Descrição da tarefa
+              </Label>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Descrição da tarefa"
+                rows={3}
+                className="text-xs rounded-lg border-input resize-y"
+              />
+            </div>
 
-              {/* 5. Responsável * (Multi-seleção com tags & checkboxes, Imagens 2 e 3) */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-foreground">
-                  Responsável <span className="text-rose-500">*</span>
-                </Label>
-                <Popover open={isOperatorOpen} onOpenChange={setIsOperatorOpen}>
-                  <PopoverTrigger asChild>
-                    <div
-                      className="min-h-[40px] w-full rounded-lg border border-input bg-background p-1.5 flex items-center justify-between cursor-pointer hover:border-border transition-colors focus-within:ring-1 focus-within:ring-primary"
-                    >
-                      <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
-                        {selectedOperators.length > 0 ? (
-                          selectedOperators.map((op) => (
-                            <span
-                              key={op.id}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#e2e8f0] dark:bg-muted text-foreground text-xs font-medium"
-                            >
-                              <span>{op.name}</span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeOperator(op.id);
-                                }}
-                                className="hover:text-rose-500 transition-colors"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-muted-foreground px-1.5">
-                            Selecionar responsável
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 ml-2">
-                        {selectedOperators.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              clearAllOperators();
-                            }}
-                            className="p-1 text-muted-foreground hover:text-foreground"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        <ChevronDown className="h-4 w-4 text-muted-foreground opacity-70" />
-                      </div>
-                    </div>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[340px] p-2" align="start">
-                    {operatorsList.length > 6 && (
-                      <div className="relative mb-2">
-                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                        <Input
-                          value={operatorSearch}
-                          onChange={(e) => setOperatorSearch(e.target.value)}
-                          placeholder="Buscar colaborador..."
-                          className="h-8 pl-8 text-xs"
-                        />
-                      </div>
-                    )}
-                    <div className="max-h-56 overflow-y-auto space-y-1">
-                      {filteredOperators.map((op) => {
-                        const isChecked = selectedOperatorIds.includes(op.id);
-                        return (
-                          <div
+            {/* 5. Responsável * (Multi-seleção com tags & checkboxes) */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Responsável <span className="text-rose-500">*</span>
+              </Label>
+              <Popover open={isOperatorOpen} onOpenChange={setIsOperatorOpen}>
+                <PopoverTrigger asChild>
+                  <div
+                    className="min-h-[40px] w-full rounded-lg border border-input bg-background p-1.5 flex items-center justify-between cursor-pointer hover:border-border transition-colors focus-within:ring-1 focus-within:ring-primary"
+                  >
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
+                      {selectedOperators.length > 0 ? (
+                        selectedOperators.map((op) => (
+                          <span
                             key={op.id}
-                            onClick={() => toggleOperator(op.id)}
-                            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-muted/80 cursor-pointer transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-muted text-foreground text-xs font-medium"
                           >
-                            <Checkbox
-                              checked={isChecked}
-                              onCheckedChange={() => toggleOperator(op.id)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="data-[state=checked]:bg-[#00c5ff] data-[state=checked]:border-[#00c5ff]"
-                            />
-                            <span className="text-xs font-medium text-foreground">
-                              {op.name}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {filteredOperators.length === 0 && (
-                        <p className="p-3 text-center text-xs text-muted-foreground">
-                          Nenhum colaborador encontrado.
-                        </p>
+                            <span>{op.name}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeOperator(op.id);
+                              }}
+                              className="hover:text-rose-500 transition-colors cursor-pointer"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground px-1.5">
+                          Selecionar responsável
+                        </span>
                       )}
                     </div>
-                  </PopoverContent>
-                </Popover>
+                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                      {selectedOperators.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clearAllOperators();
+                          }}
+                          className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <ChevronDown className="h-4 w-4 text-muted-foreground opacity-70" />
+                    </div>
+                  </div>
+                </PopoverTrigger>
+                <PopoverContent className="w-[340px] p-2" align="start">
+                  {initialOperators.length > 6 && (
+                    <div className="relative mb-2">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        value={operatorSearch}
+                        onChange={(e) => setOperatorSearch(e.target.value)}
+                        placeholder="Buscar colaborador..."
+                        className="h-8 pl-8 text-xs"
+                      />
+                    </div>
+                  )}
+                  <div className="max-h-56 overflow-y-auto space-y-1">
+                    {filteredOperators.map((op) => {
+                      const isChecked = selectedOperatorIds.includes(op.id);
+                      return (
+                        <div
+                          key={op.id}
+                          onClick={() => toggleOperator(op.id)}
+                          className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-muted/80 cursor-pointer transition-colors"
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() => toggleOperator(op.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                          />
+                          <span className="text-xs font-medium text-foreground">
+                            {op.name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {filteredOperators.length === 0 && (
+                      <p className="p-3 text-center text-xs text-muted-foreground">
+                        Nenhum colaborador encontrado.
+                      </p>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
 
-                {/* Botão Convidar Usuário em Ciano Claro (Imagem 2) */}
-                <button
-                  type="button"
-                  onClick={() => setShowInviteModal(true)}
-                  className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-[#b2f1ff] hover:bg-[#8ee8fc] dark:bg-cyan-950/60 dark:hover:bg-cyan-900 text-[#00708f] dark:text-cyan-300 px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  <span>Convidar usuário</span>
-                </button>
-              </div>
+            {/* 6. Tipo de tarefa * (Dropdown com Ícones na paleta padrão) */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Tipo de tarefa <span className="text-rose-500">*</span>
+              </Label>
+              <Popover open={isTypeOpen} onOpenChange={setIsTypeOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs transition-colors hover:bg-muted/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <div className="flex items-center gap-2">
+                      <CurrentTaskIcon className="h-4 w-4 text-foreground/80 shrink-0" />
+                      <span className="font-semibold text-foreground">{currentTaskTypeObj.label}</span>
+                    </div>
+                    <ChevronDown className="h-4 w-4 text-muted-foreground opacity-70" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[240px] p-1.5 rounded-xl shadow-lg border border-border" align="start">
+                  <div className="space-y-0.5">
+                    {CRM_TASK_TYPES.map((t) => {
+                      const Icon = t.icon;
+                      const isSelected = t.id === taskType;
+                      return (
+                        <button
+                          type="button"
+                          key={t.id}
+                          onClick={() => {
+                            setTaskType(t.id);
+                            setIsTypeOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                            isSelected
+                              ? "bg-primary/10 text-primary font-bold"
+                              : "text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <Icon className={`h-4 w-4 shrink-0 ${isSelected ? "text-primary" : "text-foreground/75"}`} />
+                          <span>{t.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
 
-              {/* 6. Tipo de tarefa * (Dropdown com Ícones, Imagens 2 e 4) */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-foreground">
-                  Tipo de tarefa <span className="text-rose-500">*</span>
-                </Label>
-                <Popover open={isTypeOpen} onOpenChange={setIsTypeOpen}>
-                  <PopoverTrigger asChild>
+            {/* 7. Data do agendamento * (Popover Calendário na paleta vermelha) */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Data do agendamento <span className="text-rose-500">*</span>
+              </Label>
+              <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <div className="relative flex h-10 w-full items-center rounded-lg border border-input bg-background px-3 cursor-pointer hover:border-border transition-colors">
+                    <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0 mr-2.5" />
+                    <span className="text-xs font-semibold text-foreground">{formattedDate}</span>
+                  </div>
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-3 rounded-2xl border border-border shadow-xl bg-card" align="start">
+                  {/* Header do Mês e Navegação */}
+                  <div className="flex items-center justify-between mb-3 px-1">
                     <button
                       type="button"
-                      className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs transition-colors hover:bg-muted/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+                      onClick={prevMonth}
+                      className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
                     >
-                      <div className="flex items-center gap-2">
-                        <CurrentTaskIcon className="h-4 w-4 text-foreground/80 shrink-0" />
-                        <span className="font-semibold text-foreground">{currentTaskTypeObj.label}</span>
-                      </div>
-                      <ChevronDown className="h-4 w-4 text-muted-foreground opacity-70" />
+                      <ChevronLeft className="h-4 w-4" />
                     </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[240px] p-1.5 rounded-xl shadow-lg border border-border" align="start">
-                    <div className="space-y-0.5">
-                      {CRM_TASK_TYPES.map((t) => {
-                        const Icon = t.icon;
-                        const isSelected = t.id === taskType;
-                        return (
-                          <button
-                            type="button"
-                            key={t.id}
-                            onClick={() => {
-                              setTaskType(t.id);
-                              setIsTypeOpen(false);
-                            }}
-                            className={`flex w-full items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                              isSelected
-                                ? "bg-cyan-50 dark:bg-cyan-950/40 text-[#00a8cc] dark:text-[#00c5ff] font-bold"
-                                : "text-foreground hover:bg-muted"
-                            }`}
-                          >
-                            <Icon className={`h-4 w-4 shrink-0 ${isSelected ? "text-[#00a8cc] dark:text-[#00c5ff]" : "text-foreground/75"}`} />
-                            <span>{t.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
+                    <span className="text-xs font-bold text-foreground">
+                      {MONTH_NAMES_PT[calendarMonth]} {calendarYear}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={nextMonth}
+                      className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
 
-              {/* 7. Data do agendamento * (Input + Popover Calendário Imagem 5) */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-foreground">
-                  Data do agendamento <span className="text-rose-500">*</span>
-                </Label>
-                <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-                  <PopoverTrigger asChild>
-                    <div className="relative flex h-10 w-full items-center rounded-lg border border-input bg-background px-3 cursor-pointer hover:border-border transition-colors">
-                      <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0 mr-2.5" />
-                      <span className="text-xs font-semibold text-foreground">{formattedDate}</span>
-                    </div>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[280px] p-3 rounded-2xl border border-border shadow-xl bg-card" align="start">
-                    {/* Header do Mês e Navegação */}
-                    <div className="flex items-center justify-between mb-3 px-1">
-                      <button
-                        type="button"
-                        onClick={prevMonth}
-                        className="h-7 w-7 flex items-center justify-center rounded-lg text-[#00c5ff] hover:bg-muted transition-colors cursor-pointer"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <span className="text-xs font-bold text-foreground">
-                        {MONTH_NAMES_PT[calendarMonth]} {calendarYear}
+                  {/* Linha dos dias da semana */}
+                  <div className="grid grid-cols-7 gap-1 mb-1 text-center">
+                    {WEEKDAY_NAMES_PT.map((w) => (
+                      <span key={w} className="text-[10px] font-bold text-muted-foreground">
+                        {w}
                       </span>
-                      <button
-                        type="button"
-                        onClick={nextMonth}
-                        className="h-7 w-7 flex items-center justify-center rounded-lg text-[#00c5ff] hover:bg-muted transition-colors cursor-pointer"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    </div>
+                    ))}
+                  </div>
 
-                    {/* Linha dos dias da semana */}
-                    <div className="grid grid-cols-7 gap-1 mb-1 text-center">
-                      {WEEKDAY_NAMES_PT.map((w) => (
-                        <span key={w} className="text-[10px] font-bold text-muted-foreground">
-                          {w}
-                        </span>
-                      ))}
-                    </div>
+                  {/* Grade dos dias do mês */}
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {renderCalendarDays()}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
 
-                    {/* Grade dos dias do mês */}
-                    <div className="grid grid-cols-7 gap-1 text-center">
-                      {renderCalendarDays()}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {/* 8. Horário da tarefa * */}
-              <div className="space-y-1.5">
+            {/* 8. Horário da tarefa * (com Tooltip e Seletor customizado em harmonia com vermelho) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
                 <Label className="text-xs font-semibold text-foreground">
                   Horário da tarefa <span className="text-rose-500">*</span>
                 </Label>
-                <div className="relative flex h-10 w-full items-center rounded-lg border border-input bg-background px-3 focus-within:ring-1 focus-within:ring-primary">
-                  <Clock className="h-4 w-4 text-muted-foreground shrink-0 mr-2.5" />
-                  <input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-none"
-                    required
-                  />
-                </div>
               </div>
-
-              {/* 9. Checkbox: Marcar como concluída ao criar */}
-              <div className="flex items-center gap-2.5 pt-1">
-                <Checkbox
-                  id="mark-task-completed"
-                  checked={markAsCompleted}
-                  onCheckedChange={(val) => setMarkAsCompleted(!!val)}
-                  className="data-[state=checked]:bg-[#00c5ff] data-[state=checked]:border-[#00c5ff]"
-                >
-                  Marcar como concluída ao criar
-                </Checkbox>
-                <Label
-                  htmlFor="mark-task-completed"
-                  className="text-xs font-normal text-muted-foreground cursor-pointer select-none"
-                >
-                  Marcar como concluída ao criar
-                </Label>
-              </div>
+              <Popover open={isTimeOpen} onOpenChange={setIsTimeOpen}>
+                <SystemTooltip content="Horário definido para o agendamento da tarefa">
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:border-border cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span>{scheduledTime || "10:00"}</span>
+                      </div>
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground opacity-60" />
+                    </button>
+                  </PopoverTrigger>
+                </SystemTooltip>
+                <PopoverContent className="w-[190px] p-2.5 rounded-xl shadow-xl border border-border bg-card" align="start">
+                  <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                    <div>
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
+                        Hora
+                      </div>
+                      <div className="h-44 overflow-y-auto space-y-0.5 scrollbar-thin pr-1">
+                        {HOURS_LIST.map((h) => {
+                          const isSelected = selectedHour === h;
+                          return (
+                            <button
+                              type="button"
+                              key={h}
+                              onClick={() => setScheduledTime(`${h}:${selectedMin}`)}
+                              className={`w-full py-1 rounded-md text-xs transition-colors cursor-pointer ${
+                                isSelected
+                                  ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                                  : "text-foreground hover:bg-muted font-medium"
+                              }`}
+                            >
+                              {h}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
+                        Minuto
+                      </div>
+                      <div className="h-44 overflow-y-auto space-y-0.5 scrollbar-thin pr-1">
+                        {MINUTES_LIST.map((m) => {
+                          const isSelected = selectedMin === m;
+                          return (
+                            <button
+                              type="button"
+                              key={m}
+                              onClick={() => {
+                                setScheduledTime(`${selectedHour}:${m}`);
+                                setIsTimeOpen(false);
+                              }}
+                              className={`w-full py-1 rounded-md text-xs transition-colors cursor-pointer ${
+                                isSelected
+                                  ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                                  : "text-foreground hover:bg-muted font-medium"
+                              }`}
+                            >
+                              {m}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
 
-            {/* Rodapé com botões de ação */}
-            <div className="flex items-center justify-end gap-2.5 px-6 py-4 border-t border-border/80 bg-muted/20">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onClose}
-                className="text-xs font-medium"
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={saving || !subject.trim() || !selectedDealId}
-                className="bg-[#00c5ff] hover:bg-[#00b0e6] text-white font-semibold text-xs px-5 shadow-xs cursor-pointer"
-              >
-                {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                Criar tarefa
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Mini-modal para convidar usuário */}
-      <Dialog open={showInviteModal} onOpenChange={setShowInviteModal}>
-        <DialogContent className="max-w-md p-6 rounded-2xl bg-card border border-border">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-bold text-foreground">
-              Convidar Novo Usuário
-            </DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleInviteUser} className="space-y-3.5 mt-2 text-xs">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Nome Completo *</Label>
-              <Input
-                value={inviteName}
-                onChange={(e) => setInviteName(e.target.value)}
-                placeholder="Ex: Amanda Alves"
-                className="h-9 text-xs"
-                required
-                autoFocus
+            {/* 9. Checkbox: Marcar como concluída ao criar */}
+            <div className="flex items-center gap-2.5 pt-1">
+              <Checkbox
+                id="mark-task-completed"
+                checked={markAsCompleted}
+                onCheckedChange={(val) => setMarkAsCompleted(!!val)}
+                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">E-mail Corporativo *</Label>
-              <Input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="Ex: amanda@tecfag.com.br"
-                className="h-9 text-xs"
-                required
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowInviteModal(false)}
+              <Label
+                htmlFor="mark-task-completed"
+                className="text-xs font-normal text-muted-foreground cursor-pointer select-none"
               >
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={inviting || !inviteName.trim() || !inviteEmail.trim()}
-                className="bg-[#00c5ff] hover:bg-[#00b0e6] text-white font-semibold"
-              >
-                {inviting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                Confirmar e Adicionar
-              </Button>
+                Marcar como concluída ao criar
+              </Label>
             </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+
+          {/* Rodapé com botões de ação na paleta vermelha */}
+          <div className="flex items-center justify-end gap-2.5 px-6 py-4 border-t border-border/80 bg-muted/20 shrink-0">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="text-xs font-medium cursor-pointer"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={saving || !subject.trim() || !selectedDealId}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs px-5 shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Criar tarefa
+            </Button>
+          </div>
+        </form>
+      </SheetContent>
+    </Sheet>
   );
 }

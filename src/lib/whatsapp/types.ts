@@ -9,6 +9,7 @@ export interface UniversalOutboundMessage {
   tenantId: string;
   conversationId: string;
   recipientPhone: string;
+  recipientUserId?: string; // BSUID da Meta, resolvido no servidor por tenant e contato
   text?: string;
   mediaUrl?: string;
   mediaType?: "image" | "audio" | "video" | "document";
@@ -47,6 +48,8 @@ export interface UniversalInboundMessage {
   tenantId: string;
   provider: WhatsAppProviderType;
   fromPhone: string;
+  fromUserId?: string;
+  whatsappUsername?: string | null;
   senderName?: string;
   text?: string;
   media?: UniversalInboundMedia;

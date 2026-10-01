@@ -235,7 +235,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             <FeedAvatar avatar={operatorProfile?.avatar || currentOp?.avatar} name={opName} />
             <div>
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
-                {greetingTime}, 👋
+                {greetingTime}
               </span>
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h2 className="text-base font-bold text-foreground leading-tight">
@@ -456,10 +456,18 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
         </AnimatePresence>
 
         <div className="text-xs text-muted-foreground bg-muted/40 p-3 rounded-2xl border border-border/50 flex items-center justify-between">
-          <span className="font-medium">
-            {metrics.overdueAlerts > 0
-              ? `🚨 ${metrics.overdueAlerts} atendimento${metrics.overdueAlerts > 1 ? "s" : ""} requer${metrics.overdueAlerts > 1 ? "em" : ""} atenção!`
-              : "✨ Todos os seus atendimentos estão em dia."}
+          <span className="font-medium flex items-center gap-1.5">
+            {metrics.overdueAlerts > 0 ? (
+              <>
+                <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                <span>{metrics.overdueAlerts} atendimento{metrics.overdueAlerts > 1 ? "s" : ""} requer{metrics.overdueAlerts > 1 ? "em" : ""} atenção!</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>Todos os seus atendimentos estão em dia.</span>
+              </>
+            )}
           </span>
           <motion.button
             whileTap={{ scale: 0.85, rotate: 180 }}

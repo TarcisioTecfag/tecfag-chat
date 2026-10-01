@@ -337,11 +337,26 @@ export const Route = createFileRoute("/api/webhooks/meta")({
 
               // 5.1. Mensagens recebidas
               if (Array.isArray(incomingMessages) && incomingMessages.length > 0) {
-                const contactProfile = value?.contacts?.[0]?.profile?.name;
-
                 for (const msg of incomingMessages) {
                   const messageId = msg.id;
-                  const fromPhone = msg.from;
+                  const webhookContacts = Array.isArray(value?.contacts) ? value.contacts : [];
+                  const matchedContact = webhookContacts.find((candidate: any) =>
+                    (msg.from_user_id && candidate.user_id === msg.from_user_id) ||
+                    (msg.from && candidate.wa_id === msg.from)
+                  ) || (webhookContacts.length === 1 ? webhookContacts[0] : undefined);
+                  if (msg.from_user_id && matchedContact?.user_id && msg.from_user_id !== matchedContact.user_id) {
+                    unprocessableItemsCount++;
+                    unprocessableErrors.push(`Identificadores Meta divergentes na mensagem ${messageId}`);
+                    continue;
+                  }
+                  const fromPhone = /^\d{8,15}$/.test(msg.from || "")
+                    ? msg.from
+                    : /^\d{8,15}$/.test(matchedContact?.wa_id || "") ? matchedContact.wa_id : "";
+                  const fromUserId = msg.from_user_id || matchedContact?.user_id;
+                  const contactProfile = matchedContact?.profile?.name;
+                  const whatsappUsername = fromUserId
+                    ? (typeof matchedContact?.profile?.username === "string" ? matchedContact.profile.username.replace(/^@/, "") : null)
+                    : undefined;
                   const timestamp = msg.timestamp
                     ? new Date(parseInt(msg.timestamp, 10) * 1000)
                     : new Date();
@@ -407,6 +422,8 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                     tenantId,
                     provider: "meta",
                     fromPhone,
+                    fromUserId,
+                    whatsappUsername,
                     senderName: contactProfile,
                     text: textContent,
                     media: mediaInfo,

@@ -128,8 +128,9 @@ export function DeployNotificationModal() {
 
         {/* Mensagem Solicitada */}
         <div className="space-y-2 px-1">
-          <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">
-            Nova Atualização! 🚀
+          <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight flex items-center justify-center gap-2">
+            Nova Atualização!
+            <Sparkles className="w-5 h-5 text-primary" />
           </h2>
           <p className="text-sm sm:text-base text-foreground/90 font-medium leading-relaxed">
             "Olá, acabamos de atualizar o sistema, poderia por favor recarregar a pagina?"

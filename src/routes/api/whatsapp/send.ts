@@ -171,6 +171,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
 
           // Notas internas não precisam de telefone de destino
           let recipientPhone: string | undefined;
+          let recipientUserId: string | undefined;
           if (!isInternalNote) {
             // Obter telefone do contato no SERVIDOR — nunca confiar no body do cliente
             if (!conv.contactId) {
@@ -181,7 +182,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             }
 
             const [contact] = await db
-              .select({ phone: contacts.phone })
+              .select({ phone: contacts.phone, whatsappUserId: contacts.whatsappUserId })
               .from(contacts)
               .where(
                 and(
@@ -190,14 +191,17 @@ export const Route = createFileRoute("/api/whatsapp/send")({
                 )
               );
 
-            if (!contact?.phone) {
+            const [activeChannel] = await db.select({ activeProvider: channelConfigs.activeProvider })
+              .from(channelConfigs).where(eq(channelConfigs.tenantId, session.tenantId)).limit(1);
+            recipientUserId = activeChannel?.activeProvider === "meta" ? contact?.whatsappUserId || undefined : undefined;
+            if (!contact?.phone && !recipientUserId) {
               return new Response(
-                JSON.stringify({ error: "Contato sem número de telefone cadastrado." }),
+                JSON.stringify({ error: "Contato sem identificador WhatsApp disponível para envio." }),
                 { status: 400, headers: { "Content-Type": "application/json" } }
               );
             }
 
-            recipientPhone = contact.phone;
+            recipientPhone = contact?.phone || undefined;
           }
 
           const result = await outboundQueue.enqueueAndSend({
@@ -205,6 +209,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             tenantId: session.tenantId,
             conversationId,
             recipientPhone: recipientPhone || "",
+            recipientUserId,
             text,
             mediaUrl,
             mediaType,

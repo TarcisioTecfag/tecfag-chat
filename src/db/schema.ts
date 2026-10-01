@@ -183,6 +183,9 @@ export const contacts = pgTable("contacts", {
   // JID completo do WhatsApp (ex: '5514981468232@s.whatsapp.net').
   // Usado para envio confiável — evita reconstrução frágil a partir do telefone.
   whatsappJid: text("whatsapp_jid"),
+  // Identidade da Meta Cloud API. O username é apenas apresentação; o BSUID identifica o destinatário.
+  whatsappUserId: text("whatsapp_user_id"),
+  whatsappUsername: text("whatsapp_username"),
   email: text("email"),
   cnpj: text("cnpj"),
   cpf: text("cpf"),

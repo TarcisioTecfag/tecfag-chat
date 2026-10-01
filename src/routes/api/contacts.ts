@@ -46,6 +46,7 @@ export const Route = createFileRoute("/api/contacts")({
           const digits = search.replace(/\D/g, "");
           conditions.push(or(
             ilike(contacts.name, pattern), ilike(contacts.email, pattern),
+            ilike(contacts.whatsappUsername, pattern),
             ilike(contacts.phone, pattern), ilike(contacts.cnpj, pattern), ilike(contacts.cpf, pattern),
             ilike(contacts.responsibleName, pattern),
             sql`${contacts.tags}::text ILIKE ${pattern}`,
@@ -57,6 +58,7 @@ export const Route = createFileRoute("/api/contacts")({
           const [items, totals] = await Promise.all([
             db.select({
               id: contacts.id, name: contacts.name, phone: contacts.phone,
+              whatsappUsername: contacts.whatsappUsername,
               email: contacts.email, cnpj: contacts.cnpj, cpf: contacts.cpf,
               avatar: contacts.avatar, tags: contacts.tags,
               mainChannel: contacts.mainChannel, walletOperatorId: contacts.walletOperatorId,

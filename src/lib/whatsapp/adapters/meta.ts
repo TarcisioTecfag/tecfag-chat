@@ -159,16 +159,17 @@ export class MetaAdapter implements WhatsAppAdapter {
         }
       }
 
-      // Limpa caracteres especiais do telefone de destino (apenas dígitos)
+      // O BSUID tem prioridade: um telefone antigo pode deixar de ser um destino válido.
       const cleanTo = message.recipientPhone.replace(/\D/g, "");
-      if (!cleanTo) {
-        return { externalId: "", status: "failed", error: "Telefone de destino inválido ou vazio" };
+      const userId = message.recipientUserId?.trim();
+      if (!userId && !cleanTo) {
+        return { externalId: "", status: "failed", error: "Contato sem BSUID ou telefone para envio" };
       }
 
       let bodyPayload: Record<string, any> = {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: cleanTo,
+        to: userId || cleanTo,
       };
 
       // 1. Mensagem de Template Oficial (necessária para iniciar conversa ou fora da janela de 24h)

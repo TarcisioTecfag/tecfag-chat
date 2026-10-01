@@ -51,6 +51,10 @@ const migrations = [
     name: "0019_meta_message_tracking",
     url: new URL("../src/db/migrations/0019_meta_message_tracking.sql", import.meta.url),
   },
+  {
+    name: "0020_whatsapp_user_identity",
+    url: new URL("../src/db/migrations/0020_whatsapp_user_identity.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

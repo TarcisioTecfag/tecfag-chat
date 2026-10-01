@@ -665,7 +665,10 @@ export function SettingsView() {
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-semibold text-foreground/80">System User Access Token (Permanente)</label>
                       {whatsappChannel.hasMetaAccessToken && (
-                        <span className="text-[10px] text-emerald-600 font-semibold">✓ Token configurado</span>
+                        <span className="text-[10px] text-emerald-600 font-semibold inline-flex items-center gap-1">
+                          <Check className="h-3 w-3" />
+                          <span>Token configurado</span>
+                        </span>
                       )}
                     </div>
                     <textarea
@@ -682,7 +685,10 @@ export function SettingsView() {
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-semibold text-foreground/80">Meta App Secret (HMAC SHA-256)</label>
                         {whatsappChannel.hasMetaAppSecret && (
-                          <span className="text-[10px] text-emerald-600 font-semibold">✓ Secret salvo</span>
+                          <span className="text-[10px] text-emerald-600 font-semibold inline-flex items-center gap-1">
+                            <Check className="h-3 w-3" />
+                            <span>Secret salvo</span>
+                          </span>
                         )}
                       </div>
                       <input

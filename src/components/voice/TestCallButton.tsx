@@ -62,7 +62,7 @@ export function TestCallButton({ tenantId = "valem" }: { tenantId?: string }) {
 
       setStatusMsg({
         type: "success",
-        text: `✅ LIGAÇÃO DISPARADA! Seu celular (${targetPhone}) vai tocar nos próximos segundos. SID: ${data.callSid}`,
+        text: `Ligação disparada com sucesso! Seu celular (${targetPhone}) vai tocar nos próximos segundos. SID: ${data.callSid}`,
       });
     } catch (err: any) {
       setStatusMsg({
@@ -203,7 +203,7 @@ export function TestCallButton({ tenantId = "valem" }: { tenantId?: string }) {
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer disabled:opacity-50"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneCall className="h-4 w-4" />}
-                Disparar Ligação Agora! 🚀
+                Disparar Ligação Agora!
               </button>
             </div>
           </div>

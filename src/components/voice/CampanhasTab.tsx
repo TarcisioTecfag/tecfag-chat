@@ -723,8 +723,18 @@ export function CampanhasTab({ tenantId = 'valem' }: { tenantId?: string }) {
             {/* Barra de progresso */}
             <div className="bg-muted/30 border border-border rounded-2xl p-4">
               <div className="flex justify-between text-xs font-semibold text-foreground mb-2">
-                <span>
-                  {campaignStatus === 'running' ? '📞 Campanha em execução…' : '⏸ Campanha pausada'}
+                <span className="flex items-center gap-1.5">
+                  {campaignStatus === 'running' ? (
+                    <>
+                      <PhoneCall className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />
+                      <span>Campanha em execução…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="h-3.5 w-3.5 text-amber-500" />
+                      <span>Campanha pausada</span>
+                    </>
+                  )}
                 </span>
                 <span>
                   {doneLeads} / {totalLeads} ({progressPct}%)

@@ -19,6 +19,8 @@ import {
   Send,
   Sparkles,
   TrendingUp,
+  Check,
+  X,
 } from "lucide-react";
 
 import { loadReports, previousOf, reports, stageMeta } from "@/data/reports";
@@ -384,12 +386,17 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                       {/* Toast de feedback do dispatch */}
                       {sendResult && (
-                        <div className={`w-full rounded-lg px-3 py-2 text-xs font-medium mb-1 ${
+                        <div className={`w-full rounded-lg px-3 py-2 text-xs font-medium mb-1 flex items-center gap-1.5 ${
                           sendResult.ok
                             ? "bg-positive/10 border border-positive/30 text-positive"
                             : "bg-critical/10 border border-critical/30 text-critical"
                         }`}>
-                          {sendResult.ok ? "✓ " : "✗ "}{sendResult.msg}
+                          {sendResult.ok ? (
+                            <Check className="h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <X className="h-3.5 w-3.5 shrink-0" />
+                          )}
+                          <span>{sendResult.msg}</span>
                         </div>
                       )}
                       {/* Toast de re-síntese */}

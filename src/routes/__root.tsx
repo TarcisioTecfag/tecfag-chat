@@ -65,7 +65,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             Valentina IA
           </span>
           <h1 className="text-lg font-black text-foreground leading-snug">
-            Ops, acho que algo deu errado! 🤖
+            Ops, acho que algo deu errado!
           </h1>
           <p className="text-xs text-muted-foreground leading-relaxed px-2 font-medium">
             Poderia avisar o Tarcisio por favor?

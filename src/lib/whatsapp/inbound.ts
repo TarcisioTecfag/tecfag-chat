@@ -41,6 +41,8 @@ export class InboundProcessor {
       tenantId,
       provider,
       fromPhone,
+      fromUserId,
+      whatsappUsername,
       senderName,
       text,
       media,
@@ -50,9 +52,10 @@ export class InboundProcessor {
     } = inbound;
 
     const cleanPhone = fromPhone.replace(/\D/g, "");
-    if (!cleanPhone) {
-      console.warn(`[InboundProcessor] Telefone vazio ignorado no tenant '${tenantId}'`);
-      return { success: false, error: "Telefone de origem inválido" };
+    const userId = provider === "meta" ? fromUserId?.trim() : undefined;
+    if (!cleanPhone && !userId) {
+      console.warn(`[InboundProcessor] Identidade de origem vazia no tenant '${tenantId}'`);
+      return { success: false, error: "Identidade de origem inválida" };
     }
 
     // Trava de concorrência atômica via pg_advisory_xact_lock quando há ID de evento externo
@@ -136,15 +139,13 @@ export class InboundProcessor {
 
     try {
       // 2. Resolução do Contato (contacts)
-      let [contact] = await db
-        .select()
-        .from(contacts)
-        .where(
-          and(
-            eq(contacts.tenantId, tenantId),
-            eq(contacts.phone, cleanPhone)
-          )
-        );
+      let contact = userId ? (await db.select().from(contacts)
+        .where(and(eq(contacts.tenantId, tenantId), eq(contacts.whatsappUserId, userId))).limit(1))[0] : undefined;
+
+      if (!contact && cleanPhone) {
+        [contact] = await db.select().from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.phone, cleanPhone))).limit(1);
+      }
 
       if (!contact && cleanPhone.length >= 8) {
         [contact] = await db.select().from(contacts)
@@ -152,9 +153,13 @@ export class InboundProcessor {
           .limit(1);
       }
 
+      if (contact && userId && contact.whatsappUserId && contact.whatsappUserId !== userId) {
+        throw new Error("Telefone já vinculado a outro BSUID; associação manual necessária");
+      }
+
       if (!contact) {
-        const contactId = `cont-${Date.now()}`;
-        const newContactName = senderName?.trim() || cleanPhone;
+        const contactId = `cont-${crypto.randomUUID()}`;
+        const newContactName = senderName?.trim() || (whatsappUsername ? `@${whatsappUsername}` : cleanPhone || "Contato WhatsApp");
 
         const [createdContact] = await db
           .insert(contacts)
@@ -162,7 +167,9 @@ export class InboundProcessor {
             id: contactId,
             tenantId,
             name: newContactName,
-            phone: cleanPhone,
+            phone: cleanPhone || null,
+            whatsappUserId: userId || null,
+            whatsappUsername: whatsappUsername || null,
             mainChannel: "whatsapp",
             responsibleName: "Na Fila",
             createdAt: timestamp,
@@ -170,13 +177,23 @@ export class InboundProcessor {
           .returning();
 
         contact = createdContact;
-      } else if (senderName && contact.name === cleanPhone) {
-        // Se antes tínhamos apenas o número e agora recebemos o nome de perfil do WhatsApp
+      } else {
+        const identityUpdates: Partial<typeof contacts.$inferInsert> = {};
+        if (userId && !contact.whatsappUserId) identityUpdates.whatsappUserId = userId;
+        if (cleanPhone && !contact.phone) identityUpdates.phone = cleanPhone;
+        if (userId && whatsappUsername !== undefined && contact.whatsappUsername !== whatsappUsername) {
+          identityUpdates.whatsappUsername = whatsappUsername;
+        }
+        if (senderName && (contact.name === contact.phone || contact.name === "Contato WhatsApp")) {
+          identityUpdates.name = senderName.trim();
+        }
+        if (Object.keys(identityUpdates).length) {
         await db
           .update(contacts)
-          .set({ name: senderName.trim() })
+          .set(identityUpdates)
           .where(and(eq(contacts.id, contact.id), eq(contacts.tenantId, tenantId)));
-        contact.name = senderName.trim();
+          contact = { ...contact, ...identityUpdates };
+        }
       }
 
       // 3. Resolução da Conversa Ativa (conversations)

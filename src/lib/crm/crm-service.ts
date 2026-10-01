@@ -2115,6 +2115,7 @@ export class CrmService {
           hasNoDueDate,
           assignedToOperatorId: act.assignedToOperatorId || null,
           responsibleName: item.assignedOperatorName || null,
+          description: act.description || null,
         });
       }
     }
@@ -2185,6 +2186,7 @@ export class CrmService {
           hasNoDueDate: boolean;
           assignedToOperatorId: string | null;
           responsibleName: string | null;
+          description?: string | null;
         } | null;
         events: CrmDealEvent[];
         evidences: Array<CrmActivityMessage & { message: typeof messages.$inferSelect }>;
@@ -2357,6 +2359,7 @@ export class CrmService {
         hasNoDueDate,
         assignedToOperatorId: firstTask.assignedToOperatorId || null,
         responsibleName: firstTask.assignedToOperatorName || null,
+        description: firstTask.description || null,
       };
     }
 
@@ -4900,6 +4903,7 @@ export class CrmService {
       bodyText?: string;
       bodyHtml?: string;
       sentAt?: Date;
+      verified?: boolean;
       metadata?: Record<string, any>;
     }
   ): Promise<CrmDealEmail> {
@@ -4943,7 +4947,7 @@ export class CrmService {
           bodyText: data.bodyText || null,
           bodyHtml: data.bodyHtml || null,
           sentAt: data.sentAt || now,
-          isVerified: true,
+          isVerified: data.verified === true,
           metadata: data.metadata || {},
           createdAt: now,
         })

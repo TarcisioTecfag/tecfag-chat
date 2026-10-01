@@ -34,6 +34,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           const body = await request.json().catch(() => null) as {
             name?: string;
             phone?: string;
+            whatsappUsername?: string | null;
             email?: string;
             cnpj?: string;
             cpf?: string;
@@ -62,6 +63,14 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             if (body.phone != null && typeof body.phone !== "string") return Response.json({ error: "Telefone inválido." }, { status: 400 });
             updates.phone = body.phone ? body.phone.replace(/\D/g, "") || null : null;
             if (updates.phone && (updates.phone.length < 8 || updates.phone.length > 40)) return Response.json({ error: "Telefone inválido." }, { status: 400 });
+          }
+          if ("whatsappUsername" in body) {
+            if (body.whatsappUsername != null && typeof body.whatsappUsername !== "string") return Response.json({ error: "Nome de usuário do WhatsApp inválido." }, { status: 400 });
+            const username = body.whatsappUsername?.trim().replace(/^@/, "") || "";
+            if (username && !/^(?=.{3,35}$)(?=.*[a-zA-Z])[a-zA-Z0-9._]+$/.test(username)) {
+              return Response.json({ error: "Nome de usuário do WhatsApp inválido." }, { status: 400 });
+            }
+            updates.whatsappUsername = username || null;
           }
           if ("email" in body) {
             if (body.email != null && typeof body.email !== "string") return Response.json({ error: "E-mail inválido." }, { status: 400 });

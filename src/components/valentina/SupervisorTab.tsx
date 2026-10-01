@@ -512,11 +512,17 @@ export function SupervisorTab() {
                                     {notif.repeatCount} disparos agrupados — janela de 4h
                                   </p>
                                   <div className="flex items-center justify-between text-[9px] text-muted-foreground">
-                                    <span>🟢 Primeiro alerta</span>
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                      Primeiro alerta
+                                    </span>
                                     <span className="font-medium">{formatDateTime(notif.timestamp)}</span>
                                   </div>
                                   <div className="flex items-center justify-between text-[9px] text-muted-foreground">
-                                    <span>🔴 Último alerta</span>
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                                      Último alerta
+                                    </span>
                                     <span className="font-medium text-violet-600">{formatDateTime(notif.lastFiredAt ?? notif.timestamp)}</span>
                                   </div>
                                   <p className="text-[9px] text-muted-foreground/70 pt-0.5 border-t border-violet-200/40 mt-1">

@@ -344,7 +344,7 @@ export function ValentinaChatTab() {
     const fileSnap = attachedFile;
     const imageSnap = attachedImage;
 
-    const userMessageText = text || (fileSnap ? `📎 ${fileSnap.name}` : `🖼️ ${imageSnap?.name}`);
+    const userMessageText = text || (fileSnap ? fileSnap.name : imageSnap?.name || "");
 
     const userMsg: ValentinaChatMessage = {
       id: `op-${Date.now()}`,
@@ -425,9 +425,9 @@ export function ValentinaChatTab() {
       const errorMsg: ValentinaChatMessage = {
         id: `val-err-${Date.now()}`,
         sender: "valentina",
-        content: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente? 😅",
+        content: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente?",
         timestamp: new Date().toISOString(),
-        blocks: [{ type: "text", text: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente? 😅" }],
+        blocks: [{ type: "text", text: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente?" }],
       };
 
       setThreads((prev) =>

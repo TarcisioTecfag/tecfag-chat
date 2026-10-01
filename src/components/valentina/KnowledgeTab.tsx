@@ -6,7 +6,7 @@ import React, { useState, useRef, useCallback } from "react";
 import { 
   Folder, FolderPlus, FolderUp, Edit3, Trash2, ChevronDown, ChevronRight,
   Brain, Paperclip, UploadCloud, FileText, Image as ImageIcon, Check, X,
-  Eye, Sparkles, BookOpen, Loader2, ListChecks
+  Eye, Sparkles, BookOpen, Loader2, ListChecks, Lightbulb
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { 
@@ -872,8 +872,9 @@ export function KnowledgeTab() {
           ) : renderFolders(null)}
         </div>
         
-        <div className="mt-3 p-2 bg-muted/40 rounded-xl text-[10px] text-muted-foreground text-center border border-border/50">
-          💡 Dica: Arraste pastas ou arquivos para alterar sua hierarquia.
+        <div className="mt-3 p-2 bg-muted/40 rounded-xl text-[10px] text-muted-foreground flex items-center justify-center gap-1.5 border border-border/50">
+          <Lightbulb className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span>Dica: Arraste pastas ou arquivos para alterar sua hierarquia.</span>
         </div>
       </div>
 

@@ -369,7 +369,6 @@ import {
   Zap,
   Filter,
   Globe,
-  Lock,
   Sliders,
   ChevronRight,
 } from "lucide-react";

@@ -307,8 +307,9 @@ export function WalletView() {
                       )}
                     </span>
                   ) : (
-                    <span className="text-emerald-700 dark:text-emerald-300 text-xs">
-                      Todos os clientes da carteira estão ativos. Nenhum com +50 dias sem contato. ✓
+                    <span className="text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-1.5">
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                      <span>Todos os clientes da carteira estão ativos. Nenhum com +50 dias sem contato.</span>
                     </span>
                   )}
                 </div>

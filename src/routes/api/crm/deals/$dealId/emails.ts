@@ -3,7 +3,7 @@ import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { db } from "../../../../../db";
-import { crmDeals } from "../../../../../db/schema";
+import { channelConfigs, crmDeals } from "../../../../../db/schema";
 import { eq, and } from "drizzle-orm";
 
 const corsHeaders = {
@@ -47,8 +47,25 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/emails")({
           }
 
           const emails = await crmService.getDealEmails(tenantId, dealId);
+          const [dealContacts, smtpConfig] = await Promise.all([
+            crmService.getDealContacts(tenantId, dealId),
+            db.query.channelConfigs.findFirst({
+              where: eq(channelConfigs.tenantId, tenantId),
+              columns: { smtpHost: true, smtpPort: true, smtpUser: true, smtpPass: true, smtpFrom: true },
+            }),
+          ]);
+          const recipients = dealContacts
+            .filter((item) => item.contact.email?.trim())
+            .map((item) => ({
+              contactId: item.contactId,
+              name: item.contact.name,
+              email: item.contact.email!.trim(),
+              isPrimary: item.isPrimary,
+            }));
+          const sender = smtpConfig?.smtpFrom?.trim() || smtpConfig?.smtpUser?.trim() || "";
+          const smtpConfigured = Boolean(smtpConfig?.smtpHost && smtpConfig?.smtpPort && smtpConfig?.smtpUser && smtpConfig?.smtpPass && sender);
 
-          return new Response(JSON.stringify({ emails }), {
+          return new Response(JSON.stringify({ emails, recipients, sender, smtpConfigured }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -104,7 +121,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/emails")({
             bodyText: body.bodyText || null,
             bodyHtml: body.bodyHtml || null,
             sentAt: body.sentAt ? new Date(body.sentAt) : new Date(),
-            metadata: body.metadata || {},
+            metadata: { source: "manual" },
           });
 
           return new Response(JSON.stringify({ email, message: "E-mail registrado com sucesso." }), {

@@ -43,12 +43,17 @@ import {
   UploadCloud,
   FileUp,
   Eye,
+  Pencil,
+  CheckSquare,
+  Utensils,
+  MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { CreateTaskModal } from "./CreateTaskModal";
 import { CustomFieldsEditor, CustomFieldsSummary, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
+import { DealEmailTab } from "./DealEmailTab";
 import { CatalogSelect } from "./CatalogSelect";
 import {
   DealFilePreviewModal,
@@ -76,6 +81,26 @@ interface DealDetailModalProps {
   pipelineStages: Array<{ id: string; name: string; orderIndex: number }>;
   operatorsMap: Map<string, string>;
   backLabel?: string;
+}
+
+function getTaskTypeMeta(type?: string | null) {
+  switch (type) {
+    case "call":
+      return { label: "Ligar", icon: Phone };
+    case "email":
+      return { label: "Email", icon: Mail };
+    case "meeting":
+      return { label: "Reunião", icon: Users };
+    case "lunch":
+      return { label: "Almoço", icon: Utensils };
+    case "visit":
+      return { label: "Visita", icon: MapPin };
+    case "whatsapp":
+      return { label: "WhatsApp", icon: MessageCircle };
+    case "task":
+    default:
+      return { label: "Tarefa", icon: CheckSquare };
+  }
 }
 
 export function DealDetailModal({
@@ -118,14 +143,6 @@ export function DealDetailModal({
   const [questHasSample, setQuestHasSample] = useState("Sim");
   const [questForecast, setQuestForecast] = useState("");
   const [savingQuest, setSavingQuest] = useState(false);
-
-  // E-mails
-  const [emailTo, setEmailTo] = useState("");
-  const [emailFrom, setEmailFrom] = useState("");
-  const [emailSubject, setEmailSubject] = useState("");
-  const [emailBody, setEmailBody] = useState("");
-  const [emailDirection, setEmailDirection] = useState<"outbound" | "inbound">("outbound");
-  const [loggingEmail, setLoggingEmail] = useState(false);
 
   // Priorização IA
   const [calculatingPriority, setCalculatingPriority] = useState(false);
@@ -577,40 +594,6 @@ export function DealDetailModal({
       toast.error(err.message || "Erro ao salvar questionário.");
     } finally {
       setSavingQuest(false);
-    }
-  };
-
-  // Registrar E-mail
-  const handleLogEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!deal) return;
-    if (!emailTo.trim() || !emailSubject.trim()) {
-      toast.error("Preencha o e-mail de destino e o assunto.");
-      return;
-    }
-    try {
-      setLoggingEmail(true);
-      const res = await fetch(`/api/crm/deals/${deal.id}/emails`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          direction: emailDirection,
-          fromAddress: emailFrom.trim(),
-          toAddress: emailTo.trim(),
-          subject: emailSubject.trim(),
-          bodyText: emailBody.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao registrar e-mail.");
-      toast.success("E-mail comercial registrado no histórico!");
-      setEmailSubject("");
-      setEmailBody("");
-      await loadDealDetail();
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao registrar e-mail.");
-    } finally {
-      setLoggingEmail(false);
     }
   };
 
@@ -1074,9 +1057,9 @@ export function DealDetailModal({
       items.push({
         id: `email-${email.id}`,
         category: "email",
-        title: `${email.direction === "inbound" ? "E-mail Recebido" : "E-mail Enviado"}: ${email.subject || "Sem assunto"}`,
-        description: email.body ? email.body.substring(0, 300) : null,
-        author: email.fromEmail || "Comercial",
+        title: `${email.isVerified && email.metadata?.delivery === "smtp_accepted" ? "E-mail Enviado" : "E-mail registrado manualmente"}: ${email.subject || "Sem assunto"}`,
+        description: email.bodyText ? email.bodyText.substring(0, 300) : null,
+        author: email.fromAddress || "Comercial",
         date: new Date(email.createdAt),
         iconType: "email",
         badgeColor: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
@@ -1848,110 +1831,123 @@ export function DealDetailModal({
               {!loading && deal && (
                 <div className="p-4 border-b border-border/60 bg-card shrink-0 space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-bold text-foreground">Próximas tarefas</h3>
-                    <Calendar className="h-3.5 w-3.5 text-primary" />
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-bold text-foreground">Próximas tarefas</h3>
+                    </div>
+                    {deal.nextTask && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCreateTaskModalOpen(true)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Nova tarefa</span>
+                      </button>
+                    )}
                   </div>
 
                   {deal.nextTask ? (
-                    <div
-                      className={`flex flex-wrap items-center justify-between gap-3 rounded-xl p-3 border transition-colors ${
-                        deal.nextTask.isOverdue
-                          ? "bg-rose-500/10 border-rose-500/30 text-rose-950 dark:text-rose-200"
-                          : deal.nextTask.isToday
-                          ? "bg-muted/50 border-border text-foreground"
-                          : "bg-primary/5 border-primary/20 text-foreground"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div
-                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                            deal.nextTask.isOverdue
-                              ? "bg-rose-500/20 text-rose-600 dark:text-rose-400"
-                              : deal.nextTask.isToday
-                              ? "bg-muted text-foreground"
-                              : "bg-primary/10 text-primary"
-                          }`}
-                        >
-                          <Clock className="h-4 w-4" />
+                    <div className="rounded-xl border border-border bg-card p-3.5 shadow-2xs flex items-center justify-between gap-4 transition-all">
+                      {/* Left: Tipo + Assunto + Descrição (Padrão Referência) */}
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/80 mt-0.5">
+                          {(() => {
+                            const taskTypeMeta = getTaskTypeMeta(deal.nextTask.type);
+                            const TaskIcon = taskTypeMeta.icon;
+                            return <TaskIcon className="h-4 w-4" />;
+                          })()}
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[10px] font-extrabold uppercase tracking-wider">
-                              Próxima Ação:
+                            <span className="text-xs font-extrabold text-foreground shrink-0">
+                              {getTaskTypeMeta(deal.nextTask.type).label}
                             </span>
-                            <span
-                              className={`rounded px-1.5 py-0.5 text-[9px] font-extrabold uppercase ${
-                                deal.nextTask.isOverdue
-                                  ? "bg-rose-600 text-white"
-                                  : deal.nextTask.isToday
-                                  ? "bg-primary/10 text-primary"
-                                  : "bg-primary text-primary-foreground"
-                              }`}
-                            >
-                              {deal.nextTask.isOverdue
-                                ? "Atrasada"
-                                : deal.nextTask.isToday
-                                ? "Vence Hoje"
-                                : deal.nextTask.hasNoDueDate
-                                ? "Sem Prazo"
-                                : "No Prazo"}
+                            <span className="text-xs font-bold text-foreground truncate">
+                              {deal.nextTask.title}
                             </span>
-                            {deal.nextTask.dueDate && (
-                              <span className="text-[11px] font-semibold opacity-85">
-                                {new Date(deal.nextTask.dueDate).toLocaleDateString("pt-BR", {
-                                  day: "2-digit",
-                                  month: "2-digit",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </span>
-                            )}
-                            {deal.nextTask.responsibleName && (
-                              <span className="text-[10px] opacity-75">
-                                • {deal.nextTask.responsibleName}
-                              </span>
-                            )}
                           </div>
-                          <p className="text-xs font-bold truncate mt-0.5 text-foreground">{deal.nextTask.title}</p>
+                          {deal.nextTask.description && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
+                              {deal.nextTask.description}
+                            </p>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <SystemTooltip content="Criar nova tarefa para esta negociação">
-                          <button
-                            type="button"
-                            onClick={() => setIsCreateTaskModalOpen(true)}
-                            className="flex h-7 items-center gap-1 rounded-lg bg-[#7fe7ff] hover:bg-[#5cdbfd] text-[#00607a] px-2.5 text-[11px] font-semibold transition-colors cursor-pointer"
-                          >
-                            <Plus className="h-3 w-3" />
-                            <span>Nova tarefa</span>
-                          </button>
-                        </SystemTooltip>
-                        <SystemTooltip content="Marcar tarefa como concluída">
-                          <button
-                            type="button"
-                            onClick={() => handleCompleteActivity(deal.nextTask.id)}
-                            className="flex h-7 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                            <span>Concluir</span>
-                          </button>
-                        </SystemTooltip>
-                        <SystemTooltip content="Reagendar prazo da tarefa">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setReschedulingActivityId(deal.nextTask.id);
-                              setRescheduleDueDate(deal.nextTask.dueDate ? deal.nextTask.dueDate.slice(0, 16) : "");
-                              setActiveTab("tasks");
-                              setTasksSubTab("pending");
-                            }}
-                            className="flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                          >
-                            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span>Reagendar</span>
-                          </button>
-                        </SystemTooltip>
+                      {/* Right: Badge ATRASADA/VENCE HOJE/NO PRAZO em Vermelho + Data/Hora + Ações */}
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <div>
+                            <span
+                              className={`inline-block rounded px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                                deal.nextTask.isOverdue
+                                  ? "bg-primary text-primary-foreground"
+                                  : deal.nextTask.isToday
+                                  ? "bg-amber-600 text-white"
+                                  : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              {deal.nextTask.isOverdue
+                                ? "ATRASADA"
+                                : deal.nextTask.isToday
+                                ? "VENCE HOJE"
+                                : deal.nextTask.hasNoDueDate
+                                ? "SEM PRAZO"
+                                : "NO PRAZO"}
+                            </span>
+                          </div>
+                          {deal.nextTask.dueDate && (
+                            <span className="text-[11px] font-medium text-muted-foreground block mt-0.5">
+                              {new Date(deal.nextTask.dueDate).toLocaleDateString("pt-BR", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <SystemTooltip content="Editar tarefa">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveTab("tasks");
+                                setTasksSubTab("pending");
+                              }}
+                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          </SystemTooltip>
+
+                          <SystemTooltip content="Reagendar prazo da tarefa">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReschedulingActivityId(deal.nextTask.id);
+                                setRescheduleDueDate(deal.nextTask.dueDate ? deal.nextTask.dueDate.slice(0, 16) : "");
+                                setActiveTab("tasks");
+                                setTasksSubTab("pending");
+                              }}
+                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Clock className="h-4 w-4" />
+                            </button>
+                          </SystemTooltip>
+
+                          <SystemTooltip content="Concluir tarefa">
+                            <button
+                              type="button"
+                              onClick={() => handleCompleteActivity(deal.nextTask.id)}
+                              className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center transition-colors shadow-xs cursor-pointer"
+                            >
+                              <Check className="h-4 w-4 stroke-[2.5]" />
+                            </button>
+                          </SystemTooltip>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -1969,7 +1965,7 @@ export function DealDetailModal({
                       <button
                         type="button"
                         onClick={() => setIsCreateTaskModalOpen(true)}
-                        className="flex items-center gap-1.5 rounded-lg bg-[#7fe7ff] hover:bg-[#5cdbfd] text-[#00607a] px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0"
+                        className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0"
                       >
                         <Plus className="h-3.5 w-3.5" />
                         <span>Criar tarefa</span>
@@ -2076,79 +2072,6 @@ export function DealDetailModal({
                 {/* ABA 1: TAREFAS & NOTAS */}
                 {activeTab === "tasks" && (
                   <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
-                    {/* Formulário de Nova Nota / Tarefa */}
-                    <form onSubmit={handleCreateActivity} className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-foreground">Nova Atividade Comercial</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setIsCreateTaskModalOpen(true)}
-                            className="flex items-center gap-1.5 rounded-lg bg-[#7fe7ff] hover:bg-[#5cdbfd] text-[#00607a] px-3 py-1 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            <span>Criar tarefa</span>
-                          </button>
-                          <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5">
-                          {(
-                            [
-                              { id: "note", label: "Nota" },
-                              { id: "task", label: "Tarefa" },
-                              { id: "call", label: "Ligação" },
-                              { id: "meeting", label: "Reunião" },
-                            ] as const
-                          ).map((t) => (
-                            <button
-                              type="button"
-                              key={t.id}
-                              onClick={() => setNewActivityType(t.id)}
-                              className={`rounded px-2 py-0.5 text-[10px] font-bold cursor-pointer ${
-                                newActivityType === t.id
-                                  ? "bg-primary text-primary-foreground"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              {t.label}
-                            </button>
-                          ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <input
-                        type="text"
-                        required
-                        placeholder={
-                          newActivityType === "note"
-                            ? "Escreva o resumo da nota..."
-                            : "Qual a próxima ação com este cliente?"
-                        }
-                        value={newActivityTitle}
-                        onChange={(e) => setNewActivityTitle(e.target.value)}
-                        className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-
-                      <div className="flex items-center gap-2">
-                        {newActivityType !== "note" && (
-                          <input
-                            type="datetime-local"
-                            value={newActivityDueDate}
-                            onChange={(e) => setNewActivityDueDate(e.target.value)}
-                            className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:outline-none"
-                          />
-                        )}
-
-                        <button
-                          type="submit"
-                          disabled={submittingActivity || !newActivityTitle.trim()}
-                          className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer ml-auto"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          <span>Adicionar</span>
-                        </button>
-                      </div>
-                    </form>
-
                     {/* Sub-abas de Atividades e Notas */}
                     {(() => {
                       const allActivities = deal?.activities || [];
@@ -2169,65 +2092,76 @@ export function DealDetailModal({
                       return (
                         <div className="space-y-4">
                           {/* Botões de Filtro / Sub-abas */}
-                          <div className="flex items-center gap-1.5 border-b border-border/60 pb-2">
-                            <button
-                              type="button"
-                              onClick={() => setTasksSubTab("pending")}
-                              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
-                                tasksSubTab === "pending"
-                                  ? "bg-primary text-primary-foreground shadow-xs"
-                                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                              }`}
-                            >
-                              <span>Pendentes</span>
-                              <span className="rounded-full bg-primary-foreground/20 px-1.5 py-0.2 text-[10px]">
-                                {pendingTasks.length}
-                              </span>
-                            </button>
+                          <div className="flex items-center justify-between border-b border-border/60 pb-2 flex-wrap gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => setTasksSubTab("pending")}
+                                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                                  tasksSubTab === "pending"
+                                    ? "bg-primary text-primary-foreground shadow-xs"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                }`}
+                              >
+                                <span>Pendentes</span>
+                                <span className="rounded-full bg-primary-foreground/20 px-1.5 py-0.2 text-[10px]">
+                                  {pendingTasks.length}
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setTasksSubTab("completed")}
+                                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                                  tasksSubTab === "completed"
+                                    ? "bg-primary text-primary-foreground shadow-xs"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                }`}
+                              >
+                                <span>Concluídas</span>
+                                <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
+                                  {completedTasks.length}
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setTasksSubTab("cancelled")}
+                                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                                  tasksSubTab === "cancelled"
+                                    ? "bg-slate-700 text-white shadow-xs"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                }`}
+                              >
+                                <span>Canceladas</span>
+                                <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
+                                  {cancelledTasks.length}
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setTasksSubTab("notes")}
+                                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                                  tasksSubTab === "notes"
+                                    ? "bg-primary text-primary-foreground shadow-xs"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                }`}
+                              >
+                                <span>Notas Comerciais</span>
+                                <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
+                                  {notesList.length}
+                                </span>
+                              </button>
+                            </div>
 
                             <button
                               type="button"
-                              onClick={() => setTasksSubTab("completed")}
-                              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
-                                tasksSubTab === "completed"
-                                  ? "bg-primary text-primary-foreground shadow-xs"
-                                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                              }`}
+                              onClick={() => setIsCreateTaskModalOpen(true)}
+                              className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                             >
-                              <span>Concluídas</span>
-                              <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
-                                {completedTasks.length}
-                              </span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setTasksSubTab("cancelled")}
-                              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
-                                tasksSubTab === "cancelled"
-                                  ? "bg-slate-700 text-white shadow-xs"
-                                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                              }`}
-                            >
-                              <span>Canceladas</span>
-                              <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
-                                {cancelledTasks.length}
-                              </span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setTasksSubTab("notes")}
-                              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
-                                tasksSubTab === "notes"
-                                  ? "bg-primary text-primary-foreground shadow-xs"
-                                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                              }`}
-                            >
-                              <span>Notas Comerciais</span>
-                              <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
-                                {notesList.length}
-                              </span>
+                              <Plus className="h-3.5 w-3.5" />
+                              <span>Criar tarefa</span>
                             </button>
                           </div>
 
@@ -3527,155 +3461,8 @@ export function DealDetailModal({
                 )}
 
                 {/* ABA 8: E-MAILS COMERCIAIS */}
-                {activeTab === "emails" && (
-                  <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
-                    {/* Formulário de Registro de E-mail */}
-                    <form onSubmit={handleLogEmail} className="rounded-xl border border-border bg-card p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                          <Mail className="h-4 w-4 text-primary" />
-                          Registrar E-mail Trocado
-                        </span>
-                        <div className="flex items-center gap-1 bg-muted/40 p-0.5 rounded-lg">
-                          <button
-                            type="button"
-                            onClick={() => setEmailDirection("outbound")}
-                            className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer ${
-                              emailDirection === "outbound" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-                            }`}
-                          >
-                            Enviado (Outbound)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEmailDirection("inbound")}
-                            className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer ${
-                              emailDirection === "inbound" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-                            }`}
-                          >
-                            Recebido (Inbound)
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-border bg-muted/50 p-2.5 text-[11px] text-muted-foreground">
-                        O envio automático direto via SMTP depende da configuração do provedor do tenant. Utilize este formulário para registrar o histórico verificado e auditado de e-mails comerciais.
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <label className="text-[11px] font-semibold text-muted-foreground block mb-1">De (Remetente)</label>
-                          <input
-                            type="email"
-                            required
-                            value={emailFrom}
-                            onChange={(e) => setEmailFrom(e.target.value)}
-                            className="h-8 w-full rounded-lg border border-border bg-muted/20 px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[11px] font-semibold text-muted-foreground block mb-1">Para (Destinatário)</label>
-                          <input
-                            type="email"
-                            required
-                            placeholder="cliente@empresa.com.br"
-                            value={emailTo}
-                            onChange={(e) => setEmailTo(e.target.value)}
-                            className="h-8 w-full rounded-lg border border-border bg-muted/20 px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] font-semibold text-muted-foreground block mb-1">Assunto</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="Ex: Proposta Comercial / Esclarecimento Técnico..."
-                          value={emailSubject}
-                          onChange={(e) => setEmailSubject(e.target.value)}
-                          className="h-8 w-full rounded-lg border border-border bg-muted/20 px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] font-semibold text-muted-foreground block mb-1">Corpo da Mensagem</label>
-                        <textarea
-                          rows={3}
-                          placeholder="Conteúdo do e-mail..."
-                          value={emailBody}
-                          onChange={(e) => setEmailBody(e.target.value)}
-                          className="w-full rounded-lg border border-border bg-muted/20 p-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      </div>
-
-                      <div className="flex justify-end pt-1">
-                        <button
-                          type="submit"
-                          disabled={loggingEmail}
-                          className="h-8 px-4 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:bg-primary/90 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          {loggingEmail ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                          <span>Registrar E-mail</span>
-                        </button>
-                      </div>
-                    </form>
-
-                    {/* Lista de E-mails Registrados */}
-                    <div className="space-y-3">
-                      <span className="text-xs font-bold text-foreground block">
-                        E-mails Registrados ({deal?.emails?.length || 0})
-                      </span>
-
-                      {deal?.emails && deal.emails.length > 0 ? (
-                        <div className="space-y-3">
-                          {deal.emails.map((m: any) => (
-                            <div
-                              key={m.id}
-                              className="rounded-xl border border-border bg-card p-3.5 space-y-2 hover:border-primary/40 transition-colors"
-                            >
-                              <div className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2">
-                                  <span
-                                    className="rounded border border-border bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase text-foreground"
-                                  >
-                                    {m.direction === "inbound" ? "Recebido" : "Enviado"}
-                                  </span>
-                                  <span className="font-bold text-foreground">{m.subject}</span>
-                                </div>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {new Date(m.sentAt).toLocaleDateString("pt-BR")} às{" "}
-                                  {new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                                </span>
-                              </div>
-
-                              <div className="text-[11px] text-muted-foreground flex items-center gap-2">
-                                <span>De: <strong className="text-foreground">{m.fromAddress}</strong></span>
-                                <span>•</span>
-                                <span>Para: <strong className="text-foreground">{m.toAddress}</strong></span>
-                                {m.operatorName && (
-                                  <>
-                                    <span>•</span>
-                                    <span>Por: {m.operatorName}</span>
-                                  </>
-                                )}
-                              </div>
-
-                              {m.bodyText && (
-                                <p className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/20 p-2.5 rounded-lg border border-border/60">
-                                  {m.bodyText}
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-muted-foreground/60 italic">
-                          Nenhum e-mail registrado para este negócio ainda.
-                        </p>
-                      )}
-                    </div>
-                  </div>
+                {activeTab === "emails" && deal && (
+                  <DealEmailTab dealId={deal.id} onSent={loadDealDetail} />
                 )}
 
                 {/* ABA 5: HISTÓRICO UNIFICADO */}

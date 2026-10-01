@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Clock, Link2Off, MicOff, CheckCircle2, Radio, Phone, Mic } from "lucide-react";
 
 // ─── Configuração ICE ─────────────────────────────────────────────────────────
 
@@ -178,28 +179,35 @@ function CallPage() {
           <span style={S.logoText}>Valem Chat</span>
         </div>
 
-        {status === "checking"  && <SV icon="⏳" title="Verificando..."         sub="Aguarde um momento."                                    />}
-        {status === "expired"   && <SV icon="🔗" title="Link inválido ou expirado" sub={errorMsg || "Este link de chamada não existe ou já expirou.\nPeça ao agente para enviar um novo link."} />}
-        {status === "error"     && <SV icon="🎤" title="Microfone bloqueado"     sub={errorMsg || "Permita o acesso ao microfone nas configurações do navegador e tente novamente."} />}
-        {status === "ended"     && <SV icon="✅" title="Chamada encerrada"       sub={`Duração: ${fmt(duration)}\nObrigado por falar conosco!`} />}
-        {status === "connecting"&& <SV icon="📡" title="Conectando..."           sub="Estabelecendo conexão com o agente..." spinner />}
+        {status === "checking"  && <SV icon={<Clock style={{ width: 52, height: 52, color: "#94a3b8" }} />} title="Verificando..." sub="Aguarde um momento." />}
+        {status === "expired"   && <SV icon={<Link2Off style={{ width: 52, height: 52, color: "#f87171" }} />} title="Link inválido ou expirado" sub={errorMsg || "Este link de chamada não existe ou já expirou.\nPeça ao agente para enviar um novo link."} />}
+        {status === "error"     && <SV icon={<MicOff style={{ width: 52, height: 52, color: "#f87171" }} />} title="Microfone bloqueado" sub={errorMsg || "Permita o acesso ao microfone nas configurações do navegador e tente novamente."} />}
+        {status === "ended"     && <SV icon={<CheckCircle2 style={{ width: 52, height: 52, color: "#34d399" }} />} title="Chamada encerrada" sub={`Duração: ${fmt(duration)}\nObrigado por falar conosco!`} />}
+        {status === "connecting"&& <SV icon={<Radio style={{ width: 52, height: 52, color: "#818cf8" }} />} title="Conectando..." sub="Estabelecendo conexão com o agente..." spinner />}
 
         {status === "ready" && (
           <>
-            <div style={S.avatar}>📞</div>
+            <div style={S.avatar}>
+              <Phone style={{ width: 36, height: 36, color: "#818cf8" }} />
+            </div>
             <h2 style={S.title}>Você está sendo chamado</h2>
             <p style={S.subtitle}>
               Um agente iniciou uma ligação com você.<br />
               Clique abaixo para atender.
             </p>
-            <button onClick={handleAnswer} style={S.answerBtn}>🎤 Atender agora</button>
+            <button onClick={handleAnswer} style={S.answerBtn}>
+              <Mic style={{ width: 18, height: 18, display: "inline-block", verticalAlign: "middle", marginRight: 8 }} />
+              Atender agora
+            </button>
             <p style={S.hint}>Funciona diretamente no navegador — sem instalar nada.</p>
           </>
         )}
 
         {status === "active" && (
           <>
-            <div style={{ ...S.avatar, background: "rgba(99,102,241,0.15)", fontSize: 48 }}>📞</div>
+            <div style={{ ...S.avatar, background: "rgba(99,102,241,0.15)" }}>
+              <Phone style={{ width: 36, height: 36, color: "#818cf8" }} />
+            </div>
             <h2 style={S.title}>Em chamada</h2>
             <div style={S.timer}>{fmt(duration)}</div>
             <div style={S.recordingBadge}>● Chamada ativa</div>
@@ -213,10 +221,12 @@ function CallPage() {
 
 // ─── Status View ──────────────────────────────────────────────────────────────
 
-function SV({ icon, title, sub, spinner }: { icon: string; title: string; sub: string; spinner?: boolean }) {
+function SV({ icon, title, sub, spinner }: { icon: React.ReactNode; title: string; sub: string; spinner?: boolean }) {
   return (
     <>
-      <div style={{ fontSize: 56, marginBottom: 16 }}>{icon}</div>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+        {icon}
+      </div>
       <h2 style={S.title}>{title}</h2>
       {spinner && <div style={S.spinner} />}
       <p style={{ ...S.subtitle, whiteSpace: "pre-line" }}>{sub}</p>

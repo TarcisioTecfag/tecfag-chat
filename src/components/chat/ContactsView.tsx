@@ -30,6 +30,7 @@ type ContactListItem = {
   id: string;
   name: string;
   phone: string;
+  whatsappUsername: string;
   email: string;
   cnpj: string;
   cpf: string;
@@ -124,6 +125,7 @@ export function ContactsView() {
       id: item.id,
       name: item.name,
       phone: item.phone || "",
+      whatsappUsername: item.whatsappUsername || "",
       email: item.email || "",
       cnpj: item.cnpj || "",
       cpf: item.cpf || "",
@@ -196,6 +198,7 @@ export function ContactsView() {
   const [editForm, setEditForm] = useState({
     name: "",
     phone: "",
+    whatsappUsername: "",
     email: "",
     cnpj: "",
     cpf: "",
@@ -251,6 +254,7 @@ export function ContactsView() {
     setEditForm({
       name: c.name,
       phone: c.phone || "",
+      whatsappUsername: c.whatsappUsername || "",
       email: c.email || "",
       cnpj: maskCNPJ(c.cnpj || ""),
       cpf: maskCPF(c.cpf || ""),
@@ -266,7 +270,7 @@ export function ContactsView() {
     try {
       const response = await fetch(`/api/contacts/${encodeURIComponent(editingContact.id)}`, {
         method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editForm.name, phone: editForm.phone, email: editForm.email, cnpj: editForm.cnpj, cpf: editForm.cpf, tags: tagsArray }),
+        body: JSON.stringify({ name: editForm.name, phone: editForm.phone, whatsappUsername: editForm.whatsappUsername, email: editForm.email, cnpj: editForm.cnpj, cpf: editForm.cpf, tags: tagsArray }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível salvar o contato.");
@@ -381,8 +385,11 @@ export function ContactsView() {
                     <td className="py-3.5 px-4 space-y-0.5">
                       <div className="flex items-center gap-1.5 text-muted-foreground">
                         <Phone className="h-3 w-3" />
-                        <span>{formatPhoneNumber(c.phone)}</span>
+                        <span>{c.phone ? formatPhoneNumber(c.phone) : "Número não informado"}</span>
                       </div>
+                      {c.whatsappUsername && c.channel === "whatsapp" && (
+                        <div className="text-primary font-semibold">@{c.whatsappUsername}</div>
+                      )}
                       {c.email && (
                         <div className="flex items-center gap-1.5 text-muted-foreground">
                           <Mail className="h-3 w-3" />
@@ -499,7 +506,7 @@ export function ContactsView() {
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       <Phone className="h-3.5 w-3.5 text-primary" />
-                      <span className="font-semibold text-foreground">{formatPhoneNumber(c.phone)}</span>
+                      <span className="font-semibold text-foreground">{c.phone ? formatPhoneNumber(c.phone) : "Número não informado"}</span>
                     </span>
                     {c.cnpj && (
                       <span className="text-[10px] text-emerald-600 font-mono bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
@@ -513,6 +520,7 @@ export function ContactsView() {
                       <span className="truncate">{c.email}</span>
                     </div>
                   )}
+                  {c.whatsappUsername && c.channel === "whatsapp" && <div className="font-semibold text-primary">@{c.whatsappUsername}</div>}
                 </div>
 
                 {/* Tags */}
@@ -808,6 +816,11 @@ export function ContactsView() {
                     <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
                     <input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
                   </div>
+                  {editingContact.channel === "whatsapp" && <div className="space-y-1 col-span-2">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome de usuário no WhatsApp</label>
+                    <input type="text" placeholder="@usuario" value={editForm.whatsappUsername} onChange={(e) => setEditForm({ ...editForm, whatsappUsername: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
+                    <p className="text-[10px] text-muted-foreground">O nome é para identificação. O envio depende do identificador recebido do WhatsApp ou do telefone.</p>
+                  </div>}
                   <div className="space-y-1">
                     <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CNPJ</label>
                     <input type="text" value={editForm.cnpj} onChange={(e) => setEditForm({ ...editForm, cnpj: maskCNPJ(e.target.value) })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />

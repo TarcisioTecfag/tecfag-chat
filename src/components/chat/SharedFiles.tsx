@@ -1412,8 +1412,8 @@ export function SharedFiles() {
                           Salvando alterações...
                         </span>
                       ) : autoSaveStatus === "saved" ? (
-                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 block">
-                          ✓ Salvo automaticamente
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
+                          <Check className="h-2.5 w-2.5" /> Salvo automaticamente
                         </span>
                       ) : null}
                     </div>

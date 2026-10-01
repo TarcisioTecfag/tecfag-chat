@@ -8,7 +8,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  ArrowDownRight, ArrowUpRight, Download, Minus, MessageSquareQuote, Sparkles, AlertTriangle, UserCheck, ArrowRight,
+  ArrowDownRight, ArrowUpRight, Download, Minus, MessageSquareQuote, Sparkles, AlertTriangle, UserCheck, ArrowRight, Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -147,9 +147,12 @@ function InsightRender({ block }: { block: InsightBlock }) {
         })}
       </div>
       {block.recommendation && (
-        <div className="mt-3 rounded-xl border border-primary/20 bg-primary-soft/60 p-3 text-xs leading-relaxed text-foreground">
-          <span className="font-bold text-primary mr-1">💡 Recomendação:</span>
-          {block.recommendation}
+        <div className="mt-3 rounded-xl border border-primary/20 bg-primary-soft/60 p-3 text-xs leading-relaxed text-foreground flex items-start gap-1.5">
+          <Lightbulb className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold text-primary mr-1">Recomendação:</span>
+            {block.recommendation}
+          </div>
         </div>
       )}
     </BlockCard>

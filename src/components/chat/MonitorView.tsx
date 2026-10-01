@@ -15,7 +15,8 @@ import {
   Activity, Search, ClipboardCheck, ChevronLeft, Phone,
   Mail, Calendar, CheckCircle2, Circle, ExternalLink,
   Loader2, X, Filter, Coins, DollarSign, Cpu, Layers, Bot, Sparkles, ShieldCheck,
-  Play, Volume2, FileText, Radio, ChevronDown, Globe
+  Play, Volume2, FileText, Radio, ChevronDown, Globe,
+  Smile, Meh, Frown
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -38,7 +39,7 @@ import {
 } from "recharts";
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 🧪 DEMO MODE — troque para false para usar dados reais da API
+// DEMO MODE — troque para false para usar dados reais da API
 // ══════════════════════════════════════════════════════════════════════════════
 const DEMO_MODE = false;
 
@@ -589,12 +590,13 @@ export function OverviewTab({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <ScoreBadge score={audit.performanceScore} />
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 ${
                     audit.clientSentiment === "satisfeito" ? "text-emerald-700 bg-emerald-50" :
                     audit.clientSentiment === "frustrado" ? "text-red-700 bg-red-50" :
                     "text-amber-700 bg-amber-50"
                   }`}>
-                    {audit.clientSentiment === "satisfeito" ? "😊" : audit.clientSentiment === "frustrado" ? "😤" : "😐"}
+                    {audit.clientSentiment === "satisfeito" ? <Smile className="h-3 w-3" /> : audit.clientSentiment === "frustrado" ? <Frown className="h-3 w-3" /> : <Meh className="h-3 w-3" />}
+                    <span className="capitalize">{audit.clientSentiment || "neutro"}</span>
                   </span>
                 </div>
               </div>
@@ -873,21 +875,30 @@ function OperatorsTab({
               <div className="col-span-3 grid grid-cols-3 items-center py-1 hover:bg-muted/30 rounded-md">
                 <span className="font-bold text-foreground text-xs" title="Hoje">{op.avgResponseTimeFormatted}</span>
                 <span className={`font-bold text-xs ${op.overdueCount > 0 ? "text-red-600 font-extrabold animate-pulse" : "text-foreground"}`}>{op.overdueCount}</span>
-                <span className="font-bold text-foreground text-xs">{satisfiedPct}% 😊</span>
+                <span className="font-bold text-foreground text-xs flex items-center justify-center gap-1">
+                  <span>{satisfiedPct}%</span>
+                  <Smile className="h-3 w-3 text-emerald-500" />
+                </span>
               </div>
               
               {/* Row 2: vs Semana */}
               <div className="col-span-3 grid grid-cols-3 items-center py-1 hover:bg-muted/30 rounded-md text-muted-foreground">
                 <span className="text-[11px] font-medium" title="Média da Semana">{op.avgResponseTimeLastWeekFormatted || "–"}</span>
                 <span className="text-[11px] font-medium">{op.overdueCountLastWeek ?? 0}</span>
-                <span className="text-[11px] font-medium">{op.satisfiedPctLastWeek ?? 0}% 😊</span>
+                <span className="text-[11px] font-medium flex items-center justify-center gap-1">
+                  <span>{op.satisfiedPctLastWeek ?? 0}%</span>
+                  <Smile className="h-3 w-3 text-emerald-500" />
+                </span>
               </div>
               
               {/* Row 3: vs Mês */}
               <div className="col-span-3 grid grid-cols-3 items-center py-1 hover:bg-muted/30 rounded-md text-muted-foreground">
                 <span className="text-[11px] font-medium" title="Média do Mês">{op.avgResponseTimeLastMonthFormatted || "–"}</span>
                 <span className="text-[11px] font-medium">{op.overdueCountLastMonth ?? 0}</span>
-                <span className="text-[11px] font-medium">{op.satisfiedPctLastMonth ?? 0}% 😊</span>
+                <span className="text-[11px] font-medium flex items-center justify-center gap-1">
+                  <span>{op.satisfiedPctLastMonth ?? 0}%</span>
+                  <Smile className="h-3 w-3 text-emerald-500" />
+                </span>
               </div>
             </div>
 
@@ -1049,11 +1060,12 @@ function AuditsTab({
     }
   }, [selectedAuditId, audits]);
 
-  const sentimentEmoji: Record<string, string> = {
-    satisfeito: "😊",
-    neutro: "😐",
-    frustrado: "😞",
-  };
+  function renderAuditSentiment(sentiment?: string | null) {
+    if (sentiment === "satisfeito") return <Smile className="h-3.5 w-3.5 text-emerald-500" />;
+    if (sentiment === "frustrado") return <Frown className="h-3.5 w-3.5 text-red-500" />;
+    if (sentiment === "neutro") return <Meh className="h-3.5 w-3.5 text-amber-500" />;
+    return <span className="text-xs text-muted-foreground">–</span>;
+  }
 
   // ── Badge de status para auditorias não concluídas ────────────────────────
   function AuditStatusBadge({ status }: { status: string }) {
@@ -1087,13 +1099,28 @@ function AuditsTab({
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+              className={`px-3 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 ${
                 statusFilter === s
                   ? "bg-card shadow-sm text-foreground border border-border/50"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {s === "done" ? "✅ Concluídas" : s === "pending" ? "⏳ Pendentes" : "❌ Com Erro"}
+              {s === "done" ? (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  <span>Concluídas</span>
+                </>
+              ) : s === "pending" ? (
+                <>
+                  <Clock className="h-3.5 w-3.5 text-amber-500" />
+                  <span>Pendentes</span>
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-3.5 w-3.5 text-red-500" />
+                  <span>Com Erro</span>
+                </>
+              )}
             </button>
           ))}
         </div>
@@ -1225,7 +1252,7 @@ function AuditsTab({
                 </div>
                 <p className="text-[10px] text-muted-foreground truncate">{audit.operatorName}</p>
                 <div className="flex items-center gap-1 mt-2">
-                  <span className="text-sm">{sentimentEmoji[audit.clientSentiment ?? ""] ?? "–"}</span>
+                  <span className="text-sm">{renderAuditSentiment(audit.clientSentiment)}</span>
                   {audit.flagCount > 0 && (
                     <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-md">
                       {audit.flagCount} falha{audit.flagCount > 1 ? "s" : ""}
@@ -1293,7 +1320,10 @@ function AuditsTab({
                 {selected.status === "error" && (
                   <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-600 mb-1">⚠️ Erro no processamento</p>
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-600 mb-1 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        <span>Erro no processamento</span>
+                      </p>
                       <p className="text-sm text-red-900 break-words">{selected.errorMessage ?? "Erro desconhecido durante a auditoria."}</p>
                     </div>
                     <button
@@ -1313,7 +1343,10 @@ function AuditsTab({
                 {/* Insight Acionável */}
                 {selected.actionableInsight && (
                   <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600 mb-1">⚡ Insight da IA para agir agora</p>
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600 mb-1 flex items-center gap-1">
+                      <Zap className="h-3 w-3" />
+                      <span>Insight da IA para agir agora</span>
+                    </p>
                     <p className="text-sm font-semibold text-amber-900">{selected.actionableInsight}</p>
                   </div>
                 )}
@@ -1360,13 +1393,19 @@ function AuditsTab({
                 <div className="grid grid-cols-2 gap-3">
                   {selected.strengths && (
                     <div className="bg-primary/5 border border-primary/15 rounded-2xl p-4">
-                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-2">✅ Pontos Fortes</p>
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-2 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        <span>Pontos Fortes</span>
+                      </p>
                       <p className="text-xs text-foreground/80 leading-relaxed">{selected.strengths}</p>
                     </div>
                   )}
                   {selected.weaknesses && (
                     <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
-                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-700 mb-2">❌ Falhas</p>
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-700 mb-2 flex items-center gap-1">
+                        <XCircle className="h-3 w-3 text-red-600" />
+                        <span>Falhas</span>
+                      </p>
                       <p className="text-xs text-red-900 leading-relaxed">{selected.weaknesses}</p>
                     </div>
                   )}
@@ -3835,7 +3874,10 @@ function OperatorHistoryModal({
                         </span>
                       </td>
                       <td className="p-3 text-center font-bold text-foreground">
-                        {row.satisfiedPct}% 😊
+                        <span className="inline-flex items-center gap-1 justify-center">
+                          <span>{row.satisfiedPct}%</span>
+                          <Smile className="h-3 w-3 text-emerald-500" />
+                        </span>
                       </td>
                     </tr>
                   ))}
