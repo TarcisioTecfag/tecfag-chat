@@ -1954,7 +1954,7 @@ export function DealDetailModal({
                     <div className="flex items-center justify-between gap-4 rounded-xl border border-border/80 bg-card p-3.5 shadow-2xs">
                       <div className="flex items-center gap-4 min-w-0">
                         <img
-                          src="/illustrations/empty-tasks.png"
+                          src="/illustrations/empty-tasks-v2.png"
                           alt="Sem tarefas pendentes"
                           className="h-14 sm:h-16 w-auto object-contain shrink-0"
                         />
