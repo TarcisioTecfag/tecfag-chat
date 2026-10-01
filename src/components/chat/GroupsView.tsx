@@ -369,6 +369,7 @@ import {
   Zap,
   Filter,
   Globe,
+  Lock,
   Sliders,
   ChevronRight,
 } from "lucide-react";
@@ -1626,24 +1627,26 @@ export function GroupsView() {
                             <button
                               type="button"
                               onClick={() => updateGroupGranular(selectedGroupId, "contacts", "contactScope", "all")}
-                              className={`py-2 px-3 rounded-lg text-xs font-bold border transition ${
+                              className={`flex items-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold border transition cursor-pointer ${
                                 perms.contacts.contactScope === "all"
                                   ? "bg-primary text-primary-foreground border-primary shadow-soft"
                                   : "bg-card text-muted-foreground border-border hover:bg-muted"
                               }`}
                             >
-                              🌍 Todos os Contatos da Empresa
+                              <Globe className="h-3.5 w-3.5" />
+                              <span>Todos os Contatos da Empresa</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => updateGroupGranular(selectedGroupId, "contacts", "contactScope", "wallet_only")}
-                              className={`py-2 px-3 rounded-lg text-xs font-bold border transition ${
+                              className={`flex items-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold border transition cursor-pointer ${
                                 perms.contacts.contactScope === "wallet_only"
                                   ? "bg-primary text-primary-foreground border-primary shadow-soft"
                                   : "bg-card text-muted-foreground border-border hover:bg-muted"
                               }`}
                             >
-                              🔒 Somente Minha Carteira
+                              <Lock className="h-3.5 w-3.5" />
+                              <span>Somente Minha Carteira</span>
                             </button>
                           </div>
                         </div>
