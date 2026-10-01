@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { CrmToolbar, PipelineOption, CrmStatusFilter } from "./CrmToolbar";
 import { PipelineBoard } from "./PipelineBoard";
@@ -25,6 +25,11 @@ export function CrmView() {
   const [deals, setDeals] = useState<DealCardData[]>([]);
   const [totalDeals, setTotalDeals] = useState(0);
   const [loadingMoreStages, setLoadingMoreStages] = useState<Record<string, boolean>>({});
+
+  // Refs para controle atômico de concorrência e paginação por etapa sem stale closure
+  const dealsRef = useRef<DealCardData[]>([]);
+  dealsRef.current = deals;
+  const loadingStagesRef = useRef<Set<string>>(new Set());
 
   // Painel de filtros
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
@@ -247,10 +252,11 @@ export function CrmView() {
   // Carrega mais negociações de uma etapa específica sob demanda (Kanban)
   const handleLoadMoreStage = useCallback(
     async (stageId: string) => {
-      if (loadingMoreStages[stageId]) return;
+      if (loadingStagesRef.current.has(stageId)) return;
+      loadingStagesRef.current.add(stageId);
       setLoadingMoreStages((prev) => ({ ...prev, [stageId]: true }));
       try {
-        const stageDealsCount = deals.filter((d) => d.stageId === stageId).length;
+        const stageDealsCount = dealsRef.current.filter((d) => d.stageId === stageId).length;
         const params = buildFilterQueryParams();
         params.set("stageId", stageId);
         params.set("limit", "50");
@@ -274,10 +280,11 @@ export function CrmView() {
         console.error("[CrmView] Erro ao carregar mais cards da etapa:", err);
         toast.error("Não foi possível carregar mais negociações desta etapa.");
       } finally {
+        loadingStagesRef.current.delete(stageId);
         setLoadingMoreStages((prev) => ({ ...prev, [stageId]: false }));
       }
     },
-    [buildFilterQueryParams, deals, loadingMoreStages],
+    [buildFilterQueryParams],
   );
 
   // Inicialização

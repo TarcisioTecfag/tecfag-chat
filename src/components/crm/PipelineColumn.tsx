@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { DealCard, DealCardData } from "./DealCard";
 import { Plus, ChevronDown, Loader2 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
@@ -51,6 +51,47 @@ export function PipelineColumn({
   loadingMore = false,
 }: PipelineColumnProps) {
   const [isOver, setIsOver] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll via IntersectionObserver: detecta aproximação do final da coluna
+  useEffect(() => {
+    if (!sentinelRef.current || !onLoadMore) return;
+    if (!summary || summary.dealsCount <= deals.length) return;
+    if (loadingMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && !loadingMore && onLoadMore) {
+          onLoadMore();
+        }
+      },
+      {
+        root: scrollContainerRef.current,
+        rootMargin: "250px",
+        threshold: 0,
+      },
+    );
+
+    const target = sentinelRef.current;
+    observer.observe(target);
+
+    return () => {
+      observer.unobserve(target);
+      observer.disconnect();
+    };
+  }, [onLoadMore, loadingMore, summary?.dealsCount, deals.length]);
+
+  // Backup com handler de rolagem contínua
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 250) {
+      if (onLoadMore && !loadingMore && summary && summary.dealsCount > deals.length) {
+        onLoadMore();
+      }
+    }
+  };
 
   // Soma de valores: prioriza agregação do servidor se disponível
   let totalKnownValue = 0;
@@ -149,7 +190,11 @@ export function PipelineColumn({
       </div>
 
       {/* Lista de Cards da Etapa com scroll vertical */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-2.5 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto p-2.5 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
+      >
         {deals.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center px-4 space-y-2.5">
             <p className="text-xs text-muted-foreground">
@@ -190,32 +235,30 @@ export function PipelineColumn({
             ))}
 
             {summary && summary.dealsCount > deals.length && (
-              <div className="pt-2 pb-1 text-center space-y-2 border-t border-dashed border-border/60">
-                <div className="text-[11px] text-muted-foreground font-medium">
-                  Mostrando {deals.length} de {summary.dealsCount} negociações
-                </div>
-                {onLoadMore && (
-                  <button
-                    type="button"
-                    onClick={onLoadMore}
-                    disabled={loadingMore}
-                    className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground transition-all cursor-pointer disabled:opacity-50 border border-border/40 shadow-2xs"
-                  >
-                    {loadingMore ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span>Carregando mais...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span>
-                          Carregar mais (+{Math.min(50, summary.dealsCount - deals.length)})
-                        </span>
-                      </>
-                    )}
-                  </button>
+              <div
+                ref={sentinelRef}
+                className="pt-2 pb-1 text-center space-y-1.5 border-t border-dashed border-border/50"
+              >
+                {loadingMore ? (
+                  <div className="flex items-center justify-center gap-2 text-xs font-medium text-primary py-1.5 animate-in fade-in duration-200">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Carregando mais negociações...</span>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-muted-foreground flex flex-col items-center gap-0.5">
+                    <span>Mostrando {deals.length} de {summary.dealsCount} negociações</span>
+                    <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+                      <ChevronDown className="h-3 w-3" />
+                      <span>Role para carregar mais</span>
+                    </span>
+                  </div>
                 )}
+              </div>
+            )}
+
+            {summary && summary.dealsCount <= deals.length && deals.length > 50 && (
+              <div className="pt-2 pb-1 text-center text-[10px] text-muted-foreground/60 border-t border-dashed border-border/40">
+                Todas as {deals.length} negociações carregadas
               </div>
             )}
           </>
