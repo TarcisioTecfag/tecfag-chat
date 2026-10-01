@@ -40,6 +40,8 @@ export const Route = createFileRoute("/api/crm/deals")({
           const sortBy = url.searchParams.get("sortBy") || undefined;
           const limit = parseInt(url.searchParams.get("limit") || "50", 10);
           const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+          const perStageLimitRaw = url.searchParams.get("perStageLimit");
+          const perStageLimit = perStageLimitRaw ? parseInt(perStageLimitRaw, 10) : undefined;
 
           const minValueRaw = url.searchParams.get("minValue");
           const minValue = minValueRaw !== null && minValueRaw !== "" ? parseFloat(minValueRaw) : undefined;
@@ -92,6 +94,7 @@ export const Route = createFileRoute("/api/crm/deals")({
             coolingDays,
             limit,
             offset,
+            perStageLimit,
           });
 
           return new Response(JSON.stringify(result), {

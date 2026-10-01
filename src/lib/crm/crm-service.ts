@@ -179,6 +179,7 @@ export interface CrmDealFilters {
   hasOverdueTask?: boolean;
   coolingOnly?: boolean;
   coolingDays?: number;
+  perStageLimit?: number;
 }
 
 /**
@@ -1930,7 +1931,7 @@ export class CrmService {
   }> {
     const conditions = buildDealFilterConditions(tenantId, params);
     const whereClause = and(...conditions);
-    const limit = Math.min(params.limit || 50, 200);
+    const limit = Math.min(params.limit || 50, 500);
     const offset = params.offset || 0;
 
     const [countResult] = await db
@@ -1996,13 +1997,42 @@ export class CrmService {
         break;
     }
 
-    const rawDeals = await db
-      .select()
-      .from(crmDeals)
-      .where(whereClause)
-      .orderBy(...orderClause)
-      .limit(limit)
-      .offset(offset);
+    let rawDeals: (typeof crmDeals.$inferSelect)[];
+    if (params.perStageLimit && !params.stageId) {
+      const perStageLimit = Math.min(Math.max(params.perStageLimit, 1), 100);
+      const rankedIdsSubquery = db
+        .select({
+          id: crmDeals.id,
+          rn: sql<number>`ROW_NUMBER() OVER (PARTITION BY ${crmDeals.stageId} ORDER BY ${sql.join(orderClause, sql`, `)})`.as("rn"),
+        })
+        .from(crmDeals)
+        .where(whereClause)
+        .as("sub_ranked");
+
+      const topIds = await db
+        .select({ id: rankedIdsSubquery.id })
+        .from(rankedIdsSubquery)
+        .where(sql`sub_ranked.rn <= ${perStageLimit}`);
+
+      if (topIds.length === 0) {
+        return { deals: [], total: countResult?.count || 0 };
+      }
+
+      const idList = topIds.map((t) => t.id);
+      rawDeals = await db
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, idList)))
+        .orderBy(...orderClause);
+    } else {
+      rawDeals = await db
+        .select()
+        .from(crmDeals)
+        .where(whereClause)
+        .orderBy(...orderClause)
+        .limit(limit)
+        .offset(offset);
+    }
 
     if (rawDeals.length === 0) {
       return { deals: [], total: countResult?.count || 0 };

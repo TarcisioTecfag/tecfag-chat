@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { DealCard, DealCardData } from "./DealCard";
-import { Plus } from "lucide-react";
+import { Plus, ChevronDown, Loader2 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
 export interface PipelineStageData {
@@ -31,6 +31,8 @@ interface PipelineColumnProps {
   onDropDeal: (dealId: string, newStageId: string, version: number) => void;
   onNewDealAtStage?: (stageId: string) => void;
   onCreateTaskClick?: (deal: DealCardData) => void;
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
 }
 
 export function PipelineColumn({
@@ -45,6 +47,8 @@ export function PipelineColumn({
   onDropDeal,
   onNewDealAtStage,
   onCreateTaskClick,
+  onLoadMore,
+  loadingMore = false,
 }: PipelineColumnProps) {
   const [isOver, setIsOver] = useState(false);
 
@@ -147,10 +151,27 @@ export function PipelineColumn({
       {/* Lista de Cards da Etapa com scroll vertical */}
       <div className="min-h-0 flex-1 overflow-y-auto p-2.5 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
         {deals.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+          <div className="flex flex-col items-center justify-center py-10 text-center px-4 space-y-2.5">
             <p className="text-xs text-muted-foreground">
               Nenhuma negociação nesta etapa
             </p>
+            {summary && summary.dealsCount > 0 && onLoadMore && (
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                className="inline-flex items-center gap-1.5 text-xs text-primary font-semibold hover:underline cursor-pointer disabled:opacity-50"
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Carregando...</span>
+                  </>
+                ) : (
+                  <span>Carregar {summary.dealsCount} negociações</span>
+                )}
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -169,8 +190,32 @@ export function PipelineColumn({
             ))}
 
             {summary && summary.dealsCount > deals.length && (
-              <div className="py-2 text-center text-xs text-muted-foreground border-t border-dashed border-border/60">
-                Mostrando {deals.length} de {summary.dealsCount} negociações
+              <div className="pt-2 pb-1 text-center space-y-2 border-t border-dashed border-border/60">
+                <div className="text-[11px] text-muted-foreground font-medium">
+                  Mostrando {deals.length} de {summary.dealsCount} negociações
+                </div>
+                {onLoadMore && (
+                  <button
+                    type="button"
+                    onClick={onLoadMore}
+                    disabled={loadingMore}
+                    className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground transition-all cursor-pointer disabled:opacity-50 border border-border/40 shadow-2xs"
+                  >
+                    {loadingMore ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Carregando mais...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>
+                          Carregar mais (+{Math.min(50, summary.dealsCount - deals.length)})
+                        </span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             )}
           </>

@@ -23,6 +23,8 @@ interface PipelineBoardProps {
   ) => void;
   onNewDealAtStage?: (stageId: string) => void;
   onCreateTaskClick?: (deal: DealCardData) => void;
+  onLoadMoreStage?: (stageId: string) => void;
+  loadingMoreStages?: Record<string, boolean>;
 }
 
 export function PipelineBoard({
@@ -35,6 +37,8 @@ export function PipelineBoard({
   onMoveDeal,
   onNewDealAtStage,
   onCreateTaskClick,
+  onLoadMoreStage,
+  loadingMoreStages,
 }: PipelineBoardProps) {
   // Ordena etapas
   const sortedStages = [...(pipeline.stages || [])].sort((a, b) => a.orderIndex - b.orderIndex);
@@ -134,6 +138,8 @@ export function PipelineBoard({
               onDropDeal={handleInterceptMove}
               onNewDealAtStage={onNewDealAtStage}
               onCreateTaskClick={onCreateTaskClick}
+              onLoadMore={onLoadMoreStage ? () => onLoadMoreStage(stage.id) : undefined}
+              loadingMore={!!loadingMoreStages?.[stage.id]}
             />
           ))
         )}

@@ -24,6 +24,7 @@ export function CrmView() {
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
   const [deals, setDeals] = useState<DealCardData[]>([]);
   const [totalDeals, setTotalDeals] = useState(0);
+  const [loadingMoreStages, setLoadingMoreStages] = useState<Record<string, boolean>>({});
 
   // Painel de filtros
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
@@ -222,9 +223,8 @@ export function CrmView() {
         params.set("limit", String(listLimit));
         params.set("offset", String(listOffset));
       } else {
-        // No modo kanban traz fatia ampla do funil
-        params.set("limit", "200");
-        params.set("offset", "0");
+        // No modo kanban traz fatia equilibrada particionada por etapa (até 50 cards/etapa)
+        params.set("perStageLimit", "50");
       }
 
       const res = await fetch(`/api/crm/deals?${params.toString()}`);
@@ -243,6 +243,42 @@ export function CrmView() {
       setLoading(false);
     }
   }, [selectedPipelineId, buildFilterQueryParams, viewMode, listLimit, listOffset]);
+
+  // Carrega mais negociações de uma etapa específica sob demanda (Kanban)
+  const handleLoadMoreStage = useCallback(
+    async (stageId: string) => {
+      if (loadingMoreStages[stageId]) return;
+      setLoadingMoreStages((prev) => ({ ...prev, [stageId]: true }));
+      try {
+        const stageDealsCount = deals.filter((d) => d.stageId === stageId).length;
+        const params = buildFilterQueryParams();
+        params.set("stageId", stageId);
+        params.set("limit", "50");
+        params.set("offset", String(stageDealsCount));
+
+        const res = await fetch(`/api/crm/deals?${params.toString()}`);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Erro ao carregar mais negociações.");
+        }
+        const data = await res.json();
+        const incomingDeals: DealCardData[] = data.deals || [];
+        if (incomingDeals.length > 0) {
+          setDeals((prev) => {
+            const existingIds = new Set(prev.map((d) => d.id));
+            const uniqueIncoming = incomingDeals.filter((d) => !existingIds.has(d.id));
+            return [...prev, ...uniqueIncoming];
+          });
+        }
+      } catch (err: any) {
+        console.error("[CrmView] Erro ao carregar mais cards da etapa:", err);
+        toast.error("Não foi possível carregar mais negociações desta etapa.");
+      } finally {
+        setLoadingMoreStages((prev) => ({ ...prev, [stageId]: false }));
+      }
+    },
+    [buildFilterQueryParams, deals, loadingMoreStages],
+  );
 
   // Inicialização
   useEffect(() => {
@@ -441,6 +477,8 @@ export function CrmView() {
                 setTaskModalDeal(deal);
                 setIsTaskModalOpen(true);
               }}
+              onLoadMoreStage={handleLoadMoreStage}
+              loadingMoreStages={loadingMoreStages}
             />
           </div>
         ) : (
