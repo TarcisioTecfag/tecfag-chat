@@ -480,8 +480,9 @@ export function ContactsView() {
                     <ContactAvatar avatar={c.avatar} name={c.name} initials={c.initials} initialsBg={c.initialsBg} size="h-10 w-10" />
                     <div>
                       <span className="block font-bold text-sm text-foreground leading-tight">{c.name}</span>
-                      <span className="text-[10px] text-muted-foreground font-medium">
-                        {displayName === "Na Fila" ? "🟡 Na Fila de Espera" : `🟢 ${displayName}`}
+                      <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
+                        <span className={`h-1.5 w-1.5 rounded-full ${displayName === "Na Fila" ? "bg-amber-500" : "bg-emerald-500"}`} />
+                        {displayName === "Na Fila" ? "Na Fila de Espera" : displayName}
                       </span>
                     </div>
                   </div>
