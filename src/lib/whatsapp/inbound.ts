@@ -146,6 +146,12 @@ export class InboundProcessor {
           )
         );
 
+      if (!contact && cleanPhone.length >= 8) {
+        [contact] = await db.select().from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${cleanPhone}`))
+          .limit(1);
+      }
+
       if (!contact) {
         const contactId = `cont-${Date.now()}`;
         const newContactName = senderName?.trim() || cleanPhone;

@@ -277,20 +277,20 @@ async function run() {
     assert(dealFile.fileName === "Especificacao_Tecnica_Valvula_24410.pdf", "Nome do arquivo preservado");
     assert(dealFile.conversationId === convAlpha, "Vínculo de origem da conversa preservado no arquivo");
 
-    // Rejeição de arquivo com tamanho superior a 25MB
+    // Rejeição de arquivo com tamanho superior a 100MB
     let oversizedFileError = false;
     try {
       await crmService.uploadDealFile(tenantAlpha, dealAlpha.id, opAlpha, {
         fileName: "Arquivo_Gigante_Invalido.iso",
-        fileSize: 30 * 1024 * 1024, // 30 MB (> 25MB limite)
+        fileSize: 105 * 1024 * 1024, // 105 MB (> 100MB limite)
         mimeType: "application/octet-stream",
         storagePath: "/tmp/fake.iso",
       });
     } catch (e: any) {
       oversizedFileError = true;
-      assert(e.message.includes("25MB"), "Erro claro e explicativo ao exceder limite de 25MB por arquivo");
+      assert(e.message.includes("100MB"), "Erro claro e explicativo ao exceder limite de 100MB por arquivo");
     }
-    assert(oversizedFileError, "Rejeição estrita de arquivo acima de 25MB");
+    assert(oversizedFileError, "Rejeição estrita de arquivo acima de 100MB");
 
     // Rejeição de conversa de outro tenant
     let crossTenantConvError = false;

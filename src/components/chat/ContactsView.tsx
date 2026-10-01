@@ -24,6 +24,25 @@ import {
 } from "lucide-react";
 import { Channel, Conversation } from "@/lib/mockData";
 import { usePermissions } from "@/hooks/usePermissions";
+import { toast } from "sonner";
+
+type ContactListItem = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  cnpj: string;
+  cpf: string;
+  avatar: string | null;
+  initials?: string;
+  initialsBg?: string;
+  tags: string[];
+  channel: Channel | "livechat";
+  operatorId: string | null;
+  walletOperatorId: string | null;
+  responsibleName: string;
+  latestConversationId: string | null;
+};
 
 // ─── helper de highlight ──────────────────────────────────────────────────
 function HighlightedText({ text, query }: { text: string; query: string }) {
@@ -74,20 +93,63 @@ export function ContactsView() {
     tenant,
     conversations,
     createContact,
-    updateClientInfo,
+    refreshConversations,
     setSelectedChatId,
     setActiveView,
-    updateTags,
     operators,
-    currentOperatorId,
   } = useChat();
 
-  const { canCreateContact, canEditContact, contactScope } = usePermissions();
+  const { canCreateContact, canEditContact } = usePermissions();
 
   const [search, setSearch] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingContact, setEditingContact] = useState<Conversation | null>(null);
+  const [editingContact, setEditingContact] = useState<ContactListItem | null>(null);
+  const [contactRows, setContactRows] = useState<ContactListItem[]>([]);
+  const [totalContacts, setTotalContacts] = useState(0);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const contactsRequestRevision = useRef(0);
+
+  const loadContacts = async (offset = 0, signal?: AbortSignal) => {
+    const revision = contactsRequestRevision.current;
+    const params = new URLSearchParams({ limit: "50", offset: String(offset) });
+    if (search.trim()) params.set("search", search.trim());
+    if (channelFilter !== "all") params.set("channel", channelFilter);
+    const response = await fetch(`/api/contacts?${params}`, { credentials: "include", signal });
+    if (!response.ok) throw new Error("Não foi possível carregar a base de clientes.");
+    const result = await response.json();
+    if (revision !== contactsRequestRevision.current) return;
+    const rows: ContactListItem[] = (result.contacts || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      phone: item.phone || "",
+      email: item.email || "",
+      cnpj: item.cnpj || "",
+      cpf: item.cpf || "",
+      avatar: item.avatar || null,
+      tags: item.tags || [],
+      channel: item.mainChannel || "whatsapp",
+      operatorId: item.latestOperatorId || null,
+      walletOperatorId: item.walletOperatorId || null,
+      responsibleName: item.responsibleName || "Na Fila",
+      latestConversationId: item.latestConversationId || null,
+    }));
+    setContactRows((previous) => offset === 0 ? rows : [...previous, ...rows]);
+    setTotalContacts(result.total || 0);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    contactsRequestRevision.current += 1;
+    setLoadingContacts(true);
+    const timer = window.setTimeout(() => {
+      loadContacts(0, controller.signal)
+        .catch((error) => { if (!controller.signal.aborted) toast.error(error.message); })
+        .finally(() => { if (!controller.signal.aborted) setLoadingContacts(false); });
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [tenant, search, channelFilter]);
 
   // ── Global Conversation Search ──────────────────────────────────────────
   const [showSearchModal, setShowSearchModal] = useState(false);
@@ -140,25 +202,19 @@ export function ContactsView() {
     tagsInput: "",
   });
 
-  const filteredContacts = conversations.filter((c) => {
-    if (contactScope === "wallet_only" && c.walletOperatorId !== currentOperatorId) return false;
-    if (channelFilter !== "all" && c.channel !== channelFilter) return false;
-    if (search.trim() !== "") {
-      const q = search.toLowerCase();
-      const matchName = c.name.toLowerCase().includes(q);
-      const matchPhone = c.phone?.toLowerCase().includes(q) || false;
-      const matchEmail = c.email?.toLowerCase().includes(q) || false;
-      const matchCnpj = c.cnpj?.toLowerCase().includes(q) || false;
-      const matchTags = c.tags.some((t) => t.toLowerCase().includes(q));
-      const matchResponsible = c.responsibleName?.toLowerCase().includes(q) || false;
-      return matchName || matchPhone || matchEmail || matchCnpj || matchTags || matchResponsible;
-    }
-    return true;
-  });
+  const filteredContacts = contactRows;
 
-  const handleStartChat = (id: string) => {
-    setSelectedChatId(id);
-    setActiveView("chat");
+  const handleStartChat = async (contactId: string) => {
+    try {
+      const response = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, { method: "POST", credentials: "include" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível abrir o atendimento.");
+      await refreshConversations(result.conversationId);
+      setSelectedChatId(result.conversationId);
+      setActiveView("chat");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao iniciar atendimento.");
+    }
   };
 
   const handleOpenFromSearch = (id: string) => {
@@ -167,41 +223,67 @@ export function ContactsView() {
     setActiveView("chat");
   };
 
-  const handleCreateContact = (e: React.FormEvent) => {
+  const handleCreateContact = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addForm.name.trim()) return;
-    const newId = createContact(addForm.name, addForm.phone, addForm.email, addForm.cnpj, addForm.channel);
-    setAddForm({ name: "", phone: "", email: "", cnpj: "", channel: "whatsapp" });
-    setShowAddModal(false);
-    setSelectedChatId(newId);
-    setActiveView("chat");
+    setSavingContact(true);
+    try {
+      const result = await createContact(addForm.name, addForm.phone, addForm.email, addForm.cnpj, addForm.channel);
+      setAddForm({ name: "", phone: "", email: "", cnpj: "", channel: "whatsapp" });
+      setShowAddModal(false);
+      if (!result.chatReady) {
+        try { await loadContacts(0); }
+        catch (error) { console.warn("Contato criado, mas a lista não atualizou:", error); }
+        toast.warning("Contato criado. Abra o atendimento pela lista de contatos.");
+        return;
+      }
+      setSelectedChatId(result.conversationId);
+      setActiveView("chat");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível criar o contato.");
+    } finally {
+      setSavingContact(false);
+    }
   };
 
-  const startEditing = (c: Conversation) => {
+  const startEditing = (c: ContactListItem) => {
     setEditingContact(c);
     setEditForm({
       name: c.name,
       phone: c.phone || "",
       email: c.email || "",
       cnpj: maskCNPJ(c.cnpj || ""),
-      cpf: maskCPF((c as any).cpf || ""),
+      cpf: maskCPF(c.cpf || ""),
       tagsInput: c.tags.join(", "),
     });
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingContact) return;
-    updateClientInfo(editingContact.id, {
-      name: editForm.name,
-      phone: editForm.phone,
-      email: editForm.email,
-      cnpj: editForm.cnpj,
-      cpf: editForm.cpf,
-    });
     const tagsArray = editForm.tagsInput.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
-    updateTags(editingContact.id, tagsArray);
-    setEditingContact(null);
+    setSavingContact(true);
+    try {
+      const response = await fetch(`/api/contacts/${encodeURIComponent(editingContact.id)}`, {
+        method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editForm.name, phone: editForm.phone, email: editForm.email, cnpj: editForm.cnpj, cpf: editForm.cpf, tags: tagsArray }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível salvar o contato.");
+      setEditingContact(null);
+      toast.success("Contato atualizado.");
+      try {
+        await loadContacts(0);
+        if (editingContact.latestConversationId) await refreshConversations(editingContact.latestConversationId);
+      } catch (error) {
+        console.warn("Contato atualizado, mas a visualização não atualizou:", error);
+        toast.warning("Contato salvo. Atualize a página para ver os dados mais recentes.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível salvar o contato.");
+    } finally {
+      setSavingContact(false);
+    }
   };
 
   return (
@@ -293,6 +375,7 @@ export function ContactsView() {
                         {c.channel === "whatsapp" && <><WhatsappLogo className="h-3 w-3" /> WhatsApp</>}
                         {c.channel === "instagram" && <><InstagramLogo className="h-3 w-3" /> Instagram</>}
                         {c.channel === "messenger" && <><MessengerLogo className="h-3 w-3" /> Messenger</>}
+                        {c.channel === "livechat" && <>Live Chat</>}
                       </span>
                     </td>
                     <td className="py-3.5 px-4 space-y-0.5">
@@ -314,7 +397,7 @@ export function ContactsView() {
                             <Building className="h-3 w-3 text-muted-foreground" />
                             {formatCNPJ(c.cnpj)}
                           </div>
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/15 px-1 py-0.2 rounded border border-emerald-500/30 mt-0.5 inline-block">Validado</span>
+                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/15 px-1 py-0.2 rounded border border-emerald-500/30 mt-0.5 inline-block">Informado</span>
                         </div>
                       ) : (
                         <span className="text-muted-foreground italic font-medium">Nenhum</span>
@@ -347,18 +430,7 @@ export function ContactsView() {
                     </td>
                     <td className="py-3.5 px-6 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {(() => {
-                          const isValentina = c.id === "valentina" || c.name.toLowerCase().includes("valentina");
-                          return isValentina ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="grid h-8 w-8 place-items-center rounded-lg border border-primary/20 bg-primary-soft/40 text-primary cursor-not-allowed">
-                                  <Shield className="h-3.5 w-3.5" />
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">Assistente IA permanente do sistema</TooltipContent>
-                            </Tooltip>
-                          ) : (
+                        {canEditContact && (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <button onClick={() => startEditing(c)} className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer">
@@ -367,8 +439,7 @@ export function ContactsView() {
                               </TooltipTrigger>
                               <TooltipContent side="top">Editar Cadastro</TooltipContent>
                             </Tooltip>
-                          );
-                        })()}
+                        )}
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button onClick={() => handleStartChat(c.id)} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">
@@ -398,7 +469,6 @@ export function ContactsView() {
       <div className="flex flex-col gap-3 md:hidden mt-2 pb-10">
         {filteredContacts.length > 0 ? (
           filteredContacts.map((c) => {
-            const isValentina = c.id === "valentina" || c.name.toLowerCase().includes("valentina");
             const opName = c.operatorId ? operators.find(o => o.id === c.operatorId)?.name : null;
             const displayName = opName || (c.responsibleName === "Na Fila" || !c.responsibleName ? "Na Fila" : c.responsibleName);
 
@@ -457,7 +527,7 @@ export function ContactsView() {
 
                 {/* Ações */}
                 <div className="flex items-center gap-2 pt-1 border-t border-border/60">
-                  {!isValentina && (
+                  {canEditContact && (
                     <button
                       onClick={() => startEditing(c)}
                       className="flex-1 py-2 px-3 rounded-xl border border-border bg-card hover:bg-muted text-foreground text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
@@ -481,6 +551,20 @@ export function ContactsView() {
           <div className="p-8 text-center text-xs text-muted-foreground font-medium bg-card rounded-2xl border border-border">
             Nenhum cliente encontrado com os filtros aplicados.
           </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 pt-3 text-xs text-muted-foreground">
+        <span>{loadingContacts ? "Carregando contatos..." : `${contactRows.length} de ${totalContacts} contatos`}</span>
+        {contactRows.length < totalContacts && (
+          <button type="button" disabled={loadingContacts} onClick={async () => {
+            setLoadingContacts(true);
+            try { await loadContacts(contactRows.length); }
+            catch (error) { toast.error(error instanceof Error ? error.message : "Erro ao carregar contatos."); }
+            finally { setLoadingContacts(false); }
+          }} className="rounded-lg border border-border px-3 py-2 font-semibold text-primary hover:bg-muted disabled:opacity-50">
+            Carregar mais
+          </button>
         )}
       </div>
 
@@ -680,7 +764,7 @@ export function ContactsView() {
                 </div>
                 <div className="pt-4 border-t border-line flex justify-end gap-3">
                   <button type="button" onClick={() => setShowAddModal(false)} className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer">Cancelar</button>
-                  <button type="submit" className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">Criar e Iniciar Chat</button>
+                  <button type="submit" disabled={savingContact} className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50">{savingContact ? "Salvando..." : "Criar e Iniciar Chat"}</button>
                 </div>
               </form>
             </motion.div>
@@ -742,7 +826,7 @@ export function ContactsView() {
                 </div>
                 <div className="pt-4 border-t border-line flex justify-end gap-3">
                   <button type="button" onClick={() => setEditingContact(null)} className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer">Cancelar</button>
-                  <button type="submit" className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">Salvar Cadastro</button>
+                  <button type="submit" disabled={savingContact} className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50">{savingContact ? "Salvando..." : "Salvar Cadastro"}</button>
                 </div>
               </form>
             </motion.div>

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { contacts } from "../../../db/schema";
 import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
@@ -23,6 +23,19 @@ export const Route = createFileRoute("/api/crm/contacts")({
         }
 
         const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+        const digits = search.replace(/\D/g, "");
+        const conditions = [
+          eq(contacts.tenantId, tenantId),
+          or(
+            ilike(contacts.name, pattern),
+            ilike(contacts.phone, pattern),
+            ilike(contacts.email, pattern),
+            digits.length >= 4 ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}` : undefined,
+          )!,
+        ];
+        if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only") {
+          conditions.push(eq(contacts.walletOperatorId, session.operator.id));
+        }
         const results = await db
           .select({
             id: contacts.id,
@@ -32,16 +45,7 @@ export const Route = createFileRoute("/api/crm/contacts")({
             accountId: contacts.accountId,
           })
           .from(contacts)
-          .where(
-            and(
-              eq(contacts.tenantId, tenantId),
-              or(
-                ilike(contacts.name, pattern),
-                ilike(contacts.phone, pattern),
-                ilike(contacts.email, pattern),
-              ),
-            ),
-          )
+          .where(and(...conditions))
           .orderBy(desc(contacts.createdAt))
           .limit(10);
 
@@ -66,8 +70,8 @@ export const Route = createFileRoute("/api/crm/contacts")({
         }
         const input = body as Record<string, unknown>;
         const name = typeof input.name === "string" ? input.name.trim() : "";
-        const phone = typeof input.phone === "string" ? input.phone.trim() : "";
-        const email = typeof input.email === "string" ? input.email.trim() : "";
+        const phone = typeof input.phone === "string" ? input.phone.replace(/\D/g, "") : "";
+        const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
         if (!name || name.length > 200) {
           return Response.json(
             { error: "Informe um nome de até 200 caracteres." },
@@ -75,8 +79,8 @@ export const Route = createFileRoute("/api/crm/contacts")({
           );
         }
         if (
+          (phone.length > 0 && phone.length < 8) ||
           phone.length > 40 ||
-          /[@]/.test(phone) ||
           email.length > 254 ||
           (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
         ) {
@@ -85,23 +89,30 @@ export const Route = createFileRoute("/api/crm/contacts")({
 
         try {
           const customFields = validateFieldValues(await listCustomFields(tenantId, "contact"), input.customFields, { requireOnCreate: true });
-          const [contact] = await db
-            .insert(contacts)
-            .values({
-              id: `cont-${crypto.randomUUID()}`,
-              tenantId,
-              name,
-              phone: phone || null,
-              email: email || null,
-              mainChannel: "whatsapp",
+          const outcome = await db.transaction(async (tx) => {
+            if (phone || email) {
+              await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${phone || email}))`);
+            }
+            const identity = phone.length >= 8
+              ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${phone}`
+              : email ? ilike(contacts.email, email) : undefined;
+            if (identity) {
+              const [existing] = await tx.select({ id: contacts.id, name: contacts.name })
+                .from(contacts).where(and(eq(contacts.tenantId, tenantId), identity)).limit(1);
+              if (existing) return { kind: "existing" as const, existing };
+            }
+            const [contact] = await tx.insert(contacts).values({
+              id: `cont-${crypto.randomUUID()}`, tenantId, name,
+              phone: phone || null, email: email || null, mainChannel: "whatsapp",
+              walletOperatorId: session.permissions?.contacts?.contactScope === "wallet_only" ? session.operator.id : null,
               customFields,
-            })
-            .returning({
-              id: contacts.id,
-              name: contacts.name,
-              phone: contacts.phone,
-              email: contacts.email,
-            });
+            }).returning({ id: contacts.id, name: contacts.name, phone: contacts.phone, email: contacts.email });
+            return { kind: "created" as const, contact };
+          });
+          if (outcome.kind === "existing") {
+            return Response.json({ error: `Contato já cadastrado: ${outcome.existing.name}. Busque-o na base antes de criar outro.`, code: "CONTACT_EXISTS", contactId: outcome.existing.id }, { status: 409 });
+          }
+          const contact = outcome.contact;
           return Response.json({ contact }, { status: 201 });
         } catch (error) {
           if (error instanceof Error && "statusCode" in error) return Response.json({ error: error.message }, { status: 400 });

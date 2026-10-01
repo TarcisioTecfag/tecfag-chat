@@ -136,7 +136,8 @@ type ChatContextType = {
   updateTags: (id: string, tags: string[]) => void;
   updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => void;
   updateContactWallet: (contactId: string, walletOperatorId: string | null, targetOperatorId?: string | null) => Promise<void>;
-  createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => string;
+  createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => Promise<{ contactId: string; conversationId: string; chatReady: boolean }>;
+  refreshConversations: (conversationId?: string) => Promise<void>;
   markAsRead: (id: string) => void;
   markAsUnread: (id: string) => void;
   pinChat: (id: string) => void;
@@ -2036,74 +2037,53 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const createContact = (name: string, phone: string, email: string, cnpj: string, channel: Channel) => {
-    const conversationId = `conv-${Date.now()}`;
-    const contactId = `cont-${Date.now()}`;
-    const initials = name
-      .split(" ")
-      .map((w) => w[0])
-      .join("")
-      .toUpperCase()
-      .substring(0, 2);
-    const colors = ["#e9d5b8", "#f2a6a6", "#c3f2a6", "#a6d6f2", "#d6a6f2"];
-    const initialsBg = colors[Math.floor(Math.random() * colors.length)];
+  const refreshConversations = async (conversationId?: string) => {
+    const params = conversationId ? `conversationId=${encodeURIComponent(conversationId)}` : "limit=100";
+    const response = await fetch(`${BACKEND_URL}/api/chats?${params}`, { credentials: "include" });
+    if (!response.ok) throw new Error("Não foi possível atualizar os atendimentos.");
+    const freshChats = await response.json() as Conversation[];
+    if (!Array.isArray(freshChats)) throw new Error("Resposta inválida ao atualizar atendimentos.");
+    if (conversationId && freshChats.length === 0) throw new Error("Atendimento não encontrado.");
+    setConversations((previous) => {
+      const previousById = new Map(previous.map((item) => [item.id, item]));
+      if (conversationId) {
+        const fresh = freshChats[0];
+        const current = previousById.get(conversationId);
+        const updated = { ...fresh, pinned: (current as any)?.pinned || false, messages: current?.messages || fresh.messages };
+        return current ? previous.map((item) => item.id === conversationId ? updated : item) : [updated, ...previous];
+      }
+      const aiChat = previous.find((item) => item.id === "valentina");
+      const freshIds = new Set(freshChats.map((item) => item.id));
+      return [
+        ...(aiChat ? [aiChat] : []),
+        ...freshChats.map((item) => ({
+          ...item,
+          pinned: (previousById.get(item.id) as any)?.pinned || false,
+          messages: previousById.get(item.id)?.messages || item.messages,
+        })),
+        ...previous.filter((item) => item.id !== "valentina" && !freshIds.has(item.id)),
+      ];
+    });
+  };
 
-    const newConversation: Conversation = {
-      id: conversationId,
-      contactId,
-      name,
-      avatar: "",
-      initials,
-      initialsBg,
-      phone,
-      email,
-      cnpj,
-      tags: ["Novo Cadastro"],
-      channel,
-      queue: "meus",
-      operatorId: currentOperatorId,
-      unreadCount: 0,
-      lastMessageTime: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-      messages: [
-        {
-          id: `sys-${Date.now()}`,
-          author: "Sistema",
-          text: `Contato criado e atendimento iniciado.`,
-          time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-          side: "out",
-          isInternalNote: true,
-        },
-      ],
-    };
-
-    setConversations((prev) => [newConversation, ...prev]);
-    setSelectedChatId(conversationId);
-
-    // Salvar no banco em segundo plano
-    fetch(`${BACKEND_URL}/api/contacts`, {
+  const createContact = async (name: string, phone: string, email: string, cnpj: string, channel: Channel) => {
+    const response = await fetch(`${BACKEND_URL}/api/contacts`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tenantId: tenant,
-        name,
-        phone,
-        email,
-        cnpj,
-        channel,
-        operatorId: currentOperatorId,
-        queueState: "meus",
-        contactId,
-        conversationId,
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          console.error("Erro ao salvar novo contato no banco");
-        }
-      })
-      .catch((err) => console.error("Erro ao salvar novo contato no banco:", err));
-
-    return conversationId;
+      body: JSON.stringify({ name, phone, email, cnpj, channel }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Não foi possível criar o contato.");
+    let chatReady = false;
+    try {
+      await refreshConversations(result.conversationId);
+      chatReady = true;
+    } catch (error) {
+      console.warn("Contato criado, mas a lista de atendimentos não atualizou:", error);
+    }
+    if (chatReady) setSelectedChatId(result.conversationId);
+    return { contactId: result.contactId as string, conversationId: result.conversationId as string, chatReady };
   };
 
   const disconnectBaileys = async () => {
@@ -2926,6 +2906,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateClientInfo,
         updateContactWallet,
         createContact,
+        refreshConversations,
         markAsRead,
         markAsUnread,
         pinChat,

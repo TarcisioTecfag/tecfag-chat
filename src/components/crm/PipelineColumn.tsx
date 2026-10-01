@@ -30,6 +30,7 @@ interface PipelineColumnProps {
   onDealClick: (deal: DealCardData) => void;
   onDropDeal: (dealId: string, newStageId: string, version: number) => void;
   onNewDealAtStage?: (stageId: string) => void;
+  onCreateTaskClick?: (deal: DealCardData) => void;
 }
 
 export function PipelineColumn({
@@ -43,6 +44,7 @@ export function PipelineColumn({
   onDealClick,
   onDropDeal,
   onNewDealAtStage,
+  onCreateTaskClick,
 }: PipelineColumnProps) {
   const [isOver, setIsOver] = useState(false);
 
@@ -162,6 +164,7 @@ export function PipelineColumn({
                 onClick={onDealClick}
                 onQuickMove={onDropDeal}
                 allStages={allStages}
+                onCreateTaskClick={onCreateTaskClick}
               />
             ))}
 

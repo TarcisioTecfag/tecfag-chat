@@ -22,6 +22,7 @@ interface PipelineBoardProps {
     terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null }
   ) => void;
   onNewDealAtStage?: (stageId: string) => void;
+  onCreateTaskClick?: (deal: DealCardData) => void;
 }
 
 export function PipelineBoard({
@@ -33,6 +34,7 @@ export function PipelineBoard({
   onDealClick,
   onMoveDeal,
   onNewDealAtStage,
+  onCreateTaskClick,
 }: PipelineBoardProps) {
   // Ordena etapas
   const sortedStages = [...(pipeline.stages || [])].sort((a, b) => a.orderIndex - b.orderIndex);
@@ -131,6 +133,7 @@ export function PipelineBoard({
               onDealClick={onDealClick}
               onDropDeal={handleInterceptMove}
               onNewDealAtStage={onNewDealAtStage}
+              onCreateTaskClick={onCreateTaskClick}
             />
           ))
         )}

@@ -5,6 +5,7 @@ import { PipelineBoard } from "./PipelineBoard";
 import { DealList } from "./DealList";
 import { DealCardData } from "./DealCard";
 import { CreateDealDialog } from "./CreateDealDialog";
+import { CreateTaskModal } from "./CreateTaskModal";
 import { CrmQuickCreateDialog, CrmQuickCreateKind } from "./CrmQuickCreateDialog";
 import { CrmSearchModal } from "./CrmSearchModal";
 import { AccountDetailModal } from "./AccountDetailModal";
@@ -53,6 +54,8 @@ export function CrmView() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [quickCreateKind, setQuickCreateKind] = useState<CrmQuickCreateKind | null>(null);
   const [createAtStageId, setCreateAtStageId] = useState<string | undefined>(undefined);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskModalDeal, setTaskModalDeal] = useState<DealCardData | null>(null);
 
   // Mapas para consulta rápida
   const operatorsMap = useMemo(() => {
@@ -375,7 +378,10 @@ export function CrmView() {
         }}
         onCreateCompanyClick={() => setQuickCreateKind("company")}
         onCreateContactClick={() => setQuickCreateKind("contact")}
-        onCreateTaskClick={() => setQuickCreateKind("task")}
+        onCreateTaskClick={() => {
+          setTaskModalDeal(null);
+          setIsTaskModalOpen(true);
+        }}
       />
 
       {/* Conteúdo Principal */}
@@ -429,6 +435,10 @@ export function CrmView() {
                 setCreateAtStageId(stageId);
                 setIsCreateDialogOpen(true);
               }}
+              onCreateTaskClick={(deal) => {
+                setTaskModalDeal(deal);
+                setIsTaskModalOpen(true);
+              }}
             />
           </div>
         ) : (
@@ -461,6 +471,10 @@ export function CrmView() {
               onRefreshData={() => {
                 fetchDeals();
                 fetchStagesSummary();
+              }}
+              onCreateTaskClick={(deal) => {
+                setTaskModalDeal(deal);
+                setIsTaskModalOpen(true);
               }}
             />
           </div>
@@ -509,6 +523,25 @@ export function CrmView() {
         }}
         operators={operators}
         currentOperatorId={currentOperatorId}
+      />
+
+      {/* Modal Criar Tarefa Idêntico ao RD Station CRM */}
+      <CreateTaskModal
+        isOpen={isTaskModalOpen}
+        onClose={() => {
+          setIsTaskModalOpen(false);
+          setTaskModalDeal(null);
+        }}
+        dealId={taskModalDeal?.id}
+        dealTitle={taskModalDeal?.title}
+        accountId={taskModalDeal?.accountId || taskModalDeal?.account?.id}
+        accountName={taskModalDeal?.account?.name}
+        operators={operators}
+        currentOperatorId={currentOperatorId}
+        onTaskCreated={() => {
+          fetchDeals();
+          fetchStagesSummary();
+        }}
       />
 
       <CrmSearchModal

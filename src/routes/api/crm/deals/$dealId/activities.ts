@@ -80,6 +80,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities")({
               dueDate: body.dueDate ? new Date(body.dueDate) : null,
               conversationId: body.conversationId || null,
               assignedToOperatorId: body.assignedToOperatorId || session.operator.id,
+              status: body.completed || body.status === "completed" ? "completed" : (body.status || "pending"),
+              completed: !!body.completed,
             }
           );
 

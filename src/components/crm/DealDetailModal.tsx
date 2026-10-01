@@ -40,12 +40,23 @@ import {
   Sparkles,
   Download,
   ArrowLeft,
+  UploadCloud,
+  FileUp,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AccountDetailModal } from "./AccountDetailModal";
+import { CreateTaskModal } from "./CreateTaskModal";
 import { CustomFieldsEditor, CustomFieldsSummary, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
 import { CatalogSelect } from "./CatalogSelect";
+import {
+  DealFilePreviewModal,
+  DealFileItem,
+  getFileCategory,
+  getCategoryBadge,
+  formatBytes,
+} from "./DealFilePreviewModal";
 import {
   Select,
   SelectContent,
@@ -93,9 +104,12 @@ export function DealDetailModal({
   const [editValue, setEditValue] = useState("");
 
   // Arquivos
-  const [newFileName, setNewFileName] = useState("");
-  const [newFileSizeKb, setNewFileSizeKb] = useState("250");
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadingFilesCount, setUploadingFilesCount] = useState(0);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [previewFile, setPreviewFile] = useState<DealFileItem | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Questionários
   const [questTitle, setQuestTitle] = useState("Qualificação Comercial & Briefing Técnico");
@@ -150,6 +164,7 @@ export function DealDetailModal({
   const [availableConvs, setAvailableConvs] = useState<any[]>([]);
 
   // Criação de Nova Atividade / Tarefa / Nota
+  const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [newActivityType, setNewActivityType] = useState<"note" | "task" | "call" | "meeting">("note");
   const [newActivityTitle, setNewActivityTitle] = useState("");
   const [newActivityDesc, setNewActivityDesc] = useState("");
@@ -457,42 +472,54 @@ export function DealDetailModal({
     }
   };
 
-  // Upload/Registro de Arquivo
-  const handleUploadFile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!deal) return;
-    if (!newFileName.trim()) {
-      toast.error("Informe o nome do documento.");
-      return;
+  // Upload Direto de Arquivos da Máquina (até 100MB)
+  const handleFilesUpload = async (fileList: FileList | File[]) => {
+    if (!deal || !fileList || fileList.length === 0) return;
+    const MAX_SIZE = 100 * 1024 * 1024; // 100MB
+    const validFiles: File[] = [];
+
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      if (file.size > MAX_SIZE) {
+        toast.error(`O arquivo "${file.name}" excede o limite de 100MB (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
+        continue;
+      }
+      validFiles.push(file);
     }
-    const sizeBytes = Math.max(1, parseInt(newFileSizeKb || "1", 10) * 1024);
+
+    if (validFiles.length === 0) return;
+
     try {
       setUploadingFile(true);
+      setUploadingFilesCount(validFiles.length);
+
+      const formData = new FormData();
+      for (const file of validFiles) {
+        formData.append("files", file);
+      }
+
       const res = await fetch(`/api/crm/deals/${deal.id}/files`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: newFileName.trim(),
-          fileSize: sizeBytes,
-          mimeType: newFileName.endsWith(".pdf")
-            ? "application/pdf"
-            : newFileName.endsWith(".png")
-            ? "image/png"
-            : newFileName.endsWith(".xlsx")
-            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            : "application/octet-stream",
-          storagePath: `/crm-uploads/${deal.id}/${newFileName.trim()}`,
-        }),
+        body: formData,
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao anexar arquivo.");
-      toast.success("Arquivo anexado com sucesso!");
-      setNewFileName("");
+      if (!res.ok) throw new Error(data.error || "Erro ao fazer upload dos arquivos.");
+
+      toast.success(
+        validFiles.length === 1
+          ? `Arquivo "${validFiles[0].name}" anexado com sucesso!`
+          : `${validFiles.length} arquivos anexados com sucesso!`
+      );
       await loadDealDetail();
     } catch (err: any) {
-      toast.error(err.message || "Erro ao anexar arquivo.");
+      toast.error(err.message || "Erro ao anexar arquivo(s).");
     } finally {
       setUploadingFile(false);
+      setUploadingFilesCount(0);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -508,6 +535,10 @@ export function DealDetailModal({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao excluir arquivo.");
       toast.success("Arquivo removido.");
+      if (previewFile?.id === fileId) {
+        setIsPreviewOpen(false);
+        setPreviewFile(null);
+      }
       await loadDealDetail();
     } catch (err: any) {
       toast.error(err.message || "Erro ao excluir arquivo.");
@@ -1030,8 +1061,8 @@ export function DealDetailModal({
         id: `file-${file.id}`,
         category: "file",
         title: `Arquivo Anexado: ${file.fileName}`,
-        description: file.fileSize ? `Tamanho: ${(file.fileSize / 1024).toFixed(1)} KB` : null,
-        author: file.uploadedByName || "Operador",
+        description: file.fileSize ? `Tamanho: ${formatBytes(file.fileSize)}` : null,
+        author: file.uploaderName || file.uploadedByName || "Operador",
         date: new Date(file.createdAt),
         iconType: "file",
         badgeColor: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
@@ -1886,6 +1917,16 @@ export function DealDetailModal({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
+                        <SystemTooltip content="Criar nova tarefa para esta negociação">
+                          <button
+                            type="button"
+                            onClick={() => setIsCreateTaskModalOpen(true)}
+                            className="flex h-7 items-center gap-1 rounded-lg bg-[#7fe7ff] hover:bg-[#5cdbfd] text-[#00607a] px-2.5 text-[11px] font-semibold transition-colors cursor-pointer"
+                          >
+                            <Plus className="h-3 w-3" />
+                            <span>Nova tarefa</span>
+                          </button>
+                        </SystemTooltip>
                         <SystemTooltip content="Marcar tarefa como concluída">
                           <button
                             type="button"
@@ -1927,14 +1968,10 @@ export function DealDetailModal({
                       </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          setActiveTab("tasks");
-                          setTasksSubTab("pending");
-                          setNewActivityType("task");
-                        }}
-                        className="flex items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer shrink-0"
+                        onClick={() => setIsCreateTaskModalOpen(true)}
+                        className="flex items-center gap-1.5 rounded-lg bg-[#7fe7ff] hover:bg-[#5cdbfd] text-[#00607a] px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0"
                       >
-                        <Plus className="h-3 w-3" />
+                        <Plus className="h-3.5 w-3.5" />
                         <span>Criar tarefa</span>
                       </button>
                     </div>
@@ -2043,7 +2080,16 @@ export function DealDetailModal({
                     <form onSubmit={handleCreateActivity} className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-foreground">Nova Atividade Comercial</span>
-                        <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsCreateTaskModalOpen(true)}
+                            className="flex items-center gap-1.5 rounded-lg bg-[#7fe7ff] hover:bg-[#5cdbfd] text-[#00607a] px-3 py-1 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>Criar tarefa</span>
+                          </button>
+                          <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5">
                           {(
                             [
                               { id: "note", label: "Nota" },
@@ -2065,6 +2111,7 @@ export function DealDetailModal({
                               {t.label}
                             </button>
                           ))}
+                          </div>
                         </div>
                       </div>
 
@@ -3138,115 +3185,195 @@ export function DealDetailModal({
                 {/* ABA 6: ARQUIVOS & DOCUMENTOS */}
                 {activeTab === "files" && (
                   <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
-                    {/* Formulário de Anexo */}
-                    <form onSubmit={handleUploadFile} className="rounded-xl border border-border bg-card p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                          <Paperclip className="h-4 w-4 text-primary" />
-                          Anexar Documento ao Negócio
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">Limite: 25MB por arquivo</span>
-                      </div>
+                    {/* Área de Upload Direto da Máquina / Drag & Drop */}
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingOver(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingOver(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingOver(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                          handleFilesUpload(e.dataTransfer.files);
+                        }
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`relative flex flex-col items-center justify-center p-6 rounded-2xl border-2 border-dashed transition-all cursor-pointer ${
+                        isDraggingOver
+                          ? "border-primary bg-primary/10 scale-[1.01]"
+                          : "border-border hover:border-primary/50 bg-card hover:bg-muted/30"
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        multiple
+                        ref={fileInputRef}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleFilesUpload(e.target.files);
+                          }
+                        }}
+                        className="hidden"
+                      />
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <div className="sm:col-span-2">
-                          <input
-                            type="text"
-                            required
-                            placeholder="Nome do arquivo com extensão (ex: Contrato_Social.pdf, Proposta_Assinada.pdf)..."
-                            value={newFileName}
-                            onChange={(e) => setNewFileName(e.target.value)}
-                            className="h-8 w-full rounded-lg border border-border bg-muted/20 px-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                          />
+                      {uploadingFile ? (
+                        <div className="flex flex-col items-center gap-2.5 py-3">
+                          <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                          <div className="text-center">
+                            <p className="text-xs font-bold text-foreground">
+                              Enviando {uploadingFilesCount > 1 ? `${uploadingFilesCount} arquivos` : "arquivo"}...
+                            </p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              Gravando com segurança na negociação. Aguarde...
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex gap-2">
-                          <SystemTooltip content="Tamanho em Kilobytes (KB)">
-                            <input
-                              type="number"
-                              min="1"
-                              max="25600"
-                              placeholder="Tamanho em KB"
-                              value={newFileSizeKb}
-                              onChange={(e) => setNewFileSizeKb(e.target.value)}
-                              className="h-8 w-24 rounded-lg border border-border bg-muted/20 px-2 text-xs text-foreground focus:outline-none"
-                            />
-                          </SystemTooltip>
-                          <button
-                            type="submit"
-                            disabled={uploadingFile}
-                            className="flex-1 h-8 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:bg-primary/90 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {uploadingFile ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                            <span>Anexar</span>
-                          </button>
+                      ) : (
+                        <div className="flex flex-col items-center text-center gap-2">
+                          <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shadow-sm">
+                            <UploadCloud className="h-6 w-6" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-foreground">
+                              Arraste e solte arquivos aqui, ou{" "}
+                              <span className="text-primary underline">clique para procurar</span> no seu computador
+                            </p>
+                            <p className="text-[11px] text-muted-foreground mt-1 max-w-md">
+                              Suporta <strong>todos os tipos de arquivos</strong> (vídeos, fotos, planilhas, PDFs, documentos Word, arquivos ZIP, etc.) • Limite de até <strong>100MB</strong> por arquivo
+                            </p>
+                          </div>
+
+                          <div className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-xs font-semibold text-foreground hover:bg-muted/80 transition-colors">
+                            <FileUp className="h-3.5 w-3.5 text-primary" />
+                            <span>Selecionar Arquivo(s) da Máquina</span>
+                          </div>
                         </div>
-                      </div>
-                    </form>
+                      )}
+                    </div>
 
                     {/* Lista de Arquivos */}
                     <div className="space-y-2">
-                      <span className="text-xs font-bold text-foreground block">
-                        Documentos Registrados ({deal?.files?.length || 0})
-                      </span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-foreground block">
+                          Documentos e Anexos ({deal?.files?.length || 0})
+                        </span>
+                        {deal?.files && deal.files.length > 0 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Clique em qualquer arquivo para abrir o visualizador completo
+                          </span>
+                        )}
+                      </div>
 
                       {deal?.files && deal.files.length > 0 ? (
                         <div className="space-y-2">
-                          {deal.files.map((file: any) => (
-                            <div
-                              key={file.id}
-                              className="flex items-center justify-between rounded-xl border border-border bg-card p-3 hover:border-primary/40 transition-colors"
-                            >
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                                  <Paperclip className="h-4 w-4 text-primary" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-xs font-bold text-foreground truncate">{file.fileName}</p>
-                                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                                    <span>{(file.fileSize / 1024).toFixed(1)} KB</span>
-                                    <span>•</span>
-                                    <span>{new Date(file.createdAt).toLocaleDateString("pt-BR")}</span>
-                                    {file.uploaderName && (
-                                      <>
-                                        <span>•</span>
-                                        <span>Por: {file.uploaderName}</span>
-                                      </>
-                                    )}
-                                    {file.conversationId && (
-                                      <span className="text-primary font-semibold">(Vindo do Chat)</span>
-                                    )}
+                          {deal.files.map((file: any) => {
+                            const cat = getFileCategory(file.fileName, file.mimeType);
+                            const badge = getCategoryBadge(cat, file.fileName);
+                            const BadgeIcon = badge.icon;
+                            const downloadUrl = file.downloadUrl || `/api/crm/deals/${deal.id}/files/${file.id}?download=1`;
+
+                            return (
+                              <div
+                                key={file.id}
+                                onClick={() => {
+                                  setPreviewFile(file);
+                                  setIsPreviewOpen(true);
+                                }}
+                                className="flex items-center justify-between rounded-xl border border-border bg-card p-3 hover:border-primary/50 hover:shadow-sm transition-all cursor-pointer group"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className={`h-10 w-10 rounded-xl border flex items-center justify-center shrink-0 ${badge.color}`}>
+                                    <BadgeIcon className="h-5 w-5" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-xs font-bold text-foreground truncate max-w-sm sm:max-w-md group-hover:text-primary transition-colors">
+                                        {file.fileName}
+                                      </p>
+                                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider border ${badge.color}`}>
+                                        {badge.label}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                                      <span className="font-semibold text-foreground/80">{formatBytes(file.fileSize)}</span>
+                                      <span>•</span>
+                                      <span>
+                                        {new Date(file.createdAt).toLocaleString("pt-BR", {
+                                          dateStyle: "short",
+                                          timeStyle: "short",
+                                        })}
+                                      </span>
+                                      {(file.uploaderName || file.uploadedByName) && (
+                                        <>
+                                          <span>•</span>
+                                          <span>Por: {file.uploaderName || file.uploadedByName}</span>
+                                        </>
+                                      )}
+                                      {file.conversationId && (
+                                        <span className="text-primary font-semibold">(Vindo do Chat)</span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
 
-                              <div className="flex items-center gap-1 shrink-0">
-                                <SystemTooltip content="Baixar/Visualizar documento">
-                                  <button
-                                    type="button"
-                                    onClick={() => toast.info(`Acesso ao arquivo: ${file.storagePath}`)}
-                                    className="h-7 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Download className="h-3 w-3" />
-                                    <span>Abrir</span>
-                                  </button>
-                                </SystemTooltip>
-                                <SystemTooltip content="Excluir documento">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteFile(file.id)}
-                                    className="h-7 w-7 rounded-lg border border-border hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                </SystemTooltip>
+                                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <SystemTooltip content="Visualizar arquivo em tamanho grande">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPreviewFile(file);
+                                        setIsPreviewOpen(true);
+                                      }}
+                                      className="h-8 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted hover:border-primary/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                      <Eye className="h-3.5 w-3.5 text-primary" />
+                                      <span>Visualizar</span>
+                                    </button>
+                                  </SystemTooltip>
+
+                                  <SystemTooltip content="Baixar para seu computador">
+                                    <a
+                                      href={downloadUrl}
+                                      download={file.fileName}
+                                      className="h-8 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                      <Download className="h-3.5 w-3.5" />
+                                      <span className="hidden sm:inline">Baixar</span>
+                                    </a>
+                                  </SystemTooltip>
+
+                                  <SystemTooltip content="Excluir arquivo permanentemente">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteFile(file.id)}
+                                      className="h-8 w-8 rounded-lg border border-border hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </SystemTooltip>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
-                        <p className="text-[11px] text-muted-foreground/60 italic">
-                          Nenhum documento anexado a este negócio ainda.
-                        </p>
+                        <div className="flex flex-col items-center justify-center p-8 rounded-xl border border-border/60 bg-muted/10 text-center">
+                          <Paperclip className="h-8 w-8 text-muted-foreground/40 mb-2" />
+                          <p className="text-xs font-semibold text-muted-foreground">
+                            Nenhum arquivo ou documento anexado a este negócio ainda.
+                          </p>
+                          <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+                            Arraste arquivos para o quadro acima ou clique para selecionar.
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -3700,6 +3827,31 @@ export function DealDetailModal({
           }}
         />
       )}
+
+      {/* Visualizador Universal de Arquivos e Documentos */}
+      <DealFilePreviewModal
+        file={previewFile}
+        isOpen={isPreviewOpen}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          setPreviewFile(null);
+        }}
+        onDelete={handleDeleteFile}
+      />
+
+      {/* Modal Criar Tarefa Idêntico ao RD Station */}
+      <CreateTaskModal
+        isOpen={isCreateTaskModalOpen}
+        onClose={() => setIsCreateTaskModalOpen(false)}
+        dealId={deal?.id}
+        dealTitle={deal?.title}
+        accountId={deal?.accountId || deal?.account?.id}
+        accountName={deal?.account?.name}
+        operators={Array.from(operatorsMap.entries()).map(([id, name]) => ({ id, name }))}
+        onTaskCreated={() => {
+          loadDealDetail();
+        }}
+      />
     </div>
   );
 }

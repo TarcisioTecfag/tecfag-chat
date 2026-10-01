@@ -168,6 +168,7 @@ export const Route = createFileRoute("/api/chats")({
           const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10), 1), 100);
           const queueFilter = url.searchParams.get("queue");
           const beforeCursor = url.searchParams.get("before");
+          const requestedConversationId = url.searchParams.get("conversationId");
 
           // 0. Carregar mapa de operadores do tenant em memória
           const allOperators = await db
@@ -178,6 +179,10 @@ export const Route = createFileRoute("/api/chats")({
 
           // 1. Montar condições da query com isolamento por tenant
           const conditions = [eq(conversations.tenantId, session.tenantId)];
+
+          if (requestedConversationId) {
+            conditions.push(eq(conversations.id, requestedConversationId));
+          }
 
           if (queueFilter && queueFilter !== "todos") {
             conditions.push(eq(conversations.queueState, queueFilter));
@@ -202,7 +207,7 @@ export const Route = createFileRoute("/api/chats")({
             .leftJoin(sectors, and(eq(conversations.sectorId, sectors.id), eq(sectors.tenantId, session.tenantId)))
             .where(and(...conditions))
             .orderBy(desc(conversations.lastMessageTime))
-            .limit(limit);
+            .limit(requestedConversationId ? 1 : limit);
 
           if (rows.length === 0) {
             return new Response(JSON.stringify([]), { headers: corsHeaders });

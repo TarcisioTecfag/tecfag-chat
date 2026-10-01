@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { eq, ne, and, desc, asc, sql, inArray, gte, lte } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "../../db";
@@ -1456,10 +1458,11 @@ export class CrmService {
         contact: contacts,
       })
       .from(crmDealContacts)
-      .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+      .innerJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
       .where(
         and(
           eq(crmDealContacts.tenantId, tenantId),
+          eq(contacts.tenantId, tenantId),
           eq(crmDealContacts.dealId, dealId)
         )
       )
@@ -1549,10 +1552,11 @@ export class CrmService {
           contact: contacts,
         })
         .from(crmDealContacts)
-        .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+        .innerJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
         .where(
           and(
             eq(crmDealContacts.tenantId, tenantId),
+            eq(contacts.tenantId, tenantId),
             eq(crmDealContacts.dealId, dealId)
           )
         )
@@ -1631,10 +1635,11 @@ export class CrmService {
           contact: contacts,
         })
         .from(crmDealContacts)
-        .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+        .innerJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
         .where(
           and(
             eq(crmDealContacts.tenantId, tenantId),
+            eq(contacts.tenantId, tenantId),
             eq(crmDealContacts.dealId, dealId)
           )
         )
@@ -1704,10 +1709,11 @@ export class CrmService {
           contact: contacts,
         })
         .from(crmDealContacts)
-        .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+        .innerJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
         .where(
           and(
             eq(crmDealContacts.tenantId, tenantId),
+            eq(contacts.tenantId, tenantId),
             eq(crmDealContacts.dealId, dealId)
           )
         )
@@ -2262,10 +2268,11 @@ export class CrmService {
         contact: contacts,
       })
       .from(crmDealContacts)
-      .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+      .innerJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
       .where(
         and(
           eq(crmDealContacts.tenantId, tenantId),
+          eq(contacts.tenantId, tenantId),
           eq(crmDealContacts.dealId, dealId)
         )
       );
@@ -2570,6 +2577,8 @@ export class CrmService {
         }
       }
 
+      let linkedContactId = data.contactId || null;
+
       // 4. Validação de Contato no tenant (se fornecido)
       if (data.contactId) {
         const [contact] = await tx
@@ -2586,7 +2595,7 @@ export class CrmService {
       // 5. Validação de Conversa de origem no tenant (se fornecida)
       if (data.conversationId) {
         const [conv] = await tx
-          .select({ id: conversations.id })
+          .select({ id: conversations.id, contactId: conversations.contactId })
           .from(conversations)
           .where(and(eq(conversations.id, data.conversationId), eq(conversations.tenantId, tenantId)))
           .limit(1);
@@ -2594,6 +2603,10 @@ export class CrmService {
         if (!conv) {
           throw new CrmCrossTenantError(`A conversa informada (${data.conversationId}) não pertence ao tenant ${tenantId}.`);
         }
+        if (data.contactId && conv.contactId !== data.contactId) {
+          throw new CrmValidationError("A conversa e o contato selecionados não correspondem.", "CONTACT_CONVERSATION_MISMATCH");
+        }
+        linkedContactId = conv.contactId;
       }
 
       // 6. Validação do Vendedor / Operador responsável no tenant (se fornecido)
@@ -2681,12 +2694,12 @@ export class CrmService {
       }
 
       // 10. Se informado um contato, cria o vínculo participante na mesma transação
-      if (data.contactId) {
+      if (linkedContactId) {
         await tx.insert(crmDealContacts).values({
           id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           tenantId,
           dealId,
-          contactId: data.contactId,
+          contactId: linkedContactId,
           role: "buyer",
           isPrimary: true,
           createdAt: now,
@@ -3604,12 +3617,14 @@ export class CrmService {
     dealId: string,
     operatorId: string | null,
     data: {
-      type: "task" | "note" | "call" | "meeting";
+      type: "task" | "note" | "call" | "meeting" | "email" | "lunch" | "visit" | "whatsapp" | string;
       title: string;
       description?: string;
       dueDate?: Date | string | null;
       conversationId?: string | null;
       assignedToOperatorId?: string | null;
+      status?: "pending" | "completed" | "cancelled";
+      completed?: boolean;
     }
   ): Promise<
     CrmDealActivity & {
@@ -3665,7 +3680,13 @@ export class CrmService {
 
       const id = `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const now = new Date();
-      const initialStatus = data.type === "note" ? "completed" : "pending";
+      const initialStatus =
+        data.type === "note"
+          ? "completed"
+          : data.status === "completed" || data.completed
+          ? "completed"
+          : "pending";
+      const completedAt = initialStatus === "completed" ? now : null;
 
       const [activity] = await tx
         .insert(crmDealActivities)
@@ -3678,7 +3699,7 @@ export class CrmService {
           title: data.title.trim(),
           description: data.description?.trim() || null,
           status: initialStatus,
-          completedAt: data.type === "note" ? now : null,
+          completedAt,
           dueDate: data.dueDate ? new Date(data.dueDate) : null,
           operatorId,
           assignedToOperatorId: assignedOpId,
@@ -4532,10 +4553,10 @@ export class CrmService {
         throw new Error(`Negociação ${dealId} não encontrada para o tenant ${tenantId}.`);
       }
 
-      // 2. Validação de tamanho (máximo 25MB = 26214400 bytes)
-      const MAX_SIZE = 25 * 1024 * 1024;
+      // 2. Validação de tamanho (máximo 100MB = 104857600 bytes)
+      const MAX_SIZE = 100 * 1024 * 1024;
       if (data.fileSize <= 0 || data.fileSize > MAX_SIZE) {
-        throw new Error(`Tamanho de arquivo inválido (${data.fileSize} bytes). Limite máximo é de 25MB.`);
+        throw new Error(`Tamanho de arquivo inválido (${data.fileSize} bytes). Limite máximo é de 100MB.`);
       }
 
       // 3. Se houver conversationId, valida que pertence ao tenant
@@ -4634,6 +4655,51 @@ export class CrmService {
   }
 
   /**
+   * Obtém um arquivo específico da negociação pelo ID.
+   */
+  async getDealFileById(
+    tenantId: string,
+    dealId: string,
+    fileId: string
+  ): Promise<(CrmDealFile & { uploaderName?: string | null }) | null> {
+    const [deal] = await db
+      .select({ id: crmDeals.id })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+      .limit(1);
+
+    if (!deal) return null;
+
+    const [file] = await db
+      .select({
+        id: crmDealFiles.id,
+        tenantId: crmDealFiles.tenantId,
+        dealId: crmDealFiles.dealId,
+        conversationId: crmDealFiles.conversationId,
+        uploadedByOperatorId: crmDealFiles.uploadedByOperatorId,
+        fileName: crmDealFiles.fileName,
+        fileSize: crmDealFiles.fileSize,
+        mimeType: crmDealFiles.mimeType,
+        storagePath: crmDealFiles.storagePath,
+        metadata: crmDealFiles.metadata,
+        createdAt: crmDealFiles.createdAt,
+        uploaderName: operators.name,
+      })
+      .from(crmDealFiles)
+      .leftJoin(operators, eq(crmDealFiles.uploadedByOperatorId, operators.id))
+      .where(
+        and(
+          eq(crmDealFiles.tenantId, tenantId),
+          eq(crmDealFiles.dealId, dealId),
+          eq(crmDealFiles.id, fileId)
+        )
+      )
+      .limit(1);
+
+    return (file as any) || null;
+  }
+
+  /**
    * Exclui um arquivo anexado à negociação.
    */
   async deleteDealFile(
@@ -4662,6 +4728,15 @@ export class CrmService {
       await tx
         .delete(crmDealFiles)
         .where(and(eq(crmDealFiles.id, fileId), eq(crmDealFiles.tenantId, tenantId)));
+
+      // Tenta remover o arquivo físico no disco se existir
+      try {
+        if (file.storagePath && fs.existsSync(file.storagePath)) {
+          fs.unlinkSync(file.storagePath);
+        }
+      } catch (err) {
+        console.warn(`[CRM Files] Não foi possível remover arquivo físico no disco: ${file.storagePath}`, err);
+      }
 
       await tx.insert(crmDealEvents).values({
         id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,

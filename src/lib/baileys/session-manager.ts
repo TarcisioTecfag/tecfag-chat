@@ -13,7 +13,7 @@ import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
 import { db } from "../../db";
 import { channelConfigs, contacts, conversations, messages, mediaFiles, responseTimeLogs, agentFlowStates } from "../../db/schema";
-import { eq, isNull, and, desc } from "drizzle-orm";
+import { eq, isNull, and, desc, sql } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
@@ -524,6 +524,12 @@ export class SessionManager {
               )
           });
 
+          if (!contact && phone.length >= 8) {
+            [contact] = await db.select().from(contacts)
+              .where(and(eq(contacts.tenantId, tenantId), sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${phone}`))
+              .limit(1);
+          }
+
           if (!contact) {
             const contactId = `c-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
             await db.insert(contacts).values({
@@ -887,6 +893,12 @@ export class SessionManager {
             dOr(dEq(contactsTable.whatsappJid, jid), dEq(contactsTable.phone, phone))
           )
       });
+
+      if (!contact && phone.length >= 8) {
+        [contact] = await db.select().from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${phone}`))
+          .limit(1);
+      }
 
       const contactId = contact?.id || `c-${Date.now()}`;
       const profilePicUrl = contact?.avatar || "";

@@ -44,6 +44,7 @@ interface DealListProps {
   onRetry?: () => void;
   onClearFilters?: () => void;
   onRefreshData?: () => void;
+  onCreateTaskClick?: (deal: DealCardData) => void;
 }
 
 export function DealList({
@@ -63,6 +64,7 @@ export function DealList({
   onRetry,
   onClearFilters,
   onRefreshData,
+  onCreateTaskClick,
 }: DealListProps) {
   // Seleção de linhas
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -412,7 +414,16 @@ export function DealList({
                             </div>
                           </SystemTooltip>
                         ) : (
-                          <span className="text-muted-foreground/40 text-[11px]">-</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCreateTaskClick ? onCreateTaskClick(deal) : onDealClick(deal);
+                            }}
+                            className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                          >
+                            + Tarefa
+                          </button>
                         )}
                       </td>
 
