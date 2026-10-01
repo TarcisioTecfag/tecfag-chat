@@ -15,7 +15,7 @@ import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
 import { db } from "../../db";
 import { channelConfigs, contacts, conversations, messages, mediaFiles, responseTimeLogs, agentFlowStates } from "../../db/schema";
-import { eq, isNull, and, desc, sql } from "drizzle-orm";
+import { eq, isNull, and, or, inArray, desc, sql } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
@@ -45,6 +45,16 @@ export type SessionEvent =
   | { type: "presence_update"; id: string; presences: Record<string, any> };
 
 export type SessionListener = (event: SessionEvent) => void;
+
+function phoneIdentityVariants(phone: string): string[] {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return [];
+  const variants = new Set([digits]);
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    variants.add(digits.slice(2));
+  }
+  return [...variants];
+}
 
 export class SessionManager {
   private static instance: SessionManager;
@@ -679,7 +689,9 @@ export class SessionManager {
     }
     // ── FIM FILTRO ───────────────────────────────────────────────────────────────────────────
     
-    // Tenta obter o JID alternativo clássico com o número de telefone se o JID principal for do tipo @lid
+    const sock = this.sessions.get(tenantId);
+
+    // O WhatsApp pode entregar o cliente pelo LID mesmo quando a conversa foi criada pelo telefone.
     let resolvedPhoneJid = jid;
     if (jid.endsWith("@lid")) {
       if (rawMsg.key?.remoteJidAlt && typeof rawMsg.key.remoteJidAlt === "string" && rawMsg.key.remoteJidAlt.endsWith("@s.whatsapp.net")) {
@@ -688,6 +700,13 @@ export class SessionManager {
         resolvedPhoneJid = rawMsg.pnJid;
       } else if (rawMsg.senderPn && typeof rawMsg.senderPn === "string" && rawMsg.senderPn.endsWith("@s.whatsapp.net")) {
         resolvedPhoneJid = rawMsg.senderPn;
+      } else if (sock) {
+        try {
+          const mappedPhoneJid = await sock.signalRepository.lidMapping.getPNForLID(jid);
+          if (mappedPhoneJid?.endsWith("@s.whatsapp.net")) resolvedPhoneJid = mappedPhoneJid;
+        } catch (error) {
+          console.warn(`[Baileys] Não foi possível resolver LID para tenant ${tenantId}:`, error);
+        }
       }
     }
 
@@ -740,8 +759,6 @@ export class SessionManager {
         text = "🎥 Vídeo (Visualização única)";
       }
     }
-
-    const sock = this.sessions.get(tenantId);
 
     // Extrair informações de resposta (quoted/citar)
     const contextInfo = rawMsg.message?.extendedTextMessage?.contextInfo ||
@@ -904,23 +921,51 @@ export class SessionManager {
 
     try {
       // 1. Garantir que o contato existe no banco
-      // Busca PRIMEIRO pelo JID exato (mais confiável), depois pelo phone
-      let contact = await db.query.contacts.findFirst({
-        where: (contactsTable, { eq: dEq, and: dAnd, or: dOr }) =>
-          dAnd(
-            dEq(contactsTable.tenantId, tenantId),
-            dOr(dEq(contactsTable.whatsappJid, jid), dEq(contactsTable.phone, phone))
-          )
-      });
+      // Com PN resolvido, prioriza o contato da conversa já aberta. O mesmo número
+      // pode estar salvo com ou sem DDI; buscar primeiro pelo LID criaria outra conversa.
+      let contact: typeof contacts.$inferSelect | undefined;
+      if (!jid.endsWith("@lid")) {
+        contact = await db.query.contacts.findFirst({
+          where: (table, { eq: dEq, and: dAnd }) =>
+            dAnd(dEq(table.tenantId, tenantId), dEq(table.whatsappJid, jid))
+        });
+      }
+      const phoneVariants = resolvedPhoneJid.endsWith("@s.whatsapp.net")
+        ? phoneIdentityVariants(phone)
+        : [];
+      if (!contact && phoneVariants.length > 0) {
+        const matchingContacts = await db.select().from(contacts)
+          .where(and(
+            eq(contacts.tenantId, tenantId),
+            or(...phoneVariants.map((candidate) =>
+              sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${candidate}`
+            ))
+          ));
+        if (matchingContacts.length > 0) {
+          const [activeConversation] = await db.select({ contactId: conversations.contactId })
+            .from(conversations)
+            .where(and(
+              eq(conversations.tenantId, tenantId),
+              inArray(conversations.contactId, matchingContacts.map((item) => item.id))
+            ))
+            .orderBy(desc(conversations.lastMessageTime))
+            .limit(1);
+          contact = matchingContacts.find((item) => item.id === activeConversation?.contactId)
+            || matchingContacts.find((item) => item.whatsappJid === jid)
+            || matchingContacts[0];
+        }
+      }
 
-      if (!contact && phone.length >= 8) {
-        [contact] = await db.select().from(contacts)
-          .where(and(eq(contacts.tenantId, tenantId), sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${phone}`))
-          .limit(1);
+      if (!contact) {
+        contact = await db.query.contacts.findFirst({
+          where: (table, { eq: dEq, and: dAnd }) =>
+            dAnd(dEq(table.tenantId, tenantId), dEq(table.whatsappJid, jid))
+        });
       }
 
       const contactId = contact?.id || `c-${Date.now()}`;
       const profilePicUrl = contact?.avatar || "";
+      console.log(`[Baileys Inbound] tenant=${tenantId} jidType=${jid.endsWith("@lid") ? "lid" : "phone"} pnResolved=${resolvedPhoneJid !== jid} contactId=${contactId} existing=${!!contact}`);
 
       if (!contact) {
         // Criar contato se não existir (inicialmente sem foto para velocidade máxima)
@@ -1029,6 +1074,7 @@ export class SessionManager {
       // Se usarmos conv-${Date.now()}, duas mensagens rápidas do mesmo contato geram
       // IDs diferentes → duas sessões no debouncer → saudação duplicada.
       const convId = conversation?.id || `conv-${tenantId}-${contactId}`;
+      console.log(`[Baileys Inbound] tenant=${tenantId} messageId=${messageId} conversationId=${convId} existingConversation=${!!conversation}`);
       const isFromMe = !!rawMsg.key.fromMe;
 
       // ── Comando !reset: Reinicia a triagem da IA SEM apagar o histórico de mensagens ──

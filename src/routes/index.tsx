@@ -70,7 +70,7 @@ function Index() {
 
   return (
     <div className="min-h-screen bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
-      <div className="flex h-screen w-full gap-5 p-5 overflow-hidden">
+      <div className={`flex h-screen w-full gap-5 ${activeView === "crm" ? "pl-5 pt-5 pb-5 pr-0" : "p-5"} overflow-hidden`}>
         <Sidebar />
         <div className="flex flex-1 h-full overflow-hidden relative">
           <AnimatePresence mode="wait">
@@ -107,7 +107,7 @@ function Index() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="flex-1 h-full overflow-hidden"
+                className="flex-1 h-full w-full overflow-hidden"
               >
                 <CrmView />
               </motion.div>

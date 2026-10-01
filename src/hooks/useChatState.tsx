@@ -1350,6 +1350,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const shouldSendReal =
       currentChat.channel === "whatsapp" &&
       !isInternalNote;
+    let sentTextMessageId: string | undefined;
+    const sentAttachmentMessageIds: string[] = [];
 
     console.log("[SendMessage Frontend] Diagnóstico de envio:", {
       tenant,
@@ -1392,16 +1394,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.error || "Erro na resposta do envio de mensagem");
           }
+          const sendResult = await response.json().catch(() => ({}));
+          sentTextMessageId = sendResult.messageId;
           partAlreadySent = true;
         }
 
         // Enviar anexos via endpoint unificado /api/whatsapp/send (funciona para Baileys e Meta)
         if (attachments && attachments.length > 0) {
-          for (const file of attachments) {
+          for (const [attachmentIndex, file] of attachments.entries()) {
             try {
               const formData = new FormData();
               formData.append("conversationId", selectedChatId);
-              formData.append("clientMessageId", `${clientMessageId}-att-${Date.now()}`);
+              formData.append("clientMessageId", `${clientMessageId}-att-${attachmentIndex}`);
               const safeName = (file as any).name || file.name || "arquivo";
               formData.append("file", file, safeName);
               if (quotedMessage?.id) {
@@ -1417,6 +1421,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const errData = await mediaRes.json().catch(() => ({}));
                 throw new Error(errData.error || "Falha ao enviar anexo pelo canal unificado");
               }
+              const mediaResult = await mediaRes.json().catch(() => ({}));
+              sentAttachmentMessageIds.push(mediaResult.messageId || "");
               partAlreadySent = true;
             } catch (err) {
               console.error("Falha ao enviar anexo:", err);
@@ -1455,6 +1461,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           toast.error("Erro ao salvar mensagem local no banco.");
           return false;
         }
+        const savedMessage = await response.json().catch(() => ({}));
+        sentTextMessageId = savedMessage.id;
       } catch (err) {
         console.error("Falha ao salvar mensagem local no banco:", err);
         toast.error("Falha ao salvar mensagem local no banco.");
@@ -1469,7 +1477,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (text.trim() || metaTemplate) {
       messagesToAdd.push({
-        id: `msg-${Date.now()}`,
+        id: sentTextMessageId || `msg-${Date.now()}`,
         author: isInternalNote ? operatorProfile.name : "Você",
         text: metaTemplate ? `[Template Meta: ${metaTemplate.name}]` : text,
         time: now,
@@ -1494,7 +1502,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         else if (mime.startsWith("audio/")) mediaType = "audio";
 
         messagesToAdd.push({
-          id: `msg-media-${Date.now()}-${i}`,
+          id: sentAttachmentMessageIds[i] || `msg-media-${Date.now()}-${i}`,
           author: "Você",
           // Formato especial para preview local: [LOCAL_MEDIA:type:url:filename]
           text: `[LOCAL_MEDIA:${mediaType}:${objectUrl}:${fileName}]`,
@@ -1511,7 +1519,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return {
             ...c,
             lastMessageTime: now,
-            messages: [...c.messages, ...messagesToAdd],
+            messages: [
+              ...c.messages,
+              ...messagesToAdd.filter((message) => !c.messages.some((existing) => existing.id === message.id)),
+            ],
           };
         }
         return c;

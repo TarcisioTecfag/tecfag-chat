@@ -104,6 +104,21 @@ if (!databaseUrl) {
       } else {
         console.log(`[platform migration] ${tecfagMigrationName} já aplicada anteriormente.`);
       }
+
+      // Migração de campos personalizados, catálogos e enriquecimento de cards/empresas
+      const tecfagCfMigrationName = "import_tecfag_custom_fields_v2";
+      const appliedTecfagCf = await tx`
+        SELECT name FROM app_deploy_migrations WHERE name = ${tecfagCfMigrationName}
+      `;
+      if (appliedTecfagCf.length === 0) {
+        console.log(`[platform migration] Iniciando execução de ${tecfagCfMigrationName}...`);
+        const { runCustomFieldsMigration } = await import("./migrate-tecfag-custom-fields.mjs");
+        await runCustomFieldsMigration(tx);
+        await tx`INSERT INTO app_deploy_migrations (name) VALUES (${tecfagCfMigrationName})`;
+        console.log(`[platform migration] ${tecfagCfMigrationName} concluída e registrada com sucesso.`);
+      } else {
+        console.log(`[platform migration] ${tecfagCfMigrationName} já aplicada anteriormente.`);
+      }
     });
   } catch (error) {
     console.error("[platform migration] Falha ao aplicar migrações de acesso:", error);

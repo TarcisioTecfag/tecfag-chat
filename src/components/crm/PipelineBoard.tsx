@@ -109,7 +109,7 @@ export function PipelineBoard({
 
   return (
     <>
-      <div className="flex h-full w-full gap-4 overflow-x-auto pb-4 pt-1 px-1 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+      <div className="flex h-full w-full gap-4 overflow-x-auto pb-4 pt-1 pl-1 pr-5 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
         {sortedStages.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border/80 p-8 text-center">
             <div>

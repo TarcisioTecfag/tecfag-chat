@@ -335,66 +335,68 @@ export function CrmView() {
   };
 
   return (
-    <div className="flex flex-col h-full w-full gap-4 overflow-hidden p-1">
+    <div className="flex flex-col h-full w-full gap-4 overflow-hidden pt-1 pb-1 pl-1 pr-0">
       {/* Barra de Ferramentas Superior */}
-      <CrmToolbar
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        pipelines={pipelines}
-        selectedPipelineId={selectedPipelineId}
-        onPipelineChange={(id) => {
-          setSelectedPipelineId(id);
-          setListOffset(0);
-        }}
-        statusFilter={statusFilter}
-        onStatusFilterChange={(st) => {
-          setStatusFilter(st);
-          setListOffset(0);
-        }}
-        operators={operators}
-        currentOperatorId={currentOperatorId}
-        selectedOperatorIds={selectedOperatorIds}
-        onOperatorIdsChange={(opIds) => {
-          setSelectedOperatorIds(opIds);
-          setListOffset(0);
-        }}
-        sortBy={sortBy}
-        onSortByChange={(sb) => {
-          setSortBy(sb);
-          setListOffset(0);
-        }}
-        advancedFilters={advancedFilters}
-        stages={activeStages}
-        onAdvancedFiltersChange={(filters) => {
-          setAdvancedFilters(filters);
-          setListOffset(0);
-        }}
-        onOpenAdvancedFilters={() => setIsAdvancedFiltersOpen(true)}
-        onClearFilters={handleClearAllFilters}
-        onOpenSearch={() => setIsSearchOpen(true)}
-        onNewDealClick={() => {
-          setCreateAtStageId(undefined);
-          setIsCreateDialogOpen(true);
-        }}
-        onCreateCompanyClick={() => setQuickCreateKind("company")}
-        onCreateContactClick={() => setQuickCreateKind("contact")}
-        onCreateTaskClick={() => {
-          setTaskModalDeal(null);
-          setIsTaskModalOpen(true);
-        }}
-      />
+      <div className="pr-5 shrink-0">
+        <CrmToolbar
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          pipelines={pipelines}
+          selectedPipelineId={selectedPipelineId}
+          onPipelineChange={(id) => {
+            setSelectedPipelineId(id);
+            setListOffset(0);
+          }}
+          statusFilter={statusFilter}
+          onStatusFilterChange={(st) => {
+            setStatusFilter(st);
+            setListOffset(0);
+          }}
+          operators={operators}
+          currentOperatorId={currentOperatorId}
+          selectedOperatorIds={selectedOperatorIds}
+          onOperatorIdsChange={(opIds) => {
+            setSelectedOperatorIds(opIds);
+            setListOffset(0);
+          }}
+          sortBy={sortBy}
+          onSortByChange={(sb) => {
+            setSortBy(sb);
+            setListOffset(0);
+          }}
+          advancedFilters={advancedFilters}
+          stages={activeStages}
+          onAdvancedFiltersChange={(filters) => {
+            setAdvancedFilters(filters);
+            setListOffset(0);
+          }}
+          onOpenAdvancedFilters={() => setIsAdvancedFiltersOpen(true)}
+          onClearFilters={handleClearAllFilters}
+          onOpenSearch={() => setIsSearchOpen(true)}
+          onNewDealClick={() => {
+            setCreateAtStageId(undefined);
+            setIsCreateDialogOpen(true);
+          }}
+          onCreateCompanyClick={() => setQuickCreateKind("company")}
+          onCreateContactClick={() => setQuickCreateKind("contact")}
+          onCreateTaskClick={() => {
+            setTaskModalDeal(null);
+            setIsTaskModalOpen(true);
+          }}
+        />
+      </div>
 
       {/* Conteúdo Principal */}
       <div className="min-h-0 flex-1 overflow-hidden relative">
         {loading && deals.length === 0 ? (
-          <div className="flex h-full w-full items-center justify-center">
+          <div className="flex h-full w-full items-center justify-center pr-5">
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <p className="text-xs font-semibold">Carregando funil comercial...</p>
             </div>
           </div>
         ) : !activePipeline ? (
-          <div className="flex h-full w-full items-center justify-center p-8 text-center">
+          <div className="flex h-full w-full items-center justify-center p-8 text-center pr-5">
             <div className="max-w-md space-y-3">
               <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground/60" />
               <h3 className="text-sm font-bold text-foreground">Nenhum funil disponível</h3>
@@ -442,7 +444,7 @@ export function CrmView() {
             />
           </div>
         ) : (
-          <div key="crm-list-view" className="h-full w-full animate-in fade-in-50 duration-200">
+          <div key="crm-list-view" className="h-full w-full pr-5 animate-in fade-in-50 duration-200">
             <DealList
               deals={deals}
               stages={activeStages}

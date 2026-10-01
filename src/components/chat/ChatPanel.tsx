@@ -56,6 +56,18 @@ import { getAiPersona } from "@/lib/ai-persona";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
+function appendUniqueFiles(previous: File[], incoming: File[]): File[] {
+  const seen = new Set(previous.map((file) => `${file.name}:${file.size}:${file.lastModified}:${file.type}`));
+  const result = [...previous];
+  for (const file of incoming) {
+    const key = `${file.name}:${file.size}:${file.lastModified}:${file.type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(file);
+  }
+  return result;
+}
+
 // ── Player de áudio customizado ────────────────────────────────────────────
 function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
   const audioRef = React.useRef<HTMLAudioElement>(null);
@@ -598,7 +610,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   };
 
   const handleAttachCatalogFiles = (newFiles: File[]) => {
-    setAttachments((prev) => [...prev, ...newFiles]);
+    setAttachments((prev) => appendUniqueFiles(prev, newFiles));
     setIsCatalogOpen(false);
     setMsgMode("client");
     setTimeout(() => {
@@ -615,6 +627,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   };
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
+  const sendInFlightRef = useRef(false);
+  const [isSending, setIsSending] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [msgSearch, setMsgSearch] = useState("");
   const [showMsgSearch, setShowMsgSearch] = useState(false);
@@ -1022,7 +1036,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     e.preventDefault();
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) setAttachments((prev) => [...prev, ...files]);
+    if (files.length > 0) setAttachments((prev) => appendUniqueFiles(prev, files));
   }, []);
 
   // ── Ctrl+V para colar arquivos da área de transferência ───────────────────
@@ -1035,7 +1049,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         .filter(Boolean) as File[];
       if (files.length > 0) {
         e.preventDefault();
-        setAttachments((prev) => [...prev, ...files]);
+        setAttachments((prev) => appendUniqueFiles(prev, files));
       }
     };
     window.addEventListener("paste", handlePaste);
@@ -1104,7 +1118,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     logSystemEvent(activeChat.id, `Clique no botão de ligação para o cliente por ${operatorName}`);
   };
 
-  const handleSend = async () => {
+  const performSend = async () => {
     if (activeProvider === "meta" && activeChat?.channel === "whatsapp" && msgMode !== "internal" && metaWindow && !metaWindow.open) {
       toast.error("A janela de 24 horas terminou. Use um template aprovado pela Meta.");
       loadMetaTemplates();
@@ -1151,6 +1165,18 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setReplyingTo(null);
     setShowQuickMenu(false);
     setShowEmojiPicker(false);
+  };
+
+  const handleSend = async () => {
+    if (sendInFlightRef.current) return;
+    sendInFlightRef.current = true;
+    setIsSending(true);
+    try {
+      await performSend();
+    } finally {
+      sendInFlightRef.current = false;
+      setIsSending(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2577,7 +2603,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               className="hidden"
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
-                if (files.length > 0) setAttachments((prev) => [...prev, ...files]);
+                if (files.length > 0) setAttachments((prev) => appendUniqueFiles(prev, files));
                 e.target.value = "";
               }}
             />
@@ -2723,9 +2749,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             {/* Send — always visible */}
             <motion.button
               onClick={handleSend}
+              disabled={isSending}
               whileHover={{ scale: 1.06 }}
               whileTap={{ scale: 0.94 }}
-              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 ${
+              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-60 ${
                 msgMode === "internal" ? "bg-amber-500" : "bg-primary"
               }`}
             >
