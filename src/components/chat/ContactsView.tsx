@@ -728,7 +728,7 @@ export function ContactsView() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               transition={{ type: "spring", damping: 25, stiffness: 280 }}
-              className="w-full max-w-md rounded-3xl bg-card p-6 border border-border shadow-card flex flex-col"
+              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-card p-6 border border-border shadow-card flex flex-col"
             >
               <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
                 <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">
@@ -795,7 +795,7 @@ export function ContactsView() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               transition={{ type: "spring", damping: 25, stiffness: 280 }}
-              className="w-full max-w-md rounded-3xl bg-card p-6 border border-border shadow-card flex flex-col"
+              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-card p-6 border border-border shadow-card flex flex-col"
             >
               <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
                 <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">

@@ -190,6 +190,8 @@ export class InboundProcessor {
         }
         if (senderName && (contact.name === contact.phone || contact.name === "Contato WhatsApp")) {
           identityUpdates.name = senderName.trim();
+        } else if (whatsappUsername !== undefined && contact.whatsappUsername && contact.name === `@${contact.whatsappUsername}`) {
+          identityUpdates.name = whatsappUsername ? `@${whatsappUsername}` : contact.phone || "Contato WhatsApp";
         }
         if (Object.keys(identityUpdates).length) {
           await db

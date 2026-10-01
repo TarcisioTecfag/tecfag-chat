@@ -1293,7 +1293,7 @@ function AuditsTab({
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">{sentimentEmoji[selected.clientSentiment ?? ""] ?? "–"}</span>
+                    <span>{renderAuditSentiment(selected.clientSentiment)}</span>
                     {selected.performanceScore !== null
                       ? <ScoreBadge score={selected.performanceScore} />
                       : <AuditStatusBadge status={selected.status} />

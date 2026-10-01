@@ -358,8 +358,9 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                   unprocessableErrors.push("Novo BSUID já vinculado a outro contato");
                   continue;
                 }
-                const newPhone = typeof update.wa_id === "string" && /^\d{8,15}$/.test(update.wa_id)
-                  ? update.wa_id : null;
+                const reportedPhone = update.wa_id || value?.contacts?.find((candidate: any) => candidate?.user_id === current)?.wa_id;
+                const newPhone = typeof reportedPhone === "string" && /^\d{8,15}$/.test(reportedPhone)
+                  ? reportedPhone : null;
                 await db.update(contacts).set({ whatsappUserId: current, phone: newPhone })
                   .where(and(eq(contacts.id, existing.id), eq(contacts.tenantId, tenantId)));
               }

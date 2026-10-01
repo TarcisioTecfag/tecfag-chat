@@ -131,9 +131,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
       const q = searchQuery.toLowerCase();
       const matchName = c.name.toLowerCase().includes(q);
       const matchPhone = c.phone?.toLowerCase().includes(q) || false;
+      const matchUsername = c.whatsappUsername?.toLowerCase().includes(q.replace(/^@/, "")) || false;
       const matchCnpj = c.cnpj?.toLowerCase().includes(q) || false;
       const matchTags = c.tags.some((t) => t.toLowerCase().includes(q));
-      return matchName || matchPhone || matchCnpj || matchTags;
+      return matchName || matchPhone || matchUsername || matchCnpj || matchTags;
     }
 
     return true;

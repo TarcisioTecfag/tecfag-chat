@@ -5,6 +5,8 @@ import makeWASocket, {
   downloadMediaMessage,
   proto,
   Browsers,
+  fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
 } from "@whiskeysockets/baileys";
 import NodeCache from "node-cache";
 import pino from "pino";
@@ -109,11 +111,13 @@ export class SessionManager {
     }
   }
 
-  public registerListener(tenantId: string, listener: SessionListener) {
+  public registerListener(tenantId: string, listener: SessionListener, replayCurrent = true) {
     if (!this.listeners.has(tenantId)) {
       this.listeners.set(tenantId, new Set());
     }
     this.listeners.get(tenantId)!.add(listener);
+
+    if (!replayCurrent) return;
 
     // Enviar status atual imediatamente
     const status = this.sessionStatuses.get(tenantId) || "disconnected";
@@ -217,14 +221,16 @@ export class SessionManager {
   public async resetAndInitSession(tenantId: string): Promise<WASocket> {
     console.log(`[SessionManager] Resetando sessão para forçar novo QR Code — tenant: ${tenantId}`);
 
-    // Cancelar inicialização em progresso para este tenant
+    // Aguarda a inicialização anterior para não deixar um socket antigo nascer após o reset.
+    const pendingInit = this.initMutex.get(tenantId);
+    if (pendingInit) await pendingInit.catch(() => undefined);
     this.initMutex.delete(tenantId);
 
     // Encerrar socket existente
     const existingSock = this.sessions.get(tenantId);
     if (existingSock) {
-      try { existingSock.end(undefined); } catch (_) {}
       this.sessions.delete(tenantId);
+      try { existingSock.end(undefined); } catch (_) {}
     }
     this.sessionStatuses.set(tenantId, "disconnected");
     this.sessionQrs.delete(tenantId);
@@ -264,7 +270,10 @@ export class SessionManager {
 
     const initPromise = this._doInitSession(tenantId);
     this.initMutex.set(tenantId, initPromise);
-    initPromise.finally(() => this.initMutex.delete(tenantId));
+    const clearInitMutex = () => {
+      if (this.initMutex.get(tenantId) === initPromise) this.initMutex.delete(tenantId);
+    };
+    void initPromise.then(clearInitMutex, clearInitMutex);
     return initPromise;
   }
 
@@ -272,8 +281,8 @@ export class SessionManager {
     // Encerrar socket antigo se existir
     const oldSock = this.sessions.get(tenantId);
     if (oldSock) {
-      try { oldSock.end(undefined); } catch (_) {}
       this.sessions.delete(tenantId);
+      try { oldSock.end(undefined); } catch (_) {}
     }
 
     console.log(`[SessionManager] Iniciando sessão Baileys para tenant: ${tenantId}`);
@@ -286,21 +295,27 @@ export class SessionManager {
     console.log(`[SessionManager] Estado de autenticação carregado para tenant ${tenantId}`);
 
     // Versão do protocolo WhatsApp Web
-    // Tenta buscar a versão mais recente com timeout de 5s.
-    // Se falhar (sem rede, Railway, etc), usa a última versão conhecida como fallback.
+    // O catálogo do Baileys pode ficar atrás da versão aceita pelo WhatsApp em novos pareamentos.
+    // Sessões já pareadas mantêm o caminho de versão usado anteriormente.
     let version: [number, number, number] = [2, 3000, 1043857760];
     try {
-      const { fetchLatestBaileysVersion } = await import("@whiskeysockets/baileys");
+      const isNewPairing = !state.creds.registered;
+      const fetchVersion = isNewPairing ? fetchLatestWaWebVersion : fetchLatestBaileysVersion;
       const result = await Promise.race([
-        fetchLatestBaileysVersion(),
+        fetchVersion({ signal: AbortSignal.timeout(5000) }),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000))
-      ]) as { version: [number, number, number] } | null;
-      if (result?.version) {
-        version = result.version;
-        console.log(`[SessionManager] Versão WA obtida dinamicamente: ${version.join(".")}`);
+      ]) as { version: [number, number, number]; isLatest: boolean; error?: unknown } | null;
+      if (!result?.version || (isNewPairing && !result.isLatest)) {
+        throw new Error(`Versão atual indisponível: ${String(result?.error ?? "resposta vazia")}`);
       }
+      version = result.version;
+      console.log(`[SessionManager] Versão ${isNewPairing ? "WhatsApp Web" : "WA"} obtida dinamicamente: ${version.join(".")}`);
     } catch (e) {
-      console.warn(`[SessionManager] Não foi possível buscar versão WA — usando fallback ${version.join(".")}`);
+      console.warn(`[SessionManager] Não foi possível buscar a versão atual do WhatsApp Web para tenant ${tenantId}:`, e);
+      if (!state.creds.registered) {
+        throw new Error("Não foi possível obter a versão atual do WhatsApp Web para gerar um QR válido. Tente novamente mais tarde.");
+      }
+      console.warn(`[SessionManager] Sessão já pareada: usando versão de fallback ${version.join(".")}`);
     }
 
 
@@ -321,7 +336,7 @@ export class SessionManager {
       getMessage: async (key: proto.IMessageKey) => {
         try {
           const stored = await db.query.messages.findFirst({
-            where: (t, { eq: dEq }) => dEq(t.id, key.id ?? ""),
+            where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, key.id ?? ""), dEq(t.tenantId, tenantId)),
           });
           if (stored?.content) return { conversation: stored.content } as proto.IMessage;
         } catch (_) {}
@@ -333,10 +348,13 @@ export class SessionManager {
     console.log(`[SessionManager] Socket criado e registrado para tenant ${tenantId}`);
 
     // Persistir credenciais ao serem atualizadas pelo handshake
-    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update", () => {
+      if (this.sessions.get(tenantId) === sock) void saveCreds();
+    });
 
     // Handler principal de mudanças de estado da conexão
     sock.ev.on("connection.update", async (update: any) => {
+      if (this.sessions.get(tenantId) !== sock) return;
       const { connection, lastDisconnect, qr } = update;
       console.log(`[SessionManager][${tenantId}] connection.update:`, JSON.stringify({ connection, qr: !!qr, statusCode: (lastDisconnect?.error as any)?.output?.statusCode }));
 
@@ -380,6 +398,7 @@ export class SessionManager {
 
       if (connection === "close") {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const disconnectMessage = lastDisconnect?.error?.message;
         const loggedOut = statusCode === DisconnectReason.loggedOut;
 
         // ATENÇÃO: NÃO usar sock.user?.id para decidir se reconectar.
@@ -401,7 +420,7 @@ export class SessionManager {
           console.warn(`[SessionManager] Conexão substituída (440) para tenant ${tenantId} — NÃO reconectando para evitar loop.`);
         }
 
-        console.log(`[SessionManager] Conexão fechada para tenant ${tenantId} — statusCode: ${statusCode}, loggedOut: ${loggedOut}, sock.user: ${sock.user?.id || "null"}, reconectar: ${shouldReconnect}`);
+        console.log(`[SessionManager] Conexão fechada para tenant ${tenantId} — statusCode: ${statusCode}, motivo: ${disconnectMessage || "não informado"}, loggedOut: ${loggedOut}, sock.user: ${sock.user?.id || "null"}, reconectar: ${shouldReconnect}`);
 
 
         this.sessions.delete(tenantId);
@@ -583,12 +602,12 @@ export class SessionManager {
   public async pauseSession(tenantId: string) {
     const sock = this.sessions.get(tenantId);
     if (sock) {
+      this.sessions.delete(tenantId);
       try {
         sock.end(undefined);
       } catch (e) {
         console.error(`[SessionManager] Erro ao fechar conexão socket para pausa no tenant '${tenantId}':`, e);
       }
-      this.sessions.delete(tenantId);
     }
 
     this.sessionStatuses.set(tenantId, "disconnected");
@@ -611,6 +630,7 @@ export class SessionManager {
   public async disconnectSession(tenantId: string) {
     const sock = this.sessions.get(tenantId);
     if (sock) {
+      this.sessions.delete(tenantId);
       try {
         await sock.logout();
       } catch (e) {
@@ -621,7 +641,6 @@ export class SessionManager {
       } catch (e) {
         console.error("Erro ao fechar conexão:", e);
       }
-      this.sessions.delete(tenantId);
     }
 
     this.sessionStatuses.set(tenantId, "disconnected");

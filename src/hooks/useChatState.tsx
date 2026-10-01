@@ -2144,6 +2144,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...prev,
             status: data.status,
             pairedPhone: data.phone ? `+${data.phone}` : prev.pairedPhone,
+            qrCodeUrl: data.status === "qr_ready" ? prev.qrCodeUrl : "",
           }));
 
           // Ao conectar, sincroniza fotos de contatos sem avatar em background
@@ -2182,6 +2183,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .catch((err) => {
             console.error("[QRCode] Erro ao gerar QR Code local:", err);
           });
+      } else if (data.type === "error" && activeProvider === "baileys") {
+        const message = data.message || "Falha ao iniciar a conexão WhatsApp.";
+        console.error("[Baileys]", message);
+        toast.error(message);
+        setBaileysConfig((prev) => ({ ...prev, status: "disconnected", qrCodeUrl: "" }));
       } else if (data.type === "contact_avatar") {
         setConversations((prev) =>
           prev.map((c) => {

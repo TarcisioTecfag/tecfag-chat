@@ -89,6 +89,21 @@ if (!databaseUrl) {
         await tx`INSERT INTO app_deploy_migrations (name) VALUES (${migration.name})`;
         console.log(`[platform migration] ${migration.name} aplicada com sucesso.`);
       }
+
+      // Migração de dados de negócio da Tecfag (Planilha de Negociações do Funil Máquinas)
+      const tecfagMigrationName = "import_tecfag_deals_spreadsheet_v1";
+      const appliedTecfag = await tx`
+        SELECT name FROM app_deploy_migrations WHERE name = ${tecfagMigrationName}
+      `;
+      if (appliedTecfag.length === 0) {
+        console.log(`[platform migration] Iniciando execução de ${tecfagMigrationName}...`);
+        const { runTecfagSpreadsheetImport } = await import("./import-tecfag-spreadsheet.mjs");
+        await runTecfagSpreadsheetImport(tx);
+        await tx`INSERT INTO app_deploy_migrations (name) VALUES (${tecfagMigrationName})`;
+        console.log(`[platform migration] ${tecfagMigrationName} concluída e registrada com sucesso.`);
+      } else {
+        console.log(`[platform migration] ${tecfagMigrationName} já aplicada anteriormente.`);
+      }
     });
   } catch (error) {
     console.error("[platform migration] Falha ao aplicar migrações de acesso:", error);

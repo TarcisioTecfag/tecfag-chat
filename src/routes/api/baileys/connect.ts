@@ -66,13 +66,14 @@ export const Route = createFileRoute("/api/baileys/connect")({
               }
             };
 
-            sessionManager.registerListener(tenantId, listener);
+            // Um reset invalida o QR anterior: nunca reenviá-lo ao novo stream.
+            sessionManager.registerListener(tenantId, listener, !force);
 
             // Notificar status inicial se a sessão já estiver ativa
             const currentStatus = sessionManager.getStatus(tenantId);
             const currentQr = sessionManager.getQr(tenantId);
             const sock = sessionManager.getSession(tenantId);
-            if (currentStatus !== "disconnected") {
+            if (!force && currentStatus !== "disconnected") {
               const phone = sock?.user?.id ? sock.user.id.split(":")[0] : undefined;
               controller.enqueue(`data: ${JSON.stringify({ type: "status", status: currentStatus, phone })}\n\n`);
               if (currentStatus === "qr_ready" && currentQr) {
