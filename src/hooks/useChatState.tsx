@@ -1361,13 +1361,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       quotedMessage,
     });
 
-    if (shouldSendReal && currentChat.phone) {
-      let targetPhone = currentChat.phone.replace(/\D/g, "");
-      // Adiciona o DDI 55 (Brasil) caso tenha sido salvo apenas com o DDD e número (10 ou 11 dígitos)
-      if (targetPhone.length === 10 || targetPhone.length === 11) {
-        targetPhone = `55${targetPhone}`;
-      }
-
+    if (shouldSendReal) {
       const clientMessageId = `cmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       let partAlreadySent = false;
 
@@ -1380,7 +1374,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             credentials: "include",
             body: JSON.stringify({
               conversationId: selectedChatId,
-              recipientPhone: targetPhone,
               text,
               clientMessageId,
               quotedMessageId: quotedMessage?.id || null,

@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import crypto from "node:crypto";
 import { db } from "../../../db";
-import { channelConfigs, pendingInbounds } from "../../../db/schema";
+import { channelConfigs, contacts, pendingInbounds } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { inboundProcessor } from "../../../lib/whatsapp/inbound";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { applyMetaStatus } from "../../../lib/whatsapp/meta-status";
+import { resolveMetaSenderIdentity } from "../../../lib/whatsapp/meta-identity";
 
 export const Route = createFileRoute("/api/webhooks/meta")({
   server: {
@@ -203,9 +204,12 @@ export const Route = createFileRoute("/api/webhooks/meta")({
 
               const incomingMessages = value?.messages;
               const statuses = value?.statuses;
+              const userIdUpdates = value?.user_id_update
+                ? (Array.isArray(value.user_id_update) ? value.user_id_update : [value.user_id_update])
+                : [];
               const hasActionableContent =
                 (Array.isArray(incomingMessages) && incomingMessages.length > 0) ||
-                (Array.isArray(statuses) && statuses.length > 0);
+                (Array.isArray(statuses) && statuses.length > 0) || userIdUpdates.length > 0;
 
               // Confirmar que este change tem phone_number_id pertencente ao tenant resolvido.
               const changePid = value?.metadata?.phone_number_id;
@@ -335,28 +339,46 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                 continue;
               }
 
+              // Quando a Meta troca o BSUID, preserva o vínculo da conversa existente.
+              for (const update of userIdUpdates) {
+                const previous = update?.user_id?.previous;
+                const current = update?.user_id?.current;
+                if (typeof previous !== "string" || typeof current !== "string" || !previous || !current) {
+                  unprocessableItemsCount++;
+                  unprocessableErrors.push("user_id_update sem BSUID anterior e atual");
+                  continue;
+                }
+                const [existing] = await db.select({ id: contacts.id }).from(contacts)
+                  .where(and(eq(contacts.tenantId, tenantId), eq(contacts.whatsappUserId, previous))).limit(1);
+                if (!existing) continue;
+                const [collision] = await db.select({ id: contacts.id }).from(contacts)
+                  .where(and(eq(contacts.tenantId, tenantId), eq(contacts.whatsappUserId, current))).limit(1);
+                if (collision && collision.id !== existing.id) {
+                  unprocessableItemsCount++;
+                  unprocessableErrors.push("Novo BSUID já vinculado a outro contato");
+                  continue;
+                }
+                const newPhone = typeof update.wa_id === "string" && /^\d{8,15}$/.test(update.wa_id)
+                  ? update.wa_id : null;
+                await db.update(contacts).set({ whatsappUserId: current, phone: newPhone })
+                  .where(and(eq(contacts.id, existing.id), eq(contacts.tenantId, tenantId)));
+              }
+
               // 5.1. Mensagens recebidas
               if (Array.isArray(incomingMessages) && incomingMessages.length > 0) {
                 for (const msg of incomingMessages) {
                   const messageId = msg.id;
                   const webhookContacts = Array.isArray(value?.contacts) ? value.contacts : [];
-                  const matchedContact = webhookContacts.find((candidate: any) =>
-                    (msg.from_user_id && candidate.user_id === msg.from_user_id) ||
-                    (msg.from && candidate.wa_id === msg.from)
-                  ) || (webhookContacts.length === 1 ? webhookContacts[0] : undefined);
-                  if (msg.from_user_id && matchedContact?.user_id && msg.from_user_id !== matchedContact.user_id) {
+                  let identity;
+                  try {
+                    identity = resolveMetaSenderIdentity(msg, webhookContacts);
+                  } catch (error) {
                     unprocessableItemsCount++;
-                    unprocessableErrors.push(`Identificadores Meta divergentes na mensagem ${messageId}`);
+                    unprocessableErrors.push(`Identificadores Meta divergentes na mensagem ${messageId}: ${error instanceof Error ? error.message : "erro"}`);
                     continue;
                   }
-                  const fromPhone = /^\d{8,15}$/.test(msg.from || "")
-                    ? msg.from
-                    : /^\d{8,15}$/.test(matchedContact?.wa_id || "") ? matchedContact.wa_id : "";
-                  const fromUserId = msg.from_user_id || matchedContact?.user_id;
-                  const contactProfile = matchedContact?.profile?.name;
-                  const whatsappUsername = fromUserId
-                    ? (typeof matchedContact?.profile?.username === "string" ? matchedContact.profile.username.replace(/^@/, "") : null)
-                    : undefined;
+                  const { fromPhone, fromUserId, whatsappUsername, senderName: contactProfile } = identity;
+                  const recoverablePayload = { ...msg, ...identity };
                   const timestamp = msg.timestamp
                     ? new Date(parseInt(msg.timestamp, 10) * 1000)
                     : new Date();
@@ -376,7 +398,7 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                         tenantId,
                         provider: "meta",
                         externalEventId,
-                        payload: msg,
+                        payload: recoverablePayload,
                         status: "failed",
                         attempts: 0,
                         errorMessage: "Mídia sem ID no webhook da Meta",
@@ -397,7 +419,7 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                         tenantId,
                         provider: "meta",
                         externalEventId,
-                        payload: msg,
+                        payload: recoverablePayload,
                         status: "pending",
                         attempts: 0,
                         errorMessage: mediaErr?.message || "Falha no download da mídia Meta",
@@ -429,7 +451,7 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                     media: mediaInfo,
                     quotedExternalId: msg.context?.id,
                     timestamp,
-                    rawPayload: msg,
+                    rawPayload: recoverablePayload,
                   });
 
                   if (result.success) {

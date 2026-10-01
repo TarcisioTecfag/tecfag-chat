@@ -15,6 +15,7 @@ import { ChatProvider } from "@/hooks/useChatState";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { DeployNotificationModal } from "@/components/ui/DeployNotificationModal";
+import { CrmChatWidget } from "@/components/crm/CrmChatWidget";
 import { useTheme } from "../hooks/useTheme";
 
 function NotFoundComponent() {
@@ -183,6 +184,7 @@ function RootComponent() {
         <ChatProvider>
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
+          <CrmChatWidget />
           <Toaster />
           <DeployNotificationModal />
         </ChatProvider>

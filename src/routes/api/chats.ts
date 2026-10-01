@@ -266,6 +266,7 @@ export const Route = createFileRoute("/api/chats")({
               initials: initials || "C",
               initialsBg: "#a6d6f2",
               phone: row.contact.phone || "",
+              whatsappUsername: row.contact.whatsappUsername || "",
               email: row.contact.email || "",
               cnpj: row.contact.cnpj || "",
               cpf: row.contact.cpf || "",

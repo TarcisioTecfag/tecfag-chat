@@ -33,7 +33,6 @@ import {
   Phone,
   PhoneOff,
   PhoneCall,
-  Bot,
   AlertCircle,
   MessageSquare,
   Star,
@@ -468,7 +467,7 @@ export function getFriendlyQuotedContent(content: string | null | undefined): st
   return content;
 }
 
-export function ChatPanel() {
+export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const {
     activeChat,
     activeProvider,
@@ -1203,12 +1202,7 @@ export function ChatPanel() {
           {/* Avatar & Channel Badge */}
           <div className="relative">
             {activeChat.id === "valentina" ? (
-              <img
-                src="/valentina.png"
-                alt="Valentina"
-                className="h-10 w-10 rounded-full object-cover border border-border cursor-pointer hover:opacity-90 transition-opacity"
-                onClick={() => setActiveMedia({ type: "image", url: "/valentina.png" })}
-              />
+              <span aria-label={aiPersona.name} className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-primary-soft text-2xl">{aiPersona.avatar}</span>
             ) : activeChat.avatar ? (
               <img
                 src={activeChat.avatar}
@@ -1252,10 +1246,11 @@ export function ChatPanel() {
 
           <div>
             <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
+            {activeChat.whatsappUsername && <span className="text-[11px] text-primary">@{activeChat.whatsappUsername}</span>}
             {activeChat.id === "valentina" && isValentinaTyping ? (
               <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
                 <Zap className="h-3 w-3 text-primary animate-bounce" />
-                <span>Valentina está digitando...</span>
+                <span>{aiPersona.name} está digitando...</span>
               </span>
             ) : activeTyping ? (
               <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
@@ -1291,7 +1286,7 @@ export function ChatPanel() {
               )}
               {activeChat.queue === "automacao" && (
                 <span className="flex items-center gap-1 text-primary font-bold animate-pulse">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Com Valentina (I.A)
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Com {aiPersona.name} (I.A)
                 </span>
               )}
               {activeChat.queue === "finalizados" && (
@@ -1355,7 +1350,7 @@ export function ChatPanel() {
                         <AlertCircle className="h-3.5 w-3.5" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Avisos de Valentina</TooltipContent>
+                    <TooltipContent side="bottom">Avisos de {aiPersona.name}</TooltipContent>
                   </Tooltip>
 
                   {/* Filtrar Respostas/Conversas */}
@@ -1372,13 +1367,13 @@ export function ChatPanel() {
                         <MessageSquare className="h-3.5 w-3.5" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Respostas/Conversas de Valentina</TooltipContent>
+                    <TooltipContent side="bottom">Respostas/Conversas de {aiPersona.name}</TooltipContent>
                   </Tooltip>
                 </>
               )}
 
               {/* Local Dial Button (VigosPhone) */}
-              {activeChat.id !== "valentina" && (
+              {activeChat.id !== "valentina" && !!activeChat.phone && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <a
@@ -1981,7 +1976,7 @@ export function ChatPanel() {
                         {m.isWarning && (
                           <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-primary mb-1 select-none">
                             <AlertCircle className="h-3 w-3 shrink-0" />
-                            Aviso de Valentina
+                            Aviso de {aiPersona.name}
                           </div>
                         )}
                         {m.quotedMessageContent && (
@@ -2009,7 +2004,7 @@ export function ChatPanel() {
                             <button
                               onClick={() => {
                                 setSelectedChatId(m.warningMetadata!.clientId);
-                                setActiveView("chat");
+                                if (!embedded) setActiveView("chat");
                               }}
                               className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
                             >
@@ -2054,7 +2049,7 @@ export function ChatPanel() {
                             <button
                               onClick={() => {
                                 setSelectedChatId(m.warningMetadata!.clientId);
-                                setActiveView("chat");
+                                if (!embedded) setActiveView("chat");
                               }}
                               className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
                             >
@@ -2128,13 +2123,9 @@ export function ChatPanel() {
               transition={{ duration: 0.2 }}
               className="flex items-end gap-2 my-2.5 w-full"
             >
-              <img
-                src="/valentina.png"
-                alt="Valentina"
-                className="h-7 w-7 shrink-0 rounded-full object-cover border border-border shadow-soft"
-              />
+              <span aria-label={aiPersona.name} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-primary-soft text-base shadow-soft">{aiPersona.avatar}</span>
               <div className="rounded-2xl rounded-bl-[5px] bg-primary-soft border border-primary/20 px-4 py-2 text-xs font-bold text-primary shadow-soft flex items-center gap-2">
-                <span>Valentina está digitando</span>
+                <span>{aiPersona.name} está digitando</span>
                 <motion.span
                   animate={{ opacity: [0.3, 1, 0.3] }}
                   transition={{ duration: 1.2, repeat: Infinity }}
@@ -2352,20 +2343,12 @@ export function ChatPanel() {
             /* ── BLOQUEIO: automação ── */
             <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-primary/20 bg-primary-soft/30 dark:bg-primary/10 text-center">
               <div className="h-12 w-12 rounded-full overflow-hidden border-2 border-primary/30 bg-primary-soft flex items-center justify-center shadow-soft">
-                <img
-                  src="/valentina.png"
-                  alt="Valentina IA"
-                  className="h-full w-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLElement).style.display = "none";
-                  }}
-                />
-                <Bot className="h-6 w-6 text-primary" />
+                <span aria-label={aiPersona.name} className="text-2xl">{aiPersona.avatar}</span>
               </div>
               <div>
-                <p className="text-sm font-bold text-foreground">Com Valentina (I.A)</p>
+                <p className="text-sm font-bold text-foreground">Com {aiPersona.name} (I.A)</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Valentina está conduzindo este atendimento. Capture para assumir o controle.
+                  {aiPersona.name} está conduzindo este atendimento. Capture para assumir o controle.
                 </p>
               </div>
               {canCapture && (

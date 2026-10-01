@@ -8,6 +8,7 @@ import { getMetaServiceWindow } from "../meta-policy";
 
 const META_GRAPH_VERSION = "v21.0";
 const META_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
+const META_BSUID_BASE_URL = "https://graph.facebook.com/v25.0";
 
 export class MetaAdapter implements WhatsAppAdapter {
   readonly provider = "meta" as const;
@@ -169,7 +170,7 @@ export class MetaAdapter implements WhatsAppAdapter {
       let bodyPayload: Record<string, any> = {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: userId || cleanTo,
+        ...(userId ? { recipient: userId } : { to: cleanTo }),
       };
 
       // 1. Mensagem de Template Oficial (necessária para iniciar conversa ou fora da janela de 24h)
@@ -266,7 +267,7 @@ export class MetaAdapter implements WhatsAppAdapter {
         return { externalId: "", status: "failed", error: "Mensagem sem texto, mídia ou template" };
       }
 
-      const response = await fetch(`${META_BASE_URL}/${phoneNumberId}/messages`, {
+      const response = await fetch(`${userId ? META_BSUID_BASE_URL : META_BASE_URL}/${phoneNumberId}/messages`, {
         method: "POST",
         signal: AbortSignal.timeout(30000),
         headers: {
@@ -287,7 +288,7 @@ export class MetaAdapter implements WhatsAppAdapter {
           errorMessage = "Conversa fora da janela de 24h da Meta. É necessário utilizar um Template aprovado para reabrir o diálogo.";
         }
 
-        console.error(`[MetaAdapter] Falha no envio para ${cleanTo} (tenant: ${tenantId}):`, metaError);
+        console.error(`[MetaAdapter] Falha no envio para ${userId ? "[BSUID]" : cleanTo} (tenant: ${tenantId}):`, metaError);
         return {
           externalId: "",
           status: "failed",

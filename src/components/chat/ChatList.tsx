@@ -1,5 +1,6 @@
 import React from "react";
 import { useChat } from "@/hooks/useChatState";
+import { getAiPersona } from "@/lib/ai-persona";
 import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile } from "lucide-react";
 import { Channel, QueueType } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
@@ -65,7 +66,7 @@ export function MessengerLogo({ className = "h-4.5 w-4.5" }: { className?: strin
   );
 }
 
-export function ChatList() {
+export function ChatList({ embedded = false }: { embedded?: boolean }) {
   const {
     tenant,
     activeView,
@@ -89,6 +90,7 @@ export function ChatList() {
     pinChat,
     logout,
   } = useChat();
+  const aiPersona = getAiPersona(tenant);
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ chatId: string; x: number; y: number } | null>(null);
@@ -303,7 +305,7 @@ export function ChatList() {
               onClick={() => {
                 setActiveQueue(q.id as QueueType);
                 setSelectedChatId(null);
-                setActiveView("chat");
+                if (!embedded) setActiveView("chat");
               }}
               className={`relative flex-1 rounded-lg py-1.5 text-center text-xs font-semibold transition-colors duration-200 cursor-pointer z-10 ${
                 isActive
@@ -327,7 +329,7 @@ export function ChatList() {
       {/* Chat List */}
       <div className="mt-3 flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin">
         <AnimatePresence initial={false}>
-          {/* Item Fixo da Valentina (Sempre o primeiro, alinhado e destacado) */}
+          {/* Assistente do tenant */}
           <motion.div
             layout
             initial={{ opacity: 0, y: -10 }}
@@ -337,15 +339,15 @@ export function ChatList() {
             <button
               onClick={() => {
                 setSelectedChatId("valentina");
-                setActiveView("chat");
+                if (!embedded) setActiveView("chat");
               }}
               className={`flex w-full items-center gap-2 rounded-2xl p-2 text-left transition-colors duration-150 cursor-pointer ${
-                selectedChatId === "valentina" && activeView === "chat" ? "bg-muted" : "hover:bg-muted/50"
+                selectedChatId === "valentina" && (embedded || activeView === "chat") ? "bg-muted" : "hover:bg-muted/50"
               }`}
             >
-              {/* Avatar da Valentina com indicador de canal/presença */}
+              {/* Avatar da IA com indicador de canal/presença */}
               <div className="relative shrink-0">
-                <img src="/valentina.png" alt="Valentina" className="h-8 w-8 rounded-full object-cover border border-border" />
+                <span aria-label={aiPersona.name} className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-primary-soft text-lg">{aiPersona.avatar}</span>
                 
                 {/* Indicador Online Pulsante como Channel Badge */}
                 <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card bg-primary text-primary-foreground shadow-soft">
@@ -358,7 +360,7 @@ export function ChatList() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-1">
                   <span className="truncate text-xs font-bold text-primary flex items-center gap-1.5">
-                    Valentina
+                    {aiPersona.name}
                     <span className="px-1.5 py-0.2 rounded bg-primary text-primary-foreground text-[8px] font-black uppercase tracking-wider">
                       IA
                     </span>
@@ -399,7 +401,7 @@ export function ChatList() {
                     <button
                       onClick={() => {
                         setSelectedChatId(c.id);
-                        setActiveView("chat");
+                        if (!embedded) setActiveView("chat");
                         markAsRead(c.id);
                       }}
                       className={`flex w-full items-center gap-2 rounded-2xl p-2 text-left transition-colors duration-150 ${

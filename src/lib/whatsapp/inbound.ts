@@ -180,7 +180,11 @@ export class InboundProcessor {
       } else {
         const identityUpdates: Partial<typeof contacts.$inferInsert> = {};
         if (userId && !contact.whatsappUserId) identityUpdates.whatsappUserId = userId;
-        if (cleanPhone && !contact.phone) identityUpdates.phone = cleanPhone;
+        if (cleanPhone && !contact.phone) {
+          const [phoneOwner] = await db.select({ id: contacts.id }).from(contacts)
+            .where(and(eq(contacts.tenantId, tenantId), eq(contacts.phone, cleanPhone))).limit(1);
+          if (!phoneOwner || phoneOwner.id === contact.id) identityUpdates.phone = cleanPhone;
+        }
         if (userId && whatsappUsername !== undefined && contact.whatsappUsername !== whatsappUsername) {
           identityUpdates.whatsappUsername = whatsappUsername;
         }
@@ -188,10 +192,10 @@ export class InboundProcessor {
           identityUpdates.name = senderName.trim();
         }
         if (Object.keys(identityUpdates).length) {
-        await db
-          .update(contacts)
-          .set(identityUpdates)
-          .where(and(eq(contacts.id, contact.id), eq(contacts.tenantId, tenantId)));
+          await db
+            .update(contacts)
+            .set(identityUpdates)
+            .where(and(eq(contacts.id, contact.id), eq(contacts.tenantId, tenantId)));
           contact = { ...contact, ...identityUpdates };
         }
       }

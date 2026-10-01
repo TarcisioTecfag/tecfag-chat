@@ -32,6 +32,7 @@ export type Conversation = {
   initials?: string;
   initialsBg?: string;
   phone?: string;
+  whatsappUsername?: string;
   email?: string;
   cnpj?: string;
   cpf?: string;

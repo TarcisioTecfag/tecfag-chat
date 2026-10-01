@@ -46,7 +46,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({ onSearchClick }) => 
                   {activeChat.name}
                 </h2>
                 <span className="text-[10px] font-bold text-primary tracking-wider uppercase truncate">
-                  {activeChat.phone || activeChat.sectorName || "WhatsApp"}
+                  {activeChat.whatsappUsername ? `@${activeChat.whatsappUsername}` : activeChat.phone || activeChat.sectorName || "WhatsApp"}
                 </span>
               </div>
             </>

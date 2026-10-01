@@ -1,0 +1,5 @@
+# Nixpacks configuration for Railway
+# Overrides default 'bun install --frozen-lockfile' to prevent build failures on dependency additions
+
+[phases.install]
+cmds = ["bun install"]
