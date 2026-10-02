@@ -113,7 +113,22 @@ export function PipelineBoard({
 
   return (
     <>
-      <div className="flex h-full w-full gap-4 overflow-x-auto pb-4 pt-1 pl-1 pr-5 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+      {/* Wrapper relativo para posicionar o overlay glassmorphism */}
+      <div className="relative h-full w-full overflow-hidden">
+        {/* Overlay glassmorphism sobre a barra de scroll horizontal */}
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-6"
+          style={{
+            background:
+              "linear-gradient(to top, rgba(var(--color-background, 15 23 42) / 0.55) 0%, transparent 100%)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            borderTop: "1px solid rgba(255,255,255,0.07)",
+            boxShadow: "0 -2px 12px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.06)",
+          }}
+        />
+
+      <div className="flex h-full w-full gap-4 overflow-x-auto pb-4 pt-1 pl-1 pr-5 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:backdrop-blur-sm [&::-webkit-scrollbar-thumb:hover]:bg-white/35 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-full">
         {sortedStages.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border/80 p-8 text-center">
             <div>
@@ -143,6 +158,7 @@ export function PipelineBoard({
             />
           ))
         )}
+      </div>
       </div>
 
       {/* Confirmação explícita de Ganho / Perda em Etapas Terminais */}
