@@ -70,6 +70,17 @@ export class SessionManager {
   private booted = false;
   // Flag de encerramento do processo (Railway deploy/restart)
   private isShuttingDown = false;
+  // Cache global de versão WA Web — evita bater no servidor a cada reconexão
+  // Compartilhado entre todos os tenants; TTL de 4 horas (14400000 ms)
+  private static waVersionCache: {
+    version: [number, number, number];
+    fetchedAt: number;
+  } | null = null;
+  private static readonly WA_VERSION_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4h
+  // Versão de fallback conhecida — atualizar se o Baileys publicar uma mais recente
+  private static readonly WA_VERSION_FALLBACK: [number, number, number] = [2, 3000, 1049075336];
+  // Contadores de retry por tenant — usados para backoff exponencial
+  private reconnectAttempts = new Map<string, number>();
 
   private constructor() {}
 
@@ -323,29 +334,49 @@ export class SessionManager {
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
     console.log(`[SessionManager] Estado de autenticação carregado para tenant ${tenantId}`);
 
-    // Versão do protocolo WhatsApp Web
-    // O catálogo do Baileys pode ficar atrás da versão aceita pelo WhatsApp em novos pareamentos.
-    // Sessões já pareadas mantêm o caminho de versão usado anteriormente.
-    let version: [number, number, number] = [2, 3000, 1043857760];
-    try {
-      const isNewPairing = !state.creds.registered;
-      const fetchVersion = isNewPairing ? fetchLatestWaWebVersion : fetchLatestBaileysVersion;
-      const result = await Promise.race([
-        fetchVersion({ signal: AbortSignal.timeout(5000) }),
-        new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000))
-      ]) as { version: [number, number, number]; isLatest: boolean; error?: unknown } | null;
-      if (!result?.version || (isNewPairing && !result.isLatest)) {
-        throw new Error(`Versão atual indisponível: ${String(result?.error ?? "resposta vazia")}`);
+    // ── Versão do protocolo WhatsApp Web ────────────────────────────────────────
+    // Estratégia em 3 camadas para evitar "Too Many Requests" do servidor WA:
+    //   1. Cache em memória (TTL 4h) — reutiliza a última versão buscada com sucesso
+    //   2. Fetch dinâmico — só acontece se o cache estiver vazio ou expirado
+    //   3. Fallback hardcoded — garante que o socket NUNCA falhe por rate-limiting
+    //
+    // Sessões já pareadas (state.creds.registered=true) aceitam qualquer versão.
+    // Sessões novas (QR) precisam da versão mais recente do WA Web, mas preferimos
+    // usar o fallback a deixar o tenant sem serviço.
+    let version: [number, number, number] = SessionManager.WA_VERSION_FALLBACK;
+    const now = Date.now();
+    const cached = SessionManager.waVersionCache;
+    const cacheValid = cached && (now - cached.fetchedAt) < SessionManager.WA_VERSION_CACHE_TTL_MS;
+
+    if (cacheValid) {
+      version = cached!.version;
+      console.log(`[SessionManager] Versão WA obtida do cache para tenant ${tenantId}: ${version.join(".")}`);
+    } else {
+      try {
+        const isNewPairing = !state.creds.registered;
+        const fetchVersion = isNewPairing ? fetchLatestWaWebVersion : fetchLatestBaileysVersion;
+        const result = await Promise.race([
+          fetchVersion({ signal: AbortSignal.timeout(5000) }),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000))
+        ]) as { version: [number, number, number]; isLatest: boolean; error?: unknown } | null;
+
+        if (result?.version) {
+          version = result.version;
+          // Salvar no cache global (compartilhado entre todos os tenants)
+          SessionManager.waVersionCache = { version, fetchedAt: now };
+          console.log(`[SessionManager] Versão ${isNewPairing ? "WhatsApp Web" : "WA"} obtida dinamicamente para tenant ${tenantId}: ${version.join(".")}`);
+        } else {
+          throw new Error(`Versão atual indisponível: ${String(result?.error ?? "resposta vazia")}`);
+        }
+      } catch (e) {
+        // Em caso de erro (rate-limit, rede, timeout), usar fallback sem travar
+        console.warn(`[SessionManager] Não foi possível buscar a versão atual do WhatsApp Web para tenant ${tenantId}:`, e);
+        console.warn(`[SessionManager] Usando versão de fallback ${version.join(".")} para tenant ${tenantId} — sessão continuará normalmente.`);
+        // Registrar no cache com TTL menor (30min) para tentar novamente em breve
+        SessionManager.waVersionCache = { version: SessionManager.WA_VERSION_FALLBACK, fetchedAt: now - (SessionManager.WA_VERSION_CACHE_TTL_MS - 30 * 60 * 1000) };
       }
-      version = result.version;
-      console.log(`[SessionManager] Versão ${isNewPairing ? "WhatsApp Web" : "WA"} obtida dinamicamente: ${version.join(".")}`);
-    } catch (e) {
-      console.warn(`[SessionManager] Não foi possível buscar a versão atual do WhatsApp Web para tenant ${tenantId}:`, e);
-      if (!state.creds.registered) {
-        throw new Error("Não foi possível obter a versão atual do WhatsApp Web para gerar um QR válido. Tente novamente mais tarde.");
-      }
-      console.warn(`[SessionManager] Sessão já pareada: usando versão de fallback ${version.join(".")}`);
     }
+    // ── Fim: versão do protocolo ─────────────────────────────────────────────
 
 
     // Cache de retry de mensagens
@@ -405,6 +436,8 @@ export class SessionManager {
         console.log(`[SessionManager] ✅ Conexão estabelecida para tenant ${tenantId} — telefone: ${phone}`);
         this.sessionStatuses.set(tenantId, "connected");
         this.sessionQrs.delete(tenantId);
+        // Resetar contador de retry ao conectar com sucesso
+        this.reconnectAttempts.delete(tenantId);
         this.notify(tenantId, { type: "status", status: "connected", phone });
         try {
           await db.update(channelConfigs)
@@ -485,12 +518,20 @@ export class SessionManager {
             if (cfg?.activeProvider === "meta") {
               console.log(`[SessionManager] Tenant '${tenantId}' configurado para Meta API — auto-reconexão Baileys cancelada.`);
             } else {
-              console.log(`[SessionManager] Reconectando tenant ${tenantId} em 3s...`);
-              setTimeout(() => this.initSession(tenantId), 3000);
+              // Backoff exponencial: 3s → 10s → 30s → 60s → 120s (máximo)
+              // Evita tempestade de reconexões que causa rate-limit do WhatsApp (sw.js Too Many Requests)
+              const attempt = (this.reconnectAttempts.get(tenantId) ?? 0) + 1;
+              this.reconnectAttempts.set(tenantId, attempt);
+              const backoffMs = Math.min(3000 * Math.pow(3, attempt - 1), 120000);
+              console.log(`[SessionManager] Reconectando tenant ${tenantId} em ${Math.round(backoffMs / 1000)}s (tentativa ${attempt})...`);
+              setTimeout(() => this.initSession(tenantId), backoffMs);
             }
           } catch (cfgErr) {
             console.warn(`[SessionManager] Falha ao verificar activeProvider do tenant ${tenantId}, agendando reconexão padrão:`, cfgErr);
-            setTimeout(() => this.initSession(tenantId), 3000);
+            const attempt = (this.reconnectAttempts.get(tenantId) ?? 0) + 1;
+            this.reconnectAttempts.set(tenantId, attempt);
+            const backoffMs = Math.min(3000 * Math.pow(3, attempt - 1), 120000);
+            setTimeout(() => this.initSession(tenantId), backoffMs);
           }
         } else {
           console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
