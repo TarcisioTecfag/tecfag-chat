@@ -17,12 +17,14 @@ export function CatalogSelect({
   onChange,
   className,
   placeholder = "Selecionar",
+  hideCreate = true,
 }: {
   kind: CatalogKind;
   value?: string | null;
   onChange: (name: string) => void;
   className?: string;
   placeholder?: string;
+  hideCreate?: boolean;
 }) {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [allowCreate, setAllowCreate] = useState(false);
@@ -97,7 +99,7 @@ export function CatalogSelect({
           ))}
         </SelectContent>
       </Select>
-      {allowCreate && !creating && (
+      {!hideCreate && allowCreate && !creating && (
         <button
           type="button"
           onClick={() => setCreating(true)}
@@ -106,7 +108,7 @@ export function CatalogSelect({
           + Criar nova opção
         </button>
       )}
-      {allowCreate && creating && (
+      {!hideCreate && allowCreate && creating && (
         <div className="mt-1 flex gap-1">
           <input
             value={newName}

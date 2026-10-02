@@ -51,6 +51,8 @@ import {
   Italic,
   List,
   ListOrdered,
+  PhoneCall,
+  ChevronDown,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -76,8 +78,149 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { formatDealEvent } from "@/lib/crm/deal-event-format";
+
+function renderInlineMarkdown(text: string): React.ReactNode {
+  if (!text) return "";
+  const tokenRegex = /(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  const parts = text.split(tokenRegex);
+
+  return parts.map((part, index) => {
+    if (!part) return null;
+
+    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (linkMatch) {
+      const [, label, url] = linkMatch;
+      const href = url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
+      return (
+        <a
+          key={index}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary font-semibold underline hover:opacity-80 transition-opacity break-all cursor-pointer"
+        >
+          {label}
+        </a>
+      );
+    }
+
+    if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+      return (
+        <strong key={index} className="font-extrabold text-foreground">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    if (part.startsWith("*") && part.endsWith("*") && part.length >= 2 && !part.startsWith("**")) {
+      return (
+        <em key={index} className="italic text-foreground/90">
+          {part.slice(1, -1)}
+        </em>
+      );
+    }
+
+    return part;
+  });
+}
+
+function renderMarkdownContent(text: string) {
+  if (!text) return null;
+
+  const lines = text.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let currentList: { type: "ul" | "ol"; items: string[] } | null = null;
+
+  const flushList = () => {
+    if (!currentList) return;
+    if (currentList.type === "ul") {
+      nodes.push(
+        <ul key={`ul-${nodes.length}`} className="my-1 ml-4 list-disc space-y-0.5 text-foreground leading-relaxed">
+          {currentList.items.map((it, idx) => (
+            <li key={idx}>{renderInlineMarkdown(it)}</li>
+          ))}
+        </ul>
+      );
+    } else {
+      nodes.push(
+        <ol key={`ol-${nodes.length}`} className="my-1 ml-4 list-decimal space-y-0.5 text-foreground leading-relaxed">
+          {currentList.items.map((it, idx) => (
+            <li key={idx}>{renderInlineMarkdown(it)}</li>
+          ))}
+        </ol>
+      );
+    }
+    currentList = null;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const bulletMatch = rawLine.match(/^[-*•]\s+(.*)$/);
+    const numMatch = rawLine.match(/^\d+[\.\)]\s+(.*)$/);
+
+    if (bulletMatch) {
+      if (currentList && currentList.type !== "ul") flushList();
+      if (!currentList) currentList = { type: "ul", items: [] };
+      currentList.items.push(bulletMatch[1]);
+    } else if (numMatch) {
+      if (currentList && currentList.type !== "ol") flushList();
+      if (!currentList) currentList = { type: "ol", items: [] };
+      currentList.items.push(numMatch[1]);
+    } else {
+      flushList();
+      if (rawLine.trim() === "") {
+        nodes.push(<div key={`blank-${i}`} className="h-2" />);
+      } else {
+        nodes.push(
+          <div key={`p-${i}`} className="leading-relaxed">
+            {renderInlineMarkdown(rawLine)}
+          </div>
+        );
+      }
+    }
+  }
+  flushList();
+
+  return <div className="space-y-1">{nodes}</div>;
+}
+
+function formatContactPhone(phone?: string | null) {
+  if (!phone) return "";
+  let digits = phone.replace(/\D/g, "");
+  if (digits.length >= 20 && digits.length % 2 === 0) {
+    const half = digits.length / 2;
+    if (digits.substring(0, half) === digits.substring(half)) {
+      digits = digits.substring(0, half);
+    }
+  }
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.substring(2);
+  }
+  if (digits.length === 11) {
+    return `(${digits.substring(0, 2)}) ${digits.substring(2, 7)}-${digits.substring(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.substring(0, 2)}) ${digits.substring(2, 6)}-${digits.substring(6)}`;
+  }
+  return phone;
+}
+
+function getVigosPhoneLink(phone?: string | null) {
+  if (!phone) return "#";
+  let n = phone.replace(/\D/g, "");
+  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
+  if (n.startsWith("0")) n = n.substring(1);
+  if (n.startsWith("14")) n = n.substring(2);
+  return `tel:${n}`;
+}
 
 interface DealDetailModalProps {
   dealId: string | null;
@@ -321,6 +464,46 @@ export function DealDetailModal({
     }
   };
 
+  const adjustNoteTextareaHeight = () => {
+    const el = noteTextareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = `${Math.max(el.scrollHeight, 90)}px`;
+    }
+  };
+
+  useEffect(() => {
+    if (isCreatingNote) {
+      setTimeout(adjustNoteTextareaHeight, 10);
+    }
+  }, [isCreatingNote, inlineNoteText]);
+
+  // Lista de funis para troca rápida pelo cabeçalho
+  const [availablePipelines, setAvailablePipelines] = useState<Array<{ id: string; name: string; stages?: any[] }>>([]);
+
+  const loadPipelines = async () => {
+    try {
+      const res = await fetch("/api/crm/pipelines");
+      if (res.ok) {
+        const data = await res.json();
+        setAvailablePipelines(data.pipelines || []);
+      }
+    } catch (err: any) {
+      console.warn("[DealDetailModal] Falha ao carregar funis:", err);
+    }
+  };
+
+  const handleSwitchPipeline = async (targetPipelineId: string) => {
+    if (!deal || targetPipelineId === deal.pipelineId) return;
+    try {
+      await updateDeal({ pipelineId: targetPipelineId });
+      toast.success("Funil alterado com sucesso!");
+      loadDealDetail();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao alterar funil.");
+    }
+  };
+
   const [reschedulingActivityId, setReschedulingActivityId] = useState<string | null>(null);
   const [rescheduleDueDate, setRescheduleDueDate] = useState("");
   const [reschedulingLoading, setReschedulingLoading] = useState(false);
@@ -442,6 +625,7 @@ export function DealDetailModal({
     if (isOpen && dealId) {
       loadDealDetail();
       loadCatalog();
+      loadPipelines();
     } else {
       setDeal(null);
       setShowWinPrompt(false);
@@ -1311,10 +1495,39 @@ export function DealDetailModal({
                       : "Em Aberto"}
                   </span>
 
-                  {/* 2. Funil */}
-                  <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
-                    {deal.pipeline?.name || "Funil Comercial"}
-                  </span>
+                  {/* 2. Funil com Menu Suspenso */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                        title="Clique para alterar o funil"
+                      >
+                        <span>{deal.pipeline?.name || "Funil Comercial"}</span>
+                        <ChevronDown className="h-3 w-3 opacity-70" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56 p-1">
+                      <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                        Mudar de Funil
+                      </div>
+                      {availablePipelines.map((p) => {
+                        const isCurrent = p.id === (deal.pipelineId || deal.pipeline?.id);
+                        return (
+                          <DropdownMenuItem
+                            key={p.id}
+                            onClick={() => handleSwitchPipeline(p.id)}
+                            className="flex items-center justify-between text-xs font-medium cursor-pointer"
+                          >
+                            <span className={isCurrent ? "font-bold text-primary" : "text-foreground"}>
+                              {p.name}
+                            </span>
+                            {isCurrent && <Check className="h-3.5 w-3.5 text-primary" />}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   {/* 3. Avaliar */}
                   {deal.aiPriorityScore !== null && deal.aiPriorityScore !== undefined && (
@@ -1356,7 +1569,6 @@ export function DealDetailModal({
                         onClick={() => setIsAccountDetailOpen(true)}
                         className="inline-flex items-center gap-1.5 text-[11px] font-bold text-foreground hover:text-primary transition-colors cursor-pointer"
                       >
-                        <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
                         <span className="underline decoration-dotted whitespace-nowrap">{deal.account.name}</span>
                       </button>
                     </SystemTooltip>
@@ -1791,6 +2003,18 @@ export function DealDetailModal({
                       <div className="flex items-center justify-between">
                         <div className="font-bold text-foreground truncate">{c.contact?.name || "Contato"}</div>
                         <div className="flex items-center gap-1 shrink-0">
+                          {/* Ligar via VigosPhone */}
+                          {c.contact?.phone && (
+                            <SystemTooltip content="Ligar via VigosPhone">
+                              <a
+                                href={getVigosPhoneLink(c.contact.phone)}
+                                className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
+                              >
+                                <PhoneCall className="h-3.5 w-3.5" />
+                              </a>
+                            </SystemTooltip>
+                          )}
+
                           {/* Abrir Chat Principal */}
                           <SystemTooltip content="Abrir conversa no Chat">
                             <button
@@ -1832,7 +2056,9 @@ export function DealDetailModal({
                         </div>
                       </div>
                       {c.contact?.phone && (
-                        <div className="text-[11px] text-muted-foreground">{c.contact.phone}</div>
+                        <div className="text-[11px] text-muted-foreground font-mono">
+                          {formatContactPhone(c.contact.phone)}
+                        </div>
                       )}
                       <div className="flex items-center justify-between pt-1">
                         <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary uppercase">
@@ -3730,14 +3956,17 @@ export function DealDetailModal({
                             </button>
                           </div>
 
-                          {/* Área de Texto da Anotação */}
+                          {/* Área de Texto da Anotação com Auto-expansão Vertical */}
                           <textarea
                             ref={noteTextareaRef}
-                            rows={4}
+                            rows={3}
                             value={inlineNoteText}
-                            onChange={(e) => setInlineNoteText(e.target.value)}
+                            onChange={(e) => {
+                              setInlineNoteText(e.target.value);
+                              adjustNoteTextareaHeight();
+                            }}
                             placeholder="Digite aqui os detalhes da anotação..."
-                            className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 resize-y outline-none min-h-[90px] leading-relaxed"
+                            className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 resize-none overflow-hidden outline-none min-h-[90px] leading-relaxed transition-all"
                             autoFocus
                           />
 
@@ -3867,8 +4096,8 @@ export function DealDetailModal({
                                 {/* Corpo do balão / Descrição */}
                                 {item.description && (
                                   item.isNote ? (
-                                    <div className="mt-3 rounded-sm border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed whitespace-pre-wrap font-normal break-words shadow-2xs">
-                                      {item.description}
+                                    <div className="mt-3 rounded-sm border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed font-normal break-words shadow-2xs">
+                                      {renderMarkdownContent(item.description)}
                                     </div>
                                   ) : (
                                     <p className="mt-2 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pl-9 break-words">

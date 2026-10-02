@@ -2821,6 +2821,7 @@ export class CrmService {
     operatorId: string | null,
     updates: {
       title?: string;
+      pipelineId?: string;
       stageId?: string;
       status?: "open" | "won" | "lost" | "paused";
       value?: string | number | null;
@@ -2917,11 +2918,43 @@ export class CrmService {
         setPayload.accountId = updates.accountId;
       }
 
-      // Transição de etapa: validação se pertence ao MESMO funil e tenant
-      const stageChanged = updates.stageId && updates.stageId !== current.stageId;
+      // Troca de Funil (Pipeline)
+      let targetPipelineId = updates.pipelineId || current.pipelineId;
+      const pipelineChanged = updates.pipelineId !== undefined && updates.pipelineId !== current.pipelineId;
+
+      if (pipelineChanged) {
+        const [targetPipe] = await tx
+          .select({ id: crmPipelines.id, name: crmPipelines.name })
+          .from(crmPipelines)
+          .where(and(eq(crmPipelines.id, updates.pipelineId!), eq(crmPipelines.tenantId, tenantId)))
+          .limit(1);
+
+        if (!targetPipe) {
+          throw new CrmCrossTenantError(`O funil informado (${updates.pipelineId}) não pertence ao tenant ${tenantId}.`);
+        }
+
+        setPayload.pipelineId = targetPipe.id;
+
+        // Se uma nova etapa não foi informada explicitamente, busca a primeira etapa do novo funil
+        if (!updates.stageId) {
+          const [firstStage] = await tx
+            .select({ id: crmStages.id })
+            .from(crmStages)
+            .where(and(eq(crmStages.pipelineId, targetPipe.id), eq(crmStages.tenantId, tenantId)))
+            .orderBy(asc(crmStages.orderIndex))
+            .limit(1);
+
+          if (firstStage) {
+            updates.stageId = firstStage.id;
+          }
+        }
+      }
+
+      // Transição de etapa: validação se pertence ao funil de destino e tenant
+      const stageChanged = (updates.stageId && updates.stageId !== current.stageId) || pipelineChanged;
       let effectiveNewStatus = updates.status;
 
-      if (stageChanged) {
+      if (stageChanged && updates.stageId) {
         const [stage] = await tx
           .select({
             id: crmStages.id,
@@ -2938,9 +2971,9 @@ export class CrmService {
           throw new CrmCrossTenantError(`A etapa informada (${updates.stageId}) não pertence ao tenant ${tenantId}.`);
         }
 
-        if (stage.pipelineId !== current.pipelineId) {
+        if (stage.pipelineId !== targetPipelineId) {
           throw new CrmValidationError(
-            `A etapa informada (${updates.stageId}) não pertence ao funil (${current.pipelineId}) da negociação.`,
+            `A etapa informada (${updates.stageId}) não pertence ao funil (${targetPipelineId}) da negociação.`,
             "STAGE_NOT_IN_PIPELINE"
           );
         }
@@ -2949,7 +2982,7 @@ export class CrmService {
           stage.requiredFields,
           dealFields,
           (setPayload.customFields ?? current.customFields) as CustomFieldValues,
-          current.pipelineId,
+          targetPipelineId,
         );
         if (missing.length) throw new CrmValidationError(`Preencha os campos exigidos pela etapa: ${missing.join(", ")}.`, "REQUIRED_STAGE_FIELDS");
 
@@ -2997,7 +3030,21 @@ export class CrmService {
       }
 
       // Auditoria de mudanças dentro da transação
-      if (stageChanged) {
+      if (pipelineChanged) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "pipeline_changed",
+          operatorId,
+          {
+            fromPipelineId: current.pipelineId,
+            toPipelineId: targetPipelineId,
+          },
+          tx
+        );
+      }
+
+      if (stageChanged && updates.stageId) {
         await this.logDealEvent(
           tenantId,
           dealId,

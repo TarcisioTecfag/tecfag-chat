@@ -90,6 +90,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
           }
           if (
             body.title !== undefined ||
+            body.pipelineId !== undefined ||
             body.value !== undefined ||
             body.expectedCloseDate !== undefined ||
             body.operatorId !== undefined ||
@@ -108,6 +109,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
 
           const updated = await crmService.updateDeal(tenantId, dealId, session.operator.id, {
             title: body.title,
+            pipelineId: body.pipelineId,
             stageId: body.stageId,
             status: body.status,
             value: body.value,
