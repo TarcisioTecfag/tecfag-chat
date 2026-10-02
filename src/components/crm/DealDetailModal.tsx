@@ -1050,7 +1050,19 @@ export function DealDetailModal({
       ),
     );
     (deal.events || []).forEach((evt: any) => {
+      // Ignorar evento de auditoria se for criação de nota comercial (já é exibido com o card de anotação da atividade)
+      if (evt.eventType === "note_created") return;
+
       const { title, description } = formatDealEvent(evt, stageNames, operatorsMap);
+      if (title === "Nota comercial registrada") return;
+
+      // Também ignorar activity_created se a tarefa correspondente já estiver na lista de activities
+      if (
+        evt.eventType === "activity_created" &&
+        deal.activities?.some((a: any) => a.id === evt.metadata?.activityId)
+      ) {
+        return;
+      }
 
       const authorName = evt.operatorId
         ? operatorsMap.get(evt.operatorId) || "Operador"
@@ -1286,6 +1298,15 @@ export function DealDetailModal({
                 <>
                   {deal.status === "open" && (
                     <>
+                      <SystemTooltip content="Pausar negociação">
+                        <button
+                          onClick={() => setShowPausePrompt(true)}
+                          className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                        >
+                          <PauseCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span>Pausar</span>
+                        </button>
+                      </SystemTooltip>
                       <SystemTooltip content="Marcar como Perdido">
                         <button
                           onClick={() => setShowLossPrompt(true)}
@@ -1302,15 +1323,6 @@ export function DealDetailModal({
                         >
                           <CheckCircle2 className="h-3.5 w-3.5" />
                           <span>Marcar venda</span>
-                        </button>
-                      </SystemTooltip>
-                      <SystemTooltip content="Pausar negociação">
-                        <button
-                          onClick={() => setShowPausePrompt(true)}
-                          className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                        >
-                          <PauseCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>Pausar</span>
                         </button>
                       </SystemTooltip>
                     </>
@@ -1337,14 +1349,6 @@ export function DealDetailModal({
                   )}
                 </>
               )}
-
-              <button
-                onClick={onClose}
-                title="Fechar"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
             </div>
           </div>
 
@@ -1477,7 +1481,7 @@ export function DealDetailModal({
             {/* Painel Esquerdo: Dados da Negociação, Contatos, Empresa e Campos Personalizados */}
             <div className="crm-deal-sidebar w-80 shrink-0 flex flex-col gap-3 border-r border-border bg-muted/20 p-4 overflow-y-auto scrollbar-none max-lg:w-full max-lg:h-auto">
               {/* 1. Card Negociação */}
-              <div className="crm-side-deal rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+              <div className="crm-side-deal order-1 rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                   Negociação
                 </span>
@@ -1693,7 +1697,7 @@ export function DealDetailModal({
               </div>
 
               {/* 2. Card Contatos Participantes */}
-              <div className="crm-side-contacts rounded-xl border border-border bg-card p-3.5 space-y-2.5">
+              <div className="crm-side-contacts order-2 rounded-xl border border-border bg-card p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                     Contatos ({deal?.contacts?.length || 0})
@@ -1798,7 +1802,7 @@ export function DealDetailModal({
               </div>
 
               {/* 3. Card da Empresa */}
-              <div className="crm-side-account rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+              <div className="crm-side-account order-3 rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                   Empresa
                 </span>
@@ -1887,12 +1891,12 @@ export function DealDetailModal({
               </div>
 
               {/* 4. Card Exclusivo de Campos Personalizados */}
-              <div className="crm-side-custom-fields rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+              <div className="crm-side-custom-fields order-4 rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                   Campos Personalizados
                 </span>
 
-                <CustomFieldsEditor entity="deal" pipelineId={deal?.pipelineId} values={customFieldDraft} onChange={setCustomFieldDraft} />
+                <CustomFieldsEditor entity="deal" pipelineId={deal?.pipelineId} values={customFieldDraft} onChange={setCustomFieldDraft} hideTitle />
 
                 {JSON.stringify(customFieldDraft) !== JSON.stringify(deal?.customFields || {}) && (
                   <button
@@ -3705,7 +3709,7 @@ export function DealDetailModal({
                     </AnimatePresence>
 
                     {filteredTimeline.length > 0 ? (
-                      <div className="crm-deal-timeline relative pl-6 border-l-2 border-border/80 space-y-4 pt-1">
+                      <div className="crm-deal-timeline relative pl-7 border-l-2 border-border/70 space-y-3.5 pt-2 pb-6 max-w-4xl">
                         {filteredTimeline.map((item: any) => {
                           const isLeadOrImportant = item.category === "event" && item.title.includes("criou");
                           const bulletColor = item.isNote
@@ -3718,58 +3722,89 @@ export function DealDetailModal({
                             ? "border-purple-600 bg-purple-600"
                             : "border-muted-foreground/40 bg-muted-foreground/40";
 
+                          const authorInitials = (() => {
+                            if (!item.author) return "CRM";
+                            const parts = item.author.trim().split(/\s+/);
+                            if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+                            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+                          })();
+
                           return (
                             <div key={item.id} className="relative group">
-                              {/* Marcador na linha do tempo com bullet colorido */}
-                              <div className="absolute -left-[31px] top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-card border-2 border-border">
+                              {/* Marcador na linha do tempo com bullet colorido e anel elegante */}
+                              <div className="absolute -left-[37px] top-3.5 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-card border-2 border-border shadow-xs z-10">
                                 <div className={`h-2 w-2 rounded-full ${bulletColor}`} />
                               </div>
 
-                              <div className="crm-timeline-item rounded-xl border border-border/70 bg-card p-3.5 shadow-2xs space-y-2 hover:border-primary/40 transition-colors">
-                                <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-bold text-foreground text-xs">
-                                      <strong>{item.author}</strong> {item.isNote ? "adicionou uma anotação:" : item.category === "activity" ? "criou a tarefa:" : item.title}
-                                    </span>
-                                    <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${item.badgeColor}`}>
-                                      {item.category === "event"
-                                        ? "Auditoria"
-                                        : item.category === "activity"
-                                        ? item.isNote
-                                          ? "Anotação"
-                                          : "Tarefa"
-                                        : item.category === "proposal"
-                                        ? "Proposta"
-                                        : item.category === "evidence"
-                                        ? "Evidência"
-                                        : item.category === "file"
-                                        ? "Arquivo"
-                                        : item.category === "email"
-                                        ? "E-mail"
-                                        : item.category === "questionnaire"
-                                        ? "Questionário"
-                                        : "Atividade"}
-                                    </span>
+                              <div className="crm-timeline-item rounded-2xl border border-border/80 bg-card/85 backdrop-blur-xs p-4 shadow-xs hover:border-primary/40 hover:bg-card transition-all">
+                                {/* Cabeçalho do Card */}
+                                <div className="flex items-center justify-between gap-3 text-xs">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    {/* Avatar circular com iniciais */}
+                                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-bold text-[10px] ${
+                                      item.isNote
+                                        ? "bg-primary/10 text-primary border border-primary/20"
+                                        : "bg-muted text-muted-foreground border border-border"
+                                    }`}>
+                                      {authorInitials}
+                                    </div>
+
+                                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                      <span className="font-bold text-foreground text-xs">
+                                        {item.author}
+                                      </span>
+                                      <span className="text-muted-foreground text-xs">
+                                        {item.isNote
+                                          ? "adicionou uma anotação:"
+                                          : item.category === "activity"
+                                          ? "criou a tarefa:"
+                                          : item.title}
+                                      </span>
+                                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide uppercase ${item.badgeColor}`}>
+                                        {item.category === "event"
+                                          ? "Auditoria"
+                                          : item.category === "activity"
+                                          ? item.isNote
+                                            ? "Anotação"
+                                            : "Tarefa"
+                                          : item.category === "proposal"
+                                          ? "Proposta"
+                                          : item.category === "evidence"
+                                          ? "Evidência"
+                                          : item.category === "file"
+                                          ? "Arquivo"
+                                          : item.category === "email"
+                                          ? "E-mail"
+                                          : item.category === "questionnaire"
+                                          ? "Questionário"
+                                          : "Atividade"}
+                                      </span>
+                                    </div>
                                   </div>
 
-                                  <span className="text-[10px] text-muted-foreground font-medium">
-                                    {item.date.toLocaleDateString("pt-BR", {
-                                      day: "2-digit",
-                                      month: "2-digit",
-                                      year: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
-                                  </span>
+                                  {/* Data / Hora alinhada */}
+                                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 font-medium shrink-0">
+                                    <Clock className="h-3 w-3 opacity-60" />
+                                    <span>
+                                      {item.date.toLocaleDateString("pt-BR", {
+                                        day: "2-digit",
+                                        month: "2-digit",
+                                        year: "numeric",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </span>
+                                  </div>
                                 </div>
 
+                                {/* Corpo do balão / Descrição */}
                                 {item.description && (
                                   item.isNote ? (
-                                    <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-3 text-xs text-foreground leading-relaxed whitespace-pre-wrap font-medium">
+                                    <div className="mt-3 rounded-xl border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed whitespace-pre-wrap font-normal break-words shadow-2xs">
                                       {item.description}
                                     </div>
                                   ) : (
-                                    <p className="text-xs text-muted-foreground whitespace-pre-wrap pl-1">
+                                    <p className="mt-2 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pl-9 break-words">
                                       {item.description}
                                     </p>
                                   )

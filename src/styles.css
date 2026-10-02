@@ -386,33 +386,6 @@
   color: var(--color-foreground);
 }
 
-.crm-deal-sidebar > div {
-  border-radius: 5px;
-  box-shadow: none;
-}
-
-.crm-deal-sidebar .crm-side-deal { order: 1; }
-.crm-deal-sidebar .crm-side-contacts { order: 2; }
-.crm-deal-sidebar .crm-side-account { order: 3; }
-
-.crm-deal-tabs > button { flex: none; white-space: nowrap; }
-.crm-deal-tabs > button:nth-child(1) { order: 1; }
-.crm-deal-tabs > button:nth-child(2) { order: 3; }
-.crm-deal-tabs > button:nth-child(3) { order: 8; }
-.crm-deal-tabs > button:nth-child(4) { order: 9; }
-.crm-deal-tabs > button:nth-child(5) { order: 5; }
-.crm-deal-tabs > button:nth-child(6) { order: 6; }
-.crm-deal-tabs > button:nth-child(7) { order: 4; }
-.crm-deal-tabs > button:nth-child(8) { order: 2; }
-
-.crm-deal-timeline .crm-timeline-item {
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  padding: 0 0 10px;
-}
-
-.crm-deal-timeline .crm-timeline-item:hover { border: 0; }
 
 @media (max-width: 1024px) {
   .crm-stage-track .crm-stage { flex: none; }

@@ -75,6 +75,7 @@ export function CustomFieldsEditor({
   create = false,
   definitions,
   requiredIds = [],
+  hideTitle = false,
 }: {
   entity: CustomFieldEntity;
   pipelineId?: string | null;
@@ -83,6 +84,7 @@ export function CustomFieldsEditor({
   create?: boolean;
   definitions?: FieldDefinition[];
   requiredIds?: string[];
+  hideTitle?: boolean;
 }) {
   const loaded = useCustomFields(entity, !definitions);
   const fields = useMemo(
@@ -100,10 +102,12 @@ export function CustomFieldsEditor({
   if (!fields.length) return null;
   const update = (id: string, value: unknown) => onChange({ ...values, [id]: value });
   return (
-    <div className="space-y-3 border-t border-border pt-4">
-      <h4 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-        Campos personalizados
-      </h4>
+    <div className={`space-y-3 ${hideTitle ? "" : "border-t border-border pt-4"}`}>
+      {!hideTitle && (
+        <h4 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          Campos personalizados
+        </h4>
+      )}
       {fields.map((field) => {
         const value = values[field.id];
         const common =
