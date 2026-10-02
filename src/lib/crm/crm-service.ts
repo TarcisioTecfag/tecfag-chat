@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { eq, ne, and, desc, asc, sql, inArray, gte, lte } from "drizzle-orm";
+import { eq, ne, and, or, ilike, desc, asc, sql, inArray, gte, lte } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "../../db";
 import {
@@ -1502,15 +1502,49 @@ export class CrmService {
         throw new CrmNotFoundError("Negociação não encontrada.");
       }
 
-      const [contact] = await tx
+      let [contact] = await tx
         .select({ id: contacts.id })
         .from(contacts)
         .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
         .limit(1);
 
       if (!contact) {
+        const digits = contactId.replace(/\D/g, "");
+        if (digits.length >= 8) {
+          [contact] = await tx
+            .select({ id: contacts.id })
+            .from(contacts)
+            .where(
+              and(
+                eq(contacts.tenantId, tenantId),
+                sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${digits}`
+              )
+            )
+            .limit(1);
+        }
+      }
+
+      if (!contact) {
+        [contact] = await tx
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.tenantId, tenantId),
+              or(
+                ilike(contacts.email, contactId.trim()),
+                ilike(contacts.name, contactId.trim())
+              )
+            )
+          )
+          .limit(1);
+      }
+
+      if (!contact) {
         throw new CrmCrossTenantError(`Contato (${contactId}) não pertence ao tenant ${tenantId}.`);
       }
+
+      const finalContactId = contact.id;
 
       // Verifica participantes existentes
       const existing = await tx
@@ -1528,7 +1562,7 @@ export class CrmService {
           .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)));
       }
 
-      const already = existing.find((p) => p.contactId === contactId);
+      const already = existing.find((p) => p.contactId === finalContactId);
       if (already) {
         await tx
           .update(crmDealContacts)
@@ -1539,7 +1573,7 @@ export class CrmService {
           id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           tenantId,
           dealId,
-          contactId,
+          contactId: finalContactId,
           role,
           isPrimary: shouldBePrimary,
           createdAt: new Date(),

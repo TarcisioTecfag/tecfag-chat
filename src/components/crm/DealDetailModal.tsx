@@ -54,6 +54,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import { DealAddContactDrawer } from "./DealAddContactDrawer";
+import { useChat } from "@/hooks/useChatState";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { CreateTaskModal } from "./CreateTaskModal";
 import { CustomFieldsEditor, CustomFieldsSummary, changedCustomFieldValues } from "./CustomFieldsEditor";
@@ -118,6 +120,15 @@ export function DealDetailModal({
   operatorsMap,
   backLabel,
 }: DealDetailModalProps) {
+  let chatContext: any = null;
+  try {
+    chatContext = useChat();
+  } catch (e) {
+    // Fallback gracioso caso renderizado fora do ChatProvider
+  }
+  const operatorProfile = chatContext?.operatorProfile;
+  const operators = chatContext?.operators;
+
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deal, setDeal] = useState<any>(null);
@@ -126,6 +137,50 @@ export function DealDetailModal({
   const [activeTab, setActiveTab] = useState<
     "history" | "tasks" | "conversations" | "evidence" | "products" | "files" | "questionnaires" | "emails"
   >("history");
+
+  // Drawer de Adicionar Contato (Buscar existente ou Criar novo)
+  const [isAddContactDrawerOpen, setIsAddContactDrawerOpen] = useState(false);
+  const [openingChatContactId, setOpeningChatContactId] = useState<string | null>(null);
+
+  const handleOpenChatForContact = async (contactId: string) => {
+    setOpeningChatContactId(contactId);
+    try {
+      const res = await fetch(`/api/contacts/${contactId}/conversations`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Erro ao abrir conversa.");
+      }
+      const data = await res.json();
+      if (data.conversationId) {
+        onOpenConversation(data.conversationId);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Não foi possível abrir o chat.");
+    } finally {
+      setOpeningChatContactId(null);
+    }
+  };
+
+  const handleOpenMiniChatForContact = async (contactId: string) => {
+    setOpeningChatContactId(contactId);
+    try {
+      const res = await fetch(`/api/contacts/${contactId}/conversations`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Erro ao abrir conversa.");
+      }
+      const data = await res.json();
+      if (data.conversationId) {
+        window.dispatchEvent(
+          new CustomEvent("open-crm-chat-widget", { detail: { conversationId: data.conversationId } })
+        );
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Não foi possível abrir o mini-chat.");
+    } finally {
+      setOpeningChatContactId(null);
+    }
+  };
 
   // Edição rápida de título e valor
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -238,13 +293,12 @@ export function DealDetailModal({
     if (!inlineNoteText.trim() || !deal) return;
     setIsSavingNote(true);
     try {
-      const firstLine = inlineNoteText.trim().split("\n")[0].substring(0, 80);
       const res = await fetch(`/api/crm/deals/${deal.id}/activities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "note",
-          title: firstLine || "Anotação",
+          title: "Anotação",
           description: inlineNoteText.trim(),
           status: "completed",
           completed: true,
@@ -1036,6 +1090,7 @@ export function DealDetailModal({
       title: string;
       description?: string | null;
       author: string;
+      authorAvatar?: string | null;
       date: Date;
       iconType: string;
       badgeColor: string;
@@ -1068,12 +1123,19 @@ export function DealDetailModal({
         ? operatorsMap.get(evt.operatorId) || "Operador"
         : "Sistema";
 
+      const opObj = operators?.find((op: any) =>
+        (evt.operatorId && op.id === evt.operatorId) ||
+        (op.name && authorName && op.name.toLowerCase().trim() === authorName.toLowerCase().trim())
+      );
+      const authorAvatar = opObj?.avatar || (authorName === operatorProfile?.name ? operatorProfile?.avatar : null);
+
       items.push({
         id: `evt-${evt.id}`,
         category: "event",
         title,
         description,
         author: authorName,
+        authorAvatar: authorAvatar || null,
         date: new Date(evt.createdAt),
         iconType: "history",
         badgeColor: "bg-muted text-muted-foreground",
@@ -1084,15 +1146,26 @@ export function DealDetailModal({
     // 2. Atividades (Notas comerciais e Tarefas)
     (deal.activities || []).forEach((act: any) => {
       const isNote = act.type === "note";
-      const fullNoteText = [act.title, act.description].filter(Boolean).join("\n\n");
+      // Se for nota, usa diretamente o texto sem duplicar title e description
+      const fullNoteText = isNote
+        ? (act.description || act.title || "")
+        : (act.description || (act.dueDate ? `Prazo: ${new Date(act.dueDate).toLocaleString("pt-BR")}` : null));
+
+      const authorName = act.operatorName || act.assignedToOperatorName || "Operador";
+      const opObj = operators?.find((op: any) =>
+        (act.operatorId && op.id === act.operatorId) ||
+        (act.assignedToOperatorId && op.id === act.assignedToOperatorId) ||
+        (op.name && authorName && op.name.toLowerCase().trim() === authorName.toLowerCase().trim())
+      );
+      const authorAvatar = opObj?.avatar || (authorName === operatorProfile?.name ? operatorProfile?.avatar : null);
+
       items.push({
         id: `act-${act.id}`,
         category: "activity",
         title: isNote ? "Anotação" : act.status === "completed" ? `Tarefa Concluída: ${act.title}` : `Tarefa: ${act.title}`,
-        description: isNote
-          ? fullNoteText
-          : act.description || (act.dueDate ? `Prazo: ${new Date(act.dueDate).toLocaleString("pt-BR")}` : null),
-        author: act.operatorName || act.assignedToOperatorName || "Operador",
+        description: fullNoteText,
+        author: authorName,
+        authorAvatar: authorAvatar || null,
         date: new Date(act.createdAt),
         iconType: isNote ? "note" : "task",
         badgeColor: isNote ? "bg-primary/10 text-primary border border-primary/20" : "bg-muted text-muted-foreground",
@@ -1179,7 +1252,7 @@ export function DealDetailModal({
     // Ordenação cronológica decrescente (mais recente primeiro)
     items.sort((a, b) => b.date.getTime() - a.date.getTime());
     return items;
-  }, [deal, operatorsMap, pipelineStages]);
+  }, [deal, operatorsMap, pipelineStages, operators, operatorProfile]);
 
   const filteredTimeline = React.useMemo(() => {
     return unifiedTimeline.filter((item) => {
@@ -1481,7 +1554,7 @@ export function DealDetailModal({
             {/* Painel Esquerdo: Dados da Negociação, Contatos, Empresa e Campos Personalizados */}
             <div className="crm-deal-sidebar w-80 shrink-0 flex flex-col gap-3 border-r border-border bg-muted/20 p-4 overflow-y-auto scrollbar-none max-lg:w-full max-lg:h-auto">
               {/* 1. Card Negociação */}
-              <div className="crm-side-deal order-1 rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+              <div className="crm-side-deal order-1 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                   Negociação
                 </span>
@@ -1697,14 +1770,14 @@ export function DealDetailModal({
               </div>
 
               {/* 2. Card Contatos Participantes */}
-              <div className="crm-side-contacts order-2 rounded-xl border border-border bg-card p-3.5 space-y-2.5">
+              <div className="crm-side-contacts order-2 rounded-sm border border-border bg-card p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                     Contatos ({deal?.contacts?.length || 0})
                   </span>
                   <button
                     type="button"
-                    onClick={() => setShowAddParticipant(!showAddParticipant)}
+                    onClick={() => setIsAddContactDrawerOpen(true)}
                     className="text-[10px] font-medium text-primary hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="h-3 w-3" />
@@ -1712,75 +1785,61 @@ export function DealDetailModal({
                   </button>
                 </div>
 
-                {/* Formulário rápido de vincular participante */}
-                {showAddParticipant && (
-                  <div className="p-2.5 rounded-lg border border-border bg-muted/30 space-y-2 text-xs animate-in fade-in duration-100">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-foreground">Novo Participante</span>
-                      <button
-                        type="button"
-                        onClick={() => setShowAddParticipant(false)}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="ID do contato (ou telefone)..."
-                      value={participantContactId}
-                      onChange={(e) => setParticipantContactId(e.target.value)}
-                      className="w-full h-7 px-2 text-xs rounded border border-border bg-card text-foreground"
-                    />
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Select value={participantRole} onValueChange={setParticipantRole}>
-                        <SelectTrigger className="h-7 text-xs rounded-lg border border-border bg-card px-2 text-foreground">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="buyer" className="text-xs">Comprador</SelectItem>
-                          <SelectItem value="decision_maker" className="text-xs">Decisor</SelectItem>
-                          <SelectItem value="technical" className="text-xs">Técnico</SelectItem>
-                          <SelectItem value="user" className="text-xs">Usuário</SelectItem>
-                          <SelectItem value="other" className="text-xs">Outro</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <button
-                        type="button"
-                        onClick={handleAddParticipant}
-                        disabled={submittingParticipant || !participantContactId.trim()}
-                        className="h-7 bg-primary text-primary-foreground rounded font-medium text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                      >
-                        {submittingParticipant ? "Adicionando..." : "Vincular"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 {deal?.contacts && deal.contacts.length > 0 ? (
                   deal.contacts.map((c: any) => (
-                    <div key={c.id} className="rounded-lg bg-muted/40 p-2 text-xs space-y-1">
+                    <div key={c.id} className="rounded-sm bg-muted/40 p-2 text-xs space-y-1">
                       <div className="flex items-center justify-between">
                         <div className="font-bold text-foreground truncate">{c.contact?.name || "Contato"}</div>
-                        <SystemTooltip content="Remover participante">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveParticipant(c.contactId)}
-                            className="text-muted-foreground hover:text-rose-500 p-0.5 rounded transition-colors"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </SystemTooltip>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Abrir Chat Principal */}
+                          <SystemTooltip content="Abrir conversa no Chat">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenChatForContact(c.contactId)}
+                              disabled={openingChatContactId === c.contactId}
+                              className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {openingChatContactId === c.contactId ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                              ) : (
+                                <MessageSquare className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </SystemTooltip>
+
+                          {/* Abrir Mini Chat */}
+                          <SystemTooltip content="Abrir no Mini Chat">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenMiniChatForContact(c.contactId)}
+                              disabled={openingChatContactId === c.contactId}
+                              className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                            </button>
+                          </SystemTooltip>
+
+                          {/* Remover participante */}
+                          <SystemTooltip content="Remover participante">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveParticipant(c.contactId)}
+                              className="text-muted-foreground hover:text-rose-500 p-0.5 rounded-sm transition-colors cursor-pointer"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </SystemTooltip>
+                        </div>
                       </div>
                       {c.contact?.phone && (
                         <div className="text-[11px] text-muted-foreground">{c.contact.phone}</div>
                       )}
                       <div className="flex items-center justify-between pt-1">
-                        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary uppercase">
+                        <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary uppercase">
                           {c.role || "buyer"}
                         </span>
                         {c.isPrimary ? (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold text-foreground">
+                          <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[9px] font-bold text-foreground">
                             Principal
                           </span>
                         ) : (
@@ -1802,7 +1861,7 @@ export function DealDetailModal({
               </div>
 
               {/* 3. Card da Empresa */}
-              <div className="crm-side-account order-3 rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+              <div className="crm-side-account order-3 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                   Empresa
                 </span>
@@ -1891,7 +1950,7 @@ export function DealDetailModal({
               </div>
 
               {/* 4. Card Exclusivo de Campos Personalizados */}
-              <div className="crm-side-custom-fields order-4 rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+              <div className="crm-side-custom-fields order-4 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                   Campos Personalizados
                 </span>
@@ -3621,7 +3680,7 @@ export function DealDetailModal({
                           animate={{ opacity: 1, height: "auto", y: 0 }}
                           exit={{ opacity: 0, height: 0, y: -8 }}
                           transition={{ duration: 0.22, ease: "easeInOut" }}
-                          className="overflow-hidden rounded-xl border border-border bg-card p-4 space-y-3 shadow-xs"
+                          className="overflow-hidden rounded-sm border border-border bg-card p-4 space-y-3 shadow-xs"
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-bold text-foreground">Anotação</span>
@@ -3700,7 +3759,7 @@ export function DealDetailModal({
                               onClick={handleSaveInlineNote}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
                             >
-                              {isSavingNote && <Loader2 className="h-3 w-3 animate-spin" />}
+                              {isSavingNote && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                               <span>Salvar no histórico</span>
                             </button>
                           </div>
@@ -3709,7 +3768,7 @@ export function DealDetailModal({
                     </AnimatePresence>
 
                     {filteredTimeline.length > 0 ? (
-                      <div className="crm-deal-timeline relative pl-7 border-l-2 border-border/70 space-y-3.5 pt-2 pb-6 max-w-4xl">
+                      <div className="crm-deal-timeline relative pl-7 border-l-2 border-border/70 space-y-3.5 pt-2 pb-6 w-full pr-4">
                         {filteredTimeline.map((item: any) => {
                           const isLeadOrImportant = item.category === "event" && item.title.includes("criou");
                           const bulletColor = item.isNote
@@ -3736,18 +3795,26 @@ export function DealDetailModal({
                                 <div className={`h-2 w-2 rounded-full ${bulletColor}`} />
                               </div>
 
-                              <div className="crm-timeline-item rounded-2xl border border-border/80 bg-card/85 backdrop-blur-xs p-4 shadow-xs hover:border-primary/40 hover:bg-card transition-all">
+                              <div className="crm-timeline-item rounded-sm border border-border/80 bg-card/85 backdrop-blur-xs p-4 shadow-xs hover:border-primary/40 hover:bg-card transition-all">
                                 {/* Cabeçalho do Card */}
                                 <div className="flex items-center justify-between gap-3 text-xs">
                                   <div className="flex items-center gap-2.5 min-w-0">
-                                    {/* Avatar circular com iniciais */}
-                                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-bold text-[10px] ${
-                                      item.isNote
-                                        ? "bg-primary/10 text-primary border border-primary/20"
-                                        : "bg-muted text-muted-foreground border border-border"
-                                    }`}>
-                                      {authorInitials}
-                                    </div>
+                                    {/* Foto do operador ou iniciais */}
+                                    {item.authorAvatar ? (
+                                      <img
+                                        src={item.authorAvatar}
+                                        alt={item.author}
+                                        className="h-7 w-7 shrink-0 rounded-full object-cover border border-border"
+                                      />
+                                    ) : (
+                                      <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-bold text-[10px] ${
+                                        item.isNote
+                                          ? "bg-primary/10 text-primary border border-primary/20"
+                                          : "bg-muted text-muted-foreground border border-border"
+                                      }`}>
+                                        {authorInitials}
+                                      </div>
+                                    )}
 
                                     <div className="flex items-center gap-2 flex-wrap min-w-0">
                                       <span className="font-bold text-foreground text-xs">
@@ -3800,7 +3867,7 @@ export function DealDetailModal({
                                 {/* Corpo do balão / Descrição */}
                                 {item.description && (
                                   item.isNote ? (
-                                    <div className="mt-3 rounded-xl border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed whitespace-pre-wrap font-normal break-words shadow-2xs">
+                                    <div className="mt-3 rounded-sm border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed whitespace-pre-wrap font-normal break-words shadow-2xs">
                                       {item.description}
                                     </div>
                                   ) : (
@@ -3864,6 +3931,17 @@ export function DealDetailModal({
           loadDealDetail();
         }}
       />
+
+      {/* Drawer Lateral de Adicionar/Vincular Contato ao Negócio */}
+      {deal && (
+        <DealAddContactDrawer
+          isOpen={isAddContactDrawerOpen}
+          onClose={() => setIsAddContactDrawerOpen(false)}
+          dealId={deal.id}
+          accountId={deal.accountId}
+          onContactLinked={() => loadDealDetail()}
+        />
+      )}
     </div>
   );
 }
