@@ -47,7 +47,12 @@ import {
   CheckSquare,
   Utensils,
   MapPin,
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { CreateTaskModal } from "./CreateTaskModal";
@@ -191,6 +196,77 @@ export function DealDetailModal({
   // Sub-abas e ações de atividades
   const [tasksSubTab, setTasksSubTab] = useState<"pending" | "completed" | "cancelled" | "notes">("pending");
   const [historyFilter, setHistoryFilter] = useState<"all" | "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire">("all");
+  const [historySourceFilter, setHistorySourceFilter] = useState<"all" | "conversas" | "crm">("all");
+  const [isCreatingNote, setIsCreatingNote] = useState(false);
+  const [inlineNoteText, setInlineNoteText] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const noteTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const handleFormatNote = (format: "bold" | "italic" | "bullet" | "numbered" | "link") => {
+    const textarea = noteTextareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = inlineNoteText.substring(start, end);
+
+    let replacement = "";
+    if (format === "bold") {
+      replacement = selected ? `**${selected}**` : "**texto em negrito**";
+    } else if (format === "italic") {
+      replacement = selected ? `*${selected}*` : "*texto em itálico*";
+    } else if (format === "bullet") {
+      replacement = selected
+        ? selected.split("\n").map((l) => `- ${l}`).join("\n")
+        : "- item da lista";
+    } else if (format === "numbered") {
+      replacement = selected
+        ? selected.split("\n").map((l, i) => `${i + 1}. ${l}`).join("\n")
+        : "1. item numerado";
+    } else if (format === "link") {
+      replacement = selected ? `[${selected}](https://)` : "[link](https://)";
+    }
+
+    const newText = inlineNoteText.substring(0, start) + replacement + inlineNoteText.substring(end);
+    setInlineNoteText(newText);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + replacement.length, start + replacement.length);
+    }, 10);
+  };
+
+  const handleSaveInlineNote = async () => {
+    if (!inlineNoteText.trim() || !deal) return;
+    setIsSavingNote(true);
+    try {
+      const firstLine = inlineNoteText.trim().split("\n")[0].substring(0, 80);
+      const res = await fetch(`/api/crm/deals/${deal.id}/activities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "note",
+          title: firstLine || "Anotação",
+          description: inlineNoteText.trim(),
+          status: "completed",
+          completed: true,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Erro ao salvar anotação.");
+      }
+
+      toast.success("Anotação salva no histórico!");
+      setInlineNoteText("");
+      setIsCreatingNote(false);
+      loadDealDetail();
+    } catch (err: any) {
+      console.error("[DealDetailModal] Erro ao salvar anotação inline:", err);
+      toast.error(err.message || "Falha ao salvar anotação.");
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
   const [reschedulingActivityId, setReschedulingActivityId] = useState<string | null>(null);
   const [rescheduleDueDate, setRescheduleDueDate] = useState("");
   const [reschedulingLoading, setReschedulingLoading] = useState(false);
@@ -964,6 +1040,7 @@ export function DealDetailModal({
       iconType: string;
       badgeColor: string;
       isNote?: boolean;
+      source: "conversas" | "crm";
     }> = [];
 
     // 1. Eventos de auditoria
@@ -988,6 +1065,7 @@ export function DealDetailModal({
         date: new Date(evt.createdAt),
         iconType: "history",
         badgeColor: "bg-muted text-muted-foreground",
+        source: "crm",
       });
     });
 
@@ -1005,8 +1083,9 @@ export function DealDetailModal({
         author: act.operatorName || act.assignedToOperatorName || "Operador",
         date: new Date(act.createdAt),
         iconType: isNote ? "note" : "task",
-        badgeColor: isNote ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground",
+        badgeColor: isNote ? "bg-primary/10 text-primary border border-primary/20" : "bg-muted text-muted-foreground",
         isNote,
+        source: act.conversationId ? "conversas" : "crm",
       });
     });
 
@@ -1021,6 +1100,7 @@ export function DealDetailModal({
         date: new Date(prop.createdAt),
         iconType: "proposal",
         badgeColor: "bg-muted text-muted-foreground",
+        source: "crm",
       });
     });
 
@@ -1035,6 +1115,7 @@ export function DealDetailModal({
         date: new Date(evi.createdAt),
         iconType: "evidence",
         badgeColor: "bg-muted text-muted-foreground",
+        source: "conversas",
       });
     });
 
@@ -1049,6 +1130,7 @@ export function DealDetailModal({
         date: new Date(file.createdAt),
         iconType: "file",
         badgeColor: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+        source: "crm",
       });
     });
 
@@ -1063,6 +1145,7 @@ export function DealDetailModal({
         date: new Date(email.createdAt),
         iconType: "email",
         badgeColor: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+        source: "crm",
       });
     });
 
@@ -1077,6 +1160,7 @@ export function DealDetailModal({
         date: new Date(q.createdAt),
         iconType: "questionnaire",
         badgeColor: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+        source: "crm",
       });
     });
 
@@ -1084,9 +1168,15 @@ export function DealDetailModal({
     items.sort((a, b) => b.date.getTime() - a.date.getTime());
     return items;
   }, [deal, operatorsMap, pipelineStages]);
-  const filteredTimeline = historyFilter === "all"
-    ? unifiedTimeline
-    : unifiedTimeline.filter((item) => item.category === historyFilter);
+
+  const filteredTimeline = React.useMemo(() => {
+    return unifiedTimeline.filter((item) => {
+      if (historySourceFilter === "conversas" && item.source !== "conversas") return false;
+      if (historySourceFilter === "crm" && item.source !== "crm") return false;
+      if (historyFilter !== "all" && item.category !== historyFilter) return false;
+      return true;
+    });
+  }, [unifiedTimeline, historySourceFilter, historyFilter]);
 
   return (
     <div className="crm-deal-detail bg-card h-full flex flex-col overflow-hidden">
@@ -1115,30 +1205,11 @@ export function DealDetailModal({
 
               {!loading && deal && (
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Funil */}
-                  <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
-                    {deal.pipeline?.name || "Funil Comercial"}
-                  </span>
-
-                  {/* Empresa */}
-                  {deal.account && (
-                    <SystemTooltip content="Ver ficha do cliente">
-                      <button
-                        type="button"
-                        onClick={() => setIsAccountDetailOpen(true)}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-foreground hover:text-primary transition-colors cursor-pointer"
-                      >
-                        <Building2 className="h-3 w-3 text-primary shrink-0" />
-                        <span className="underline decoration-dotted truncate max-w-[150px]">{deal.account.name}</span>
-                      </button>
-                    </SystemTooltip>
-                  )}
-
-                  {/* Status Badge */}
+                  {/* 1. Status Badge */}
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase ${
+                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
                       deal.status === "lost"
-                        ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                        ? "bg-primary/10 text-primary border border-primary/20"
                         : deal.status === "won"
                         ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                         : deal.status === "paused"
@@ -1155,13 +1226,18 @@ export function DealDetailModal({
                       : "Em Aberto"}
                   </span>
 
-                  {/* Status IA: só exibe quando já estiver avaliado */}
+                  {/* 2. Funil */}
+                  <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                    {deal.pipeline?.name || "Funil Comercial"}
+                  </span>
+
+                  {/* 3. Avaliar */}
                   {deal.aiPriorityScore !== null && deal.aiPriorityScore !== undefined && (
                     <SystemTooltip content={deal.aiPriorityReason || "Prioridade comercial calculada por critérios explicáveis e IA"}>
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
                           deal.aiPriorityLevel === "critica"
-                            ? "bg-rose-500/10 text-rose-600 border border-rose-500/30"
+                            ? "bg-primary/10 text-primary border border-primary/30"
                             : "bg-muted text-muted-foreground border border-border"
                         }`}
                       >
@@ -1171,13 +1247,12 @@ export function DealDetailModal({
                     </SystemTooltip>
                   )}
 
-                  {/* Botão Único Avaliar */}
                   <SystemTooltip content="Calcular prioridade comercial com IA">
                     <button
                       type="button"
                       disabled={calculatingPriority}
                       onClick={handleCalculateAiPriority}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer disabled:opacity-50 ml-1"
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer disabled:opacity-50"
                     >
                       {calculatingPriority ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -1187,6 +1262,20 @@ export function DealDetailModal({
                       <span>Avaliar</span>
                     </button>
                   </SystemTooltip>
+
+                  {/* 4. Empresa (sempre o nome completo, sem limite de caracteres) */}
+                  {deal.account && (
+                    <SystemTooltip content="Ver ficha do cliente">
+                      <button
+                        type="button"
+                        onClick={() => setIsAccountDetailOpen(true)}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-foreground hover:text-primary transition-colors cursor-pointer"
+                      >
+                        <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <span className="underline decoration-dotted whitespace-nowrap">{deal.account.name}</span>
+                      </button>
+                    </SystemTooltip>
+                  )}
                 </div>
               )}
             </div>
@@ -1200,7 +1289,7 @@ export function DealDetailModal({
                       <SystemTooltip content="Marcar como Perdido">
                         <button
                           onClick={() => setShowLossPrompt(true)}
-                          className="flex h-8 items-center gap-1.5 rounded-full bg-rose-500/10 px-3 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition-colors cursor-pointer"
+                          className="flex h-8 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
                         >
                           <XCircle className="h-3.5 w-3.5" />
                           <span>Marcar perda</span>
@@ -1385,98 +1474,9 @@ export function DealDetailModal({
           </div>
         ) : (
           <div className="flex flex-1 min-h-0 max-lg:flex-col overflow-hidden">
-            {/* Painel Esquerdo: Dados do Comprador / Empresa */}
+            {/* Painel Esquerdo: Dados da Negociação, Contatos, Empresa e Campos Personalizados */}
             <div className="crm-deal-sidebar w-80 shrink-0 flex flex-col gap-3 border-r border-border bg-muted/20 p-4 overflow-y-auto scrollbar-none max-lg:w-full max-lg:h-auto">
-              {/* Card da Conta */}
-              <div className="crm-side-account rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                  Empresa
-                </span>
-
-                {deal?.account ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {deal.account.type === "company" ? (
-                          <Building2 className="h-4 w-4 text-primary shrink-0" />
-                        ) : (
-                          <User className="h-4 w-4 text-primary shrink-0" />
-                        )}
-                        <div className="min-w-0">
-                          <SystemTooltip content="Ver ficha completa do cliente">
-                            <button
-                              type="button"
-                              onClick={() => setIsAccountDetailOpen(true)}
-                              className="text-xs font-bold text-primary hover:underline block truncate text-left"
-                            >
-                              {deal.account.name}
-                            </button>
-                          </SystemTooltip>
-                          <span className="text-[10px] text-muted-foreground block">
-                            {deal.account.type === "company" ? "Pessoa Jurídica (PJ)" : "Pessoa Física (PF)"}
-                          </span>
-                        </div>
-                      </div>
-                      <SystemTooltip content="Abrir ficha cadastral do cliente">
-                        <button
-                          type="button"
-                          onClick={() => setIsAccountDetailOpen(true)}
-                          className="p-1 text-muted-foreground hover:text-primary rounded-md transition-colors"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </button>
-                      </SystemTooltip>
-                    </div>
-
-                    {deal.account.tradeName && (
-                      <p className="text-[11px] text-muted-foreground truncate">
-                        Nome Fantasia: <span className="text-foreground">{deal.account.tradeName}</span>
-                      </p>
-                    )}
-                    {deal.account.segment && <p className="truncate text-[11px] text-muted-foreground">Segmento: <span className="text-foreground">{deal.account.segment}</span></p>}
-
-                    {deal.account.document && (
-                      <div className="text-[11px] text-muted-foreground">
-                        {deal.account.type === "company" || deal.account.document.length === 14 ? "CNPJ" : "CPF"}:{" "}
-                        <span className="font-semibold text-foreground font-mono">
-                          {deal.account.document.length === 14
-                            ? deal.account.document.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5")
-                            : deal.account.document.length === 11
-                            ? deal.account.document.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")
-                            : deal.account.document}
-                        </span>
-                      </div>
-                    )}
-
-                    {deal.account.phone && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <Phone className="h-3 w-3 shrink-0" />
-                        <span>{deal.account.phone}</span>
-                      </div>
-                    )}
-
-                    {deal.account.email && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate">
-                        <Mail className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{deal.account.email}</span>
-                      </div>
-                    )}
-
-                    {deal.account.address && (deal.account.address.city || deal.account.address.state) && (
-                      <div className="text-[11px] text-muted-foreground">
-                        {deal.account.address.city}{deal.account.address.state ? ` - ${deal.account.address.state}` : ""}
-                      </div>
-                    )}
-                    <CustomFieldsSummary entity="company" values={deal.account.customFields || {}} />
-                  </div>
-                ) : (
-                  <div className="text-xs text-muted-foreground/60 italic py-2">
-                    Nenhum cliente ou empresa vinculado.
-                  </div>
-                )}
-              </div>
-
-              {/* Informações Comerciais Editáveis (Card Negociação) */}
+              {/* 1. Card Negociação */}
               <div className="crm-side-deal rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                   Negociação
@@ -1590,6 +1590,27 @@ export function DealDetailModal({
                     )}
                   </div>
 
+                  {/* Qualificação (1 a 5 estrelas) logo após o valor */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted-foreground font-semibold block">Qualificação</label>
+                    <div className="flex items-center gap-1 py-0.5">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          onClick={() => updateDeal({ rating: star })}
+                          className={`h-4 w-4 cursor-pointer hover:scale-110 transition-transform ${
+                            (deal?.rating || 0) >= star
+                              ? "fill-primary text-primary"
+                              : "text-muted-foreground/30"
+                          }`}
+                        />
+                      ))}
+                      <span className="text-[11px] text-muted-foreground ml-1.5 font-bold">
+                        {deal?.rating ? `${deal.rating}/5` : "Não avaliado"}
+                      </span>
+                    </div>
+                  </div>
+
                   {/* Responsável / Vendedor Editável */}
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground font-semibold block">Responsável</label>
@@ -1611,46 +1632,6 @@ export function DealDetailModal({
                     </Select>
                   </div>
 
-                  {/* Etapa do Funil Editável */}
-                  {sortedStages.length > 0 && (
-                    <div className="space-y-1">
-                      <label className="text-[10px] text-muted-foreground font-semibold block">Etapa no Funil</label>
-                      <Select value={deal?.stageId} onValueChange={handleStageChange}>
-                        <SelectTrigger className="h-7 w-full text-xs rounded-lg border border-border bg-card px-2 font-semibold text-foreground">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {sortedStages.map((stage) => (
-                            <SelectItem key={stage.id} value={stage.id} className="text-xs font-medium">
-                              {stage.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {/* Qualificação (1 a 5 estrelas) */}
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-muted-foreground font-semibold block">Qualificação</label>
-                    <div className="flex items-center gap-1 py-0.5">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <Star
-                          key={star}
-                          onClick={() => updateDeal({ rating: star })}
-                          className={`h-4 w-4 cursor-pointer hover:scale-110 transition-transform ${
-                            (deal?.rating || 0) >= star
-                              ? "fill-primary text-primary"
-                              : "text-muted-foreground/30"
-                          }`}
-                        />
-                      ))}
-                      <span className="text-[11px] text-muted-foreground ml-1.5 font-bold">
-                        {deal?.rating ? `${deal.rating}/5` : "Não avaliado"}
-                      </span>
-                    </div>
-                  </div>
-
                   {/* Previsão de Fechamento */}
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground font-semibold block">Previsão de Fechamento</label>
@@ -1665,9 +1646,9 @@ export function DealDetailModal({
                     />
                   </div>
 
-                  {/* Origem */}
+                  {/* Origem do Lead -> agora com nome "Fonte" */}
                   <div className="space-y-1">
-                    <label className="text-[10px] text-muted-foreground font-semibold block">Origem do Lead</label>
+                    <label className="text-[10px] text-muted-foreground font-semibold block">Fonte</label>
                     <CatalogSelect kind="source" value={deal?.source || ""} onChange={(val) => updateDeal({ source: val })} className="w-full h-7 rounded-lg border-border bg-card px-2 text-xs" />
                   </div>
 
@@ -1709,17 +1690,9 @@ export function DealDetailModal({
                     </div>
                   </div>
                 </div>
-
-                <CustomFieldsEditor entity="deal" pipelineId={deal?.pipelineId} values={customFieldDraft} onChange={setCustomFieldDraft} />
-                {JSON.stringify(customFieldDraft) !== JSON.stringify(deal?.customFields || {}) && (
-                  <button type="button" onClick={() => updateDeal({ customFields: changedCustomFieldValues(deal?.customFields || {}, customFieldDraft) })}
-                    className="w-full rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:opacity-90">
-                    Salvar campos personalizados
-                  </button>
-                )}
               </div>
 
-              {/* Contatos Participantes */}
+              {/* 2. Card Contatos Participantes */}
               <div className="crm-side-contacts rounded-xl border border-border bg-card p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
@@ -1821,6 +1794,114 @@ export function DealDetailModal({
                   ))
                 ) : (
                   <p className="text-[11px] text-muted-foreground/60 italic">Nenhum contato participante vinculado.</p>
+                )}
+              </div>
+
+              {/* 3. Card da Empresa */}
+              <div className="crm-side-account rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                  Empresa
+                </span>
+
+                {deal?.account ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {deal.account.type === "company" ? (
+                          <Building2 className="h-4 w-4 text-primary shrink-0" />
+                        ) : (
+                          <User className="h-4 w-4 text-primary shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <SystemTooltip content="Ver ficha completa do cliente">
+                            <button
+                              type="button"
+                              onClick={() => setIsAccountDetailOpen(true)}
+                              className="text-xs font-bold text-primary hover:underline block truncate text-left"
+                            >
+                              {deal.account.name}
+                            </button>
+                          </SystemTooltip>
+                          <span className="text-[10px] text-muted-foreground block">
+                            {deal.account.type === "company" ? "Pessoa Jurídica (PJ)" : "Pessoa Física (PF)"}
+                          </span>
+                        </div>
+                      </div>
+                      <SystemTooltip content="Abrir ficha cadastral do cliente">
+                        <button
+                          type="button"
+                          onClick={() => setIsAccountDetailOpen(true)}
+                          className="p-1 text-muted-foreground hover:text-primary rounded-md transition-colors"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                      </SystemTooltip>
+                    </div>
+
+                    {deal.account.tradeName && (
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        Nome Fantasia: <span className="text-foreground">{deal.account.tradeName}</span>
+                      </p>
+                    )}
+                    {deal.account.segment && <p className="truncate text-[11px] text-muted-foreground">Segmento: <span className="text-foreground">{deal.account.segment}</span></p>}
+
+                    {deal.account.document && (
+                      <div className="text-[11px] text-muted-foreground">
+                        {deal.account.type === "company" || deal.account.document.length === 14 ? "CNPJ" : "CPF"}:{" "}
+                        <span className="font-semibold text-foreground font-mono">
+                          {deal.account.document.length === 14
+                            ? deal.account.document.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5")
+                            : deal.account.document.length === 11
+                            ? deal.account.document.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")
+                            : deal.account.document}
+                        </span>
+                      </div>
+                    )}
+
+                    {deal.account.phone && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <Phone className="h-3 w-3 shrink-0" />
+                        <span>{deal.account.phone}</span>
+                      </div>
+                    )}
+
+                    {deal.account.email && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate">
+                        <Mail className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{deal.account.email}</span>
+                      </div>
+                    )}
+
+                    {deal.account.address && (deal.account.address.city || deal.account.address.state) && (
+                      <div className="text-[11px] text-muted-foreground">
+                        {deal.account.address.city}{deal.account.address.state ? ` - ${deal.account.address.state}` : ""}
+                      </div>
+                    )}
+                    <CustomFieldsSummary entity="company" values={deal.account.customFields || {}} />
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground/60 italic py-2">
+                    Nenhum cliente ou empresa vinculado.
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Card Exclusivo de Campos Personalizados */}
+              <div className="crm-side-custom-fields rounded-xl border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                  Campos Personalizados
+                </span>
+
+                <CustomFieldsEditor entity="deal" pipelineId={deal?.pipelineId} values={customFieldDraft} onChange={setCustomFieldDraft} />
+
+                {JSON.stringify(customFieldDraft) !== JSON.stringify(deal?.customFields || {}) && (
+                  <button
+                    type="button"
+                    onClick={() => updateDeal({ customFields: changedCustomFieldValues(deal?.customFields || {}, customFieldDraft) })}
+                    className="w-full rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 shadow-xs cursor-pointer transition-opacity"
+                  >
+                    Salvar campos personalizados
+                  </button>
                 )}
               </div>
             </div>
@@ -3468,74 +3549,187 @@ export function DealDetailModal({
                 {/* ABA 5: HISTÓRICO UNIFICADO */}
                 {activeTab === "history" && (
                   <div className="space-y-4 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
+                    {/* Barra de Filtros e Ação Criar Anotação (Alinhada como nas Fotos 3 e 4) */}
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
-                      <div>
-                        <h4 className="text-xs font-bold text-foreground">Histórico</h4>
-                        <p className="text-[11px] text-muted-foreground">Atividades e alterações desta negociação</p>
+                      <div className="flex items-center gap-4 flex-wrap">
+                        {/* Filtro "Do" */}
+                        <div className="flex items-center gap-1.5">
+                          <label htmlFor="crm-history-source-filter" className="text-xs font-bold text-foreground">
+                            Do
+                          </label>
+                          <Select
+                            value={historySourceFilter}
+                            onValueChange={(val) => setHistorySourceFilter(val as typeof historySourceFilter)}
+                          >
+                            <SelectTrigger id="crm-history-source-filter" className="h-8 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground min-w-[130px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all" className="text-xs font-medium">Todos</SelectItem>
+                              <SelectItem value="conversas" className="text-xs font-medium">Conversas</SelectItem>
+                              <SelectItem value="crm" className="text-xs font-medium">CRM</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Filtro "Exibir" */}
+                        <div className="flex items-center gap-1.5">
+                          <label htmlFor="crm-history-filter" className="text-xs font-bold text-foreground">
+                            Exibir
+                          </label>
+                          <Select
+                            value={historyFilter}
+                            onValueChange={(val) => setHistoryFilter(val as typeof historyFilter)}
+                          >
+                            <SelectTrigger id="crm-history-filter" className="h-8 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground min-w-[160px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all" className="text-xs font-medium">Todos os eventos</SelectItem>
+                              <SelectItem value="activity" className="text-xs font-medium">Atividades & Notas</SelectItem>
+                              <SelectItem value="event" className="text-xs font-medium">Alterações</SelectItem>
+                              <SelectItem value="proposal" className="text-xs font-medium">Propostas</SelectItem>
+                              <SelectItem value="evidence" className="text-xs font-medium">Evidências</SelectItem>
+                              <SelectItem value="file" className="text-xs font-medium">Arquivos</SelectItem>
+                              <SelectItem value="email" className="text-xs font-medium">E-mails</SelectItem>
+                              <SelectItem value="questionnaire" className="text-xs font-medium">Questionários</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <label htmlFor="crm-history-filter" className="text-[11px] font-semibold text-muted-foreground">Exibir</label>
-                        <Select
-                          value={historyFilter}
-                          onValueChange={(val) => setHistoryFilter(val as typeof historyFilter)}
-                        >
-                          <SelectTrigger id="crm-history-filter" className="h-8 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground min-w-[140px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all" className="text-xs">Todos os eventos</SelectItem>
-                            <SelectItem value="event" className="text-xs">Alterações</SelectItem>
-                            <SelectItem value="activity" className="text-xs">Atividades & Notas</SelectItem>
-                            <SelectItem value="file" className="text-xs">Arquivos</SelectItem>
-                            <SelectItem value="email" className="text-xs">E-mails</SelectItem>
-                            <SelectItem value="proposal" className="text-xs">Propostas</SelectItem>
-                            <SelectItem value="evidence" className="text-xs">Evidências</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <button
-                          type="button"
-                          onClick={() => { setNewActivityType("note"); setActiveTab("tasks"); }}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          <span>Anotação</span>
-                        </button>
-                      </div>
+
+                      {/* Botão "+ Criar anotação" */}
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatingNote(!isCreatingNote)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary/10 px-3.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer whitespace-nowrap shadow-2xs"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Criar anotação</span>
+                      </button>
                     </div>
 
+                    {/* Campo Animado para Criar e Salvar Anotação (Conforme Foto 3) */}
+                    <AnimatePresence>
+                      {isCreatingNote && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0, y: -8 }}
+                          animate={{ opacity: 1, height: "auto", y: 0 }}
+                          exit={{ opacity: 0, height: 0, y: -8 }}
+                          transition={{ duration: 0.22, ease: "easeInOut" }}
+                          className="overflow-hidden rounded-xl border border-border bg-card p-4 space-y-3 shadow-xs"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-foreground">Anotação</span>
+                          </div>
+
+                          {/* Toolbar de Formatação */}
+                          <div className="flex items-center gap-1 border-b border-border/60 pb-2">
+                            <button
+                              type="button"
+                              onClick={() => handleFormatNote("bold")}
+                              title="Negrito"
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            >
+                              <Bold className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleFormatNote("italic")}
+                              title="Itálico"
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            >
+                              <Italic className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleFormatNote("bullet")}
+                              title="Lista com marcadores"
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            >
+                              <List className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleFormatNote("numbered")}
+                              title="Lista numerada"
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            >
+                              <ListOrdered className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleFormatNote("link")}
+                              title="Inserir link"
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            >
+                              <Link2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Área de Texto da Anotação */}
+                          <textarea
+                            ref={noteTextareaRef}
+                            rows={4}
+                            value={inlineNoteText}
+                            onChange={(e) => setInlineNoteText(e.target.value)}
+                            placeholder="Digite aqui os detalhes da anotação..."
+                            className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 resize-y outline-none min-h-[90px] leading-relaxed"
+                            autoFocus
+                          />
+
+                          {/* Rodapé: Cancelar e Salvar no histórico */}
+                          <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCreatingNote(false);
+                                setInlineNoteText("");
+                              }}
+                              className="text-xs font-semibold text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSavingNote || !inlineNoteText.trim()}
+                              onClick={handleSaveInlineNote}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
+                            >
+                              {isSavingNote && <Loader2 className="h-3 w-3 animate-spin" />}
+                              <span>Salvar no histórico</span>
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
                     {filteredTimeline.length > 0 ? (
-                      <div className="crm-deal-timeline relative pl-6 border-l-2 border-border/70 space-y-4 pt-1">
+                      <div className="crm-deal-timeline relative pl-6 border-l-2 border-border/80 space-y-4 pt-1">
                         {filteredTimeline.map((item: any) => {
-                          const IconComp =
-                            item.iconType === "note"
-                              ? FileText
-                              : item.iconType === "task"
-                              ? ListTodo
-                              : item.iconType === "proposal"
-                              ? ShoppingBag
-                              : item.iconType === "evidence"
-                              ? Bookmark
-                              : item.iconType === "file"
-                              ? Paperclip
-                              : item.iconType === "email"
-                              ? Mail
-                              : item.iconType === "questionnaire"
-                              ? ClipboardCheck
-                              : History;
+                          const isLeadOrImportant = item.category === "event" && item.title.includes("criou");
+                          const bulletColor = item.isNote
+                            ? "border-primary bg-primary"
+                            : item.category === "evidence"
+                            ? "border-purple-500 bg-purple-500"
+                            : item.category === "proposal"
+                            ? "border-emerald-500 bg-emerald-500"
+                            : isLeadOrImportant
+                            ? "border-purple-600 bg-purple-600"
+                            : "border-muted-foreground/40 bg-muted-foreground/40";
 
                           return (
                             <div key={item.id} className="relative group">
-                              {/* Marcador na linha do tempo */}
-                              <div className="absolute -left-[31px] top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-card border-2 border-primary">
-                                <div className="h-1.5 w-1.5 rounded-full bg-primary" />
+                              {/* Marcador na linha do tempo com bullet colorido */}
+                              <div className="absolute -left-[31px] top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-card border-2 border-border">
+                                <div className={`h-2 w-2 rounded-full ${bulletColor}`} />
                               </div>
 
-                              <div className="crm-timeline-item rounded-xl border border-border/80 bg-card p-3.5 shadow-2xs space-y-2 hover:border-primary/40 transition-colors">
+                              <div className="crm-timeline-item rounded-xl border border-border/70 bg-card p-3.5 shadow-2xs space-y-2 hover:border-primary/40 transition-colors">
                                 <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
-                                  <div className="flex items-center gap-2">
-                                    <IconComp className="h-3.5 w-3.5 text-primary shrink-0" />
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-bold text-foreground text-xs">
-                                      {item.title}
+                                      <strong>{item.author}</strong> {item.isNote ? "adicionou uma anotação:" : item.category === "activity" ? "criou a tarefa:" : item.title}
                                     </span>
                                     <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${item.badgeColor}`}>
                                       {item.category === "event"
@@ -3558,11 +3752,11 @@ export function DealDetailModal({
                                     </span>
                                   </div>
 
-                                  <span className="text-[10px] text-muted-foreground font-semibold">
+                                  <span className="text-[10px] text-muted-foreground font-medium">
                                     {item.date.toLocaleDateString("pt-BR", {
                                       day: "2-digit",
                                       month: "2-digit",
-                                      year: "2-digit",
+                                      year: "numeric",
                                       hour: "2-digit",
                                       minute: "2-digit",
                                     })}
@@ -3571,19 +3765,15 @@ export function DealDetailModal({
 
                                 {item.description && (
                                   item.isNote ? (
-                                    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-foreground leading-relaxed whitespace-pre-wrap font-medium">
+                                    <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-3 text-xs text-foreground leading-relaxed whitespace-pre-wrap font-medium">
                                       {item.description}
                                     </div>
                                   ) : (
-                                    <p className="text-xs text-muted-foreground whitespace-pre-wrap pl-5">
+                                    <p className="text-xs text-muted-foreground whitespace-pre-wrap pl-1">
                                       {item.description}
                                     </p>
                                   )
                                 )}
-
-                                <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-1 border-t border-border/40 pl-5">
-                                  <span>Por: <strong className="text-foreground">{item.author}</strong></span>
-                                </div>
                               </div>
                             </div>
                           );
