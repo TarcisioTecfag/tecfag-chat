@@ -146,7 +146,7 @@ export function PipelineColumn({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`flex flex-col h-full min-w-[280px] max-w-[320px] flex-1 rounded-2xl border transition-all duration-200 ${
+      className={`flex flex-col h-full min-w-[280px] max-w-[320px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-all duration-200 ${
         isOver
           ? "border-primary/80 ring-2 ring-primary/30 bg-primary/[0.04] scale-[1.008]"
           : "border-border/60 bg-muted/20"
@@ -193,7 +193,7 @@ export function PipelineColumn({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto p-2.5 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
+        className="min-h-0 flex-1 overflow-y-auto p-2.5 pb-6 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
       >
         {deals.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center px-4 space-y-2.5">

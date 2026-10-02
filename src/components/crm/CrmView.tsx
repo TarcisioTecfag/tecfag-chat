@@ -380,7 +380,7 @@ export function CrmView() {
   };
 
   return (
-    <div className="flex flex-col h-full w-full gap-4 overflow-hidden pt-1 pb-1 pl-1 pr-0">
+    <div className="flex flex-col h-full w-full gap-4 overflow-hidden pt-1 pb-0 pl-1 pr-0">
       {/* Barra de Ferramentas Superior */}
       <div className="pr-5 shrink-0">
         <CrmToolbar
@@ -491,7 +491,7 @@ export function CrmView() {
             />
           </div>
         ) : (
-          <div key="crm-list-view" className="h-full w-full pr-5 animate-in fade-in-50 duration-200">
+          <div key="crm-list-view" className="h-full w-full pr-5 pb-5 animate-in fade-in-50 duration-200">
             <DealList
               deals={deals}
               stages={activeStages}
