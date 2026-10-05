@@ -1,17 +1,28 @@
-import React, { useState } from "react";
-import { useChat } from "@/hooks/useChatState";
+import React, { useState, useEffect } from "react";
+import { useChat, updateDocumentTitle, updateFavicon } from "@/hooks/useChatState";
 import { Eye, EyeOff, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
 export function Login() {
   const { login } = useChat();
-  const [selectedTenant, setSelectedTenant] = useState<"tecfag" | "valem">("tecfag");
+  const [selectedTenant, setSelectedTenant] = useState<"tecfag" | "valem">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chat_tenant");
+      if (saved === "valem" || saved === "tecfag") return saved;
+    }
+    return "tecfag";
+  });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    updateDocumentTitle(selectedTenant);
+    updateFavicon(selectedTenant);
+  }, [selectedTenant]);
 
   const activeTenant = selectedTenant;
   const isValem = activeTenant === "valem";

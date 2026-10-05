@@ -104,51 +104,68 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" },
-      { name: "google", content: "notranslate" },
-      { name: "theme-color", content: "#2dc4a0" },
-      { title: "Valem Chat — Central de Atendimento & Gestão Comercial" },
-      { name: "description", content: "Plataforma oficial de atendimento multicanal, automação via WhatsApp, IA Valentina e gestão comercial da Valem Válvulas e Embalagens." },
-      { name: "author", content: "Valem Válvulas e Embalagens" },
+  head: () => {
+    let title = "Valem Chat";
+    let iconHref = "/favicon.png";
+    let themeColor = "#2dc4a0";
 
-      // Open Graph (WhatsApp, Facebook, LinkedIn, Discord, Telegram)
-      { property: "og:title", content: "Valem Chat — Central de Atendimento & Gestão Comercial" },
-      { property: "og:description", content: "Plataforma oficial de atendimento multicanal, automação via WhatsApp, IA Valentina e gestão comercial da Valem Válvulas e Embalagens." },
-      { property: "og:type", content: "website" },
-      { property: "og:url", content: "https://tecfagchat.up.railway.app" },
-      { property: "og:site_name", content: "Valem Chat" },
-      { property: "og:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
-      { property: "og:image:secure_url", content: "https://tecfagchat.up.railway.app/og-image.png" },
-      { property: "og:image:type", content: "image/png" },
-      { property: "og:image:width", content: "1200" },
-      { property: "og:image:height", content: "630" },
-      { property: "og:image:alt", content: "Valem Chat — Atendimento Inteligente & Gestão Comercial" },
+    if (typeof window !== "undefined") {
+      try {
+        const savedTenant = localStorage.getItem("chat_tenant");
+        if (savedTenant === "tecfag") {
+          title = "Tecfag Chat";
+          iconHref = "/logo_tecfag.png";
+          themeColor = "#df3d3d";
+        }
+      } catch (e) {}
+    }
 
-      // Twitter Cards
-      { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Valem Chat — Central de Atendimento & Gestão Comercial" },
-      { name: "twitter:description", content: "Plataforma oficial de atendimento multicanal, automação via WhatsApp, IA Valentina e gestão comercial da Valem Válvulas e Embalagens." },
-      { name: "twitter:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
-    ],
-    links: [
-      { rel: "icon", type: "image/png", href: "/logo192.png" },
-      { rel: "apple-touch-icon", href: "/logo192.png" },
-      { rel: "manifest", href: "/manifest.json" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
-      },
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-    ],
-  }),
+    return {
+      meta: [
+        { charSet: "utf-8" },
+        { name: "viewport", content: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" },
+        { name: "google", content: "notranslate" },
+        { name: "theme-color", content: themeColor },
+        { title },
+        { name: "description", content: "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial." },
+        { name: "author", content: "Tecfag Group" },
+
+        // Open Graph (WhatsApp, Facebook, LinkedIn, Discord, Telegram)
+        { property: "og:title", content: title },
+        { property: "og:description", content: "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial." },
+        { property: "og:type", content: "website" },
+        { property: "og:url", content: "https://tecfagchat.up.railway.app" },
+        { property: "og:site_name", content: title },
+        { property: "og:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
+        { property: "og:image:secure_url", content: "https://tecfagchat.up.railway.app/og-image.png" },
+        { property: "og:image:type", content: "image/png" },
+        { property: "og:image:width", content: "1200" },
+        { property: "og:image:height", content: "630" },
+        { property: "og:image:alt", content: title },
+
+        // Twitter Cards
+        { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:title", content: title },
+        { name: "twitter:description", content: "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial." },
+        { name: "twitter:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
+      ],
+      links: [
+        { rel: "icon", type: "image/png", href: iconHref },
+        { rel: "apple-touch-icon", href: iconHref },
+        { rel: "manifest", href: "/manifest.json" },
+        { rel: "preconnect", href: "https://fonts.googleapis.com" },
+        { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+        {
+          rel: "stylesheet",
+          href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
+        },
+        {
+          rel: "stylesheet",
+          href: appCss,
+        },
+      ],
+    };
+  },
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
@@ -161,7 +178,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("chat_theme_mode");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("chat_tenant");var isT=t==="tecfag";document.title=isT?"Tecfag Chat":"Valem Chat";var icon=isT?"/logo_tecfag.png":"/favicon.png";var l=document.querySelectorAll("link[rel*='icon'], link[rel='apple-touch-icon']");l.forEach(function(el){el.href=icon;});}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_theme_mode");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}}catch(e){}})();`,
           }}
         />
         <HeadContent />
