@@ -80,6 +80,7 @@ import { Route as ApiCrmProductsRouteImport } from './routes/api/crm/products'
 import { Route as ApiCrmPipelinesRouteImport } from './routes/api/crm/pipelines'
 import { Route as ApiCrmInventoryRouteImport } from './routes/api/crm/inventory'
 import { Route as ApiCrmDealsRouteImport } from './routes/api/crm/deals'
+import { Route as ApiCrmDealFilterOptionsRouteImport } from './routes/api/crm/deal-filter-options'
 import { Route as ApiCrmCustomFieldsRouteImport } from './routes/api/crm/custom-fields'
 import { Route as ApiCrmContactsRouteImport } from './routes/api/crm/contacts'
 import { Route as ApiCrmCatalogsRouteImport } from './routes/api/crm/catalogs'
@@ -502,6 +503,11 @@ const ApiCrmDealsRoute = ApiCrmDealsRouteImport.update({
   path: '/api/crm/deals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmDealFilterOptionsRoute = ApiCrmDealFilterOptionsRouteImport.update({
+  id: '/api/crm/deal-filter-options',
+  path: '/api/crm/deal-filter-options',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmCustomFieldsRoute = ApiCrmCustomFieldsRouteImport.update({
   id: '/api/crm/custom-fields',
   path: '/api/crm/custom-fields',
@@ -895,6 +901,7 @@ export interface FileRoutesByFullPath {
   '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
+  '/api/crm/deal-filter-options': typeof ApiCrmDealFilterOptionsRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
@@ -1030,6 +1037,7 @@ export interface FileRoutesByTo {
   '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
+  '/api/crm/deal-filter-options': typeof ApiCrmDealFilterOptionsRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
@@ -1166,6 +1174,7 @@ export interface FileRoutesById {
   '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
   '/api/crm/custom-fields': typeof ApiCrmCustomFieldsRouteWithChildren
+  '/api/crm/deal-filter-options': typeof ApiCrmDealFilterOptionsRoute
   '/api/crm/deals': typeof ApiCrmDealsRouteWithChildren
   '/api/crm/inventory': typeof ApiCrmInventoryRoute
   '/api/crm/pipelines': typeof ApiCrmPipelinesRouteWithChildren
@@ -1303,6 +1312,7 @@ export interface FileRouteTypes {
     | '/api/crm/catalogs'
     | '/api/crm/contacts'
     | '/api/crm/custom-fields'
+    | '/api/crm/deal-filter-options'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1438,6 +1448,7 @@ export interface FileRouteTypes {
     | '/api/crm/catalogs'
     | '/api/crm/contacts'
     | '/api/crm/custom-fields'
+    | '/api/crm/deal-filter-options'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1573,6 +1584,7 @@ export interface FileRouteTypes {
     | '/api/crm/catalogs'
     | '/api/crm/contacts'
     | '/api/crm/custom-fields'
+    | '/api/crm/deal-filter-options'
     | '/api/crm/deals'
     | '/api/crm/inventory'
     | '/api/crm/pipelines'
@@ -1703,6 +1715,7 @@ export interface RootRouteChildren {
   ApiCrmCatalogsRoute: typeof ApiCrmCatalogsRouteWithChildren
   ApiCrmContactsRoute: typeof ApiCrmContactsRoute
   ApiCrmCustomFieldsRoute: typeof ApiCrmCustomFieldsRouteWithChildren
+  ApiCrmDealFilterOptionsRoute: typeof ApiCrmDealFilterOptionsRoute
   ApiCrmDealsRoute: typeof ApiCrmDealsRouteWithChildren
   ApiCrmInventoryRoute: typeof ApiCrmInventoryRoute
   ApiCrmPipelinesRoute: typeof ApiCrmPipelinesRouteWithChildren
@@ -2247,6 +2260,13 @@ declare module '@tanstack/react-router' {
       path: '/api/crm/deals'
       fullPath: '/api/crm/deals'
       preLoaderRoute: typeof ApiCrmDealsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/deal-filter-options': {
+      id: '/api/crm/deal-filter-options'
+      path: '/api/crm/deal-filter-options'
+      fullPath: '/api/crm/deal-filter-options'
+      preLoaderRoute: typeof ApiCrmDealFilterOptionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/crm/custom-fields': {
@@ -3018,6 +3038,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCrmCatalogsRoute: ApiCrmCatalogsRouteWithChildren,
   ApiCrmContactsRoute: ApiCrmContactsRoute,
   ApiCrmCustomFieldsRoute: ApiCrmCustomFieldsRouteWithChildren,
+  ApiCrmDealFilterOptionsRoute: ApiCrmDealFilterOptionsRoute,
   ApiCrmDealsRoute: ApiCrmDealsRouteWithChildren,
   ApiCrmInventoryRoute: ApiCrmInventoryRoute,
   ApiCrmPipelinesRoute: ApiCrmPipelinesRouteWithChildren,

@@ -1059,17 +1059,25 @@ export function SettingsView() {
                   {/* Card 1: Diário WhatsApp */}
                   <div className={`rounded-2xl border p-5 transition-all shadow-soft flex items-center justify-between ${
                     reportForm.reportDailyWhatsapp 
-                      ? "bg-emerald-500/5 border-emerald-500/30 dark:bg-emerald-500/10" 
-                      : "bg-card border-border"
+                      ? "bg-primary/5 border-primary/30" 
+                      : "bg-card border-border hover:border-border/80"
                   }`}>
                     <div className="flex items-start gap-3.5">
-                      <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      <div className={`p-2.5 rounded-xl transition-colors mt-0.5 ${
+                        reportForm.reportDailyWhatsapp
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted/60 text-muted-foreground"
+                      }`}>
                         <Smartphone className="h-5 w-5" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <h5 className="text-xs font-extrabold text-foreground">Relatório Diário via WhatsApp</h5>
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                            reportForm.reportDailyWhatsapp
+                              ? "bg-primary/10 text-primary border-primary/20"
+                              : "bg-muted text-muted-foreground border-border/60"
+                          }`}>
                             Diário • 18h
                           </span>
                         </div>
@@ -1083,7 +1091,7 @@ export function SettingsView() {
                       type="button"
                       onClick={() => setReportForm({ ...reportForm, reportDailyWhatsapp: !reportForm.reportDailyWhatsapp })}
                       className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out cursor-pointer shrink-0 ml-4 ${
-                        reportForm.reportDailyWhatsapp ? "bg-emerald-500" : "bg-muted border border-border"
+                        reportForm.reportDailyWhatsapp ? "bg-primary" : "bg-muted border border-border"
                       }`}
                     >
                       <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-in-out ${
@@ -1095,17 +1103,25 @@ export function SettingsView() {
                   {/* Card 2: Diário E-mail */}
                   <div className={`rounded-2xl border p-5 transition-all shadow-soft flex items-center justify-between ${
                     reportForm.reportDailyEmail 
-                      ? "bg-blue-500/5 border-blue-500/30 dark:bg-blue-500/10" 
-                      : "bg-card border-border"
+                      ? "bg-primary/5 border-primary/30" 
+                      : "bg-card border-border hover:border-border/80"
                   }`}>
                     <div className="flex items-start gap-3.5">
-                      <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 mt-0.5">
+                      <div className={`p-2.5 rounded-xl transition-colors mt-0.5 ${
+                        reportForm.reportDailyEmail
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted/60 text-muted-foreground"
+                      }`}>
                         <Mail className="h-5 w-5" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <h5 className="text-xs font-extrabold text-foreground">Relatório Diário via E-mail</h5>
-                          <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                            reportForm.reportDailyEmail
+                              ? "bg-primary/10 text-primary border-primary/20"
+                              : "bg-muted text-muted-foreground border-border/60"
+                          }`}>
                             Diário • 18h
                           </span>
                         </div>
@@ -1119,7 +1135,7 @@ export function SettingsView() {
                       type="button"
                       onClick={() => setReportForm({ ...reportForm, reportDailyEmail: !reportForm.reportDailyEmail })}
                       className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out cursor-pointer shrink-0 ml-4 ${
-                        reportForm.reportDailyEmail ? "bg-blue-500" : "bg-muted border border-border"
+                        reportForm.reportDailyEmail ? "bg-primary" : "bg-muted border border-border"
                       }`}
                     >
                       <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-in-out ${
@@ -1131,17 +1147,25 @@ export function SettingsView() {
                   {/* Card 3: Semanal WhatsApp */}
                   <div className={`rounded-2xl border p-5 transition-all shadow-soft flex items-center justify-between ${
                     reportForm.reportWeeklyWhatsapp 
-                      ? "bg-purple-500/5 border-purple-500/30 dark:bg-purple-500/10" 
-                      : "bg-card border-border"
+                      ? "bg-primary/5 border-primary/30" 
+                      : "bg-card border-border hover:border-border/80"
                   }`}>
                     <div className="flex items-start gap-3.5">
-                      <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 mt-0.5">
+                      <div className={`p-2.5 rounded-xl transition-colors mt-0.5 ${
+                        reportForm.reportWeeklyWhatsapp
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted/60 text-muted-foreground"
+                      }`}>
                         <Calendar className="h-5 w-5" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <h5 className="text-xs font-extrabold text-foreground">Relatório Semanal via WhatsApp</h5>
-                          <span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[10px] font-bold">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                            reportForm.reportWeeklyWhatsapp
+                              ? "bg-primary/10 text-primary border-primary/20"
+                              : "bg-muted text-muted-foreground border-border/60"
+                          }`}>
                             Sexta • 18h
                           </span>
                         </div>
@@ -1155,7 +1179,7 @@ export function SettingsView() {
                       type="button"
                       onClick={() => setReportForm({ ...reportForm, reportWeeklyWhatsapp: !reportForm.reportWeeklyWhatsapp })}
                       className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out cursor-pointer shrink-0 ml-4 ${
-                        reportForm.reportWeeklyWhatsapp ? "bg-purple-500" : "bg-muted border border-border"
+                        reportForm.reportWeeklyWhatsapp ? "bg-primary" : "bg-muted border border-border"
                       }`}
                     >
                       <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-in-out ${
@@ -1167,17 +1191,25 @@ export function SettingsView() {
                   {/* Card 4: Semanal E-mail */}
                   <div className={`rounded-2xl border p-5 transition-all shadow-soft flex items-center justify-between ${
                     reportForm.reportWeeklyEmail 
-                      ? "bg-amber-500/5 border-amber-500/30 dark:bg-amber-500/10" 
-                      : "bg-card border-border"
+                      ? "bg-primary/5 border-primary/30" 
+                      : "bg-card border-border hover:border-border/80"
                   }`}>
                     <div className="flex items-start gap-3.5">
-                      <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 mt-0.5">
+                      <div className={`p-2.5 rounded-xl transition-colors mt-0.5 ${
+                        reportForm.reportWeeklyEmail
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted/60 text-muted-foreground"
+                      }`}>
                         <FileText className="h-5 w-5" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <h5 className="text-xs font-extrabold text-foreground">Relatório Semanal via E-mail</h5>
-                          <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                            reportForm.reportWeeklyEmail
+                              ? "bg-primary/10 text-primary border-primary/20"
+                              : "bg-muted text-muted-foreground border-border/60"
+                          }`}>
                             Sexta • 18h
                           </span>
                         </div>
@@ -1191,7 +1223,7 @@ export function SettingsView() {
                       type="button"
                       onClick={() => setReportForm({ ...reportForm, reportWeeklyEmail: !reportForm.reportWeeklyEmail })}
                       className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out cursor-pointer shrink-0 ml-4 ${
-                        reportForm.reportWeeklyEmail ? "bg-amber-500" : "bg-muted border border-border"
+                        reportForm.reportWeeklyEmail ? "bg-primary" : "bg-muted border border-border"
                       }`}
                     >
                       <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-in-out ${
@@ -1204,17 +1236,25 @@ export function SettingsView() {
                 {/* Card 5: Gate de Aprovação Obrigatória */}
                 <div className={`rounded-2xl border p-5 transition-all shadow-soft flex items-center justify-between col-span-full mt-2 ${
                   reportForm.reportRequiresApproval
-                    ? "bg-violet-500/5 border-violet-500/30 dark:bg-violet-500/10"
-                    : "bg-card border-border"
+                    ? "bg-primary/5 border-primary/30"
+                    : "bg-card border-border hover:border-border/80"
                 }`}>
                   <div className="flex items-start gap-3.5">
-                    <div className="p-2.5 rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400 mt-0.5">
+                    <div className={`p-2.5 rounded-xl transition-colors mt-0.5 ${
+                      reportForm.reportRequiresApproval
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted/60 text-muted-foreground"
+                    }`}>
                       <Shield className="h-5 w-5" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
                         <h5 className="text-xs font-extrabold text-foreground">Exigir aprovação antes de enviar</h5>
-                        <span className="px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-400 text-[10px] font-bold">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                          reportForm.reportRequiresApproval
+                            ? "bg-primary/10 text-primary border-primary/20"
+                            : "bg-muted text-muted-foreground border-border/60"
+                        }`}>
                           Aprovação Humana
                         </span>
                       </div>
@@ -1229,7 +1269,7 @@ export function SettingsView() {
                     type="button"
                     onClick={() => setReportForm({ ...reportForm, reportRequiresApproval: !reportForm.reportRequiresApproval })}
                     className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out cursor-pointer shrink-0 ml-4 ${
-                      reportForm.reportRequiresApproval ? "bg-violet-500" : "bg-muted border border-border"
+                      reportForm.reportRequiresApproval ? "bg-primary" : "bg-muted border border-border"
                     }`}
                   >
                     <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-in-out ${
@@ -1249,7 +1289,7 @@ export function SettingsView() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-foreground flex items-center gap-2">
-                      <Smartphone className="h-4 w-4 text-emerald-500" />
+                      <Smartphone className="h-4 w-4 text-muted-foreground" />
                       Números de WhatsApp (DDI + DDD + Número)
                     </label>
                     <input
@@ -1264,7 +1304,7 @@ export function SettingsView() {
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-foreground flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-blue-500" />
+                      <Mail className="h-4 w-4 text-muted-foreground" />
                       Endereços de E-mail de Destino
                     </label>
                     <input

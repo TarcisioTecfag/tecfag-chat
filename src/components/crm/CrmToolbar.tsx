@@ -181,10 +181,17 @@ export function CrmToolbar({
       (Array.isArray(value) && !value.length)
     )
       continue;
+    const displayValue = Array.isArray(value)
+      ? `${value.length} selecionado(s)`
+      : typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? dateLabel(value)
+        : value;
     filterChips.push({
       key,
       label:
-        value === true ? label : `${label}: ${Array.isArray(value) ? value.join(", ") : value}`,
+        value === true || key === "companyId" || key === "productId"
+          ? label
+          : `${label}: ${displayValue}`,
     });
   }
 

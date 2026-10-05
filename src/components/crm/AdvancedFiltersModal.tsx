@@ -146,7 +146,7 @@ function DateFilter({
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          side="left"
+          side="bottom"
           className="w-60 max-w-[calc(100vw-2rem)] p-1 text-xs"
         >
           {custom ? (
@@ -224,11 +224,13 @@ function FilterSelect({
   value,
   options,
   onChange,
+  emptyLabel = "Selecionar",
 }: {
   label: string;
   value?: string;
   options: Option[];
   onChange: (value?: string) => void;
+  emptyLabel?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -241,7 +243,7 @@ function FilterSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="__all__">Selecionar</SelectItem>
+          <SelectItem value="__all__">{emptyLabel}</SelectItem>
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
@@ -290,26 +292,23 @@ export function AdvancedFiltersModal({
       fetch("/api/crm/catalogs?kind=source"),
       fetch("/api/crm/catalogs?kind=campaign"),
       fetch("/api/crm/products"),
+      fetch("/api/crm/deal-filter-options"),
     ])
-      .then(async ([sourceRes, campaignRes, productRes]) => {
-        const [sourceData, campaignData, productData] = await Promise.all([
+      .then(async ([sourceRes, campaignRes, productRes, historicalRes]) => {
+        const [sourceData, campaignData, productData, historicalData] = await Promise.all([
           sourceRes.ok ? sourceRes.json() : { items: [] },
           campaignRes.ok ? campaignRes.json() : { items: [] },
           productRes.ok ? productRes.json() : { products: [] },
+          historicalRes.ok ? historicalRes.json() : { sources: [], campaigns: [] },
         ]);
         if (!active) return;
-        setSources(
-          (sourceData.items || []).map((item: { name: string }) => ({
-            value: item.name,
-            label: item.name,
-          })),
-        );
-        setCampaigns(
-          (campaignData.items || []).map((item: { name: string }) => ({
-            value: item.name,
-            label: item.name,
-          })),
-        );
+        const combinedOptions = (catalog: Array<{ name: string }>, historical: string[]) =>
+          [...new Set([...catalog.map((item) => item.name), ...historical])]
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b, "pt-BR"))
+            .map((name) => ({ value: name, label: name }));
+        setSources(combinedOptions(sourceData.items || [], historicalData.sources || []));
+        setCampaigns(combinedOptions(campaignData.items || [], historicalData.campaigns || []));
         setProducts(
           (productData.products || []).map((item: { id: string; name: string }) => ({
             value: item.id,
@@ -491,6 +490,7 @@ export function AdvancedFiltersModal({
           </div>
           <FilterSelect
             label="Status da negociação"
+            emptyLabel="Todos os status"
             value={status === "all" ? undefined : status}
             onChange={(value) => setStatus((value || "all") as CrmStatusFilter)}
             options={[
