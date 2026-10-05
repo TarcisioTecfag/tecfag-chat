@@ -148,10 +148,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         { name: "twitter:title", content: title },
         { name: "twitter:description", content: "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial." },
         { name: "twitter:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
+
+        // Mobile & PWA App (Safari iOS e Chrome Android)
+        { name: "mobile-web-app-capable", content: "yes" },
+        { name: "apple-mobile-web-app-capable", content: "yes" },
+        { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+        { name: "apple-mobile-web-app-title", content: "Tecfag Chat" },
+        { name: "application-name", content: "Tecfag Chat" },
       ],
       links: [
         { rel: "icon", type: "image/png", href: iconHref },
-        { rel: "apple-touch-icon", href: iconHref },
+        { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
+        { rel: "apple-touch-icon", sizes: "192x192", href: "/logo192.png" },
+        { rel: "apple-touch-icon", sizes: "512x512", href: "/logo512.png" },
+        { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
         { rel: "manifest", href: "/manifest.json" },
         { rel: "preconnect", href: "https://fonts.googleapis.com" },
         { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
@@ -178,7 +188,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("chat_tenant");var isT=t==="tecfag";document.title=isT?"Tecfag Chat":"Valem Chat";var icon=isT?"/logo_tecfag.png":"/favicon.png";var l=document.querySelectorAll("link[rel*='icon'], link[rel='apple-touch-icon']");l.forEach(function(el){el.href=icon;});}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_theme_mode");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("chat_tenant");var isT=t==="tecfag";document.title=isT?"Tecfag Chat":"Valem Chat";var icon=isT?"/logo_tecfag.png":"/favicon.png";var l=document.querySelectorAll("link[rel='icon'], link[rel='shortcut icon']");l.forEach(function(el){el.href=icon;});}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_theme_mode");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}}catch(e){}})();`,
           }}
         />
         <HeadContent />

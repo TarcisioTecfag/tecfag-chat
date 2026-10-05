@@ -164,7 +164,7 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
-// Atualiza dinamicamente o favicon conforme o tenant ativo
+// Atualiza dinamicamente o favicon da aba do navegador conforme o tenant ativo
 export const updateFavicon = (currentTenant: string | null) => {
   if (typeof document === "undefined") return;
   const isTecfag = currentTenant === "tecfag";
@@ -173,9 +173,9 @@ export const updateFavicon = (currentTenant: string | null) => {
   const head = document.head || document.getElementsByTagName("head")[0];
   if (!head) return;
 
-  // Remove tags anteriores para forçar o navegador a renderizar o novo favicon sem cache
+  // Remove apenas os favicons da aba para atualização dinâmica sem sobrescrever o ícone do app mobile
   const oldIcons = document.querySelectorAll<HTMLLinkElement>(
-    "link[rel*='icon'], link[rel='apple-touch-icon']"
+    "link[rel='icon'], link[rel='shortcut icon']"
   );
   oldIcons.forEach((el) => el.parentNode?.removeChild(el));
 
@@ -185,10 +185,14 @@ export const updateFavicon = (currentTenant: string | null) => {
   link.href = iconHref;
   head.appendChild(link);
 
-  const appleLink = document.createElement("link");
-  appleLink.rel = "apple-touch-icon";
-  appleLink.href = iconHref;
-  head.appendChild(appleLink);
+  // Garante que o ícone de atalho mobile (PWA / tela de início) permaneça com a logo oficial do app
+  let appleLink = document.querySelector<HTMLLinkElement>("link[rel='apple-touch-icon']");
+  if (!appleLink) {
+    appleLink = document.createElement("link");
+    appleLink.rel = "apple-touch-icon";
+    appleLink.href = "/apple-touch-icon.png";
+    head.appendChild(appleLink);
+  }
 };
 
 // Atualiza dinamicamente o título do documento e o favicon sem fixar canal por tenant
