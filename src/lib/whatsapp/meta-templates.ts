@@ -5,6 +5,19 @@ import { bodyVariableIndexes, type TemplateBinding, type TemplateBindings } from
 
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
 
+export interface MetaTemplateButtonInput {
+  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER";
+  text: string;
+  url?: string;
+  phoneNumber?: string;
+}
+
+export interface MetaTemplateHeaderInput {
+  type: "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
+  text?: string;
+  exampleUrl?: string;
+}
+
 export interface MetaTemplateInput {
   name: string;
   language: string;
@@ -12,6 +25,9 @@ export interface MetaTemplateInput {
   bodyText: string;
   examples: string[];
   bindings: TemplateBindings;
+  header?: MetaTemplateHeaderInput;
+  footerText?: string;
+  buttons?: MetaTemplateButtonInput[];
 }
 
 async function credentials(tenantId: string) {
@@ -56,15 +72,91 @@ export function validateMetaTemplateInput(value: unknown): MetaTemplateInput {
     if (!(["customer_name", "operator_name", "manual"] as string[]).includes(binding)) throw new Error("Vínculo de variável inválido.");
     bindings[String(index)] = binding;
   }
-  return { name, language, category: input.category, bodyText, examples, bindings };
+
+  let header: MetaTemplateHeaderInput | undefined;
+  if (input.header && input.header.type && input.header.type !== "NONE") {
+    const validHeaderTypes = ["TEXT", "IMAGE", "VIDEO", "DOCUMENT"];
+    if (!validHeaderTypes.includes(input.header.type)) throw new Error("Tipo de cabeçalho inválido.");
+    const headerText = typeof input.header.text === "string" ? input.header.text.trim() : "";
+    if (input.header.type === "TEXT") {
+      if (!headerText || headerText.length > 60) throw new Error("Texto do cabeçalho deve ter entre 1 e 60 caracteres.");
+    }
+    header = {
+      type: input.header.type,
+      text: headerText || undefined,
+      exampleUrl: typeof input.header.exampleUrl === "string" ? input.header.exampleUrl.trim() : undefined,
+    };
+  }
+
+  const footerText = typeof input.footerText === "string" ? input.footerText.trim() : undefined;
+  if (footerText && footerText.length > 60) throw new Error("Rodapé deve ter no máximo 60 caracteres.");
+
+  let buttons: MetaTemplateButtonInput[] | undefined;
+  if (Array.isArray(input.buttons) && input.buttons.length > 0) {
+    if (input.buttons.length > 3) throw new Error("Máximo de 3 botões permitidos pela Meta.");
+    buttons = input.buttons.map((b, idx) => {
+      const bText = typeof b.text === "string" ? b.text.trim() : "";
+      if (!bText || bText.length > 25) throw new Error(`Texto do botão ${idx + 1} deve ter de 1 a 25 caracteres.`);
+      if (b.type === "URL") {
+        const url = typeof b.url === "string" ? b.url.trim() : "";
+        if (!url || !url.startsWith("http")) throw new Error(`URL inválida no botão ${idx + 1}.`);
+        return { type: "URL" as const, text: bText, url };
+      }
+      if (b.type === "PHONE_NUMBER") {
+        const phoneNumber = typeof b.phoneNumber === "string" ? b.phoneNumber.trim() : "";
+        if (!phoneNumber) throw new Error(`Telefone inválido no botão ${idx + 1}.`);
+        return { type: "PHONE_NUMBER" as const, text: bText, phoneNumber };
+      }
+      return { type: "QUICK_REPLY" as const, text: bText };
+    });
+  }
+
+  return { name, language, category: input.category, bodyText, examples, bindings, header, footerText, buttons };
 }
 
 function componentsFor(input: MetaTemplateInput) {
-  return [{
+  const components: any[] = [];
+
+  if (input.header && input.header.type !== "NONE") {
+    if (input.header.type === "TEXT") {
+      components.push({
+        type: "HEADER",
+        format: "TEXT",
+        text: input.header.text,
+      });
+    } else {
+      components.push({
+        type: "HEADER",
+        format: input.header.type,
+      });
+    }
+  }
+
+  components.push({
     type: "BODY",
     text: input.bodyText,
     ...(input.examples.length ? { example: { body_text: [input.examples] } } : {}),
-  }];
+  });
+
+  if (input.footerText) {
+    components.push({
+      type: "FOOTER",
+      text: input.footerText,
+    });
+  }
+
+  if (input.buttons && input.buttons.length > 0) {
+    components.push({
+      type: "BUTTONS",
+      buttons: input.buttons.map((b) => {
+        if (b.type === "URL") return { type: "URL", text: b.text, url: b.url };
+        if (b.type === "PHONE_NUMBER") return { type: "PHONE_NUMBER", text: b.text, phone_number: b.phoneNumber };
+        return { type: "QUICK_REPLY", text: b.text };
+      }),
+    });
+  }
+
+  return components;
 }
 
 async function saveSnapshot(tenantId: string, item: any, bindings?: TemplateBindings) {

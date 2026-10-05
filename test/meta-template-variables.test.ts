@@ -28,8 +28,9 @@ test("a criação exige exemplos para todas as variáveis e recusa marcadores in
   assert.throws(() => validateMetaTemplateInput({ ...valid, bodyText: "Olá {{cliente}}" }), /numéricas/);
 });
 
-test("o chat não oferece templates aprovados com botões ou variáveis nomeadas", () => {
+test("o chat valida templates aprovados compatíveis com botões, cabeçalhos e recusa variáveis nomeadas", () => {
   assert.equal(isSupportedMetaTemplate([{ type: "BODY" }], "Olá {{1}}"), true);
-  assert.equal(isSupportedMetaTemplate([{ type: "BODY" }, { type: "BUTTONS" }], "Olá {{1}}"), false);
+  assert.equal(isSupportedMetaTemplate([{ type: "BODY" }, { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Sim" }] }], "Olá {{1}}"), true);
+  assert.equal(isSupportedMetaTemplate([{ type: "HEADER", format: "IMAGE" }, { type: "BODY" }], "Olá {{1}}"), true);
   assert.equal(isSupportedMetaTemplate([{ type: "BODY" }], "Olá {{cliente}}"), false);
 });

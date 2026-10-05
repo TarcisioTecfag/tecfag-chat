@@ -6,13 +6,25 @@ export function bodyVariableIndexes(bodyText: string): number[] {
   return [...new Set(matches)].sort((a, b) => a - b);
 }
 
-export function isSupportedMetaTemplate(components: Array<{ type?: string; format?: string; text?: string }>, bodyText: string): boolean {
+export function isSupportedMetaTemplate(
+  components: Array<{ type?: string; format?: string; text?: string; buttons?: unknown[] }>,
+  bodyText: string
+): boolean {
   const indexes = bodyVariableIndexes(bodyText);
   const allPlaceholders = [...bodyText.matchAll(/\{\{([^{}]+)\}\}/g)].length;
-  return !!bodyText && allPlaceholders === [...bodyText.matchAll(/\{\{(\d+)\}\}/g)].length &&
-    indexes.every((index, offset) => index === offset + 1) && components.every((component) =>
-      component.type === "BODY" || component.type === "FOOTER" ||
-      (component.type === "HEADER" && component.format === "TEXT" && !/\{\{[^{}]+\}\}/.test(component.text || "")));
+  if (!bodyText || allPlaceholders !== [...bodyText.matchAll(/\{\{(\d+)\}\}/g)].length) return false;
+  if (!indexes.every((index, offset) => index === offset + 1)) return false;
+
+  return components.every((component) => {
+    if (component.type === "BODY" || component.type === "FOOTER") return true;
+    if (component.type === "HEADER") {
+      return ["TEXT", "IMAGE", "VIDEO", "DOCUMENT"].includes(component.format || "");
+    }
+    if (component.type === "BUTTONS") {
+      return Array.isArray(component.buttons);
+    }
+    return false;
+  });
 }
 
 export function resolveMetaTemplateValues(

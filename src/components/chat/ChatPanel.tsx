@@ -6,6 +6,7 @@ import { useChat } from "@/hooks/useChatState";
 import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
+import { MetaTemplateSelectModal, Meta24hInfoModal, type ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Smile,
@@ -568,18 +569,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const [text, setText] = useState("");
   const [metaWindow, setMetaWindow] = useState<{ open: boolean; expiresAt: string | null } | null>(null);
-  const [metaTemplates, setMetaTemplates] = useState<Array<{ id: string; name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean; bindings: Record<string, "customer_name" | "operator_name" | "manual"> }>>([]);
-  const [showMetaTemplates, setShowMetaTemplates] = useState(false);
-  const [selectedMetaTemplate, setSelectedMetaTemplate] = useState("");
-  const [metaTemplateParameters, setMetaTemplateParameters] = useState<string[]>([]);
+  const [metaTemplates, setMetaTemplates] = useState<ApprovedMetaTemplate[]>([]);
+  const [showMetaTemplateModal, setShowMetaTemplateModal] = useState(false);
+  const [show24hInfoModal, setShow24hInfoModal] = useState(false);
+  const [metaTemplatesLoading, setMetaTemplatesLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [reactingMsgId, setReactingMsgId] = useState<string | null>(null);
 
   useEffect(() => {
     setMetaWindow(null);
-    setShowMetaTemplates(false);
-    setSelectedMetaTemplate("");
-    setMetaTemplateParameters([]);
+    setShowMetaTemplateModal(false);
     if (activeProvider !== "meta" || activeChat?.channel !== "whatsapp") {
       return;
     }
@@ -595,69 +594,28 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const loadMetaTemplates = async () => {
     if (!activeChat) return;
+    setMetaTemplatesLoading(true);
     try {
       const response = await fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}&templates=1`, { credentials: "include" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao carregar templates da Meta");
       setMetaTemplates((data.templates || []).filter((item: { supported: boolean }) => item.supported));
       setMetaWindow(data.window || null);
-      setShowMetaTemplates(true);
     } catch (error: any) {
       toast.error(error.message || "Falha ao consultar templates aprovados");
+    } finally {
+      setMetaTemplatesLoading(false);
     }
   };
 
-  const sendSelectedMetaTemplate = async () => {
-    const selected = metaTemplates.find((item) => `${item.name}:${item.language}` === selectedMetaTemplate);
-    if (!selected || metaTemplateParameters.length !== selected.variableCount || metaTemplateParameters.some((value) => !value.trim())) {
-      toast.error("Selecione um template e preencha todas as variáveis.");
-      return;
-    }
+  const handleSendMetaTemplate = async (template: ApprovedMetaTemplate, parameters: string[]) => {
     const sent = await sendMessage("", false, undefined, null, {
-      name: selected.name,
-      language: selected.language,
-      parameters: metaTemplateParameters.map((value) => value.trim()),
+      name: template.name,
+      language: template.language,
+      parameters: parameters.map((value) => value.trim()),
     });
-    if (!sent) return;
-    setShowMetaTemplates(false);
-    setSelectedMetaTemplate("");
-    setMetaTemplateParameters([]);
+    return !!sent;
   };
-
-  const renderMetaTemplatePicker = () => (
-    <div className="mt-3 space-y-2 text-xs">
-      <select
-        value={selectedMetaTemplate}
-        onChange={(event) => {
-          const value = event.target.value;
-          const item = metaTemplates.find((template) => `${template.name}:${template.language}` === value);
-          setSelectedMetaTemplate(value);
-          setMetaTemplateParameters(Array.from({ length: item?.variableCount || 0 }, (_, index) => {
-            const binding = item?.bindings?.[String(index + 1)];
-            return binding === "customer_name" ? activeChat?.name || "" : binding === "operator_name" ? operatorProfile?.name || "" : "";
-          }));
-        }}
-        className="w-full rounded-lg border border-border bg-background p-2"
-      >
-        <option value="">Selecione um template aprovado</option>
-        {metaTemplates.map((item) => <option key={`${item.name}:${item.language}`} value={`${item.name}:${item.language}`}>{item.name} · {item.language} · {item.category}</option>)}
-      </select>
-      {selectedMetaTemplate && <p className="whitespace-pre-wrap rounded-lg bg-background p-2 text-foreground">{
-        metaTemplates.find((item) => `${item.name}:${item.language}` === selectedMetaTemplate)?.bodyText.replace(/\{\{(\d+)\}\}/g, (_, number) => metaTemplateParameters[Number(number) - 1]?.trim() || `{{${number}}}`)
-      }</p>}
-      {metaTemplateParameters.map((value, index) => {
-        const item = metaTemplates.find((template) => `${template.name}:${template.language}` === selectedMetaTemplate);
-        const binding = item?.bindings?.[String(index + 1)];
-        return <label key={index} className="block text-muted-foreground">
-          {binding === "customer_name" ? "@nome do cliente" : binding === "operator_name" ? "@nome do operador" : `Variável {{${index + 1}}}`}
-          <input value={value} readOnly={binding === "customer_name" || binding === "operator_name"}
-            onChange={(event) => setMetaTemplateParameters((previous) => previous.map((entry, i) => i === index ? event.target.value : entry))}
-            placeholder={`Variável {{${index + 1}}}`} className="mt-1 w-full rounded-lg border border-border bg-background p-2 read-only:opacity-70" />
-        </label>;
-      })}
-      <button type="button" onClick={sendSelectedMetaTemplate} disabled={!selectedMetaTemplate} className="rounded-lg bg-primary px-3 py-2 font-semibold text-primary-foreground disabled:opacity-50">Enviar template</button>
-    </div>
-  );
 
   useEffect(() => {
     setReplyingTo(null);
@@ -2775,13 +2733,49 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               )}
             </div>
           ) : activeProvider === "meta" && activeChat.channel === "whatsapp" && metaWindow?.open !== true ? (
-            <div className="mx-auto max-w-xl rounded-xl border border-amber-300 bg-card p-5 shadow-sm">
-              {metaWindow === null ? <p className="text-xs text-muted-foreground">Consultando a janela de atendimento da Meta...</p> : <>
-              <p className="text-sm font-bold text-foreground">Retome a conversa com um template aprovado</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">A última mensagem do cliente foi há mais de 24 horas. Para continuar pelo WhatsApp, envie um template aprovado pela Meta. O campo de resposta voltará quando o cliente responder.</p>
-              {!showMetaTemplates ? <button type="button" onClick={loadMetaTemplates} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">Enviar template</button> : renderMetaTemplatePicker()}
-              {showMetaTemplates && metaTemplates.length === 0 && <p className="mt-2 text-xs text-muted-foreground">Não há templates aprovados compatíveis com este chat. Peça a um administrador que confira o status na aba Templates Globais.</p>}
-              </>}
+            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-amber-500 bg-card p-5 shadow-sm">
+              {metaWindow === null ? (
+                <div className="flex items-center gap-2.5 text-xs text-muted-foreground py-1">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                  <span>Consultando a janela de atendimento da Meta...</span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3.5">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                    <AlertCircle className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground">
+                        Retome a conversa com um template aprovado
+                      </h4>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        Você pode responder mensagens no WhatsApp até 24 horas após o último contato do cliente. Após esse prazo, use um template aprovado pelo WhatsApp para continuar a conversa.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await loadMetaTemplates();
+                          setShowMetaTemplateModal(true);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                        <span>Enviar Template</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShow24hInfoModal(true)}
+                        className="text-xs font-medium text-sky-600 dark:text-sky-400 hover:underline cursor-pointer"
+                      >
+                        Saiba Mais
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             /* ── COMPOSER NORMAL: sou o dono ── */
@@ -2940,16 +2934,26 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           )}
 
           {activeProvider === "meta" && activeChat.channel === "whatsapp" && msgMode !== "internal" && (
-            <div className="mb-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs">
+            <div className="mb-2 rounded-xl border border-border bg-muted/40 px-3.5 py-2 text-xs">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  {metaWindow === null ? "Consultando janela de atendimento da Meta..." : metaWindow.open
-                    ? `Texto livre permitido até ${new Date(metaWindow.expiresAt!).toLocaleString("pt-BR")}. Mensagens entregues podem gerar cobrança.`
-                    : "Janela de 24 horas encerrada. Para retomar, envie um template aprovado."}
+                <span className="text-muted-foreground">
+                  {metaWindow === null
+                    ? "Consultando janela de atendimento da Meta..."
+                    : metaWindow.open
+                    ? `Janela Meta ativa até ${new Date(metaWindow.expiresAt!).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. Mensagens livres permitidas.`
+                    : "Janela de 24 horas encerrada. Para continuar, envie um template aprovado."}
                 </span>
-                <button type="button" onClick={loadMetaTemplates} className="font-semibold text-primary underline">Templates Meta</button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await loadMetaTemplates();
+                    setShowMetaTemplateModal(true);
+                  }}
+                  className="font-semibold text-primary hover:underline cursor-pointer"
+                >
+                  Templates Meta
+                </button>
               </div>
-              {showMetaTemplates && renderMetaTemplatePicker()}
             </div>
           )}
 
@@ -3285,6 +3289,23 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal Selecionador de Templates Meta (Estilo RD Conversas) */}
+      <MetaTemplateSelectModal
+        isOpen={showMetaTemplateModal}
+        onClose={() => setShowMetaTemplateModal(false)}
+        templates={metaTemplates}
+        customerName={activeChat?.name || "Cliente"}
+        operatorName={operatorProfile?.name || "Atendente"}
+        onSend={handleSendMetaTemplate}
+        loading={metaTemplatesLoading}
+      />
+
+      {/* Modal Explicativo da Janela de 24 Horas da Meta */}
+      <Meta24hInfoModal
+        isOpen={show24hInfoModal}
+        onClose={() => setShow24hInfoModal(false)}
+      />
     </motion.section>
   );
 }
