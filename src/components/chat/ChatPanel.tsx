@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { MessageReactions } from "./MessageReactions";
+import { MessageStatusTicks } from "./MessageStatusTicks";
 import { useChat } from "@/hooks/useChatState";
 import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
@@ -531,12 +532,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setSelectedChatId,
     setActiveView,
     clientTypingStatus,
+    messageStatusOverrides,
+    operatorTypingStatus,
     isValentinaTyping,
   } = useChat();
 
   const aiPersona = getAiPersona(tenant || "valem");
 
   const activeTyping = activeChat ? clientTypingStatus[activeChat.id] : null;
+  const activeOperatorTyping = activeChat ? operatorTypingStatus[activeChat.id] : null;
 
   const {
     canCaptureChat,
@@ -705,6 +709,61 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       return a.sentAtISO.localeCompare(b.sentAtISO);
     });
   }, [activeChat?.id, activeChat?.messages, history]);
+
+  // ── Presença em tempo real ────────────────────────────────────────────────
+  // Só o responsável pela conversa capturada gera efeitos visíveis ao cliente.
+  // O backend valida de novo (tenant da sessão + responsável) e decide se chama a Meta.
+  const canEmitPresence =
+    !!activeChat &&
+    activeChat.id !== "valentina" &&
+    activeChat.channel === "whatsapp" &&
+    activeChat.queue === "meus" &&
+    isOwner;
+
+  const lastInboundId = useMemo(() => {
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const message = allMessages[i];
+      if (message.side === "in" && !message.isWarning && !message.isInternalNote) return message.id;
+    }
+    return null;
+  }, [allMessages]);
+
+  const postPresence = useCallback((conversationId: string, action: "read" | "typing") => {
+    fetch(`${BACKEND_URL}/api/whatsapp/presence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ conversationId, action }),
+    }).catch(() => {});
+  }, []);
+
+  // "Lido": cliente vê ✓✓ azul assim que o responsável realmente visualiza a mensagem
+  // (conversa aberta + aba do navegador visível). Só existe confirmação real na Meta Cloud API.
+  const readSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeProvider !== "meta" || !canEmitPresence || !activeChat || !lastInboundId) return;
+    const conversationId = activeChat.id;
+    const key = `${conversationId}:${lastInboundId}`;
+    if (readSentRef.current === key) return;
+
+    const trySend = () => {
+      if (document.visibilityState !== "visible" || readSentRef.current === key) return;
+      readSentRef.current = key;
+      postPresence(conversationId, "read");
+    };
+    trySend();
+    if (readSentRef.current === key) return;
+
+    document.addEventListener("visibilitychange", trySend);
+    return () => document.removeEventListener("visibilitychange", trySend);
+  }, [activeProvider, canEmitPresence, activeChat?.id, lastInboundId, postPresence]);
+
+  // "Digitando": no máximo 1 sinal a cada 4s; o servidor renova o indicador da Meta a cada ~20s
+  // (a Meta o encerra sozinha em 25s ou quando a mensagem é enviada).
+  const lastTypingPingRef = useRef(0);
+  useEffect(() => {
+    lastTypingPingRef.current = 0;
+  }, [activeChat?.id]);
 
   const loadOlderMessages = async () => {
     if (!history?.nextCursor || loadingHistory) return;
@@ -1278,6 +1337,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     const val = e.target.value;
     setText(val);
 
+    // "digitando..." para o cliente (Meta) e para quem acompanha a conversa — notas internas não contam.
+    if (canEmitPresence && activeChat && msgMode === "client" && val.trim() && !val.startsWith("/")) {
+      const now = Date.now();
+      if (now - lastTypingPingRef.current > 4000) {
+        lastTypingPingRef.current = now;
+        postPresence(activeChat.id, "typing");
+      }
+    }
+
     // Show quick replies menu if text starts with "/"
     if (val.startsWith("/")) {
       setShowQuickMenu(true);
@@ -1383,6 +1451,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     <span>digitando...</span>
                   </>
                 )}
+              </span>
+            ) : activeOperatorTyping ? (
+              <span className="text-[11px] font-bold text-amber-500 animate-pulse flex items-center gap-1 mt-0.5">
+                <Zap className="h-3 w-3" />
+                <span>{activeOperatorTyping.operatorName.split(" ")[0]} está digitando uma resposta...</span>
               </span>
             ) : (
               <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5">
@@ -2082,12 +2155,21 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     )}
                   </div>
                   <MessageReactions reactions={m.reactions} side="out" />
-                  {/* Metadados — revelados com clique */}
-                  {isExpanded && (
-                    <span className="mr-1 mt-1 text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
-                      {m.author} · {m.time}
-                    </span>
-                  )}
+                  {/* Metadados (clique) + checks de entrega/leitura (somente envios pela Meta, que confirma de verdade) */}
+                  {(() => {
+                    const liveStatus = messageStatusOverrides[m.id];
+                    const effectiveStatus = liveStatus?.status || m.status;
+                    const effectiveError = liveStatus?.error ?? m.errorMessage;
+                    const hasTicks = m.provider === "meta" && !m.isInternalNote && !!effectiveStatus;
+                    const showTicks = hasTicks && (isLast || isExpanded || effectiveStatus === "failed");
+                    if (!isExpanded && !showTicks) return null;
+                    return (
+                      <span className="mr-1 mt-1 flex items-center gap-1 text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+                        {isExpanded && <span>{m.author} · {m.time}</span>}
+                        {showTicks && <MessageStatusTicks status={effectiveStatus} error={effectiveError} />}
+                      </span>
+                    );
+                  })()}
                 </motion.div>
                 </React.Fragment>
               );

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db";
 import { messages, pendingInbounds } from "../../db/schema";
+import { SessionManager } from "../baileys/session-manager";
 
 type MetaStatus = {
   id?: string;
@@ -21,6 +22,7 @@ export async function applyMetaStatus(tenantId: string, statusObj: MetaStatus, p
   for (let attempt = 0; attempt < 3; attempt++) {
     const [existing] = await db.select({
       id: messages.id,
+      conversationId: messages.conversationId,
       status: messages.status,
       metaPricing: messages.metaPricing,
       metaStatusAt: messages.metaStatusAt,
@@ -59,16 +61,29 @@ export async function applyMetaStatus(tenantId: string, statusObj: MetaStatus, p
     const pricing = statusObj.pricing
       ? { ...statusObj.pricing, conversation: statusObj.conversation || null, recipientId: statusObj.recipient_id || null }
       : existing.metaPricing;
+    const errorMessage = nextStatus === "failed" ? statusObj.errors?.[0]?.message || "Falha informada pela Meta" : null;
 
     const updated = await db.update(messages).set({
       status: nextStatus,
       metaPricing: pricing,
       metaStatusAt: nextStatus !== existing.status ? statusAt : existing.metaStatusAt,
-      errorMessage: nextStatus === "failed" ? statusObj.errors?.[0]?.message || "Falha informada pela Meta" : null,
+      errorMessage,
       updatedAt: new Date(),
     }).where(and(eq(messages.id, existing.id), eq(messages.tenantId, tenantId), eq(messages.status, existing.status)))
       .returning({ id: messages.id });
-    if (updated.length > 0) return true;
+    if (updated.length > 0) {
+      // Tempo real: os checks (✓ / ✓✓ / ✓✓ azul / falha) do balão atualizam sem recarregar.
+      if (nextStatus !== existing.status) {
+        SessionManager.getInstance().notifyPublic(tenantId, {
+          type: "message_status",
+          conversationId: existing.conversationId,
+          messageId: existing.id,
+          status: nextStatus,
+          error: errorMessage,
+        });
+      }
+      return true;
+    }
   }
   throw new Error("Status Meta alterado simultaneamente; solicitar retentativa do webhook");
 }

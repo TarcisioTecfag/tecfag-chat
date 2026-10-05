@@ -152,6 +152,10 @@ type ChatContextType = {
   baileysConfig: BaileysConfig;
   setBaileysConfig: React.Dispatch<React.SetStateAction<BaileysConfig>>;
   clientTypingStatus: Record<string, { status: "composing" | "recording"; timestamp: number } | null>;
+  /** Status de entrega/leitura recebidos em tempo real (SSE), por id da mensagem. Prevalecem sobre o histórico carregado. */
+  messageStatusOverrides: Record<string, { status: string; error?: string | null }>;
+  /** Outro operador digitando na conversa (visível a quem acompanha o atendimento). */
+  operatorTypingStatus: Record<string, { operatorId: string; operatorName: string; timestamp: number } | null>;
   isValentinaTyping: boolean;
   disconnectBaileys: () => void;
   connectBaileys: (forceNew?: boolean) => void;
@@ -248,6 +252,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Status de presença (digitando / gravando áudio) do cliente por conversa
   const [clientTypingStatus, setClientTypingStatus] = useState<Record<string, { status: "composing" | "recording"; timestamp: number } | null>>({});
+  const [messageStatusOverrides, setMessageStatusOverrides] = useState<Record<string, { status: string; error?: string | null }>>({});
+  const [operatorTypingStatus, setOperatorTypingStatus] = useState<Record<string, { operatorId: string; operatorName: string; timestamp: number } | null>>({});
   const [isValentinaTyping, setIsValentinaTyping] = useState(false);
   // Ref para controle de cancelamento da resposta da Valentina
   // Cada nova mensagem incrementa a geração e aborta o fetch anterior
@@ -1462,7 +1468,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentChat.channel === "whatsapp" &&
       !isInternalNote;
     let sentTextMessageId: string | undefined;
+    let sentTextStatus: string | undefined;
     const sentAttachmentMessageIds: string[] = [];
+    const sentAttachmentStatuses: string[] = [];
 
     console.log("[SendMessage Frontend] Diagnóstico de envio:", {
       tenant,
@@ -1507,6 +1515,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           const sendResult = await response.json().catch(() => ({}));
           sentTextMessageId = sendResult.messageId;
+          sentTextStatus = sendResult.status;
           partAlreadySent = true;
         }
 
@@ -1534,6 +1543,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
               const mediaResult = await mediaRes.json().catch(() => ({}));
               sentAttachmentMessageIds.push(mediaResult.messageId || "");
+              sentAttachmentStatuses.push(mediaResult.status || "");
               partAlreadySent = true;
             } catch (err) {
               console.error("Falha ao enviar anexo:", err);
@@ -1586,6 +1596,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Mensagem de texto (só adiciona se tiver conteúdo)
     const messagesToAdd: Message[] = [];
 
+    // Provedor real do envio: os checks (✓/✓✓/azul) só aparecem para a Meta, que confirma entrega/leitura.
+    const sentProvider = shouldSendReal ? activeProvider : null;
+
     if (text.trim() || metaTemplate) {
       messagesToAdd.push({
         id: sentTextMessageId || `msg-${Date.now()}`,
@@ -1597,6 +1610,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         quotedMessageId: quotedMessage?.id || null,
         quotedMessageSender: quotedMessage?.sender || null,
         quotedMessageContent: quotedMessage?.content || null,
+        status: sentTextStatus,
+        provider: sentProvider,
       });
     }
 
@@ -1620,6 +1635,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           time: now,
           side: "out",
           isInternalNote: false,
+          status: sentAttachmentStatuses[i] || undefined,
+          provider: sentProvider,
         });
       });
     }
@@ -2228,6 +2245,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return changed ? updated : prev;
       });
+      setOperatorTypingStatus((prev) => {
+        let changed = false;
+        const updated = { ...prev };
+        for (const [key, value] of Object.entries(updated)) {
+          if (value && now - value.timestamp > 6000) {
+            updated[key] = null;
+            changed = true;
+          }
+        }
+        return changed ? updated : prev;
+      });
     }, 2000);
     return () => clearInterval(interval);
   }, []);
@@ -2365,6 +2393,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (message?.conversationId) {
           setClientTypingStatus((prev) => ({ ...prev, [message.conversationId]: null }));
+          if (message.senderType !== "client") {
+            setOperatorTypingStatus((prev) => (prev[message.conversationId] ? { ...prev, [message.conversationId]: null } : prev));
+          }
         }
 
         const currentOperatorId = currentOperatorIdRef.current;
@@ -2600,6 +2631,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
           )
         );
+      } else if (data.type === "message_status" && data.messageId && data.status) {
+        // Guarda mesmo se a mensagem ainda não estiver na tela: o webhook "delivered" pode
+        // chegar antes da resposta do POST /send que adiciona o balão.
+        const { conversationId, messageId, status, error } = data;
+        setMessageStatusOverrides((prev) => ({ ...prev, [messageId]: { status, error: error || null } }));
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id !== conversationId
+              ? c
+              : { ...c, messages: c.messages.map((m) => (m.id === messageId ? { ...m, status, errorMessage: error || null } : m)) }
+          )
+        );
+      } else if (data.type === "operator_typing" && data.conversationId) {
+        if (data.operatorId && data.operatorId === currentOperatorIdRef.current) return;
+        setOperatorTypingStatus((prev) => ({
+          ...prev,
+          [data.conversationId]: {
+            operatorId: data.operatorId,
+            operatorName: data.operatorName || "Operador",
+            timestamp: Date.now(),
+          },
+        }));
       } else if (data.type === "queue_update") {
         const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
 
@@ -3039,6 +3092,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeProvider,
         setActiveProvider,
         clientTypingStatus,
+        messageStatusOverrides,
+        operatorTypingStatus,
         isValentinaTyping,
         disconnectBaileys,
         connectBaileys,

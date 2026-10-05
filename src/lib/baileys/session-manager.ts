@@ -43,6 +43,8 @@ export type SessionEvent =
   | { type: "contact_updated"; contactId?: string; contact?: any; updates?: any }
   | { type: "chat_updated"; chat: any }
   | { type: "message_reaction"; conversationId: string; messageId: string; reactions: Array<{ emoji: string; from: string; at: string }> }
+  | { type: "message_status"; conversationId: string; messageId: string; status: string; error?: string | null }
+  | { type: "operator_typing"; conversationId: string; operatorId: string; operatorName: string }
   | { type: "presence_update"; id: string; presences: Record<string, any> };
 
 export type SessionListener = (event: SessionEvent) => void;

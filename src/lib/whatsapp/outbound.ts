@@ -10,6 +10,7 @@ import { metaAdapter } from "./adapters/meta";
 import { baileysAdapter } from "./adapters/baileys";
 import { getMetaServiceWindow } from "./meta-policy";
 import { replayPendingMetaStatuses } from "./meta-status";
+import { resetMetaTypingThrottle } from "./meta-presence";
 
 export class OutboundQueue {
   private static instance: OutboundQueue;
@@ -228,6 +229,7 @@ function isIdempotencyConflict(err: any): boolean {
 
         if (activeProvider === "meta" && dispatchResult.externalId) {
           await replayPendingMetaStatuses(tenantId, dispatchResult.externalId);
+          resetMetaTypingThrottle(tenantId, conversationId);
         }
 
         await db

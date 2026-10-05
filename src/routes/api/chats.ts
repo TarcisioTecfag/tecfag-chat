@@ -338,6 +338,9 @@ export const Route = createFileRoute("/api/chats")({
                 quotedMessageSender: m.quotedMessageSender,
                 quotedMessageContent: m.quotedMessageContent,
                 reactions: readReactions(m.metaDetails),
+                status: m.status,
+                provider: m.provider,
+                errorMessage: m.status === "failed" ? m.errorMessage : null,
               })),
             };
           });

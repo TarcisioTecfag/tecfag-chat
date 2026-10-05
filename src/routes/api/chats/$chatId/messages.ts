@@ -74,6 +74,8 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
             side: r.direction === "inbound" || r.senderType === "client" ? "in" : "out",
             isInternalNote: r.isInternalNote,
             status: r.status,
+            provider: r.provider,
+            errorMessage: r.status === "failed" ? r.errorMessage : null,
             quotedMessageId: r.quotedMessageId,
             quotedMessageSender: r.quotedMessageSender,
             quotedMessageContent: r.quotedMessageContent,

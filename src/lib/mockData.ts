@@ -17,6 +17,11 @@ export type Message = {
   quotedMessageContent?: string | null;
   reactions?: Array<{ emoji: string; from?: string }>;
   senderType?: string;
+  /** Status de entrega: sending | accepted (✓) | delivered (✓✓) | read (✓✓ azul) | failed | unknown */
+  status?: string;
+  /** Provedor do envio. Checks só são exibidos para "meta", que tem confirmação real de entrega/leitura. */
+  provider?: string | null;
+  errorMessage?: string | null;
   isWarning?: boolean;
   warningType?: "delay" | "new_lead";
   warningMetadata?: {

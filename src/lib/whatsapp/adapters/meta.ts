@@ -353,6 +353,37 @@ export class MetaAdapter implements WhatsAppAdapter {
     }
   }
 
+  /**
+   * Confirmação de leitura oficial da Cloud API: o cliente passa a ver ✓✓ azul em todas as mensagens
+   * até `wamid` (inclusive). Com `typing = true`, também exibe "digitando..." no WhatsApp do cliente
+   * por até 25s ou até a próxima mensagem enviada — a Meta só permite o indicador atrelado ao "lido".
+   * A Cloud API NÃO oferece indicador de "gravando áudio" (apenas `typing_indicator.type = "text"`).
+   */
+  async markInboundRead(tenantId: string, wamid: string, typing = false): Promise<{ ok: boolean; error?: string }> {
+    try {
+      if (!wamid) return { ok: false, error: "wamid ausente" };
+      const { phoneNumberId, accessToken } = await this.getCredentials(tenantId);
+      const response = await fetch(`${META_BASE_URL}/${phoneNumberId}/messages`, {
+        method: "POST",
+        signal: AbortSignal.timeout(10000),
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          status: "read",
+          message_id: wamid,
+          ...(typing ? { typing_indicator: { type: "text" } } : {}),
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        return { ok: false, error: data?.error?.message || `HTTP ${response.status}` };
+      }
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || "Falha ao contatar a Meta" };
+    }
+  }
+
   async getStatus(tenantId: string): Promise<{
     status: "disconnected" | "connecting" | "connected" | "qr_ready" | "error";
     phone?: string;
