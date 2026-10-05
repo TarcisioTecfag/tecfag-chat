@@ -8,6 +8,7 @@ import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { applyMetaStatus } from "../../../lib/whatsapp/meta-status";
 import { resolveMetaSenderIdentity } from "../../../lib/whatsapp/meta-identity";
 import { describeNonMediaMetaMessage, isIgnorableMetaMessage, isMetaMediaType } from "../../../lib/whatsapp/meta-message-text";
+import { applyMetaReaction } from "../../../lib/whatsapp/meta-reactions";
 
 export const Route = createFileRoute("/api/webhooks/meta")({
   server: {
@@ -406,7 +407,19 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                     ? new Date(parseInt(msg.timestamp, 10) * 1000)
                     : new Date();
 
-                  // Reações e "request_welcome" não são mensagens para o operador: evita bolha vazia.
+                  // "request_welcome" não é mensagem para o operador: ignorado para evitar bolha vazia.
+                  // Reação do cliente: anexada à mensagem-alvo e exibida como badge no chat.
+                  // Emoji ausente/vazio significa que o cliente removeu a reação.
+                  if (msg.type === "reaction") {
+                    await applyMetaReaction(tenantId, {
+                      targetWamid: msg.reaction?.message_id,
+                      emoji: msg.reaction?.emoji,
+                      timestamp,
+                    });
+                    processedMessagesCount++;
+                    continue;
+                  }
+
                   if (isIgnorableMetaMessage(msg)) continue;
 
                   let textContent: string | undefined;

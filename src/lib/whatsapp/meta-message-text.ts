@@ -8,9 +8,9 @@ export function isMetaMediaType(type: unknown): type is (typeof META_MEDIA_TYPES
   return typeof type === "string" && (META_MEDIA_TYPES as readonly string[]).includes(type);
 }
 
-/** Eventos que chegam em `messages` mas não são mensagens para o operador. */
+/** Eventos que chegam em `messages` mas não são mensagens para o operador (reações têm tratamento próprio). */
 export function isIgnorableMetaMessage(msg: any): boolean {
-  return msg?.type === "reaction" || msg?.type === "request_welcome";
+  return msg?.type === "request_welcome";
 }
 
 /**

@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { getMetaServiceWindow } from "../meta-policy";
+import { convertAudioToOggOpus, metaAudioNeedsConversion, META_AUDIO_OUTPUT_MIME } from "../audio-convert";
 
 const META_GRAPH_VERSION = "v21.0";
 const META_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
@@ -231,17 +232,26 @@ export class MetaAdapter implements WhatsAppAdapter {
             sendType = "sticker";
           }
 
-          // A Cloud API não aceita áudio WebM (formato gravado pelos navegadores).
-          if (sendType === "audio" && resolvedMimeType.includes("webm")) {
-            return {
-              externalId: "",
-              status: "failed",
-              error: "A Meta não aceita áudio em formato WebM. Envie o áudio em OGG (Opus), MP3, M4A ou AAC.",
-            };
+          // A Cloud API só aceita AAC, M4A/MP4, MP3, AMR e OGG/Opus. Áudio gravado pelo navegador (WebM)
+          // e outros formatos são convertidos para OGG/Opus, que o WhatsApp exibe como mensagem de voz.
+          let uploadFileName = fileName;
+          if (sendType === "audio" && mediaBuffer && metaAudioNeedsConversion(mimeType)) {
+            try {
+              mediaBuffer = await convertAudioToOggOpus(mediaBuffer);
+              mimeType = META_AUDIO_OUTPUT_MIME;
+              uploadFileName = `${fileName.replace(/\.[^./\\]+$/, "") || "audio"}.ogg`;
+            } catch (convErr: any) {
+              console.error(`[MetaAdapter] Falha ao converter áudio para OGG/Opus (tenant: ${tenantId}):`, convErr);
+              return {
+                externalId: "",
+                status: "failed",
+                error: "Não foi possível converter o áudio para o formato aceito pela Meta. Tente enviar um arquivo MP3, M4A ou OGG.",
+              };
+            }
           }
 
           if (mediaBuffer) {
-            const metaMediaId = await this.uploadMediaToMeta(phoneNumberId, accessToken, mediaBuffer, fileName, mimeType);
+            const metaMediaId = await this.uploadMediaToMeta(phoneNumberId, accessToken, mediaBuffer, uploadFileName, mimeType);
             mediaPayload = { id: metaMediaId };
           } else {
             mediaPayload = { link: message.mediaUrl };

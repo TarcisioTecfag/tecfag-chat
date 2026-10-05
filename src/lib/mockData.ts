@@ -1,17 +1,20 @@
 export type Channel = "whatsapp" | "instagram" | "messenger";
-export type QueueType = "meus" | "fila" | "automacao" | "finalizados";
+export type QueueType = "meus" | "todos" | "fila" | "automacao" | "finalizados";
 
 export type Message = {
   id: string;
   author: string;
   text: string;
   time: string;
+  date?: string;
+  sentAtISO?: string;
   side: "in" | "out";
   isInternalNote?: boolean;
   avatar?: string;
   quotedMessageId?: string | null;
   quotedMessageSender?: string | null;
   quotedMessageContent?: string | null;
+  reactions?: Array<{ emoji: string; from?: string }>;
   senderType?: string;
   isWarning?: boolean;
   warningType?: "delay" | "new_lead";

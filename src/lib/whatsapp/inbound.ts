@@ -373,16 +373,23 @@ export class InboundProcessor {
         updatedAt: timestamp,
       });
 
-      // 6. Notificação via SSE em tempo real para os atendentes conectados
+      // 6. Notificação via SSE em tempo real para os atendentes conectados.
+      // O formato é o mesmo emitido pelo Baileys e consumido por useChatState (content/senderName/senderType/sentAt).
       SessionManager.getInstance().notifyPublic(tenantId, {
         type: "message",
         message: {
           id: messageId,
           conversationId: activeConv.id,
-          author: contact.name,
-          text: messageContent,
-          time: timestamp.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-          side: "in",
+          senderType: "client",
+          senderName: contact.name,
+          content: messageContent,
+          phone: contact.phone || cleanPhone || "",
+          avatar: contact.avatar || null,
+          sentAt: timestamp,
+          quotedMessageId: quotedExternalId || null,
+          queue: activeConv.queueState,
+          operatorId: activeConv.operatorId ?? null,
+          walletOperatorId: contact.walletOperatorId ?? null,
         },
       });
 

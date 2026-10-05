@@ -2571,6 +2571,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setConversations((prev) =>
           prev.map((c) => {
             if (c.id !== conversationId) return c;
+      } else if (data.type === "message_reaction") {
+        const { conversationId, messageId, reactions } = data;
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id !== conversationId
+              ? c
+              : {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === messageId ? { ...m, reactions: Array.isArray(reactions) ? reactions : [] } : m
+                  ),
+                }
+          )
+        );
             return {
               ...c,
               queue: queueState,

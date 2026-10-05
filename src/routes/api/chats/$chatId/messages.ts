@@ -3,6 +3,7 @@ import { db } from "../../../../db";
 import { messages, conversations } from "../../../../db/schema";
 import { eq, and, desc, lt } from "drizzle-orm";
 import { requireSession } from "../../../../lib/auth-session";
+import { readReactions } from "../../../../lib/whatsapp/meta-reactions";
 
 export const Route = createFileRoute("/api/chats/$chatId/messages")({
   server: {
@@ -68,12 +69,15 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
             author: r.senderName,
             text: r.content,
             time: new Date(r.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            date: new Date(r.sentAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+            sentAtISO: r.sentAt.toISOString(),
             side: r.direction === "inbound" || r.senderType === "client" ? "in" : "out",
             isInternalNote: r.isInternalNote,
             status: r.status,
             quotedMessageId: r.quotedMessageId,
             quotedMessageSender: r.quotedMessageSender,
             quotedMessageContent: r.quotedMessageContent,
+            reactions: readReactions(r.metaDetails),
             sentAt: r.sentAt,
           }));
 

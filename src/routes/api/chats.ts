@@ -5,6 +5,7 @@ import { eq, and, desc, lt, inArray, sql } from "drizzle-orm";
 import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
 import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
+import { readReactions } from "../../lib/whatsapp/meta-reactions";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -315,6 +316,7 @@ export const Route = createFileRoute("/api/chats")({
           return new Response(JSON.stringify(chatList), {
             headers: corsHeaders,
           });
+                reactions: readReactions(m.metaDetails),
 
         } catch (e: any) {
           console.error("[api/chats GET] Erro ao buscar lista de conversas:", e);

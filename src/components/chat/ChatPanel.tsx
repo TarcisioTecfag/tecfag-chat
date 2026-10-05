@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { MessageReactions } from "./MessageReactions";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
@@ -1995,6 +1996,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           isMatch ? "scale-[1.01] shadow-lg" : ""
                         }`}
                         style={{
+                  <MessageReactions reactions={m.reactions} side="out" />
                           outline: isMatch ? "3px solid var(--primary)" : undefined,
                           outlineOffset: isMatch ? "2px" : undefined,
                         }}
@@ -2171,6 +2173,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{ duration: 0.2 }}
+                  <MessageReactions reactions={m.reactions} side="in" />
+
               className="flex items-end gap-2 my-2.5 w-full"
             >
               {activeChat.avatar ? (
