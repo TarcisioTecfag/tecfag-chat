@@ -132,7 +132,7 @@ type ChatContextType = {
   // Actions
   sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null, metaTemplate?: { name: string; language: string; parameters: string[] }) => Promise<boolean>;
   captureChat: (id: string) => void;
-  transferChat: (id: string, sectorName: string, targetOperatorId?: string | null) => void;
+  transferChat: (id: string, sectorName: string | null, targetOperatorId?: string | null) => Promise<boolean>;
   finishChat: (id: string) => void;
   logSystemEvent: (chatId: string, eventText: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => void;
@@ -289,6 +289,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const selectedChatIdRef = useRef(selectedChatId);
   const currentOperatorIdRef = useRef(currentOperatorId);
   const tenantRef = useRef(tenant);
+  const refreshAssignedChatRef = useRef<(conversationId: string) => Promise<void>>(async () => {});
+  const conversationsRef = useRef<Conversation[]>([]);
   // Flag para evitar loop de troca de tenant: só sincroniza UMA vez por login
   const tenantSyncedRef = useRef(false);
 
@@ -483,6 +485,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           window.location.reload();
           return;
         }
+        setSessionRole(data.role || null);
+        if (data.permissions) {
+          setSessionPermissions((previous) =>
+            JSON.stringify(previous) === JSON.stringify(data.permissions) ? previous : data.permissions
+          );
+        }
         const byId = new Map<string, any>((data.ownership || []).map((item: any) => [item.id, item]));
         if (disposed) return;
         setConversations((previous) => previous.map((chat) => {
@@ -497,6 +505,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             version: latest.version,
           };
         }));
+        const knownIds = new Set(conversationsRef.current.map((chat) => chat.id));
+        const newlyAssigned = (data.ownership || []).filter((item: any) =>
+          item.queueState === "meus" && item.operatorId === currentOperatorIdRef.current && !knownIds.has(item.id)
+        ).slice(0, 10);
+        for (const item of newlyAssigned) {
+          if (disposed) break;
+          await refreshAssignedChatRef.current(item.id).catch((error) =>
+            console.warn("Falha ao carregar atendimento transferido:", error)
+          );
+        }
       } catch (error) {
         console.warn("[Chat] Falha temporária ao reconciliar responsáveis:", error);
       }
@@ -1271,7 +1289,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const setConversations = tenant === "tecfag" ? setTecfagConvs : setValemConvs;
 
   // Ref to track latest conversations and avoid stale closures in event listeners
-  const conversationsRef = useRef<Conversation[]>([]);
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
@@ -1712,49 +1729,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const transferChat = async (id: string, sectorName: string, targetOperatorId?: string | null) => {
-    const targetOp = targetOperatorId ? operators.find(o => o.id === targetOperatorId) : null;
-    const targetQueueState = targetOp ? "meus" : "fila";
-    const opName = targetOp ? targetOp.name : "Qualquer atendente";
-    const textLog = `Conversa transferida para o setor: ${sectorName} (${opName}).`;
-    const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-
-    const targetSector = sectors.find(s => s.name === sectorName);
-    const sectorId = targetSector ? targetSector.id : null;
-
-    // Snapshot para rollback
+  const transferChat = async (id: string, sectorName: string | null, targetOperatorId?: string | null): Promise<boolean> => {
     const previousState = conversationsRef.current.find((c) => c.id === id);
-
-    // Optimistic update: atualiza a conversa localmente
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id === id) {
-          const systemMsg: Message = {
-            id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            author: "Sistema",
-            text: textLog,
-            time: now,
-            side: "out",
-            isInternalNote: true,
-          };
-          return {
-            ...c,
-            queue: targetQueueState,
-            operatorId: targetOperatorId || null,
-            responsibleName: targetOp ? targetOp.name : "Na Fila",
-            sectorId: sectorId,
-            sectorName: sectorName,
-            messages: [...c.messages, systemMsg],
-          };
-        }
-        return c;
-      })
-    );
-
-    // O operador que transferiu não é mais dono: deselecionar o chat
-    // (ele vai sumir da aba "Meus" do operador de origem)
-    setSelectedChatId(null);
-
+    const targetOp = targetOperatorId ? operators.find((op) => op.id === targetOperatorId) : null;
+    if (!previousState || (targetOperatorId && !targetOp)) {
+      toast.error("Atendimento ou operador de destino não encontrado.");
+      return false;
+    }
+    const canTransfer = sessionRole === "admin" || sessionPermissions?.chat.canTransferChat === true;
+    const canOverride = sessionRole === "admin" || sessionPermissions?.chat.canOverrideChat === true;
+    if (!canTransfer || (previousState.operatorId && previousState.operatorId !== currentOperatorId && !canOverride)) {
+      toast.error("Sem permissão para transferir este atendimento.");
+      return false;
+    }
+    const targetQueueState = targetOp ? "meus" : "fila";
+    const targetSector = sectorName ? sectors.find((sector) => sector.name === sectorName) : null;
+    const sectorId = sectorName ? targetSector?.id ?? null : undefined;
+    const textLog = targetOp
+      ? `Atendimento transferido diretamente para ${targetOp.name} por ${operatorProfile.name}.`
+      : `Atendimento transferido para a fila do setor ${sectorName || "geral"} por ${operatorProfile.name}.`;
     try {
       const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
@@ -1764,7 +1757,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           conversationId: id,
           queueState: targetQueueState,
           operatorId: targetOperatorId || null,
-          sectorId: sectorId,
+          ...(sectorId !== undefined ? { sectorId } : {}),
           systemMessageText: textLog,
           isTransfer: true,
           expectedVersion: previousState?.version ?? 1,
@@ -1772,29 +1765,34 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (res.status === 409) {
-        console.warn("[transferChat] Conflito: chat já foi modificado por outro operador.");
-        toast.error("Conflito: Esta conversa já foi modificada ou capturada por outro atendente.");
-        if (previousState) {
-          setConversations((prev) =>
-            prev.map((c) => (c.id === id ? { ...previousState } : c))
-          );
-        }
-        return;
+        toast.error("Este atendimento mudou. Atualizei o responsável; tente novamente se ainda tiver permissão.");
+        await refreshConversations(id);
+        return false;
       }
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || `HTTP ${res.status}`);
       }
       const updated = await res.json();
-      setConversations((prev) => prev.map((c) => c.id === id ? { ...c, version: updated.version } : c));
+      setConversations((prev) => prev.map((chat) => chat.id === id ? {
+        ...chat,
+        queue: updated.queueState,
+        operatorId: updated.operatorId,
+        responsibleName: updated.responsibleName,
+        sectorId: updated.sectorId,
+        sectorName: sectorName || chat.sectorName,
+        version: updated.version,
+      } : chat));
+      setActiveQueue("todos");
+      setSelectedChatId(id);
+      void refreshConversations(id).catch((error) => console.warn("Atendimento transferido; falha ao recarregar o histórico:", error));
+      toast.success(targetOp ? `Atendimento transferido para ${targetOp.name}.` : "Atendimento enviado para a fila.");
+      return true;
     } catch (err) {
-      console.error("[transferChat] Erro ao persistir no DB — revertendo estado:", err);
-      // Rollback: restaurar estado anterior da conversa
-      if (previousState) {
-        setConversations((prev) =>
-          prev.map((c) => (c.id === id ? { ...previousState } : c))
-        );
-      }
+      console.error("[transferChat] Erro ao transferir atendimento:", err);
+      toast.error(err instanceof Error ? err.message : "Não foi possível transferir o atendimento.");
+      return false;
     }
   };
 
@@ -2208,6 +2206,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ];
     });
   };
+  refreshAssignedChatRef.current = refreshConversations;
 
   const createContact = async (name: string, phone: string, email: string, cnpj: string, channel: Channel) => {
     const response = await fetch(`${BACKEND_URL}/api/contacts`, {
@@ -2690,6 +2689,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
       } else if (data.type === "queue_update") {
         const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
+
+        if (queueState === "meus" && newOperatorId === currentOperatorIdRef.current &&
+            !conversationsRef.current.some((chat) => chat.id === conversationId)) {
+          void refreshAssignedChatRef.current(conversationId).catch((error) =>
+            console.warn("Falha ao carregar atendimento recebido:", error)
+          );
+        }
 
         setConversations((prev) =>
           prev.map((c) => {

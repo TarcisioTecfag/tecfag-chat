@@ -1567,10 +1567,10 @@ export function GroupsView() {
                       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         {[
                           { key: "canCaptureChat",           label: "Capturar Atendimentos", desc: "Puxar conversas da fila de espera ou IA para si" },
-                          { key: "canTransferChat",          label: "Transferir Atendimentos", desc: "Redirecionar conversas para outro operador ou setor" },
+                          { key: "canTransferChat",          label: "Transferir Atendimentos", desc: "Enviar diretamente a um operador ou para a fila de um setor; atendimento alheio também exige Assumir Atendimento Alheio" },
                           { key: "canFinishChat",            label: "Encerrar Atendimentos", desc: "Finalizar atendimentos ativos e arquivar" },
                           { key: "canViewAllChats",          label: "Visualizar Todos os Chats", desc: "Ver conversas atribuídas a outros (leitura)" },
-                          { key: "canOverrideChat",          label: "Assumir Atendimento Alheio", desc: "Forçar controle de conversa alheia (Admin/Supervisor)" },
+                          { key: "canOverrideChat",          label: "Assumir Atendimento Alheio", desc: "Permite tomar ou transferir conversa de outro operador; o papel admin tem esta autorização automaticamente" },
                           { key: "canSendInternalNotes",     label: "Enviar Notas Internas", desc: "Criar recados e anotações ocultas para a equipe" },
                           { key: "canEditClientInfo",        label: "Editar Cadastro no Chat", desc: "Alterar CNPJ, Razão Social, E-mail na barra lateral" },
                           { key: "canManageTags",            label: "Gerenciar Tags", desc: "Adicionar ou remover etiquetas de clientes" },

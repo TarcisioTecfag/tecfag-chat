@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   UserPlus,
   ArrowRightLeft,
@@ -26,12 +27,12 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     currentOperatorId,
     captureChat,
     finishChat,
-    currentGroup,
     operators,
     transferChat,
     setActiveView,
     tenant,
   } = useChat();
+  const { canCaptureChat, canOverrideChat, canTransferChat, canFinishChat } = usePermissions();
 
   const persona = getAiPersona(tenant || "valem");
 
@@ -51,19 +52,19 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     activeChat.name.toLowerCase().includes("fagner");
 
   // Permissões RBAC e Estado do Chat
-  const canCapture = currentGroup?.canCaptureChat ?? true;
-  const canTransfer = currentGroup?.canTransferChat ?? true;
-  const canFinish = currentGroup?.canFinishChat ?? true;
+  const canCapture = canCaptureChat;
+  const canTransfer = canTransferChat;
+  const canFinish = canFinishChat;
 
   // O chat pertence ao operador atual?
-  const isMine =
-    activeChat.operatorId === currentOperatorId || activeChat.queue === "meus";
+  const isMine = activeChat.operatorId === currentOperatorId && activeChat.queue === "meus";
 
   // O chat está na fila/bot aguardando captura?
   const isPendingInQueue =
-    !isMine &&
+    !activeChat.operatorId &&
     activeChat.queue !== "finalizados" &&
     !isAiChat;
+  const canTakeFromOther = !!activeChat.operatorId && !isMine && canOverrideChat && activeChat.queue === "meus";
 
   const handleCapture = () => {
     captureChat(activeChat.id);
@@ -75,10 +76,11 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     onClose();
   };
 
-  const handleTransfer = (targetOpId: string) => {
-    transferChat(activeChat.id, targetOpId);
-    setShowTransferSelect(false);
-    onClose();
+  const handleTransfer = async (targetOpId: string) => {
+    if (await transferChat(activeChat.id, null, targetOpId)) {
+      setShowTransferSelect(false);
+      onClose();
+    }
   };
 
   return (
@@ -188,9 +190,19 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                     <span>Capturar Atendimento para Mim</span>
                   </motion.button>
                 )}
+                {canTakeFromOther && (
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    onClick={handleCapture}
+                    className="w-full py-3 px-4 rounded-2xl bg-primary text-primary-foreground font-bold text-xs flex items-center justify-center gap-2.5 shadow-soft hover:opacity-90 transition cursor-pointer"
+                  >
+                    <UserPlus className="w-4.5 h-4.5" />
+                    <span>Assumir Atendimento</span>
+                  </motion.button>
+                )}
 
                 {/* Transferir Atendimento (Se tiver permissão) */}
-                {canTransfer && activeChat.queue !== "finalizados" && (
+                {canTransfer && (isMine || canOverrideChat || !activeChat.operatorId) && activeChat.queue !== "finalizados" && (
                   <motion.button
                     whileTap={{ scale: 0.96 }}
                     onClick={() => setShowTransferSelect(true)}
@@ -239,7 +251,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                 </div>
 
                 <div className="max-h-56 overflow-y-auto flex flex-col gap-1.5 pr-1">
-                  {operators.map((op) => (
+                  {operators.filter((op) => op.id !== currentOperatorId).map((op) => (
                     <motion.button
                       whileTap={{ scale: 0.97 }}
                       key={op.id}

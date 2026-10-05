@@ -194,7 +194,12 @@ export const Route = createFileRoute("/api/chats")({
               .where(eq(conversations.tenantId, session.tenantId))
               .orderBy(desc(conversations.updatedAt))
               .limit(500);
-            return Response.json({ operatorId: session.operator.id, ownership }, {
+            return Response.json({
+              operatorId: session.operator.id,
+              role: session.operator.role,
+              permissions: session.permissions,
+              ownership,
+            }, {
               headers: { "Cache-Control": "no-store" },
             });
           }

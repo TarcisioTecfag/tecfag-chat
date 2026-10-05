@@ -1592,8 +1592,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </Tooltip>
               )}
 
-              {/* Transfer Menu — apenas para o dono com canTransferChat */}
-              {activeChat.id !== "valentina" && isOwner && canTransfer && (
+              {/* Transferência direta exige transferência; atendimento alheio exige override. */}
+              {activeChat.id !== "valentina" && canTransfer && (isOwner || canOverride) && (
                 <div className="relative">
                   <button
                     onClick={() => setShowTransferDropdown(!showTransferDropdown)}
@@ -1607,11 +1607,21 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   {showTransferDropdown && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={closeTransferDropdown} />
-                      <div className="absolute right-0 mt-1.5 z-50 w-52 rounded-xl bg-card p-1 border border-border shadow-card animate-in fade-in duration-100">
+                      <div className="absolute right-0 mt-1.5 z-50 w-64 max-h-80 overflow-y-auto rounded-xl bg-card p-1 border border-border shadow-card animate-in fade-in duration-100">
                         {!selectedTransferSectorId ? (
                           <>
                             <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-b border-line mb-1">
-                              Escolha o Setor
+                              Escolha o destino
+                            </div>
+                            <button
+                              onClick={() => setSelectedTransferSectorId("__direct__")}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                            >
+                              <UserPlus className="h-4 w-4 text-primary" />
+                              Operador diretamente
+                            </button>
+                            <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-t border-line mt-1">
+                              Ou escolha um setor
                             </div>
                             {sectors.map((sec) => (
                               <button
@@ -1633,9 +1643,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             const selectedSector = sectors.find(
                               (s) => s.id === selectedTransferSectorId,
                             );
-                            const sectorOps = selectedSector
-                              ? operators.filter((op) => selectedSector.operatorIds.includes(op.id))
-                              : [];
+                            const directTransfer = selectedTransferSectorId === "__direct__";
+                            const sectorOps = directTransfer
+                              ? operators.filter((op) => op.id !== currentOperatorId)
+                              : selectedSector
+                                ? operators.filter((op) => selectedSector.operatorIds.includes(op.id))
+                                : [];
 
                             return (
                               <>
@@ -1648,11 +1661,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                 </button>
 
                                 <div className="px-3 py-1 text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
-                                  Atendentes em {selectedSector?.name}
+                                  {directTransfer ? "Escolha o responsável" : `Atendentes em ${selectedSector?.name}`}
                                 </div>
 
                                 {/* Option to transfer to any agent in sector (general queue) */}
-                                <button
+                                {!directTransfer && <button
                                   onClick={() => {
                                     transferChat(
                                       activeChat.id,
@@ -1672,7 +1685,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                       Qualquer atendente
                                     </span>
                                   </div>
-                                </button>
+                                </button>}
 
                                 {sectorOps.length === 0 ? (
                                   <div className="px-3 py-2 text-xs text-muted-foreground italic">
@@ -1685,7 +1698,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                       onClick={() => {
                                         transferChat(
                                           activeChat.id,
-                                          selectedSector?.name || "Sem Nome",
+                                          directTransfer ? null : selectedSector?.name || "Sem Nome",
                                           op.id,
                                         );
                                         closeTransferDropdown();
