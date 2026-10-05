@@ -110,6 +110,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
   const queues = [
     { id: "meus", label: "Meus" },
+    { id: "todos", label: "Todos" },
     { id: "fila", label: "Fila" },
     { id: "automacao", label: "Bot" },
     { id: "finalizados", label: "Fim" },
@@ -118,7 +119,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   // Filter conversations based on UI selections
   const filteredConvs = conversations.filter((c) => c.id !== "valentina").filter((c) => {
     // 1. Queue Filter
-    if (c.queue !== activeQueue) return false;
+    if (activeQueue !== "todos" && c.queue !== activeQueue) return false;
 
     // Se for a fila 'meus', apenas exibir se pertencer ao operador ativo
     if (activeQueue === "meus" && c.operatorId !== currentOperatorId) return false;

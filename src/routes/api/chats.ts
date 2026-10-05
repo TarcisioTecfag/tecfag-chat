@@ -80,6 +80,13 @@ export const Route = createFileRoute("/api/chats")({
             });
           }
 
+          if (conv.queueState !== "meus" || conv.operatorId !== session.operator.id) {
+            return Response.json({ error: "Capture o atendimento antes de escrever nesta conversa.", code: "FORBIDDEN" }, { status: 403 });
+          }
+          if (isInternalNote && session.operator.role !== "admin" && session.permissions.chat.canSendInternalNotes !== true) {
+            return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
+          }
+
           const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const now = new Date();
 
@@ -309,6 +316,7 @@ export const Route = createFileRoute("/api/chats")({
                 quotedMessageId: m.quotedMessageId,
                 quotedMessageSender: m.quotedMessageSender,
                 quotedMessageContent: m.quotedMessageContent,
+                reactions: readReactions(m.metaDetails),
               })),
             };
           });
@@ -316,7 +324,6 @@ export const Route = createFileRoute("/api/chats")({
           return new Response(JSON.stringify(chatList), {
             headers: corsHeaders,
           });
-                reactions: readReactions(m.metaDetails),
 
         } catch (e: any) {
           console.error("[api/chats GET] Erro ao buscar lista de conversas:", e);

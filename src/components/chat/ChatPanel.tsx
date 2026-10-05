@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { MessageReactions } from "./MessageReactions";
 import { useChat } from "@/hooks/useChatState";
+import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
 import { motion, AnimatePresence } from "framer-motion";
@@ -636,10 +637,68 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [searchMatchIndex, setSearchMatchIndex] = useState<number>(0);
   const [showValWarnings, setShowValWarnings] = useState(true);
   const [showValResponses, setShowValResponses] = useState(true);
+  const [history, setHistory] = useState<{ chatId: string; messages: Message[]; nextCursor: string | null } | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (!activeChat || activeChat.id === "valentina") {
+      setHistory(null);
+      return;
+    }
+    const chatId = activeChat.id;
+    const controller = new AbortController();
+    setHistory(null);
+    setLoadingHistory(true);
+    fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/messages?limit=100`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Não foi possível carregar o histórico.");
+        return response.json();
+      })
+      .then((data) => setHistory({ chatId, messages: data.messages, nextCursor: data.nextCursor }))
+      .catch((error) => { if (error.name !== "AbortError") toast.error(error.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoadingHistory(false); });
+    return () => controller.abort();
+  }, [activeChat?.id]);
+
+  const allMessages = useMemo(() => {
+    if (!activeChat) return [];
+    if (history?.chatId !== activeChat.id) return activeChat.messages;
+    const seen = new Set<string>();
+    return [...history.messages, ...activeChat.messages].filter((message) => {
+      if (seen.has(message.id)) return false;
+      seen.add(message.id);
+      return true;
+    }).sort((a, b) => {
+      if (!a.sentAtISO) return 1;
+      if (!b.sentAtISO) return -1;
+      return a.sentAtISO.localeCompare(b.sentAtISO);
+    });
+  }, [activeChat?.id, activeChat?.messages, history]);
+
+  const loadOlderMessages = async () => {
+    if (!history?.nextCursor || loadingHistory) return;
+    const { chatId, nextCursor } = history;
+    setLoadingHistory(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/messages?limit=100&before=${encodeURIComponent(nextCursor)}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Não foi possível carregar mensagens anteriores.");
+      const data = await response.json();
+      setHistory((current) => current?.chatId === chatId
+        ? { chatId, messages: [...data.messages, ...current.messages], nextCursor: data.nextCursor }
+        : current);
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   const matches = useMemo(() => {
     if (!msgSearch.trim() || !activeChat) return [];
-    return activeChat.messages.filter((m) => {
+    return allMessages.filter((m) => {
       // Se for a Valentina, respeita os filtros ativos de aviso/conversa
       if (activeChat.id === "valentina") {
         if (m.isWarning) {
@@ -650,7 +709,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       }
       return m.text.toLowerCase().includes(msgSearch.toLowerCase());
     });
-  }, [msgSearch, activeChat, showValWarnings, showValResponses]);
+  }, [msgSearch, activeChat, allMessages, showValWarnings, showValResponses]);
 
   useEffect(() => {
     setSearchMatchIndex(0);
@@ -1563,7 +1622,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </>
           ) : (
             /* Claim Chat — fila/automação, apenas para quem tem canCaptureChat */
-            activeChat.queue !== "finalizados" && canCapture && (
+            activeChat.queue !== "finalizados" && !activeChat.operatorId && canCapture && (
               <button
                 onClick={() => captureChat(activeChat.id)}
                 className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
@@ -1715,8 +1774,20 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       )}
       {/* Messages Window */}
       <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
+        {activeChat.id !== "valentina" && history?.chatId === activeChat.id && history.nextCursor && (
+          <div className="mb-4 text-center">
+            <button
+              type="button"
+              onClick={loadOlderMessages}
+              disabled={loadingHistory}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50"
+            >
+              {loadingHistory ? "Carregando..." : "Carregar mensagens anteriores"}
+            </button>
+          </div>
+        )}
         {(() => {
-          let displayed = activeChat.messages;
+          let displayed = allMessages;
 
           if (activeChat.id === "valentina") {
             displayed = displayed.filter((m) => {
@@ -1769,7 +1840,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const isExpanded = expandedMsgId === m.id;
 
             // Espaçamento: 3px dentro do grupo, 12px entre grupos, extra para avisos
-            const gap = m.isWarning || (i > 0 && activeChat.messages[i - 1].isWarning)
+            const gap = m.isWarning || (i > 0 && displayed[i - 1].isWarning)
               ? "mt-6"
               : prevLinked
               ? "mt-[3px]"
@@ -1929,6 +2000,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       </div>
                     )}
                   </div>
+                  <MessageReactions reactions={m.reactions} side="out" />
                   {/* Metadados — revelados com clique */}
                   {isExpanded && (
                     <span className="mr-1 mt-1 text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
@@ -1996,7 +2068,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           isMatch ? "scale-[1.01] shadow-lg" : ""
                         }`}
                         style={{
-                  <MessageReactions reactions={m.reactions} side="out" />
                           outline: isMatch ? "3px solid var(--primary)" : undefined,
                           outlineOffset: isMatch ? "2px" : undefined,
                         }}
@@ -2106,6 +2177,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     </SystemTooltip>
                   </div>
 
+                  <MessageReactions reactions={m.reactions} side="in" />
+
                   {/* Dynamic Suggestions for Valentina Welcome Message */}
                   {m.id === "val_welcome" && (
                     <div className="mt-2.5 flex flex-col gap-1.5 max-w-sm">
@@ -2173,8 +2246,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{ duration: 0.2 }}
-                  <MessageReactions reactions={m.reactions} side="in" />
-
               className="flex items-end gap-2 my-2.5 w-full"
             >
               {activeChat.avatar ? (
@@ -2348,7 +2419,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </button>
               )}
             </div>
-          ) : !activeChat.operatorId && activeChat.queue === "fila" ? (
+          ) : !activeChat.operatorId && activeChat.queue !== "automacao" ? (
             /* ── BLOQUEIO: fila de espera ── */
             <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-sky-300 bg-sky-50 dark:bg-sky-950/30 dark:border-sky-700 text-center">
               <div className="h-12 w-12 rounded-full flex items-center justify-center bg-sky-100 dark:bg-sky-900">

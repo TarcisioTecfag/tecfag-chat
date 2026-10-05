@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { conversations, contacts, messages, operators } from "../../../db/schema";
+import { conversations, contacts, messages, operators, sectors } from "../../../db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { auditService } from "../../../lib/audit-service";
@@ -42,6 +42,12 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             );
           }
 
+          if (!["meus", "fila", "finalizados", "automacao"].includes(queueState) ||
+              (operatorId !== undefined && operatorId !== null && typeof operatorId !== "string") ||
+              (sectorId !== undefined && sectorId !== null && typeof sectorId !== "string")) {
+            return Response.json({ error: "Estado ou operador inválido." }, { status: 400 });
+          }
+
           if (expectedVersion === undefined || expectedVersion === null || isNaN(Number(expectedVersion))) {
             return new Response(
               JSON.stringify({ error: "expectedVersion é obrigatório para controle de concorrência otimista" }),
@@ -67,10 +73,54 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             );
           }
 
+          const permissions = session.permissions.chat;
+          const isOwner = conv.operatorId === session.operator.id;
+          const isOverride = permissions.canOverrideChat === true;
+          const isAdmin = session.operator.role === "admin";
+          const can = (permission: boolean) => isAdmin || permission;
+          const forbidden = () => Response.json({ error: "Permissão insuficiente para alterar este atendimento.", code: "FORBIDDEN" }, { status: 403 });
+
+          // Captura, tomada de controle e transferência são ações distintas. O operador
+          // de destino só pode ser escolhido quando há permissão de transferência.
+          if (queueState === "meus") {
+            if (!operatorId) return Response.json({ error: "Informe o responsável pelo atendimento." }, { status: 400 });
+            if (operatorId === session.operator.id) {
+              if (conv.operatorId && !isOwner) {
+                if (!can(isOverride)) return forbidden();
+              } else if (!isOwner && !can(permissions.canCaptureChat === true)) {
+                return forbidden();
+              }
+            } else if (!can(permissions.canTransferChat === true) ||
+                       (conv.operatorId && !isOwner && !can(isOverride))) {
+              return forbidden();
+            }
+          } else if (queueState === "finalizados") {
+            if (!can(permissions.canFinishChat === true) || !isOwner) return forbidden();
+          } else if (!can(permissions.canTransferChat === true) ||
+                     (conv.operatorId && !isOwner && !can(isOverride))) {
+            return forbidden();
+          }
+
+          if (queueState === "meus") {
+            const [target] = await db.select({ id: operators.id }).from(operators).where(and(
+              eq(operators.id, operatorId), eq(operators.tenantId, session.tenantId)
+            ));
+            if (!target) return Response.json({ error: "Operador não encontrado neste tenant." }, { status: 400 });
+          }
+          if (sectorId) {
+            const [sector] = await db.select({ id: sectors.id }).from(sectors).where(and(
+              eq(sectors.id, sectorId), eq(sectors.tenantId, session.tenantId)
+            ));
+            if (!sector) return Response.json({ error: "Setor não encontrado neste tenant." }, { status: 400 });
+          }
+          if (sectorId !== undefined && sectorId !== conv.sectorId && !can(permissions.canTransferChat === true)) {
+            return forbidden();
+          }
+
           // 2. Determinar responsável e persona dinamicamente
           const aiPersona = getAiPersona(session.tenantId);
           const aiName = `${aiPersona.name} IA`;
-          const targetOpId = operatorId !== undefined ? operatorId : conv.operatorId;
+          const targetOpId = queueState === "meus" ? operatorId : null;
 
           let respName = "Na Fila";
           let systemMessageText = "";
@@ -107,9 +157,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             updatedAt: new Date(),
           };
 
-          if (operatorId !== undefined) {
-            updateData.operatorId = operatorId || null;
-          }
+          if (queueState !== "finalizados") updateData.operatorId = targetOpId;
           if (sectorId !== undefined) {
             updateData.sectorId = sectorId || null;
           }

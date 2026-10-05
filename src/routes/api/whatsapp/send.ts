@@ -29,6 +29,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           let templateLanguage: string | undefined;
           let templateComponents: any[] | undefined;
           let isInternalNote: boolean = false;
+          let pendingFile: { id: string; buffer: Buffer; mime: string; name: string } | undefined;
 
           const contentType = request.headers.get("content-type") || "";
           if (contentType.includes("multipart/form-data")) {
@@ -52,35 +53,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               else if (mime.startsWith("audio/") || ["mp3","ogg","webm","m4a","aac","oga","opus","wav"].includes(ext)) mediaType = "audio";
               else if (mime.startsWith("video/")) mediaType = "video";
               else mediaType = "document";
-
-              // Salva no banco de dados (mediaFiles)
-              try {
-                await db.insert(mediaFiles).values({
-                  id: fileId,
-                  tenantId: session.tenantId,
-                  conversationId: conversationId || null,
-                  fileName,
-                  mimeType: mime,
-                  fileSize: buffer.length,
-                  base64Data: buffer.toString("base64"),
-                  createdAt: new Date(),
-                }).onConflictDoNothing();
-              } catch (dbErr) {
-                console.error("[WhatsApp Send] Erro ao persistir mídia no banco:", dbErr);
-              }
-
-              // Salva no cache em disco
-              try {
-                const mediaDir = path.join(process.cwd(), "media");
-                if (!fs.existsSync(mediaDir)) {
-                  fs.mkdirSync(mediaDir, { recursive: true });
-                }
-                fs.writeFileSync(path.join(mediaDir, fileId), buffer);
-                fs.writeFileSync(path.join(mediaDir, `${fileId}.mime`), mime);
-              } catch (fsErr) {
-                console.error("[WhatsApp Send] Erro ao salvar arquivo em disco:", fsErr);
-              }
-
+              pendingFile = { id: fileId, buffer, mime, name: fileName };
               mediaUrl = `/api/baileys/media?messageId=${fileId}`;
             }
           } else {
@@ -155,18 +128,42 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             );
           }
 
-          // Verificar permissão de escrita: admin e supervisor podem enviar para qualquer conversa do tenant.
-          // Atendentes comuns só podem enviar na conversa que lhes pertence (operatorId).
-          // canViewAllChats é permissão de LEITURA — não autoriza envio.
-          const isAdmin = session.operator.role === "admin";
-          const isSupervisor = session.operator.role === "supervisor";
-          const isOwner = conv.operatorId === session.operator.id;
-
-          if (!isAdmin && !isSupervisor && !isOwner) {
+          // O envio exige captura prévia, inclusive para administradores e supervisores.
+          // Permissão para ver o histórico ou assumir não envia mensagens por si só.
+          if (conv.queueState !== "meus" || conv.operatorId !== session.operator.id) {
             return new Response(
               JSON.stringify({ error: "Sem permissão para responder nesta conversa.", code: "FORBIDDEN" }),
               { status: 403, headers: { "Content-Type": "application/json" } }
             );
+          }
+          if (isInternalNote && session.operator.role !== "admin" && session.permissions.chat.canSendInternalNotes !== true) {
+            return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
+          }
+
+          // Persistir anexos apenas depois de validar tenant e responsável.
+          if (pendingFile) {
+            try {
+              await db.insert(mediaFiles).values({
+                id: pendingFile.id,
+                tenantId: session.tenantId,
+                conversationId,
+                fileName: pendingFile.name,
+                mimeType: pendingFile.mime,
+                fileSize: pendingFile.buffer.length,
+                base64Data: pendingFile.buffer.toString("base64"),
+                createdAt: new Date(),
+              }).onConflictDoNothing();
+            } catch (dbErr) {
+              console.error("[WhatsApp Send] Erro ao persistir mídia no banco:", dbErr);
+            }
+            try {
+              const mediaDir = path.join(process.cwd(), "media");
+              if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+              fs.writeFileSync(path.join(mediaDir, pendingFile.id), pendingFile.buffer);
+              fs.writeFileSync(path.join(mediaDir, `${pendingFile.id}.mime`), pendingFile.mime);
+            } catch (fsErr) {
+              console.error("[WhatsApp Send] Erro ao salvar arquivo em disco:", fsErr);
+            }
           }
 
           // Notas internas não precisam de telefone de destino

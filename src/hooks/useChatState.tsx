@@ -1036,7 +1036,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSelectedChatId(savedSelectedId);
       return;
     }
-    const firstChat = currentConvs.find((c) => c.queue === activeQueue && (activeQueue !== "meus" || c.operatorId === currentOperatorId)) || currentConvs[0];
+    const firstChat = currentConvs.find((c) => (activeQueue === "todos" || c.queue === activeQueue) && (activeQueue !== "meus" || c.operatorId === currentOperatorId)) || currentConvs[0];
     setSelectedChatId(firstChat ? firstChat.id : null);
   }, [tenant]);
 
@@ -1044,7 +1044,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const currentConvs = tenant === "tecfag" ? tecfagConvs : valemConvs;
     if (currentConvs.length === 0) return;
-    const firstInQueue = currentConvs.find((c) => c.queue === activeQueue && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
+    const firstInQueue = currentConvs.find((c) => (activeQueue === "todos" || c.queue === activeQueue) && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
     if (firstInQueue) {
       setSelectedChatId(firstInQueue.id);
     } else {
@@ -1188,7 +1188,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (savedSelectedId && chatsWithPinned.some((c: any) => c.id === savedSelectedId)) {
             setSelectedChatId(savedSelectedId);
           } else if (!selectedChatIdRef.current) {
-            const firstInQueue = chatsWithPinned.find((c: any) => c.queue === activeQueue && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
+            const firstInQueue = chatsWithPinned.find((c: any) => (activeQueue === "todos" || c.queue === activeQueue) && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
             if (firstInQueue) {
               setSelectedChatId(firstInQueue.id);
             }
@@ -1422,6 +1422,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     }
 
+    if (currentChat.queue !== "meus" || currentChat.operatorId !== currentOperatorId) {
+      toast.error("Capture o atendimento antes de enviar mensagens.");
+      return false;
+    }
+
     const shouldSendReal =
       currentChat.channel === "whatsapp" &&
       !isInternalNote;
@@ -1607,9 +1612,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const captureChat = async (id: string) => {
-    // Guard: verificar permissão antes de qualquer estado
-    if (!currentGroup.canCaptureChat) {
-      console.warn("[captureChat] Sem permissão para capturar atendimentos.");
+    const previousState = conversationsRef.current.find((c) => c.id === id);
+    const isTakingFromAnother = !!previousState?.operatorId && previousState.operatorId !== currentOperatorId;
+    if (!previousState || (isTakingFromAnother
+      ? !currentGroup.permissions?.chat.canOverrideChat
+      : !currentGroup.permissions?.chat.canCaptureChat)) {
+      toast.error("Sem permissão para assumir este atendimento.");
       return;
     }
 
@@ -1617,8 +1625,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
     // Snapshot do estado anterior para rollback em caso de falha
-    const previousState = conversationsRef.current.find((c) => c.id === id);
-
     // Optimistic update
     setConversations((prev) =>
       prev.map((c) => {
@@ -1675,6 +1681,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
+      const updated = await res.json();
+      setConversations((prev) => prev.map((c) => c.id === id ? { ...c, version: updated.version } : c));
     } catch (err) {
       console.error("[captureChat] Erro ao persistir no DB — revertendo estado:", err);
       if (previousState) {
@@ -1759,6 +1767,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
+      const updated = await res.json();
+      setConversations((prev) => prev.map((c) => c.id === id ? { ...c, version: updated.version } : c));
     } catch (err) {
       console.error("[transferChat] Erro ao persistir no DB — revertendo estado:", err);
       // Rollback: restaurar estado anterior da conversa
@@ -1826,6 +1836,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
+      const updated = await res.json();
+      setConversations((prev) => prev.map((c) => c.id === id ? { ...c, version: updated.version } : c));
     } catch (err) {
       console.error("Erro ao persistir encerramento de chat no DB:", err);
       if (previousState) {
@@ -2565,12 +2577,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return [newConv, ...prev];
           }
         });
-      } else if (data.type === "queue_update") {
-        const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
-
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== conversationId) return c;
       } else if (data.type === "message_reaction") {
         const { conversationId, messageId, reactions } = data;
         setConversations((prev) =>
@@ -2585,6 +2591,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
           )
         );
+      } else if (data.type === "queue_update") {
+        const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
+
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== conversationId) return c;
             return {
               ...c,
               queue: queueState,

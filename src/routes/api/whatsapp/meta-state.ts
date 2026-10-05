@@ -17,16 +17,11 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
         const conversationId = url.searchParams.get("conversationId");
         if (!conversationId) return Response.json({ error: "conversationId é obrigatório" }, { status: 400 });
 
-        const [conversation] = await db.select({ id: conversations.id, operatorId: conversations.operatorId }).from(conversations).where(and(
+        const [conversation] = await db.select({ id: conversations.id }).from(conversations).where(and(
           eq(conversations.id, conversationId),
           eq(conversations.tenantId, tenantId)
         ));
         if (!conversation) return Response.json({ error: "Conversa não encontrada" }, { status: 404 });
-        const operator = auth.session.operator;
-        if (!["admin", "supervisor"].includes(operator.role) && conversation.operatorId !== operator.id) {
-          return Response.json({ error: "Sem permissão para responder nesta conversa." }, { status: 403 });
-        }
-
         const [config] = await db.select({ activeProvider: channelConfigs.activeProvider }).from(channelConfigs)
           .where(eq(channelConfigs.tenantId, tenantId));
         if (config?.activeProvider !== "meta") {
