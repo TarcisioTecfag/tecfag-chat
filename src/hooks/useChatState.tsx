@@ -1399,7 +1399,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const alertMsg: Message = {
               id: `msg-alert-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               author: currentPersona.name,
-              text: `${alert.type === "sla_warning" ? "⚠️" : "🔔"} ${alert.clientName || "Cliente"} está aguardando há ${alert.waitMinutes || "?"} minutos`,
+              text: `[${alert.type === "sla_warning" ? "SLA" : "Alerta"}] ${alert.clientName || "Cliente"} está aguardando há ${alert.waitMinutes || "?"} minutos`,
               time: respTime,
               side: "in",
               isInternalNote: false,
@@ -1435,7 +1435,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const fallbackMsg: Message = {
             id: `msg-val-fallback-${Date.now()}`,
             author: currentPersona.name,
-            text: "Ops, tive um problema ao processar sua mensagem. Pode tentar de novo? 😅",
+            text: "Ops, tive um problema ao processar sua mensagem. Pode tentar de novo?",
             time: fallbackTime,
             side: "in",
             isInternalNote: false,
@@ -2436,14 +2436,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           let previewText = message.content || "";
           if (previewText.startsWith("[LOCAL_MEDIA:") || previewText.startsWith("[MEDIA:")) {
-            if (previewText.includes("image")) previewText = "📷 Imagem";
-            else if (previewText.includes("video")) previewText = "🎥 Vídeo";
-            else if (previewText.includes("audio")) previewText = "🎵 Áudio";
-            else if (previewText.includes("sticker")) previewText = "🪄 Figurinha";
+            if (previewText.includes("image")) previewText = "Imagem";
+            else if (previewText.includes("video")) previewText = "Vídeo";
+            else if (previewText.includes("audio")) previewText = "Áudio";
+            else if (previewText.includes("sticker")) previewText = "Figurinha";
             else if (previewText.includes("document")) {
               const parts = previewText.split(":");
               const rawName = parts[parts.length - 1] || "";
-              previewText = `📄 ${rawName.split("]")[0] || "Documento"}`;
+              previewText = rawName.split("]")[0] || "Documento";
             }
           }
 
