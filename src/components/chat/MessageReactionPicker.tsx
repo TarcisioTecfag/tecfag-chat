@@ -38,12 +38,22 @@ export function MessageReactionPicker({
   onClose: () => void;
 }) {
   const [showFullPicker, setShowFullPicker] = useState(false);
+  const [openDownward, setOpenDownward] = useState(false);
   const [quickEmojis, setQuickEmojis] = useState<string[]>(DEFAULT_REACTIONS);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setQuickEmojis(getRecentReactions());
   }, []);
+
+  // Quando o seletor completo é aberto, verifica a posição na tela para evitar cortes verticais
+  useEffect(() => {
+    if (showFullPicker && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      // Se tiver menos de 380px até o topo da tela, abre para baixo; senão abre para cima
+      setOpenDownward(rect.top < 380);
+    }
+  }, [showFullPicker]);
 
   // Fecha ao clicar fora ou apertar Escape
   useEffect(() => {
@@ -121,16 +131,13 @@ export function MessageReactionPicker({
 
       {/* Popover completo de Emojis */}
       {showFullPicker && (
-        <div
-          className={`absolute top-10 z-50 ${
-            side === "out" ? "right-0" : "left-0"
-          }`}
-        >
-          <EmojiPicker
-            onSelect={(emoji) => handleChoose(emoji)}
-            onClose={() => setShowFullPicker(false)}
-          />
-        </div>
+        <EmojiPicker
+          align={side === "out" ? "right" : "left"}
+          side={openDownward ? "bottom" : "top"}
+          hideStickers
+          onSelect={(emoji) => handleChoose(emoji)}
+          onClose={() => setShowFullPicker(false)}
+        />
       )}
     </div>
   );

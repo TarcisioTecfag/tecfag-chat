@@ -44,9 +44,21 @@ interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
   onClose: () => void;
   onSelectSticker?: (url: string) => void;
+  align?: "left" | "right";
+  side?: "top" | "bottom";
+  hideStickers?: boolean;
+  className?: string;
 }
 
-export function EmojiPicker({ onSelect, onClose, onSelectSticker }: EmojiPickerProps) {
+export function EmojiPicker({
+  onSelect,
+  onClose,
+  onSelectSticker,
+  align = "right",
+  side = "top",
+  hideStickers = false,
+  className = "",
+}: EmojiPickerProps) {
   const [activeTab, setActiveTab] = useState<"emojis" | "stickers">("emojis");
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState(0);
@@ -159,36 +171,40 @@ export function EmojiPicker({ onSelect, onClose, onSelectSticker }: EmojiPickerP
   return (
     <motion.div
       ref={pickerRef}
-      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+      initial={{ opacity: 0, y: side === "top" ? 10 : -10, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+      exit={{ opacity: 0, y: side === "top" ? 10 : -10, scale: 0.95 }}
       transition={{ type: "spring", damping: 20, stiffness: 300 }}
-      className="absolute bottom-full right-0 mb-2 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-card border border-border shadow-card overflow-hidden flex flex-col"
+      className={`absolute ${side === "top" ? "bottom-full mb-2" : "top-full mt-2"} ${
+        align === "left" ? "left-0" : "right-0"
+      } z-[60] w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-card border border-border shadow-2xl overflow-hidden flex flex-col ${className}`}
       style={{ maxHeight: "360px" }}
     >
-      {/* Seletor de Abas */}
-      <div className="flex border-b border-border text-xs font-semibold select-none bg-muted/30">
-        <button
-          onClick={() => setActiveTab("emojis")}
-          className={`flex-1 py-2.5 text-center border-b-2 transition cursor-pointer ${
-            activeTab === "emojis"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Emojis
-        </button>
-        <button
-          onClick={() => setActiveTab("stickers")}
-          className={`flex-1 py-2.5 text-center border-b-2 transition cursor-pointer ${
-            activeTab === "stickers"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Figurinhas
-        </button>
-      </div>
+      {/* Seletor de Abas (oculto quando hideStickers está ativo) */}
+      {!hideStickers && (
+        <div className="flex border-b border-border text-xs font-semibold select-none bg-muted/30">
+          <button
+            onClick={() => setActiveTab("emojis")}
+            className={`flex-1 py-2.5 text-center border-b-2 transition cursor-pointer ${
+              activeTab === "emojis"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Emojis
+          </button>
+          <button
+            onClick={() => setActiveTab("stickers")}
+            className={`flex-1 py-2.5 text-center border-b-2 transition cursor-pointer ${
+              activeTab === "stickers"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Figurinhas
+          </button>
+        </div>
+      )}
 
       {activeTab === "emojis" ? (
         <>
