@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
-import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
+import { crmService, handleCrmError, parseExtraDealFilters } from "../../../../../lib/crm/crm-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -73,6 +73,7 @@ export const Route = createFileRoute("/api/crm/pipelines/$pipelineId/stages-summ
           }
 
           const summary = await crmService.getPipelineStagesSummary(tenantId, pipelineId, {
+            ...parseExtraDealFilters(url.searchParams),
             status: status || undefined,
             operatorId,
             operatorIds,

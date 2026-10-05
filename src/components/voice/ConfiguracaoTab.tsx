@@ -15,7 +15,7 @@ export function ConfiguracaoTab() {
   };
 
   return (
-    <div className="flex flex-col gap-6 overflow-y-auto h-full pr-1 max-w-4xl">
+    <div className="flex flex-col gap-6 w-full">
       <div className="bg-card border border-border rounded-2xl p-5 shadow-soft flex items-center justify-between">
         <div>
           <h3 className="text-base font-bold text-foreground">Configurações do Agente de Voz (Valentina)</h3>

@@ -1,4 +1,4 @@
-﻿// ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // ⚙️ LIVE CHAT SETTINGS TAB — Aba "Live Chat" no SettingsView
 // Credenciais Tray, comportamento do widget e script de instalação
 // ══════════════════════════════════════════════════════════════════════════════
@@ -105,7 +105,7 @@ export function LiveChatSettingsTab() {
   }
 
   return (
-    <div className="space-y-5 overflow-y-auto max-h-full pb-4">
+    <div className="space-y-5 w-full pb-4">
       {/* ── Card: Tray Commerce ────────────────────────────────────────── */}
       <div className="rounded-2xl bg-card border border-border p-6 shadow-soft">
         <div className="flex items-center justify-between mb-5">

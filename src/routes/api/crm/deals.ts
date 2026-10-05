@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
-import { crmService, handleCrmError } from "../../../lib/crm/crm-service";
+import { crmService, handleCrmError, parseExtraDealFilters } from "../../../lib/crm/crm-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,6 +77,7 @@ export const Route = createFileRoute("/api/crm/deals")({
           }
 
           const result = await crmService.getDeals(tenantId, {
+            ...parseExtraDealFilters(url.searchParams),
             pipelineId,
             stageId,
             stageIds,

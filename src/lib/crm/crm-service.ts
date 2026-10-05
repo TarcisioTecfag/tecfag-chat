@@ -179,7 +179,52 @@ export interface CrmDealFilters {
   hasOverdueTask?: boolean;
   coolingOnly?: boolean;
   coolingDays?: number;
+  withoutTask?: boolean;
+  rdStationOnly?: boolean;
+  emptyFields?: string[];
+  title?: string;
+  rating?: number;
+  companyId?: string;
+  campaign?: string;
+  source?: string;
+  productId?: string;
+  lastContactFrom?: string;
+  lastContactTo?: string;
+  nextTaskFrom?: string;
+  nextTaskTo?: string;
+  closedFrom?: string;
+  closedTo?: string;
+  expectedCloseFrom?: string;
+  expectedCloseTo?: string;
   perStageLimit?: number;
+}
+
+export function parseExtraDealFilters(params: URLSearchParams): Pick<CrmDealFilters,
+  "withoutTask" | "rdStationOnly" | "emptyFields" | "title" | "rating" | "companyId" |
+  "campaign" | "source" | "productId" | "lastContactFrom" | "lastContactTo" |
+  "nextTaskFrom" | "nextTaskTo" | "closedFrom" | "closedTo" |
+  "expectedCloseFrom" | "expectedCloseTo"> {
+  const date = (key: string) => {
+    const value = params.get(key);
+    return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+  };
+  const ratingValue = params.get("rating");
+  const rating = ratingValue !== null && /^[0-5]$/.test(ratingValue) ? Number(ratingValue) : undefined;
+  return {
+    withoutTask: params.get("withoutTask") === "true" || undefined,
+    rdStationOnly: params.get("rdStationOnly") === "true" || undefined,
+    emptyFields: params.get("emptyFields")?.split(",").filter(Boolean),
+    title: params.get("title")?.slice(0, 200) || undefined,
+    rating,
+    companyId: params.get("companyId") || undefined,
+    campaign: params.get("campaign") || undefined,
+    source: params.get("source") || undefined,
+    productId: params.get("productId") || undefined,
+    lastContactFrom: date("lastContactFrom"), lastContactTo: date("lastContactTo"),
+    nextTaskFrom: date("nextTaskFrom"), nextTaskTo: date("nextTaskTo"),
+    closedFrom: date("closedFrom"), closedTo: date("closedTo"),
+    expectedCloseFrom: date("expectedCloseFrom"), expectedCloseTo: date("expectedCloseTo"),
+  };
 }
 
 /**
@@ -187,6 +232,47 @@ export interface CrmDealFilters {
  */
 export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilters) {
   const conditions = [eq(crmDeals.tenantId, tenantId)];
+  const nextTaskDate = sql`(SELECT MIN(act.due_date) FROM crm_deal_activities act WHERE act.deal_id = ${crmDeals.id} AND act.tenant_id = ${tenantId} AND act.status = 'pending' AND act.type != 'note')`;
+  const dateFields = {
+    lastContact: crmDeals.lastActivityAt,
+    nextTask: nextTaskDate,
+    closed: crmDeals.closedAt,
+    expectedClose: crmDeals.expectedCloseDate,
+  };
+  for (const [key, column] of Object.entries(dateFields)) {
+    const from = filters[`${key}From` as keyof CrmDealFilters];
+    const to = filters[`${key}To` as keyof CrmDealFilters];
+    if (typeof from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(from))
+      conditions.push(sql`(${column} AT TIME ZONE 'America/Sao_Paulo')::date >= ${from}::date`);
+    if (typeof to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(to))
+      conditions.push(sql`(${column} AT TIME ZONE 'America/Sao_Paulo')::date <= ${to}::date`);
+  }
+
+  if (filters.title?.trim()) conditions.push(ilike(crmDeals.title, `%${filters.title.trim()}%`));
+  if (filters.rating !== undefined && Number.isInteger(filters.rating) && filters.rating >= 0 && filters.rating <= 5)
+    conditions.push(eq(crmDeals.rating, filters.rating));
+  if (filters.companyId) conditions.push(eq(crmDeals.accountId, filters.companyId));
+  if (filters.campaign) conditions.push(eq(crmDeals.campaign, filters.campaign));
+  if (filters.source) conditions.push(eq(crmDeals.source, filters.source));
+  if (filters.productId) conditions.push(sql`EXISTS (SELECT 1 FROM crm_deal_products dp WHERE dp.deal_id = ${crmDeals.id} AND dp.tenant_id = ${tenantId} AND dp.product_id = ${filters.productId})`);
+  if (filters.rdStationOnly) conditions.push(sql`${crmDeals.rdDealId} IS NOT NULL`);
+  if (filters.withoutTask) conditions.push(sql`NOT EXISTS (SELECT 1 FROM crm_deal_activities act WHERE act.deal_id = ${crmDeals.id} AND act.tenant_id = ${tenantId} AND act.status = 'pending' AND act.type != 'note')`);
+
+  const emptyFieldConditions: Record<string, ReturnType<typeof sql>> = {
+    value: sql`${crmDeals.value} IS NULL`,
+    rating: sql`${crmDeals.rating} = 0`,
+    company: sql`${crmDeals.accountId} IS NULL`,
+    campaign: sql`NULLIF(TRIM(${crmDeals.campaign}), '') IS NULL`,
+    source: sql`NULLIF(TRIM(${crmDeals.source}), '') IS NULL`,
+    expectedClose: sql`${crmDeals.expectedCloseDate} IS NULL`,
+    lastContact: sql`${crmDeals.lastActivityAt} IS NULL`,
+    nextTask: sql`${nextTaskDate} IS NULL`,
+    products: sql`NOT EXISTS (SELECT 1 FROM crm_deal_products dp WHERE dp.deal_id = ${crmDeals.id} AND dp.tenant_id = ${tenantId})`,
+  };
+  if (filters.emptyFields?.length) {
+    const selected = filters.emptyFields.map((field) => emptyFieldConditions[field]).filter(Boolean);
+    if (selected.length) conditions.push(or(...selected)!);
+  }
 
   if (filters.pipelineId) {
     conditions.push(eq(crmDeals.pipelineId, filters.pipelineId));
@@ -231,17 +317,13 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
   }
 
   if (filters.createdAfter) {
-    const afterDate = new Date(filters.createdAfter);
-    if (!isNaN(afterDate.getTime())) {
-      conditions.push(gte(crmDeals.createdAt, afterDate));
-    }
+    if (typeof filters.createdAfter === "string" && /^\d{4}-\d{2}-\d{2}$/.test(filters.createdAfter))
+      conditions.push(sql`(${crmDeals.createdAt} AT TIME ZONE 'America/Sao_Paulo')::date >= ${filters.createdAfter}::date`);
   }
 
   if (filters.createdBefore) {
-    const beforeDate = new Date(filters.createdBefore);
-    if (!isNaN(beforeDate.getTime())) {
-      conditions.push(lte(crmDeals.createdAt, beforeDate));
-    }
+    if (typeof filters.createdBefore === "string" && /^\d{4}-\d{2}-\d{2}$/.test(filters.createdBefore))
+      conditions.push(sql`(${crmDeals.createdAt} AT TIME ZONE 'America/Sao_Paulo')::date <= ${filters.createdBefore}::date`);
   }
 
   if (filters.hasOverdueTask) {
