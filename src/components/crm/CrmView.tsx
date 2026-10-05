@@ -135,6 +135,15 @@ export function CrmView() {
         params.set("coolingDays", String(advancedFilters.coolingDays));
       }
     }
+    if (advancedFilters.withoutTask) params.set("withoutTask", "true");
+    if (advancedFilters.rdStationOnly) params.set("rdStationOnly", "true");
+    if (advancedFilters.emptyFields?.length) params.set("emptyFields", advancedFilters.emptyFields.join(","));
+    for (const key of ["title", "rating", "companyId", "campaign", "source", "productId",
+      "lastContactFrom", "lastContactTo", "nextTaskFrom", "nextTaskTo", "closedFrom", "closedTo",
+      "expectedCloseFrom", "expectedCloseTo"] as const) {
+      const value = advancedFilters[key];
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    }
 
     return params;
   }, [selectedPipelineId, statusFilter, selectedOperatorIds, sortBy, advancedFilters]);
@@ -536,8 +545,10 @@ export function CrmView() {
         onClose={() => setIsAdvancedFiltersOpen(false)}
         stages={activeStages}
         filters={advancedFilters}
-        onApply={(newFilters) => {
+        statusFilter={statusFilter}
+        onApply={(newFilters, newStatus) => {
           setAdvancedFilters(newFilters);
+          setStatusFilter(newStatus);
           setListOffset(0);
         }}
       />
