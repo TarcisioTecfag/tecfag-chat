@@ -55,6 +55,10 @@ const migrations = [
     name: "0020_whatsapp_user_identity",
     url: new URL("../src/db/migrations/0020_whatsapp_user_identity.sql", import.meta.url),
   },
+  {
+    name: "0021_conversation_contact_unique",
+    url: new URL("../src/db/migrations/0021_conversation_contact_unique.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

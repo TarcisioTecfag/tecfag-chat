@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChatChatKeyRouteImport } from './routes/chat/$chatKey'
 import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
 import { Route as ApiVoiceStreamRouteImport } from './routes/api/voice-stream'
 import { Route as ApiVoiceObjectivesRouteImport } from './routes/api/voice-objectives'
@@ -92,6 +93,7 @@ import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/con
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiChatsTagTaskRouteImport } from './routes/api/chats/tag-task'
+import { Route as ApiChatsResolveRouteImport } from './routes/api/chats/resolve'
 import { Route as ApiChatsReconcileMessageRouteImport } from './routes/api/chats/reconcile-message'
 import { Route as ApiBaileysSyncAvatarsRouteImport } from './routes/api/baileys/sync-avatars'
 import { Route as ApiBaileysStatusRouteImport } from './routes/api/baileys/status'
@@ -148,6 +150,11 @@ import { Route as ApiCrmDealsDealIdActivitiesActivityIdRouteImport } from './rou
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatChatKeyRoute = ChatChatKeyRouteImport.update({
+  id: '/chat/$chatKey',
+  path: '/chat/$chatKey',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CallRoomIdRoute = CallRoomIdRouteImport.update({
@@ -565,6 +572,11 @@ const ApiChatsTagTaskRoute = ApiChatsTagTaskRouteImport.update({
   path: '/tag-task',
   getParentRoute: () => ApiChatsRoute,
 } as any)
+const ApiChatsResolveRoute = ApiChatsResolveRouteImport.update({
+  id: '/resolve',
+  path: '/resolve',
+  getParentRoute: () => ApiChatsRoute,
+} as any)
 const ApiChatsReconcileMessageRoute =
   ApiChatsReconcileMessageRouteImport.update({
     id: '/reconcile-message',
@@ -883,6 +895,7 @@ export interface FileRoutesByFullPath {
   '/api/voice-objectives': typeof ApiVoiceObjectivesRoute
   '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
+  '/chat/$chatKey': typeof ChatChatKeyRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -897,6 +910,7 @@ export interface FileRoutesByFullPath {
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
+  '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
@@ -1020,6 +1034,7 @@ export interface FileRoutesByTo {
   '/api/voice-objectives': typeof ApiVoiceObjectivesRoute
   '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
+  '/chat/$chatKey': typeof ChatChatKeyRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -1034,6 +1049,7 @@ export interface FileRoutesByTo {
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
+  '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
@@ -1158,6 +1174,7 @@ export interface FileRoutesById {
   '/api/voice-objectives': typeof ApiVoiceObjectivesRoute
   '/api/voice-stream': typeof ApiVoiceStreamRoute
   '/call/$roomId': typeof CallRoomIdRoute
+  '/chat/$chatKey': typeof ChatChatKeyRoute
   '/api/admin/reset': typeof ApiAdminResetRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -1172,6 +1189,7 @@ export interface FileRoutesById {
   '/api/baileys/status': typeof ApiBaileysStatusRoute
   '/api/baileys/sync-avatars': typeof ApiBaileysSyncAvatarsRoute
   '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
+  '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
@@ -1297,6 +1315,7 @@ export interface FileRouteTypes {
     | '/api/voice-objectives'
     | '/api/voice-stream'
     | '/call/$roomId'
+    | '/chat/$chatKey'
     | '/api/admin/reset'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -1311,6 +1330,7 @@ export interface FileRouteTypes {
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
     | '/api/chats/reconcile-message'
+    | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
@@ -1434,6 +1454,7 @@ export interface FileRouteTypes {
     | '/api/voice-objectives'
     | '/api/voice-stream'
     | '/call/$roomId'
+    | '/chat/$chatKey'
     | '/api/admin/reset'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -1448,6 +1469,7 @@ export interface FileRouteTypes {
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
     | '/api/chats/reconcile-message'
+    | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
@@ -1571,6 +1593,7 @@ export interface FileRouteTypes {
     | '/api/voice-objectives'
     | '/api/voice-stream'
     | '/call/$roomId'
+    | '/chat/$chatKey'
     | '/api/admin/reset'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -1585,6 +1608,7 @@ export interface FileRouteTypes {
     | '/api/baileys/status'
     | '/api/baileys/sync-avatars'
     | '/api/chats/reconcile-message'
+    | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
@@ -1709,6 +1733,7 @@ export interface RootRouteChildren {
   ApiVoiceObjectivesRoute: typeof ApiVoiceObjectivesRoute
   ApiVoiceStreamRoute: typeof ApiVoiceStreamRoute
   CallRoomIdRoute: typeof CallRoomIdRoute
+  ChatChatKeyRoute: typeof ChatChatKeyRoute
   ApiAdminResetRoute: typeof ApiAdminResetRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
@@ -1783,6 +1808,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat/$chatKey': {
+      id: '/chat/$chatKey'
+      path: '/chat/$chatKey'
+      fullPath: '/chat/$chatKey'
+      preLoaderRoute: typeof ChatChatKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/call/$roomId': {
@@ -2359,6 +2391,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatsTagTaskRouteImport
       parentRoute: typeof ApiChatsRoute
     }
+    '/api/chats/resolve': {
+      id: '/api/chats/resolve'
+      path: '/resolve'
+      fullPath: '/api/chats/resolve'
+      preLoaderRoute: typeof ApiChatsResolveRouteImport
+      parentRoute: typeof ApiChatsRoute
+    }
     '/api/chats/reconcile-message': {
       id: '/api/chats/reconcile-message'
       path: '/reconcile-message'
@@ -2728,6 +2767,7 @@ declare module '@tanstack/react-router' {
 
 interface ApiChatsRouteChildren {
   ApiChatsReconcileMessageRoute: typeof ApiChatsReconcileMessageRoute
+  ApiChatsResolveRoute: typeof ApiChatsResolveRoute
   ApiChatsTagTaskRoute: typeof ApiChatsTagTaskRoute
   ApiChatsUpdateQueueRoute: typeof ApiChatsUpdateQueueRoute
   ApiChatsChatIdMessagesRoute: typeof ApiChatsChatIdMessagesRoute
@@ -2736,6 +2776,7 @@ interface ApiChatsRouteChildren {
 
 const ApiChatsRouteChildren: ApiChatsRouteChildren = {
   ApiChatsReconcileMessageRoute: ApiChatsReconcileMessageRoute,
+  ApiChatsResolveRoute: ApiChatsResolveRoute,
   ApiChatsTagTaskRoute: ApiChatsTagTaskRoute,
   ApiChatsUpdateQueueRoute: ApiChatsUpdateQueueRoute,
   ApiChatsChatIdMessagesRoute: ApiChatsChatIdMessagesRoute,
@@ -3040,6 +3081,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiVoiceObjectivesRoute: ApiVoiceObjectivesRoute,
   ApiVoiceStreamRoute: ApiVoiceStreamRoute,
   CallRoomIdRoute: CallRoomIdRoute,
+  ChatChatKeyRoute: ChatChatKeyRoute,
   ApiAdminResetRoute: ApiAdminResetRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,

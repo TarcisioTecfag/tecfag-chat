@@ -219,7 +219,9 @@ export const conversations = pgTable("conversations", {
   lastMessageText: text("last_message_text"),
   lastMessageTime: timestamp("last_message_time").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  tenantContactUniqIdx: uniqueIndex("idx_conversations_tenant_contact_uniq").on(table.tenantId, table.contactId),
+}));
 
 // ─── 6. MENSAGENS (Histórico de Chat & Notas Internas) ───────────────────────
 export const messages = pgTable("messages", {

@@ -217,10 +217,13 @@ export class InboundProcessor {
 
       const aiPersona = getAiPersona(tenantId);
       const lastTextPreview = text || (media ? `[Mídia: ${media.fileName || media.mimeType}]` : "");
+      const normalizedContactPhone = (cleanPhone || contact.phone || "").replace(/\D/g, "");
+      let createdConversation = false;
 
       if (!activeConv) {
         // 3a. Criação da primeira conversa para o contato
         const convId = `conv-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const contactId = contact.id;
         let initialOperatorId: string | null = null;
         let initialQueueState = "fila";
 
@@ -251,12 +254,32 @@ export class InboundProcessor {
           }
         }
 
-        const [createdConv] = await db
-          .insert(conversations)
-          .values({
+        activeConv = await db.transaction(async (tx) => {
+          // A mesma chave é usada na criação manual. Evita dois históricos quando
+          // mensagens simultâneas chegam antes de qualquer conversa existir.
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId}))`);
+          if (normalizedContactPhone.length >= 8) {
+            await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedContactPhone}))`);
+            const matchingHistories = await tx.select({ conversation: conversations })
+              .from(conversations)
+              .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+              .where(and(
+                eq(conversations.tenantId, tenantId),
+                sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${normalizedContactPhone}`,
+              )).limit(2);
+            if (matchingHistories.length > 1) {
+              throw new Error("Telefone vinculado a mais de um histórico; reconciliação necessária");
+            }
+            if (matchingHistories.length) return matchingHistories[0].conversation;
+          }
+          const [existing] = await tx.select().from(conversations)
+            .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)))
+            .orderBy(desc(conversations.lastMessageTime)).limit(1);
+          if (existing) return existing;
+          const [created] = await tx.insert(conversations).values({
             id: convId,
             tenantId,
-            contactId: contact.id,
+            contactId,
             operatorId: initialOperatorId,
             queueState: initialQueueState,
             unreadCount: 1,
@@ -265,11 +288,26 @@ export class InboundProcessor {
             lastMessageTime: timestamp,
             createdAt: timestamp,
             updatedAt: timestamp,
-          })
-          .returning();
+          }).returning();
+          createdConversation = true;
+          return created;
+        });
+        if (activeConv.contactId !== contact.id) {
+          const [canonicalContact] = await db.select().from(contacts)
+            .where(and(eq(contacts.id, activeConv.contactId), eq(contacts.tenantId, tenantId))).limit(1);
+          if (!canonicalContact || (userId && canonicalContact.whatsappUserId && canonicalContact.whatsappUserId !== userId)) {
+            throw new Error("Identidade WhatsApp conflitante para o histórico deste telefone");
+          }
+          if (userId && !canonicalContact.whatsappUserId) {
+            await db.update(contacts).set({ whatsappUserId: userId })
+              .where(and(eq(contacts.id, canonicalContact.id), eq(contacts.tenantId, tenantId)));
+            canonicalContact.whatsappUserId = userId;
+          }
+          contact = canonicalContact;
+        }
+      }
 
-        activeConv = createdConv;
-      } else if (activeConv.queueState === "finalizados") {
+      if (!createdConversation && activeConv.queueState === "finalizados") {
         // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico
         let reOpenOperatorId: string | null = provider === "meta" ? null : activeConv.operatorId || null;
         let reOpenQueueState = "fila";
@@ -321,7 +359,7 @@ export class InboundProcessor {
           lastMessageText: lastTextPreview,
           lastMessageTime: timestamp,
         };
-      } else {
+      } else if (!createdConversation) {
         // 3c. Conversa já ativa: incrementa contador de não lidas e atualiza preview
         await db
           .update(conversations)

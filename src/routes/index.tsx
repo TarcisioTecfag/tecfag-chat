@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { ChatList } from "@/components/chat/ChatList";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -22,20 +22,28 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileLayout } from "@/components/mobile/MobileLayout";
 import { PushNotificationPrompt } from "@/components/chat/PushNotificationPrompt";
+import { getChatLinkKey } from "@/lib/chat-link";
 
 export const Route = createFileRoute("/")({
   ssr: true,
   component: Index,
 });
 
-function Index() {
-  const { tenant, activeView, rightSidebarOpen, selectedChatId, isAuthenticated, isProfileModalOpen } = useChat();
+export function Index() {
+  const { tenant, activeView, rightSidebarOpen, selectedChatId, isAuthenticated, isProfileModalOpen, activeChat, conversations } = useChat();
+  const location = useLocation();
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (location.pathname !== "/" || !isAuthenticated || activeView !== "chat" || !activeChat || activeChat.id === "valentina") return;
+    navigate({ to: "/chat/$chatKey", params: { chatKey: getChatLinkKey(activeChat, conversations) }, replace: true });
+  }, [activeChat, activeView, conversations, isAuthenticated, location.pathname, navigate]);
 
   if (!isMounted) {
     return null; // Retorna null no primeiro render para bater com o HTML vazio do servidor (ssr: false)

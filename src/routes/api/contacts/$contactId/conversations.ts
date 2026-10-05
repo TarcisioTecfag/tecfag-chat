@@ -22,7 +22,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
           const requiresExplicitCapture = channel?.activeProvider === "meta";
           const result = await db.transaction(async (tx) => {
             await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId}))`);
-            const [contact] = await tx.select({ id: contacts.id, walletOperatorId: contacts.walletOperatorId })
+            const [contact] = await tx.select({ id: contacts.id, walletOperatorId: contacts.walletOperatorId, phone: contacts.phone })
               .from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId))).limit(1);
             if (!contact) return null;
             if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only" && contact.walletOperatorId !== session.operator.id) {
@@ -33,18 +33,23 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               operatorId: conversations.operatorId,
               queueState: conversations.queueState,
             }).from(conversations)
-              .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId), ne(conversations.queueState, "finalizados")))
+              .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)))
               .orderBy(desc(conversations.lastMessageTime)).limit(1);
             const now = new Date();
             if (existing) {
               // Abrir o histórico não transfere a conversa. Na Meta, somente a ação
               // explícita de captura/assunção pode alterar o responsável.
               if (requiresExplicitCapture) {
+                if (existing.queueState === "finalizados") {
+                  await tx.update(conversations)
+                    .set({ operatorId: null, queueState: "fila", updatedAt: now })
+                    .where(and(eq(conversations.id, existing.id), eq(conversations.tenantId, tenantId)));
+                }
                 return {
                   conversationId: existing.id,
                   created: false,
-                  readOnly: existing.operatorId !== session.operator.id || existing.queueState !== "meus",
-                  queueState: existing.queueState,
+                  readOnly: existing.queueState === "finalizados" || existing.operatorId !== session.operator.id || existing.queueState !== "meus",
+                  queueState: existing.queueState === "finalizados" ? "fila" : existing.queueState,
                 };
               }
               await tx.update(conversations)
@@ -64,6 +69,20 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
               return { conversationId: existing.id, created: false, readOnly: false, queueState: "meus" };
+            }
+
+            const normalizedPhone = contact.phone?.replace(/\D/g, "") || "";
+            if (normalizedPhone.length >= 8) {
+              await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedPhone}))`);
+              const [otherHistory] = await tx.select({ id: conversations.id })
+                .from(conversations)
+                .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+                .where(and(
+                  eq(conversations.tenantId, tenantId),
+                  ne(contacts.id, contactId),
+                  sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${normalizedPhone}`,
+                )).limit(1);
+              if (otherHistory) return { phoneConflict: true } as const;
             }
 
             const conversationId = `conv-${crypto.randomUUID()}`;
@@ -88,6 +107,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
           });
           if (!result) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
           if ("forbidden" in result) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+          if ("phoneConflict" in result) return Response.json({ error: "Este telefone já possui um histórico em outro cadastro. Localize o atendimento existente antes de criar outro." }, { status: 409 });
           return Response.json(result, { status: result.created ? 201 : 200 });
         } catch (error) {
           console.error("[POST /api/contacts/:id/conversations] Falha:", error);
