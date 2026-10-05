@@ -22,13 +22,21 @@ function ChatLinkPage() {
     if (!isAuthenticated) return;
     let cancelled = false;
     setError(null);
+    // Uma troca feita na lista já atualizou o chat no estado compartilhado.
+    // Navegar para a nova URL não precisa buscar nem remontar a tela inteira.
+    if (activeChat && (activeChat.id === chatKey || getChatLinkKey(activeChat, conversations) === chatKey)) {
+      setResolved({ key: chatKey, id: activeChat.id });
+      return;
+    }
     setResolved(null);
     (async () => {
       try {
         const response = await fetch(`/api/chats/resolve?key=${encodeURIComponent(chatKey)}`, { credentials: "include" });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Não foi possível abrir este atendimento.");
-        await refreshConversations(data.conversationId);
+        if (!conversations.some((chat) => chat.id === data.conversationId)) {
+          await refreshConversations(data.conversationId);
+        }
         if (cancelled) return;
         setActiveQueue("todos");
         setActiveView("chat");
@@ -50,19 +58,17 @@ function ChatLinkPage() {
     }
   }, [activeChat, activeView, chatKey, conversations, navigate, resolved, selectedChatId]);
 
-  if (!isAuthenticated) return <Index />;
-  if (error) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
-        <p className="text-foreground">{error}</p>
-        <button className="rounded-lg bg-primary px-4 py-2 text-primary-foreground" onClick={() => navigate({ to: "/" })}>
-          Voltar aos atendimentos
-        </button>
-      </main>
-    );
-  }
-  if (!resolved || resolved.key !== chatKey) {
-    return <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">Abrindo atendimento...</div>;
-  }
-  return <Index />;
+  return (
+    <>
+      <Index />
+      {error && (
+        <div role="alert" className="fixed bottom-6 left-1/2 z-[100] flex max-w-[90vw] -translate-x-1/2 items-center gap-4 rounded-xl border border-border bg-card px-5 py-3 text-sm text-foreground shadow-xl">
+          <span>{error}</span>
+          <button className="shrink-0 font-semibold text-primary" onClick={() => navigate({ to: "/" })}>
+            Voltar
+          </button>
+        </div>
+      )}
+    </>
+  );
 }

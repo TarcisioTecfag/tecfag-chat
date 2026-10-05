@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useSyncExternalStore } from "react";
 import { createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { ChatList } from "@/components/chat/ChatList";
@@ -24,6 +24,10 @@ import { MobileLayout } from "@/components/mobile/MobileLayout";
 import { PushNotificationPrompt } from "@/components/chat/PushNotificationPrompt";
 import { getChatLinkKey } from "@/lib/chat-link";
 
+const subscribeHydration = () => () => {};
+const getClientMounted = () => true;
+const getServerMounted = () => false;
+
 export const Route = createFileRoute("/")({
   ssr: true,
   component: Index,
@@ -34,11 +38,7 @@ export function Index() {
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  const isMounted = useSyncExternalStore(subscribeHydration, getClientMounted, getServerMounted);
 
   useEffect(() => {
     if (location.pathname !== "/" || !isAuthenticated || activeView !== "chat" || !activeChat || activeChat.id === "valentina") return;
