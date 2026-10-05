@@ -185,9 +185,11 @@ export class MetaAdapter implements WhatsAppAdapter {
           },
         };
       }
-      // 2. Mídia (Imagem, Áudio, Vídeo, Documento)
+      // 2. Mídia (Imagem, Áudio, Vídeo, Documento, Figurinha)
       else if (message.mediaUrl && message.mediaType) {
         let mediaPayload: Record<string, any>;
+        let resolvedMimeType = "";
+        let sendType: "image" | "audio" | "video" | "document" | "sticker" = message.mediaType;
 
         // Verifica se a mediaUrl é pública (https://) e não é localhost
         const isPublicUrl = message.mediaUrl.startsWith("https://") && !message.mediaUrl.includes("localhost") && !message.mediaUrl.includes("127.0.0.1");
@@ -222,6 +224,22 @@ export class MetaAdapter implements WhatsAppAdapter {
             console.warn("[MetaAdapter] Erro ao ler mídia local:", readErr);
           }
 
+          resolvedMimeType = mimeType.toLowerCase();
+
+          // A Cloud API tem tipo próprio para figurinha: WebP enviado como "image" é rejeitado.
+          if (sendType === "image" && resolvedMimeType.startsWith("image/webp")) {
+            sendType = "sticker";
+          }
+
+          // A Cloud API não aceita áudio WebM (formato gravado pelos navegadores).
+          if (sendType === "audio" && resolvedMimeType.includes("webm")) {
+            return {
+              externalId: "",
+              status: "failed",
+              error: "A Meta não aceita áudio em formato WebM. Envie o áudio em OGG (Opus), MP3, M4A ou AAC.",
+            };
+          }
+
           if (mediaBuffer) {
             const metaMediaId = await this.uploadMediaToMeta(phoneNumberId, accessToken, mediaBuffer, fileName, mimeType);
             mediaPayload = { id: metaMediaId };
@@ -230,15 +248,20 @@ export class MetaAdapter implements WhatsAppAdapter {
           }
         }
 
-        if (message.text) mediaPayload.caption = message.text;
-        if (message.fileName) mediaPayload.filename = message.fileName;
+        // Legenda: só image, video e document. Áudio e figurinha não aceitam caption.
+        if (message.text && (sendType === "image" || sendType === "video" || sendType === "document")) {
+          mediaPayload.caption = message.text;
+        }
+        // Nome do arquivo: parâmetro exclusivo de document.
+        if (message.fileName && sendType === "document") mediaPayload.filename = message.fileName;
 
         bodyPayload = {
           ...bodyPayload,
-          type: message.mediaType,
-          [message.mediaType]: mediaPayload,
+          type: sendType,
+          [sendType]: mediaPayload,
         };
       }
+
       // 3. Texto Puro
       else if (message.text) {
         bodyPayload = {

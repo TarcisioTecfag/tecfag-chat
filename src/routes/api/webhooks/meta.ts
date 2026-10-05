@@ -7,6 +7,7 @@ import { inboundProcessor } from "../../../lib/whatsapp/inbound";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { applyMetaStatus } from "../../../lib/whatsapp/meta-status";
 import { resolveMetaSenderIdentity } from "../../../lib/whatsapp/meta-identity";
+import { describeNonMediaMetaMessage, isIgnorableMetaMessage, isMetaMediaType } from "../../../lib/whatsapp/meta-message-text";
 
 export const Route = createFileRoute("/api/webhooks/meta")({
   server: {
@@ -405,12 +406,17 @@ export const Route = createFileRoute("/api/webhooks/meta")({
                     ? new Date(parseInt(msg.timestamp, 10) * 1000)
                     : new Date();
 
+                  // Reações e "request_welcome" não são mensagens para o operador: evita bolha vazia.
+                  if (isIgnorableMetaMessage(msg)) continue;
+
                   let textContent: string | undefined;
                   let mediaInfo: any;
 
                   if (msg.type === "text") {
                     textContent = msg.text?.body;
-                  } else if (msg.type === "image" || msg.type === "audio" || msg.type === "video" || msg.type === "document") {
+                  } else if (describeNonMediaMetaMessage(msg) !== null) {
+                    textContent = describeNonMediaMetaMessage(msg) ?? undefined;
+                  } else if (isMetaMediaType(msg.type)) {
                     const mediaObj = msg[msg.type];
                     textContent = mediaObj?.caption;
                     if (!mediaObj?.id) {

@@ -12,7 +12,7 @@ export interface UniversalOutboundMessage {
   recipientUserId?: string; // BSUID da Meta, resolvido no servidor por tenant e contato
   text?: string;
   mediaUrl?: string;
-  mediaType?: "image" | "audio" | "video" | "document";
+  mediaType?: "image" | "audio" | "video" | "document" | "sticker";
   fileName?: string;
   quotedMessageId?: string;
   templateName?: string;
@@ -35,7 +35,7 @@ export interface UniversalOutboundResult {
 
 export interface UniversalInboundMedia {
   url?: string;
-  mediaType?: "image" | "audio" | "video" | "document";
+  mediaType?: "image" | "audio" | "video" | "document" | "sticker";
   mimeType: string;
   fileName?: string;
   fileSize?: number;
