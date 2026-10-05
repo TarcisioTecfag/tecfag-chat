@@ -153,6 +153,21 @@ export function CrmToolbar({
       key: "coolingOnly",
       label: `Sem atividade há ${advancedFilters.coolingDays ?? 10} dias`,
     });
+  const newFilterLabels: Array<[keyof AdvancedFiltersState, string]> = [
+    ["withoutTask", "Sem tarefa"], ["rdStationOnly", "RD Station Marketing"],
+    ["emptyFields", "Campos vazios"], ["title", "Nome"], ["rating", "Qualificação"],
+    ["companyId", "Empresa"], ["campaign", "Campanha"], ["source", "Fonte"],
+    ["productId", "Produto ou serviço"], ["lastContactFrom", "Último contato desde"],
+    ["lastContactTo", "Último contato até"], ["nextTaskFrom", "Próxima tarefa desde"],
+    ["nextTaskTo", "Próxima tarefa até"], ["closedFrom", "Fechamento desde"],
+    ["closedTo", "Fechamento até"], ["expectedCloseFrom", "Previsão desde"],
+    ["expectedCloseTo", "Previsão até"],
+  ];
+  for (const [key, label] of newFilterLabels) {
+    const value = advancedFilters[key];
+    if (value === undefined || value === false || value === "" || (Array.isArray(value) && !value.length)) continue;
+    filterChips.push({ key, label: value === true ? label : `${label}: ${Array.isArray(value) ? value.join(", ") : value}` });
+  }
 
   const removeFilter = (key: keyof AdvancedFiltersState) => {
     const next = { ...advancedFilters };
