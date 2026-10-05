@@ -164,12 +164,39 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
-// Atualiza dinamicamente o título do documento sem fixar canal por tenant
-export const updateDocumentTitle = (currentTenant: string | null, provider: "baileys" | "meta") => {
+// Atualiza dinamicamente o favicon conforme o tenant ativo
+export const updateFavicon = (currentTenant: string | null) => {
+  if (typeof document === "undefined") return;
+  const isTecfag = currentTenant === "tecfag";
+  const iconHref = isTecfag ? "/logo_tecfag.png" : "/favicon.png";
+
+  const head = document.head || document.getElementsByTagName("head")[0];
+  if (!head) return;
+
+  // Remove tags anteriores para forçar o navegador a renderizar o novo favicon sem cache
+  const oldIcons = document.querySelectorAll<HTMLLinkElement>(
+    "link[rel*='icon'], link[rel='apple-touch-icon']"
+  );
+  oldIcons.forEach((el) => el.parentNode?.removeChild(el));
+
+  const link = document.createElement("link");
+  link.rel = "icon";
+  link.type = "image/png";
+  link.href = iconHref;
+  head.appendChild(link);
+
+  const appleLink = document.createElement("link");
+  appleLink.rel = "apple-touch-icon";
+  appleLink.href = iconHref;
+  head.appendChild(appleLink);
+};
+
+// Atualiza dinamicamente o título do documento e o favicon sem fixar canal por tenant
+export const updateDocumentTitle = (currentTenant: string | null, _provider?: "baileys" | "meta") => {
   if (typeof document === "undefined") return;
   const tName = currentTenant === "tecfag" ? "Tecfag Chat" : "Valem Chat";
-  const pName = provider === "meta" ? "Meta API" : "Baileys";
-  document.title = `${tName} — ${pName}`;
+  document.title = tName;
+  updateFavicon(currentTenant);
 };
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -278,6 +305,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  // Sincroniza título e favicon do navegador com o tenant ativo
+  useEffect(() => {
+    if (tenant) {
+      updateDocumentTitle(tenant, activeProvider);
+    }
+  }, [tenant, activeProvider]);
 
   const [isClient, setIsClient] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
