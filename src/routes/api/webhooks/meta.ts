@@ -107,9 +107,30 @@ export const Route = createFileRoute("/api/webhooks/meta")({
           }
 
           if (allPhoneNumberIds.size === 0) {
-            // Sem phone_number_id não é possível identificar o tenant nem validar a assinatura HMAC.
-            // Retornar 400 — não podemos aceitar o evento com segurança.
-            console.warn("[Meta Webhook] Rejeitado: lote sem phone_number_id — impossível validar assinatura HMAC.");
+            // Eventos de conta (ex.: account_update) não trazem metadata.phone_number_id e não têm
+            // conteúdo acionável. Responder 400 faria a Meta reenviar por dias, então só ignoramos.
+            // Se houver mensagens/status/user_id_update sem phone_number_id, NÃO é seguro aceitar
+            // (não há como identificar o tenant nem validar HMAC) — mantém 400 para retry.
+            const hasActionableWithoutPhone = (body?.entry ?? []).some((e: any) =>
+              (e?.changes ?? []).some((c: any) => {
+                const v = c?.value;
+                return (
+                  (Array.isArray(v?.messages) && v.messages.length > 0) ||
+                  (Array.isArray(v?.statuses) && v.statuses.length > 0) ||
+                  !!v?.user_id_update
+                );
+              })
+            );
+
+            if (!hasActionableWithoutPhone) {
+              console.info("[Meta Webhook] Evento sem phone_number_id e sem mensagens/status (ex.: account_update) ignorado com 200.");
+              return new Response(JSON.stringify({ success: true, ignored: true }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
+            console.warn("[Meta Webhook] Rejeitado: lote com mensagens/status sem phone_number_id — impossível validar assinatura HMAC.");
             return new Response(
               JSON.stringify({ error: "Bad Request: payload sem phone_number_id — formato não suportado" }),
               { status: 400, headers: { "Content-Type": "application/json" } }
