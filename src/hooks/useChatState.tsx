@@ -2475,7 +2475,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const incomingMsg: Message = {
             id: message.id,
             author: message.senderName,
-            text: message.content,
+            text: message.content ?? "",
             time: timeStr,
             side: message.senderType === "client" ? "in" : "out",
             isInternalNote: !!message.isInternalNote,
@@ -2518,7 +2518,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return c;
             });
           } else {
-            const initials = message.senderName
+            const initials = String(message.senderName || "Contato")
               .split(" ")
               .map((w: string) => w[0])
               .join("")
@@ -2547,7 +2547,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             const newConv: Conversation = {
               id: message.conversationId,
-              name: message.senderName,
+              name: message.senderName || message.phone || "Contato",
               avatar: message.avatar || "",
               initials,
               initialsBg,
