@@ -143,6 +143,7 @@ type ChatContextType = {
   markAsRead: (id: string) => void;
   markAsUnread: (id: string) => void;
   pinChat: (id: string) => void;
+  toggleReaction: (conversationId: string, messageId: string, emoji: string) => Promise<void>;
   
   // Configurations
   activeProvider: "baileys" | "meta";
@@ -1987,6 +1988,40 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const toggleReaction = useCallback(async (conversationId: string, messageId: string, emoji: string) => {
+    // 1. Atualização otimista imediata na conversa ativa
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id !== conversationId
+          ? c
+          : {
+              ...c,
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const existing = m.reactions || [];
+                const filtered = existing.filter((r) => r.from !== "operator");
+                const nextReactions = emoji
+                  ? [...filtered, { emoji, from: "operator" }]
+                  : filtered;
+                return { ...m, reactions: nextReactions };
+              }),
+            }
+      )
+    );
+
+    // 2. Dispara requisição ao servidor para persistir e propagar via Meta/Baileys
+    try {
+      await fetch(`${BACKEND_URL}/api/whatsapp/react`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ conversationId, messageId, emoji }),
+      });
+    } catch (err) {
+      console.error("[useChatState.toggleReaction] Erro ao enviar reação:", err);
+    }
+  }, []);
+
   const updateClientInfo = async (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => {
     // 1. Atualiza estado local imediatamente (optimistic update)
     setConversations((prev) =>
@@ -3084,6 +3119,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         markAsRead,
         markAsUnread,
         pinChat,
+        toggleReaction,
         
         metaConfig,
         setMetaConfig,

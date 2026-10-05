@@ -474,6 +474,60 @@ export class MetaAdapter implements WhatsAppAdapter {
       };
     }
   }
+
+  /**
+   * Envia uma reação a uma mensagem existente via Meta Cloud API.
+   * Para remover uma reação existente, passa emoji vazio/nulo ("").
+   */
+  async sendReaction(
+    tenantId: string,
+    recipientPhone: string,
+    targetWamid: string,
+    emoji: string
+  ): Promise<{ success: boolean; externalId?: string; error?: string }> {
+    try {
+      const { phoneNumberId, accessToken } = await this.getCredentials(tenantId);
+      const cleanPhone = recipientPhone.replace(/\D/g, "");
+      const cleanWamid = targetWamid.replace(/^meta:[^:]+:/, "").trim();
+
+      if (!cleanWamid) {
+        return { success: false, error: "Mensagem alvo sem WAMID válido para reação na Meta" };
+      }
+
+      const bodyPayload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: cleanPhone,
+        type: "reaction",
+        reaction: {
+          message_id: cleanWamid,
+          emoji: emoji ? emoji.trim() : "",
+        },
+      };
+
+      const response = await fetch(`${META_BASE_URL}/${phoneNumberId}/messages`, {
+        method: "POST",
+        signal: AbortSignal.timeout(15000),
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(bodyPayload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const errorMsg = data?.error?.message || `Erro HTTP ${response.status} ao enviar reação na Meta`;
+        console.warn(`[MetaAdapter.sendReaction] Falha (tenant ${tenantId}):`, errorMsg, data);
+        return { success: false, error: errorMsg };
+      }
+
+      return { success: true, externalId: data?.messages?.[0]?.id };
+    } catch (err: any) {
+      console.error(`[MetaAdapter.sendReaction] Exceção (tenant ${tenantId}):`, err);
+      return { success: false, error: err?.message || "Falha de rede ao enviar reação para a Meta" };
+    }
+  }
 }
 
 export const metaAdapter = new MetaAdapter();

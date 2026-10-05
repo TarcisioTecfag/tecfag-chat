@@ -40,6 +40,7 @@ import { Route as ApiChatsRouteImport } from './routes/api/chats'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as CrmDealsDealIdRouteImport } from './routes/crm/deals/$dealId'
 import { Route as ApiWhatsappSendRouteImport } from './routes/api/whatsapp/send'
+import { Route as ApiWhatsappReactRouteImport } from './routes/api/whatsapp/react'
 import { Route as ApiWhatsappPresenceRouteImport } from './routes/api/whatsapp/presence'
 import { Route as ApiWhatsappMetaStateRouteImport } from './routes/api/whatsapp/meta-state'
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
@@ -301,6 +302,11 @@ const CrmDealsDealIdRoute = CrmDealsDealIdRouteImport.update({
 const ApiWhatsappSendRoute = ApiWhatsappSendRouteImport.update({
   id: '/api/whatsapp/send',
   path: '/api/whatsapp/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWhatsappReactRoute = ApiWhatsappReactRouteImport.update({
+  id: '/api/whatsapp/react',
+  path: '/api/whatsapp/react',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWhatsappPresenceRoute = ApiWhatsappPresenceRouteImport.update({
@@ -964,6 +970,7 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
+  '/api/whatsapp/react': typeof ApiWhatsappReactRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
@@ -1103,6 +1110,7 @@ export interface FileRoutesByTo {
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
+  '/api/whatsapp/react': typeof ApiWhatsappReactRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
@@ -1243,6 +1251,7 @@ export interface FileRoutesById {
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
+  '/api/whatsapp/react': typeof ApiWhatsappReactRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
   '/crm/deals/$dealId': typeof CrmDealsDealIdRoute
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
@@ -1384,6 +1393,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/presence'
+    | '/api/whatsapp/react'
     | '/api/whatsapp/send'
     | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
@@ -1523,6 +1533,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/presence'
+    | '/api/whatsapp/react'
     | '/api/whatsapp/send'
     | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
@@ -1662,6 +1673,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/presence'
+    | '/api/whatsapp/react'
     | '/api/whatsapp/send'
     | '/crm/deals/$dealId'
     | '/api/chats/$chatId/messages'
@@ -1794,6 +1806,7 @@ export interface RootRouteChildren {
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
   ApiWhatsappMetaStateRoute: typeof ApiWhatsappMetaStateRoute
   ApiWhatsappPresenceRoute: typeof ApiWhatsappPresenceRoute
+  ApiWhatsappReactRoute: typeof ApiWhatsappReactRoute
   ApiWhatsappSendRoute: typeof ApiWhatsappSendRoute
   CrmDealsDealIdRoute: typeof CrmDealsDealIdRoute
   ApiCrmImportRdCrmRoute: typeof ApiCrmImportRdCrmRoute
@@ -2018,6 +2031,13 @@ declare module '@tanstack/react-router' {
       path: '/api/whatsapp/send'
       fullPath: '/api/whatsapp/send'
       preLoaderRoute: typeof ApiWhatsappSendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/whatsapp/react': {
+      id: '/api/whatsapp/react'
+      path: '/api/whatsapp/react'
+      fullPath: '/api/whatsapp/react'
+      preLoaderRoute: typeof ApiWhatsappReactRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/whatsapp/presence': {
@@ -3142,6 +3162,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
   ApiWhatsappMetaStateRoute: ApiWhatsappMetaStateRoute,
   ApiWhatsappPresenceRoute: ApiWhatsappPresenceRoute,
+  ApiWhatsappReactRoute: ApiWhatsappReactRoute,
   ApiWhatsappSendRoute: ApiWhatsappSendRoute,
   CrmDealsDealIdRoute: CrmDealsDealIdRoute,
   ApiCrmImportRdCrmRoute: ApiCrmImportRdCrmRoute,

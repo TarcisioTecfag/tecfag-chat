@@ -195,6 +195,45 @@ export class BaileysAdapter implements WhatsAppAdapter {
     const sessionManager = SessionManager.getInstance();
     await sessionManager.disconnectSession(tenantId);
   }
+
+  /**
+   * Envia ou remove uma reação no WhatsApp via Baileys.
+   */
+  async sendReaction(
+    tenantId: string,
+    jid: string,
+    targetExternalId: string,
+    isFromMe: boolean,
+    emoji: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const sessionManager = SessionManager.getInstance();
+      const sock = sessionManager.getSession(tenantId);
+      if (!sock || sessionManager.getStatus(tenantId) !== "connected") {
+        return { success: false, error: "WhatsApp Baileys não conectado" };
+      }
+
+      const cleanExternalId = targetExternalId.replace(/^meta:[^:]+:/, "").trim();
+
+      const key = {
+        remoteJid: jid,
+        id: cleanExternalId,
+        fromMe: isFromMe,
+      };
+
+      await sock.sendMessage(jid, {
+        react: {
+          text: emoji ? emoji.trim() : "",
+          key,
+        },
+      });
+
+      return { success: true };
+    } catch (err: any) {
+      console.error(`[BaileysAdapter.sendReaction] Erro:`, err);
+      return { success: false, error: err?.message || "Falha ao enviar reação no Baileys" };
+    }
+  }
 }
 
 export const baileysAdapter = new BaileysAdapter();

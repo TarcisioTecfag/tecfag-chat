@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
+import { MessageReactionPicker } from "./MessageReactionPicker";
 import { useChat } from "@/hooks/useChatState";
 import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
@@ -535,6 +536,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     messageStatusOverrides,
     operatorTypingStatus,
     isValentinaTyping,
+    toggleReaction,
   } = useChat();
 
   const aiPersona = getAiPersona(tenant || "valem");
@@ -571,6 +573,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [selectedMetaTemplate, setSelectedMetaTemplate] = useState("");
   const [metaTemplateParameters, setMetaTemplateParameters] = useState<string[]>([]);
   const [replyingTo, setReplyingTo] = useState<any>(null);
+  const [reactingMsgId, setReactingMsgId] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeProvider !== "meta" || activeChat?.channel !== "whatsapp") {
@@ -698,12 +701,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const allMessages = useMemo(() => {
     if (!activeChat) return [];
     if (history?.chatId !== activeChat.id) return activeChat.messages;
-    const seen = new Set<string>();
-    return [...history.messages, ...activeChat.messages].filter((message) => {
-      if (seen.has(message.id)) return false;
-      seen.add(message.id);
-      return true;
-    }).sort((a, b) => {
+    const map = new Map<string, Message>();
+    for (const message of history.messages) {
+      map.set(message.id, message);
+    }
+    for (const message of activeChat.messages) {
+      const prev = map.get(message.id);
+      map.set(message.id, prev ? { ...prev, ...message, reactions: message.reactions ?? prev.reactions } : message);
+    }
+    return Array.from(map.values()).sort((a, b) => {
       if (!a.sentAtISO) return 1;
       if (!b.sentAtISO) return -1;
       return a.sentAtISO.localeCompare(b.sentAtISO);
@@ -2083,7 +2089,18 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
                   className={`flex flex-col items-end group relative w-full ${gap}`}
                 >
-                  <div className="flex items-center gap-2 max-w-[80%] justify-end">
+                  <div className="flex items-center gap-2 max-w-[80%] justify-end relative">
+                    <SystemTooltip content="Reagir">
+                      <button
+                        type="button"
+                        onClick={() => setReactingMsgId((prev) => (prev === m.id ? null : m.id))}
+                        className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
+                          reactingMsgId === m.id ? "!opacity-100 bg-muted text-foreground" : ""
+                        }`}
+                      >
+                        <Smile className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
                     <SystemTooltip content="Marcar como evidência do negócio">
                       <button
                         onClick={() => setMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
@@ -2153,8 +2170,24 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         {renderMessageContent(m.text, handleMediaClick, true, undefined, m.author, activeChat.name)}
                       </div>
                     )}
+                    {reactingMsgId === m.id && (
+                      <MessageReactionPicker
+                        activeEmoji={m.reactions?.find((r) => r.from === "operator")?.emoji || null}
+                        side="out"
+                        onSelectEmoji={(emoji) => {
+                          if (activeChat) toggleReaction(activeChat.id, m.id, emoji);
+                        }}
+                        onClose={() => setReactingMsgId(null)}
+                      />
+                    )}
                   </div>
-                  <MessageReactions reactions={m.reactions} side="out" />
+                  <MessageReactions
+                    reactions={m.reactions}
+                    side="out"
+                    onReactionClick={(emoji) => {
+                      if (activeChat) toggleReaction(activeChat.id, m.id, "");
+                    }}
+                  />
                   {/* Metadados (clique) + checks de entrega/leitura (somente envios pela Meta, que confirma de verdade) */}
                   {(() => {
                     const liveStatus = messageStatusOverrides[m.id];
@@ -2215,7 +2248,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   <div className="w-7 shrink-0" />
                 )}
                 <div className="min-w-0 max-w-[80%] flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 relative">
                     {isSticker ? (
                       <div className="leading-relaxed">
                         {displayQuotedContent && (
@@ -2359,6 +2392,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         <CornerUpLeft className="h-3.5 w-3.5" />
                       </button>
                     </SystemTooltip>
+                    <SystemTooltip content="Reagir">
+                      <button
+                        type="button"
+                        onClick={() => setReactingMsgId((prev) => (prev === m.id ? null : m.id))}
+                        className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
+                          reactingMsgId === m.id ? "!opacity-100 bg-muted text-foreground" : ""
+                        }`}
+                      >
+                        <Smile className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
                     <SystemTooltip content="Marcar como evidência do negócio">
                       <button
                         onClick={() => setMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
@@ -2367,9 +2411,25 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         <Bookmark className="h-3.5 w-3.5" />
                       </button>
                     </SystemTooltip>
+                    {reactingMsgId === m.id && (
+                      <MessageReactionPicker
+                        activeEmoji={m.reactions?.find((r) => r.from === "operator")?.emoji || null}
+                        side="in"
+                        onSelectEmoji={(emoji) => {
+                          if (activeChat) toggleReaction(activeChat.id, m.id, emoji);
+                        }}
+                        onClose={() => setReactingMsgId(null)}
+                      />
+                    )}
                   </div>
 
-                  <MessageReactions reactions={m.reactions} side="in" />
+                  <MessageReactions
+                    reactions={m.reactions}
+                    side="in"
+                    onReactionClick={(emoji) => {
+                      if (activeChat) toggleReaction(activeChat.id, m.id, "");
+                    }}
+                  />
 
                   {/* Dynamic Suggestions for AI Welcome Message */}
                   {m.id === "val_welcome" && (
