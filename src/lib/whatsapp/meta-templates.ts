@@ -166,15 +166,20 @@ async function saveSnapshot(tenantId: string, item: any, bindings?: TemplateBind
   const id = `${tenantId}:${item.id}`;
   const [existing] = await db.select({ bindings: metaMessageTemplates.bindings }).from(metaMessageTemplates)
     .where(and(eq(metaMessageTemplates.tenantId, tenantId), eq(metaMessageTemplates.metaTemplateId, String(item.id))));
+  
+  const rawReason = String(item.rejected_reason || "").trim();
+  const isRejected = String(item.status || "").toUpperCase() === "REJECTED";
+  const rejectedReason = isRejected && rawReason && rawReason.toUpperCase() !== "NONE" ? rawReason : null;
+
   await db.insert(metaMessageTemplates).values({
     id, tenantId, metaTemplateId: String(item.id), name: item.name,
     language: item.language, category: item.category || "", status: item.status || "PENDING",
     bodyText, components, bindings: bindings || existing?.bindings || {},
-    rejectedReason: item.rejected_reason || null, lastSyncedAt: new Date(),
+    rejectedReason, lastSyncedAt: new Date(),
   }).onConflictDoUpdate({ target: metaMessageTemplates.id, set: {
     name: item.name, language: item.language, category: item.category || "",
     status: item.status || "PENDING", bodyText, components,
-    bindings: bindings || existing?.bindings || {}, rejectedReason: item.rejected_reason || null,
+    bindings: bindings || existing?.bindings || {}, rejectedReason,
     lastSyncedAt: new Date(),
   } });
 }

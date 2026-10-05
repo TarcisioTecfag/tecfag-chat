@@ -104,6 +104,21 @@ const emptyForm = (): FormState => ({
   buttons: [],
 });
 
+function formatRejectionReason(reason?: string | null): string {
+  if (!reason) return "";
+  const trimmed = reason.trim();
+  if (trimmed.toUpperCase() === "NONE") return "";
+  const map: Record<string, string> = {
+    INCORRECT_CATEGORY: "Categoria incorreta (o conteúdo da mensagem não corresponde à categoria selecionada)",
+    INVALID_FORMAT: "Formato inválido (variáveis em posições inválidas, sem amostra ou caracteres não permitidos)",
+    PROMOTIONAL: "Conteúdo promocional/marketing em template marcado como Utilidade",
+    TAG_CONTENT_MISMATCH: "Divergência entre o conteúdo e as diretrizes da Meta",
+    SCAM: "Conteúdo suspeito ou que viola as políticas de segurança da Meta",
+    ABUSIVE_CONTENT: "Violação dos Termos e Políticas Comerciais do WhatsApp",
+  };
+  return map[trimmed.toUpperCase()] || trimmed;
+}
+
 async function api(path: string, init?: RequestInit) {
   const response = await fetch(`${BASE}${path}`, {
     credentials: "include",
@@ -455,9 +470,9 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                   )}
                 </div>
 
-                {item.rejectedReason && (
+                {item.status === "REJECTED" && item.rejectedReason && item.rejectedReason.trim().toUpperCase() !== "NONE" && (
                   <div className="mt-2.5 p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs">
-                    <strong>Motivo da recusa pela Meta:</strong> {item.rejectedReason}
+                    <strong>Motivo da recusa pela Meta:</strong> {formatRejectionReason(item.rejectedReason)}
                   </div>
                 )}
               </div>
