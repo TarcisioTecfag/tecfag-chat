@@ -9,6 +9,10 @@
 
 ## Homologação por tenant
 
+Na aba **Templates Globais**, a seção **Templates oficiais da Meta** usa a WABA e o token configurados no tenant da sessão. A migração `0022_meta_message_templates.sql` guarda o vínculo local das variáveis com `@nome do cliente` e `@nome do operador`; o conteúdo e o status são sincronizados da Meta ao abrir ou atualizar a seção. A permissão `canManageGlobalTemplates` controla criação, edição, exclusão e configuração das variáveis. Respostas rápidas com `/` continuam separadas e não são templates aprovados.
+
+O formulário inicial cria templates de texto das categorias Utilidade e Marketing. Templates com botões, mídia, cabeçalho dinâmico ou variáveis nomeadas podem aparecer na lista da Meta, mas ainda não são oferecidos no seletor do chat. A edição pelo painel é restrita a templates com corpo de texto simples. Não aplicar a migração nem testar criação/exclusão na WABA de produção antes da homologação.
+
 1. Testar credenciais pela tela. Confirmar que Phone Number ID e nome verificado são os da Tecfag.
 2. Confirmar recebimento de texto e de mídia, abertura da conversa no tenant Tecfag e ausência da mensagem no tenant Valem.
    Testar também o webhook de username da Meta sem `from`/`wa_id`, apenas com `from_user_id`/`user_id`, e confirmar que a conversa abre sem telefone, exibe o `@username` e aceita resposta pelo BSUID. Testar troca de BSUID via `user_id_update` sem criar novo contato.

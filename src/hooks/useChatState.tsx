@@ -1487,6 +1487,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       !isInternalNote;
     let sentTextMessageId: string | undefined;
     let sentTextStatus: string | undefined;
+    let sentRenderedText: string | undefined;
     const sentAttachmentMessageIds: string[] = [];
     const sentAttachmentStatuses: string[] = [];
 
@@ -1534,6 +1535,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const sendResult = await response.json().catch(() => ({}));
           sentTextMessageId = sendResult.messageId;
           sentTextStatus = sendResult.status;
+          sentRenderedText = typeof sendResult.renderedText === "string" ? sendResult.renderedText : undefined;
           partAlreadySent = true;
         }
 
@@ -1621,7 +1623,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       messagesToAdd.push({
         id: sentTextMessageId || `msg-${Date.now()}`,
         author: isInternalNote ? operatorProfile.name : "Você",
-        text: metaTemplate ? `[Template Meta: ${metaTemplate.name}]` : text,
+        text: metaTemplate ? sentRenderedText || `[Template Meta: ${metaTemplate.name}]` : text,
         time: now,
         side: "out",
         isInternalNote,

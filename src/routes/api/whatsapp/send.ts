@@ -4,6 +4,8 @@ import { requireSession } from "../../../lib/auth-session";
 import { db } from "../../../db";
 import { conversations, contacts, mediaFiles, channelConfigs } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
+import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
+import { resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
 import fs from "fs";
 import path from "path";
 
@@ -82,6 +84,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           if (templateName && (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2}_[A-Z]{2}$/.test(templateLanguage || "pt_BR"))) {
             return Response.json({ error: "Nome ou idioma do template inválido." }, { status: 400 });
           }
+          if (templateName && isInternalNote) return Response.json({ error: "Template oficial não pode ser nota interna." }, { status: 400 });
 
           // Verificar se o canal está em transição ('switching') de provedor
           if (!isInternalNote) {
@@ -169,6 +172,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           // Notas internas não precisam de telefone de destino
           let recipientPhone: string | undefined;
           let recipientUserId: string | undefined;
+          let recipientName: string | undefined;
           if (!isInternalNote) {
             // Obter telefone do contato no SERVIDOR — nunca confiar no body do cliente
             if (!conv.contactId) {
@@ -179,7 +183,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             }
 
             const [contact] = await db
-              .select({ phone: contacts.phone, whatsappUserId: contacts.whatsappUserId })
+              .select({ phone: contacts.phone, whatsappUserId: contacts.whatsappUserId, name: contacts.name })
               .from(contacts)
               .where(
                 and(
@@ -199,6 +203,26 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             }
 
             recipientPhone = contact?.phone || undefined;
+            recipientName = contact?.name || undefined;
+          }
+
+          if (templateName) {
+            const approved = await metaAdapter.listApprovedTemplates(session.tenantId);
+            const selected = approved.find((item) => item.name === templateName && item.language === (templateLanguage || "pt_BR"));
+            if (!selected?.supported) return Response.json({ error: "Template não aprovado ou formato não suportado." }, { status: 400 });
+            const supplied = templateComponents?.find((item: any) => item?.type === "body")?.parameters;
+            let values: string[];
+            try {
+              values = resolveMetaTemplateValues(selected.variableCount, selected.bindings, supplied,
+                { customerName: recipientName, operatorName: session.operator.name });
+            } catch (error) {
+              return Response.json({ error: error instanceof Error ? error.message : "Variáveis inválidas." }, { status: 400 });
+            }
+            const resolved = values.map((value) => ({ type: "text" as const, text: value }));
+            templateComponents = resolved.length ? [{ type: "body", parameters: resolved }] : [];
+            text = selected.bodyText.replace(/\{\{(\d+)\}\}/g, (_, number) => resolved[Number(number) - 1]?.text || `{{${number}}}`);
+            mediaUrl = undefined;
+            mediaType = undefined;
           }
 
           const result = await outboundQueue.enqueueAndSend({
@@ -219,7 +243,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             isInternalNote: !!isInternalNote,
           });
 
-          return new Response(JSON.stringify(result), {
+          return new Response(JSON.stringify({ ...result, ...(templateName && result.success ? { renderedText: text } : {}) }), {
             status: result.success ? 200 : result.code === "META_TEMPLATE_REQUIRED" ? 409 : 400,
             headers: { "Content-Type": "application/json" },
           });

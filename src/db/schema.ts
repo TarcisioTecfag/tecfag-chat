@@ -268,6 +268,23 @@ export const quickResponses = pgTable("quick_responses", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Templates oficiais da Meta: a Meta é a fonte do conteúdo/status; guardamos o
+// vínculo das variáveis internas e o último retrato para a interface.
+export const metaMessageTemplates = pgTable("meta_message_templates", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  metaTemplateId: text("meta_template_id").notNull(),
+  name: text("name").notNull(),
+  language: text("language").notNull(),
+  category: text("category").notNull(),
+  status: text("status").notNull(),
+  bodyText: text("body_text").notNull(),
+  components: jsonb("components").$type<unknown[]>().notNull(),
+  bindings: jsonb("bindings").$type<Record<string, "customer_name" | "operator_name" | "manual">>().default({}).notNull(),
+  rejectedReason: text("rejected_reason"),
+  lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
+}, (table) => [uniqueIndex("meta_message_templates_tenant_meta_id_unique").on(table.tenantId, table.metaTemplateId)]);
+
 // ─── 8. ARQUIVOS E MÍDIAS PERSISTIDOS (Salvos em definitivo no banco) ───────
 export const mediaFiles = pgTable("media_files", {
   id: text("id").primaryKey(), // o messageId da mídia

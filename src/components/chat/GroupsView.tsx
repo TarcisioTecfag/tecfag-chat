@@ -11,7 +11,9 @@ import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
 import { MultiTenantAccessPanel } from "./MultiTenantAccessPanel";
+import { MetaTemplatesManager } from "./MetaTemplatesManager";
 import { getAiPersona } from "@/lib/ai-persona";
+import { usePermissions } from "@/hooks/usePermissions";
 
 interface OperatorWalletCardProps {
   op: Operator;
@@ -383,6 +385,7 @@ import {
 } from "@/lib/rbac";
 
 export function GroupsView() {
+  const { canManageGlobalTemplates } = usePermissions();
   const {
     operators,
     accessGroups,
@@ -833,7 +836,7 @@ export function GroupsView() {
     { id: "groups" as const,    label: "Grupos de Acesso",      icon: FolderLock },
     { id: "sectors" as const,   label: "Setores",               icon: Building2 },
     { id: "wallets" as const,   label: "Carteiras Globais",     icon: Wallet },
-    { id: "templates" as const, label: "Templates Globais",     icon: LayoutTemplate },
+    ...(canManageGlobalTemplates ? [{ id: "templates" as const, label: "Templates Globais", icon: LayoutTemplate }] : []),
   ];
 
   return (
@@ -1989,7 +1992,7 @@ export function GroupsView() {
                           { key: "canManageGroups",       label: "Criar & Editar Grupos", desc: "Modificar permissões e criar novos papéis" },
                           { key: "canManageSectors",      label: "Gerenciar Setores", desc: "Criar e editar departamentos de atendimento" },
                           { key: "canManageWallets",      label: "Gerenciar Carteiras Globais", desc: "Distribuir carteiras comerciais de clientes" },
-                          { key: "canManageTemplates",    label: "Gerenciar Templates Globais", desc: "Criar respostas rápidas compartilhadas" },
+                          { key: "canManageGlobalTemplates", label: "Gerenciar Templates Globais", desc: "Criar respostas rápidas e templates oficiais da Meta" },
                         ].map(({ key, label, desc }) => {
                           if (!matchesSearch(label, desc)) return null;
                           const isChecked = perms.security[key as keyof typeof perms.security] ?? false;
@@ -2271,7 +2274,7 @@ export function GroupsView() {
             ))}
           </div>
         </div>
-      ) : (
+      ) : canManageGlobalTemplates ? (
         /* TAB TEMPLATES GLOBAIS */
         <div className="space-y-6">
           <div className="flex items-center justify-between">
@@ -2351,8 +2354,9 @@ export function GroupsView() {
               </button>
             </div>
           )}
+          <MetaTemplatesManager tenant={tenant} />
         </div>
-      )}
+      ) : null}
 
       {/* Create / Edit Quick Response Modal */}
       {showQrModal && (

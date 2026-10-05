@@ -59,6 +59,10 @@ const migrations = [
     name: "0021_conversation_contact_unique",
     url: new URL("../src/db/migrations/0021_conversation_contact_unique.sql", import.meta.url),
   },
+  {
+    name: "0022_meta_message_templates",
+    url: new URL("../src/db/migrations/0022_meta_message_templates.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

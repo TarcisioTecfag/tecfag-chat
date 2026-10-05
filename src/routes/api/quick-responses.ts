@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db/index.js";
 import { quickResponses } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
-import { requireSession } from "../../lib/auth-session.js";
+import { requirePermission, requireSession } from "../../lib/auth-session.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +46,9 @@ export const Route = createFileRoute("/api/quick-responses")({
           const { session } = auth;
           const tenantId = session.tenantId; // SEMPRE da sessão
 
+          const denied = requirePermission(session, (permissions) => permissions.security?.canManageGlobalTemplates === true);
+          if (denied) return denied;
+
           const body = await request.json().catch(() => ({}));
           const { id, shortcut, text, description } = body;
 
@@ -57,7 +60,7 @@ export const Route = createFileRoute("/api/quick-responses")({
           }
 
           const existing = await db.query.quickResponses.findFirst({
-            where: eq(quickResponses.id, id),
+            where: and(eq(quickResponses.id, id), eq(quickResponses.tenantId, tenantId)),
           });
 
           if (existing) {
@@ -104,6 +107,9 @@ export const Route = createFileRoute("/api/quick-responses")({
         if ("response" in auth) return auth.response; // retorna 401 automaticamente
         const { session } = auth;
         const tenantId = session.tenantId; // SEMPRE da sessão
+
+        const denied = requirePermission(session, (permissions) => permissions.security?.canManageGlobalTemplates === true);
+        if (denied) return denied;
 
         const url = new URL(request.url);
         const id = url.searchParams.get("id");

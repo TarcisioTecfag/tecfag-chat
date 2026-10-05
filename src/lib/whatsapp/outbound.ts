@@ -150,7 +150,7 @@ function isIdempotencyConflict(err: any): boolean {
       ? `[MEDIA:${payload.mediaType}]${localMediaId}${payload.fileName ? `:${payload.fileName}` : ""}${payload.text ? `\n${payload.text}` : ""}`
       : payload.mediaType ? `[Mídia: ${payload.fileName || payload.mediaType}]` : "";
     const content = payload.templateName
-      ? `[Template Meta: ${payload.templateName}]`
+      ? payload.text?.trim() || `[Template Meta: ${payload.templateName}]`
       : mediaContent || payload.text || "";
 
     // 4. Inserção durável no PostgreSQL em status 'sending' (com proteção atômica contra race conditions)

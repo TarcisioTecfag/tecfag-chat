@@ -6,6 +6,8 @@ import fs from "fs";
 import path from "path";
 import { getMetaServiceWindow } from "../meta-policy";
 import { convertAudioToOggOpus, metaAudioNeedsConversion, META_AUDIO_OUTPUT_MIME } from "../audio-convert";
+import { getMetaTemplateBindings } from "../meta-templates";
+import { isSupportedMetaTemplate, type TemplateBindings } from "../meta-template-common";
 
 const META_GRAPH_VERSION = "v21.0";
 const META_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
@@ -74,12 +76,12 @@ export class MetaAdapter implements WhatsAppAdapter {
     };
   }
 
-  async listApprovedTemplates(tenantId: string): Promise<Array<{ name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean }>> {
+  async listApprovedTemplates(tenantId: string): Promise<Array<{ id: string; name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean; bindings: TemplateBindings }>> {
     const { accessToken, businessAccountId } = await this.getCredentials(tenantId);
     if (!businessAccountId) throw new Error("Meta Business Account ID não configurado para este tenant");
 
-    const templates: Array<{ name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean }> = [];
-    let url: string | null = `${META_BASE_URL}/${encodeURIComponent(businessAccountId)}/message_templates?fields=name,language,status,category,components&limit=100`;
+    const templates: Array<{ id: string; name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean; bindings: TemplateBindings }> = [];
+    let url: string | null = `${META_BASE_URL}/${encodeURIComponent(businessAccountId)}/message_templates?fields=id,name,language,status,category,components&limit=100`;
     for (let page = 0; url && page < 10; page++) {
       const response: Response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
       const data: any = await response.json().catch(() => ({}));
@@ -89,10 +91,9 @@ export class MetaAdapter implements WhatsAppAdapter {
           const components = Array.isArray(item.components) ? item.components : [];
           const bodyText = String(components.find((c: any) => c.type === "BODY")?.text || "");
           const variableCount = Math.max(0, ...Array.from(bodyText.matchAll(/\{\{(\d+)\}\}/g), (m) => Number(m[1])));
-          const supported = components.every((c: any) =>
-            c.type === "BODY" || c.type === "FOOTER" || (c.type === "HEADER" && c.format === "TEXT" && !/\{\{\d+\}\}/.test(c.text || ""))
-          );
-          templates.push({ name: item.name, language: item.language, category: item.category || "", bodyText, variableCount, supported });
+          const supported = isSupportedMetaTemplate(components, bodyText);
+          templates.push({ id: String(item.id), name: item.name, language: item.language, category: item.category || "", bodyText, variableCount, supported,
+            bindings: item.id ? await getMetaTemplateBindings(tenantId, String(item.id)) : {} });
         }
       }
       const next: unknown = data.paging?.next;

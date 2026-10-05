@@ -42,6 +42,7 @@ import { Route as CrmDealsDealIdRouteImport } from './routes/crm/deals/$dealId'
 import { Route as ApiWhatsappSendRouteImport } from './routes/api/whatsapp/send'
 import { Route as ApiWhatsappReactRouteImport } from './routes/api/whatsapp/react'
 import { Route as ApiWhatsappPresenceRouteImport } from './routes/api/whatsapp/presence'
+import { Route as ApiWhatsappMetaTemplatesRouteImport } from './routes/api/whatsapp/meta-templates'
 import { Route as ApiWhatsappMetaStateRouteImport } from './routes/api/whatsapp/meta-state'
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
 import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
@@ -314,6 +315,12 @@ const ApiWhatsappPresenceRoute = ApiWhatsappPresenceRouteImport.update({
   path: '/api/whatsapp/presence',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWhatsappMetaTemplatesRoute =
+  ApiWhatsappMetaTemplatesRouteImport.update({
+    id: '/api/whatsapp/meta-templates',
+    path: '/api/whatsapp/meta-templates',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiWhatsappMetaStateRoute = ApiWhatsappMetaStateRouteImport.update({
   id: '/api/whatsapp/meta-state',
   path: '/api/whatsapp/meta-state',
@@ -969,6 +976,7 @@ export interface FileRoutesByFullPath {
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
+  '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
   '/api/whatsapp/react': typeof ApiWhatsappReactRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
@@ -1109,6 +1117,7 @@ export interface FileRoutesByTo {
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
+  '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
   '/api/whatsapp/react': typeof ApiWhatsappReactRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
@@ -1250,6 +1259,7 @@ export interface FileRoutesById {
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
+  '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
   '/api/whatsapp/react': typeof ApiWhatsappReactRoute
   '/api/whatsapp/send': typeof ApiWhatsappSendRoute
@@ -1392,6 +1402,7 @@ export interface FileRouteTypes {
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
+    | '/api/whatsapp/meta-templates'
     | '/api/whatsapp/presence'
     | '/api/whatsapp/react'
     | '/api/whatsapp/send'
@@ -1532,6 +1543,7 @@ export interface FileRouteTypes {
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
+    | '/api/whatsapp/meta-templates'
     | '/api/whatsapp/presence'
     | '/api/whatsapp/react'
     | '/api/whatsapp/send'
@@ -1672,6 +1684,7 @@ export interface FileRouteTypes {
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
+    | '/api/whatsapp/meta-templates'
     | '/api/whatsapp/presence'
     | '/api/whatsapp/react'
     | '/api/whatsapp/send'
@@ -1805,6 +1818,7 @@ export interface RootRouteChildren {
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
   ApiWhatsappMetaStateRoute: typeof ApiWhatsappMetaStateRoute
+  ApiWhatsappMetaTemplatesRoute: typeof ApiWhatsappMetaTemplatesRoute
   ApiWhatsappPresenceRoute: typeof ApiWhatsappPresenceRoute
   ApiWhatsappReactRoute: typeof ApiWhatsappReactRoute
   ApiWhatsappSendRoute: typeof ApiWhatsappSendRoute
@@ -2045,6 +2059,13 @@ declare module '@tanstack/react-router' {
       path: '/api/whatsapp/presence'
       fullPath: '/api/whatsapp/presence'
       preLoaderRoute: typeof ApiWhatsappPresenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/whatsapp/meta-templates': {
+      id: '/api/whatsapp/meta-templates'
+      path: '/api/whatsapp/meta-templates'
+      fullPath: '/api/whatsapp/meta-templates'
+      preLoaderRoute: typeof ApiWhatsappMetaTemplatesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/whatsapp/meta-state': {
@@ -3161,6 +3182,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
   ApiWhatsappMetaStateRoute: ApiWhatsappMetaStateRoute,
+  ApiWhatsappMetaTemplatesRoute: ApiWhatsappMetaTemplatesRoute,
   ApiWhatsappPresenceRoute: ApiWhatsappPresenceRoute,
   ApiWhatsappReactRoute: ApiWhatsappReactRoute,
   ApiWhatsappSendRoute: ApiWhatsappSendRoute,

@@ -568,7 +568,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const [text, setText] = useState("");
   const [metaWindow, setMetaWindow] = useState<{ open: boolean; expiresAt: string | null } | null>(null);
-  const [metaTemplates, setMetaTemplates] = useState<Array<{ name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean }>>([]);
+  const [metaTemplates, setMetaTemplates] = useState<Array<{ id: string; name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean; bindings: Record<string, "customer_name" | "operator_name" | "manual"> }>>([]);
   const [showMetaTemplates, setShowMetaTemplates] = useState(false);
   const [selectedMetaTemplate, setSelectedMetaTemplate] = useState("");
   const [metaTemplateParameters, setMetaTemplateParameters] = useState<string[]>([]);
@@ -576,9 +576,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [reactingMsgId, setReactingMsgId] = useState<string | null>(null);
 
   useEffect(() => {
+    setMetaWindow(null);
+    setShowMetaTemplates(false);
+    setSelectedMetaTemplate("");
+    setMetaTemplateParameters([]);
     if (activeProvider !== "meta" || activeChat?.channel !== "whatsapp") {
-      setMetaWindow(null);
-      setShowMetaTemplates(false);
       return;
     }
     let cancelled = false;
@@ -621,6 +623,41 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setSelectedMetaTemplate("");
     setMetaTemplateParameters([]);
   };
+
+  const renderMetaTemplatePicker = () => (
+    <div className="mt-3 space-y-2 text-xs">
+      <select
+        value={selectedMetaTemplate}
+        onChange={(event) => {
+          const value = event.target.value;
+          const item = metaTemplates.find((template) => `${template.name}:${template.language}` === value);
+          setSelectedMetaTemplate(value);
+          setMetaTemplateParameters(Array.from({ length: item?.variableCount || 0 }, (_, index) => {
+            const binding = item?.bindings?.[String(index + 1)];
+            return binding === "customer_name" ? activeChat?.name || "" : binding === "operator_name" ? operatorProfile?.name || "" : "";
+          }));
+        }}
+        className="w-full rounded-lg border border-border bg-background p-2"
+      >
+        <option value="">Selecione um template aprovado</option>
+        {metaTemplates.map((item) => <option key={`${item.name}:${item.language}`} value={`${item.name}:${item.language}`}>{item.name} · {item.language} · {item.category}</option>)}
+      </select>
+      {selectedMetaTemplate && <p className="whitespace-pre-wrap rounded-lg bg-background p-2 text-foreground">{
+        metaTemplates.find((item) => `${item.name}:${item.language}` === selectedMetaTemplate)?.bodyText.replace(/\{\{(\d+)\}\}/g, (_, number) => metaTemplateParameters[Number(number) - 1]?.trim() || `{{${number}}}`)
+      }</p>}
+      {metaTemplateParameters.map((value, index) => {
+        const item = metaTemplates.find((template) => `${template.name}:${template.language}` === selectedMetaTemplate);
+        const binding = item?.bindings?.[String(index + 1)];
+        return <label key={index} className="block text-muted-foreground">
+          {binding === "customer_name" ? "@nome do cliente" : binding === "operator_name" ? "@nome do operador" : `Variável {{${index + 1}}}`}
+          <input value={value} readOnly={binding === "customer_name" || binding === "operator_name"}
+            onChange={(event) => setMetaTemplateParameters((previous) => previous.map((entry, i) => i === index ? event.target.value : entry))}
+            placeholder={`Variável {{${index + 1}}}`} className="mt-1 w-full rounded-lg border border-border bg-background p-2 read-only:opacity-70" />
+        </label>;
+      })}
+      <button type="button" onClick={sendSelectedMetaTemplate} disabled={!selectedMetaTemplate} className="rounded-lg bg-primary px-3 py-2 font-semibold text-primary-foreground disabled:opacity-50">Enviar template</button>
+    </div>
+  );
 
   useEffect(() => {
     setReplyingTo(null);
@@ -2737,6 +2774,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </button>
               )}
             </div>
+          ) : activeProvider === "meta" && activeChat.channel === "whatsapp" && metaWindow?.open !== true ? (
+            <div className="mx-auto max-w-xl rounded-xl border border-amber-300 bg-card p-5 shadow-sm">
+              {metaWindow === null ? <p className="text-xs text-muted-foreground">Consultando a janela de atendimento da Meta...</p> : <>
+              <p className="text-sm font-bold text-foreground">Retome a conversa com um template aprovado</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">A última mensagem do cliente foi há mais de 24 horas. Para continuar pelo WhatsApp, envie um template aprovado pela Meta. O campo de resposta voltará quando o cliente responder.</p>
+              {!showMetaTemplates ? <button type="button" onClick={loadMetaTemplates} className="mt-3 rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary">Enviar template</button> : renderMetaTemplatePicker()}
+              {showMetaTemplates && metaTemplates.length === 0 && <p className="mt-2 text-xs text-muted-foreground">Não há templates aprovados compatíveis com este chat. Peça a um administrador que confira o status na aba Templates Globais.</p>}
+              </>}
+            </div>
           ) : (
             /* ── COMPOSER NORMAL: sou o dono ── */
             <>
@@ -2903,34 +2949,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </span>
                 <button type="button" onClick={loadMetaTemplates} className="font-semibold text-primary underline">Templates Meta</button>
               </div>
-              {showMetaTemplates && (
-                <div className="mt-3 space-y-2">
-                  <select
-                    value={selectedMetaTemplate}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      const item = metaTemplates.find((template) => `${template.name}:${template.language}` === value);
-                      setSelectedMetaTemplate(value);
-                      setMetaTemplateParameters(Array(item?.variableCount || 0).fill(""));
-                    }}
-                    className="w-full rounded-lg border border-border bg-background p-2"
-                  >
-                    <option value="">Selecione um template aprovado</option>
-                    {metaTemplates.map((item) => <option key={`${item.name}:${item.language}`} value={`${item.name}:${item.language}`}>{item.name} · {item.language} · {item.category}</option>)}
-                  </select>
-                  {selectedMetaTemplate && <p className="text-muted-foreground">{metaTemplates.find((item) => `${item.name}:${item.language}` === selectedMetaTemplate)?.bodyText}</p>}
-                  {metaTemplateParameters.map((value, index) => (
-                    <input
-                      key={index}
-                      value={value}
-                      onChange={(event) => setMetaTemplateParameters((previous) => previous.map((entry, i) => i === index ? event.target.value : entry))}
-                      placeholder={`Variável {{${index + 1}}}`}
-                      className="w-full rounded-lg border border-border bg-background p-2"
-                    />
-                  ))}
-                  <button type="button" onClick={sendSelectedMetaTemplate} className="rounded-lg bg-primary px-3 py-2 font-semibold text-primary-foreground">Enviar template</button>
-                </div>
-              )}
+              {showMetaTemplates && renderMetaTemplatePicker()}
             </div>
           )}
 
