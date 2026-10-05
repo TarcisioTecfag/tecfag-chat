@@ -347,6 +347,31 @@ export function AdvancedFiltersModal({
       controller.abort();
     };
   }, [isOpen, companySearch]);
+
+  // Oculta o botão flutuante de conversas enquanto os filtros avançados estiverem abertos
+  useEffect(() => {
+    if (isOpen) {
+      window.dispatchEvent(
+        new CustomEvent("crm:set-chat-widget-suppressed", {
+          detail: { suppressed: true },
+        }),
+      );
+    } else {
+      window.dispatchEvent(
+        new CustomEvent("crm:set-chat-widget-suppressed", {
+          detail: { suppressed: false },
+        }),
+      );
+    }
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent("crm:set-chat-widget-suppressed", {
+          detail: { suppressed: false },
+        }),
+      );
+    };
+  }, [isOpen]);
+
   const update = <K extends keyof AdvancedFiltersState>(key: K, value: AdvancedFiltersState[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
   const toggleEmpty = (value: string) =>
@@ -373,7 +398,7 @@ export function AdvancedFiltersModal({
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
-        className="grid w-full max-w-[340px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-card p-0 sm:max-w-[340px]"
+        className="grid w-full max-w-[420px] sm:max-w-[460px] md:max-w-[480px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-card p-0 shadow-2xl z-[120]"
       >
         <SheetHeader className="border-b border-border px-5 py-4">
           <SheetTitle className="flex items-center gap-2 text-sm font-bold">

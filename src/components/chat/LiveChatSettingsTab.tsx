@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from "react";
 import { Globe, CheckCircle2, AlertCircle, Copy, Check, Loader2, ExternalLink, Save, Settings } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
+import { getAiPersona } from "@/lib/ai-persona";
 import { toast } from "sonner";
 
 interface TrayConfig {
@@ -21,6 +22,7 @@ interface TrayConfig {
 
 export function LiveChatSettingsTab() {
   const { tenant } = useChat();
+  const persona = getAiPersona(tenant || "valem");
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -192,7 +194,7 @@ export function LiveChatSettingsTab() {
           </div>
           <div>
             <h3 className="text-base font-bold text-foreground">Comportamento do Chat</h3>
-            <p className="text-xs text-muted-foreground">Configure quando e como a Valentina aborda os visitantes</p>
+            <p className="text-xs text-muted-foreground">Configure quando e como {persona.gender === "female" ? "a" : "o"} {persona.name} aborda os visitantes</p>
           </div>
         </div>
 

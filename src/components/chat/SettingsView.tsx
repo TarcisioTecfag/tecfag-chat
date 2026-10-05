@@ -13,6 +13,7 @@ import { PipelineSettingsModal } from "@/components/crm/PipelineSettingsModal";
 import { CrmCatalogSettingsModal } from "@/components/crm/CrmCatalogSettingsModal";
 import type { CatalogKind } from "@/lib/crm/catalogs";
 import { toast } from "sonner";
+import { getAiPersona } from "@/lib/ai-persona";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 
@@ -25,6 +26,8 @@ export function SettingsView() {
     disconnectBaileys,
     connectBaileys,
   } = useChat();
+
+  const aiPersona = getAiPersona(tenant || "valem");
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("whatsapp");
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
@@ -419,7 +422,7 @@ export function SettingsView() {
 
   const allTabs = [
     { id: "whatsapp" as const, label: "WhatsApp (Meta / Baileys)", icon: Smartphone },
-    { id: "voz" as const, label: "Voz & Telefonia (Valentina)", icon: PhoneCall },
+    { id: "voz" as const, label: `Voz & Telefonia (${aiPersona.name})`, icon: PhoneCall },
     { id: "rd" as const, label: "RD Station CRM", icon: Link },
     { id: "crm" as const, label: "Configurações do CRM", icon: FileText },
     { id: "email" as const, label: "E-mail & Automações", icon: Mail },
@@ -1377,7 +1380,7 @@ export function SettingsView() {
                   <label className="text-xs font-semibold text-foreground">Remetente (From Address)</label>
                   <input
                     type="text"
-                    placeholder="Ex: Valem Chat <alertas@valem.com.br>"
+                    placeholder={`Ex: ${tenant === "tecfag" ? "Tecfag" : "Valem"} Chat <alertas@${tenant === "tecfag" ? "tecfag.com.br" : "valem.com.br"}>`}
                     value={reportForm.smtpFrom}
                     onChange={(e) => setReportForm({ ...reportForm, smtpFrom: e.target.value })}
                     className="h-10 w-full rounded-xl bg-muted/40 border border-border px-4 text-xs text-foreground focus:outline-none focus:border-primary"

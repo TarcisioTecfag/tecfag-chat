@@ -54,32 +54,27 @@ const SECONDARY_SUGGESTIONS = [
 ];
 
 /**
- * Avatar Oficial Padrão da Valentina (Renderiza a imagem oficial do sistema com fallback vetorizado)
+ * Avatar Oficial Padrão da IA (Renderiza a imagem oficial do sistema com fallback)
  */
 function ValentinaAvatar({ className = "h-8 w-8" }: { className?: string }) {
+  const { tenant } = useChat();
+  const persona = getAiPersona(tenant || "valem");
   const [hasError, setHasError] = useState(false);
 
   if (hasError) {
     return (
-      <div className={`relative flex items-center justify-center rounded-full bg-[#dcfce7] border border-[#bbf7d0] shrink-0 overflow-hidden shadow-xs ${className}`}>
-        <svg className="h-full w-full p-1" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="18" cy="18" r="18" fill="#dcfce7" />
-          <path d="M18 9C14.6863 9 12 11.6863 12 15C12 17.2 13.18 19.12 14.95 20.15C12.02 21.42 10 24.32 10 27.75C10 28.16 10.34 28.5 11.75 28.5C11.16 28.5 14.41 21.25 18 21.25C21.59 21.25 24.5 24.16 24.5 27.75C24.5 28.16 24.84 28.5 25.25 28.5C25.66 28.5 26 28.16 26 27.75C26 24.32 23.98 21.42 21.05 20.15C22.82 19.12 24 17.2 24 15C24 11.6863 21.3137 9 18 9Z" fill="#059669" />
-          <circle cx="15" cy="16" r="1" fill="#047857" />
-          <circle cx="21" cy="16" r="1" fill="#047857" />
-          <circle cx="14" cy="17.5" r="1.2" fill="#f87171" opacity="0.7" />
-          <circle cx="22" cy="17.5" r="1.2" fill="#f87171" opacity="0.7" />
-        </svg>
+      <div className={`relative flex items-center justify-center rounded-full bg-primary/10 border border-primary/20 shrink-0 overflow-hidden shadow-xs font-bold text-xs text-primary ${className}`}>
+        {persona.name.slice(0, 2).toUpperCase()}
       </div>
     );
   }
 
   return (
     <img
-      src="/valentina.png"
-      alt="Valentina"
+      src={persona.avatarUrl}
+      alt={persona.name}
       onError={() => setHasError(true)}
-      className={`rounded-full object-cover border border-[#bbf7d0] bg-[#dcfce7] shrink-0 ${className}`}
+      className={`rounded-full object-cover border border-border shrink-0 ${className}`}
     />
   );
 }
@@ -802,7 +797,7 @@ export function ValentinaChatTab() {
         {/* Footer com Barra de Input */}
         <div className="p-3 bg-card border-t border-border/60 shrink-0">
           <div className="max-w-3xl mx-auto">
-            {renderInputBar("Pergunte algo à Valentina sobre leads, métricas, relatórios ou conversas...")}
+            {renderInputBar(`Pergunte algo ${persona.gender === "female" ? "à" : "ao"} ${persona.name} sobre leads, métricas, relatórios ou conversas...`)}
           </div>
         </div>
       </div>

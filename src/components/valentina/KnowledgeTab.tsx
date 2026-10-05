@@ -9,6 +9,7 @@ import {
   Eye, Sparkles, BookOpen, Loader2, ListChecks, Lightbulb
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
+import { getAiPersona } from "@/lib/ai-persona";
 import { 
   Folder as FolderType, 
   KnowledgeFile as FileType,
@@ -22,7 +23,8 @@ interface UploadQueueItem {
 }
 
 export function KnowledgeTab() {
-  const { setSelectedChatId, setActiveView } = useChat();
+  const { setSelectedChatId, setActiveView, tenant } = useChat();
+  const persona = getAiPersona(tenant || "valem");
 
   // ── States ──────────────────────────────────────────────────────────────────
   const [folders, setFolders] = useState<FolderType[]>([]);
@@ -65,7 +67,7 @@ export function KnowledgeTab() {
     setLoadingContentId(fileId);
     try {
       const res = await fetch(
-        `${BACKEND_URL}/api/valentina/knowledge?tenantId=valem&action=getContent&fileId=${fileId}`
+        `${BACKEND_URL}/api/valentina/knowledge?tenantId=${tenant || "valem"}&action=getContent&fileId=${fileId}`
       );
       const data = await res.json();
       const c = data.content || "";
@@ -82,7 +84,7 @@ export function KnowledgeTab() {
   // ── Carregar Dados Reais da API no Inicio ─────────────────────────────────
   React.useEffect(() => {
     setIsLoadingFolders(true);
-    fetch(`${BACKEND_URL}/api/valentina/knowledge?tenantId=valem`)
+    fetch(`${BACKEND_URL}/api/valentina/knowledge?tenantId=${tenant || "valem"}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.folders) {
@@ -102,7 +104,7 @@ export function KnowledgeTab() {
       })
       .catch((err) => console.warn("[KnowledgeTab] Erro ao carregar do servidor:", err))
       .finally(() => setIsLoadingFolders(false));
-  }, []);
+  }, [tenant]);
 
   const toggleFolderExpanded = (folderId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -141,7 +143,7 @@ export function KnowledgeTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tenantId: "valem",
+          tenantId: tenant || "valem",
           action: "create_folder",
           id: newId,
           name: newFolderName,
@@ -167,7 +169,7 @@ export function KnowledgeTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tenantId: "valem",
+          tenantId: tenant || "valem",
           action: "update_folder",
           id,
           name: editingFolderName,
@@ -252,7 +254,7 @@ export function KnowledgeTab() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tenantId: "valem",
+            tenantId: tenant || "valem",
             action: "update_folder",
             id: folderId,
             name: folderToMove?.name || "Pasta",
@@ -275,7 +277,7 @@ export function KnowledgeTab() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tenantId: "valem",
+            tenantId: tenant || "valem",
             action: "move_file",
             id: fileId,
             folderId: targetId,
@@ -304,7 +306,7 @@ export function KnowledgeTab() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tenantId: "valem",
+            tenantId: tenant || "valem",
             action: "update_folder",
             id: folderId,
             name: folderToMove?.name || "Pasta",
@@ -366,7 +368,7 @@ export function KnowledgeTab() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tenantId: "valem",
+            tenantId: tenant || "valem",
             action: "create_folder",
             id: newId,
             name: folderName,
@@ -474,7 +476,7 @@ export function KnowledgeTab() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        tenantId: "valem",
+        tenantId: tenant || "valem",
         action: "upload_file",
         name: fileName,
         size: formattedSize,
@@ -551,7 +553,7 @@ export function KnowledgeTab() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        tenantId: "valem",
+        tenantId: tenant || "valem",
         action: "upload_file",
         name: fileName,
         size: formattedSize,
@@ -902,7 +904,7 @@ export function KnowledgeTab() {
                   ? "bg-primary text-primary-foreground shadow-soft"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
-              title="Salva o arquivo como vetor de IA no cérebro da Valentina"
+              title={`Salva o arquivo como vetor de IA no cérebro ${persona.gender === "female" ? "da" : "do"} ${persona.name}`}
             >
               <Brain className="h-3.5 w-3.5" />
               <span>Embeddings</span>
@@ -914,7 +916,7 @@ export function KnowledgeTab() {
                   ? "bg-primary text-primary-foreground shadow-soft"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
-              title="Salva o arquivo no formato real para Valentina enviar diretamente aos clientes"
+              title={`Salva o arquivo no formato real para ${persona.name} enviar diretamente aos clientes`}
             >
               <Paperclip className="h-3.5 w-3.5" />
               <span>Formato Real</span>
@@ -1071,7 +1073,7 @@ export function KnowledgeTab() {
                             setPreviewImageFile({ ...file, content } as any);
                           }}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/20 text-[10px] font-bold text-foreground hover:text-amber-600 transition cursor-pointer shadow-soft disabled:opacity-50"
-                          title="Visualizar a imagem real que a Valentina envia"
+                          title={`Visualizar a imagem real que ${persona.name} envia`}
                         >
                           {loadingContentId === file.id
                             ? <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
@@ -1202,7 +1204,7 @@ export function KnowledgeTab() {
                       </span>
                     </div>
                     <p className="text-[10px] text-muted-foreground">
-                      {previewImageFile.size} · Imagem enviada diretamente pela Valentina
+                      {previewImageFile.size} · Imagem enviada diretamente por {persona.name}
                     </p>
                   </div>
                 </div>

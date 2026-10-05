@@ -21,8 +21,14 @@ export interface AiPersona {
   tone: string;
   /** Gênero gramatical — usado para concordância em textos */
   gender: "female" | "male";
-  /** Emoji/avatar representativo */
+  /** Emoji representativo */
   avatar: string;
+  /** URL da foto de perfil oficial padrão (quadrada / para avatar em qualquer condição) */
+  avatarUrl: string;
+  /** URL da foto de perfil em alta resolução / HD */
+  avatarHdUrl: string;
+  /** URL da foto completa original */
+  avatarFullUrl: string;
   /** Feature key usada no painel de Custos (ai_usage_logs.feature) */
   chatFeatureKey: string;
 }
@@ -36,6 +42,9 @@ const PERSONAS: Record<string, AiPersona> = {
     tone: "profissional, feminino, comercial e consultivo",
     gender: "female",
     avatar: "💜",
+    avatarUrl: "/valentina.png",
+    avatarHdUrl: "/valentina-avatar-hd.png",
+    avatarFullUrl: "/valentina.png",
     chatFeatureKey: "valentina_chat",
   },
   tecfag: {
@@ -45,6 +54,9 @@ const PERSONAS: Record<string, AiPersona> = {
     tone: "técnico, masculino, consultivo e objetivo",
     gender: "male",
     avatar: "🤖",
+    avatarUrl: "/fagner.png",
+    avatarHdUrl: "/fagner-avatar-hd.png",
+    avatarFullUrl: "/fagner-full.png",
     chatFeatureKey: "fagner_chat",
   },
 };
@@ -66,6 +78,9 @@ export function getAiPersona(tenantId: string): AiPersona {
       tone: "neutro e profissional",
       gender: "female",
       avatar: "🤖",
+      avatarUrl: "/favicon.png",
+      avatarHdUrl: "/favicon.png",
+      avatarFullUrl: "/favicon.png",
       chatFeatureKey: "general",
     };
   }

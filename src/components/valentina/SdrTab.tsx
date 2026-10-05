@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
 import { useChat } from "@/hooks/useChatState";
+import { getAiPersona } from "@/lib/ai-persona";
 import { toast } from "sonner";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
@@ -202,6 +203,7 @@ function StatusBadge({ status }: { status: SdrTriageSession["status"] }) {
 
 export function SdrTab() {
   const { tenant, setActiveView, setSelectedChatId } = useChat();
+  const persona = getAiPersona(tenant || "valem");
 
   const [sdrEnabled, setSdrEnabled] = useState(true);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -289,7 +291,7 @@ export function SdrTab() {
       });
 
       if (res.ok) {
-        toast.success(nextState ? "SDR Valentina ativado para todos os contatos!" : "SDR Valentina pausado com sucesso!");
+        toast.success(nextState ? `SDR ${persona.name} ativado para todos os contatos!` : `SDR ${persona.name} pausado com sucesso!`);
       } else {
         setSdrEnabled(!nextState); // rollback
         toast.error("Erro ao alternar status do SDR.");
@@ -318,7 +320,7 @@ export function SdrTab() {
       });
 
       if (res.ok) {
-        toast.success("Atendimento da Valentina interrompido para este contato!");
+        toast.success(`Atendimento ${persona.gender === "female" ? "da" : "do"} ${persona.name} interrompido para este contato!`);
         setSessions((prev) =>
           prev.map((s) =>
             s.id === selectedSession.id
@@ -342,11 +344,11 @@ export function SdrTab() {
             : null
         );
       } else {
-        toast.error("Erro ao interromper a Valentina.");
+        toast.error(`Erro ao interromper ${persona.gender === "female" ? "a" : "o"} ${persona.name}.`);
       }
     } catch (e) {
-      console.error("Erro ao interromper a Valentina:", e);
-      toast.error("Erro de conexão ao interromper a Valentina.");
+      console.error(`Erro ao interromper ${persona.name}:`, e);
+      toast.error(`Erro de conexão ao interromper ${persona.gender === "female" ? "a" : "o"} ${persona.name}.`);
     } finally {
       setIsStoppingValentina(false);
     }
@@ -401,7 +403,7 @@ export function SdrTab() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-xs font-extrabold text-foreground">Triagem Automática — Valentina SDR</h3>
+              <h3 className="text-xs font-extrabold text-foreground">Triagem Automática — {persona.name} SDR</h3>
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold border ${
                 sdrEnabled ? "bg-primary-soft text-primary border-primary/30" : "bg-muted text-muted-foreground border-border"
               }`}>
@@ -410,7 +412,7 @@ export function SdrTab() {
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              Valentina responde e qualifica automaticamente todos os contatos que chegam sem responsável.
+              {persona.name} responde e qualifica automaticamente todos os contatos que chegam sem responsável.
             </p>
           </div>
         </div>
@@ -424,7 +426,7 @@ export function SdrTab() {
                 ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
                 : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
             } ${isSavingConfig ? "opacity-70 cursor-not-allowed" : ""}`}
-            title={sdrEnabled ? "Clique para pausar a Valentina globalmente" : "Clique para ativar a Valentina globalmente"}
+            title={sdrEnabled ? `Clique para pausar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente` : `Clique para ativar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`}
           >
             <Power className="h-3.5 w-3.5" />
             <span>{sdrEnabled ? "SDR Ativo" : "SDR Inativo"}</span>
@@ -665,7 +667,7 @@ export function SdrTab() {
                       </>
                     ) : (
                       <>
-                        Envie uma mensagem pelo WhatsApp para iniciar o atendimento e triagem ao vivo com a Valentina!
+                        Envie uma mensagem pelo WhatsApp para iniciar o atendimento e triagem ao vivo com {persona.gender === "female" ? "a" : "o"} {persona.name}!
                       </>
                     )}
                   </p>
@@ -918,13 +920,13 @@ export function SdrTab() {
                       </div>
                       {msg.sender === "bot" && (
                         <button
-                          onClick={() => setPreviewModalImage({ url: VALENTINA_AVATAR, title: "Valentina IA — Valem" })}
+                          onClick={() => setPreviewModalImage({ url: persona.avatarUrl, title: `${persona.name} IA — ${persona.company}` })}
                           className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
-                          title="Clique para ver a foto da Valentina em tela cheia"
+                          title={`Clique para ver a foto ${persona.gender === "female" ? "da" : "do"} ${persona.name} em tela cheia`}
                         >
                           <img
-                            src={VALENTINA_AVATAR}
-                            alt="Valentina"
+                            src={persona.avatarUrl}
+                            alt={persona.name}
                             className="h-7 w-7 rounded-full object-cover border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
                           />
                         </button>
@@ -989,11 +991,11 @@ export function SdrTab() {
                               className="text-[10px] font-extrabold text-primary hover:text-primary-hover bg-primary-soft hover:bg-primary-soft/80 border border-primary/20 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-40"
                             >
                               <Square className="h-3 w-3 text-primary fill-primary/30" />
-                              {isStoppingValentina ? "Parando..." : "Parar Valentina"}
+                              {isStoppingValentina ? "Parando..." : `Parar ${persona.name}`}
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="bottom">
-                            Interromper instantaneamente as ações da Valentina para este contato
+                            Interromper instantaneamente as ações {persona.gender === "female" ? "da" : "do"} {persona.name} para este contato
                           </TooltipContent>
                         </Tooltip>
 
@@ -1062,7 +1064,7 @@ export function SdrTab() {
                         </span>
                       </div>
                       <p className="text-xs font-extrabold text-foreground mt-0.5">
-                        {selectedSession.responsibleName || "Valentina IA (Em Triagem)"}
+                        {selectedSession.responsibleName || `${persona.name} IA (Em Triagem)`}
                       </p>
                     </div>
 

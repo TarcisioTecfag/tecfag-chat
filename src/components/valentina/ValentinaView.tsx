@@ -14,6 +14,8 @@ import { SupervisorTab } from "./SupervisorTab";
 import { VendedorTab } from "./VendedorTab";
 import { KnowledgeTab } from "./KnowledgeTab";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useChat } from "@/hooks/useChatState";
+import { getAiPersona } from "@/lib/ai-persona";
 
 // ── Definição das tabs ──────────────────────────────────────────────────────
 
@@ -29,6 +31,8 @@ const allTabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = 
 // ── Componente principal ────────────────────────────────────────────────────
 
 export function ValentinaView() {
+  const { tenant } = useChat();
+  const persona = getAiPersona(tenant || "valem");
   const { canAccessValentinaTab } = usePermissions();
   const allowedTabs = allTabs.filter(tab => canAccessValentinaTab(tab.id));
   const [activeTab, setActiveTab] = useState<ValentinaTab>(() => allowedTabs[0]?.id || "chat");
@@ -54,7 +58,7 @@ export function ValentinaView() {
         <div>
           <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
             <Bot className="h-4.5 w-4.5 text-primary" />
-            Valentina
+            {persona.name}
           </h1>
           <p className="text-[11px] text-muted-foreground capitalize mt-0.5">{today}</p>
         </div>

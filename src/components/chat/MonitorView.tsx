@@ -3210,8 +3210,11 @@ export function CostsTab({ tenant }: { tenant: string }) {
               <SelectItem value="sdr_agent" className="cursor-pointer text-xs">SDR Bot (Triagem)</SelectItem>
               <SelectItem value="conversation_audit" className="cursor-pointer text-xs">Auditoria QA</SelectItem>
               <SelectItem value="supervisor_chat" className="cursor-pointer text-xs">Supervisor Chat</SelectItem>
-              <SelectItem value="valentina_chat" className="cursor-pointer text-xs">Valentina Chat</SelectItem>
-              <SelectItem value="fagner_chat" className="cursor-pointer text-xs">Fagner Chat</SelectItem>
+              {tenant === "tecfag" ? (
+                <SelectItem value="fagner_chat" className="cursor-pointer text-xs">Fagner Chat</SelectItem>
+              ) : (
+                <SelectItem value="valentina_chat" className="cursor-pointer text-xs">Valentina Chat</SelectItem>
+              )}
               <SelectItem value="sla_advisor" className="cursor-pointer text-xs">Análise SLA</SelectItem>
             </SelectContent>
           </Select>

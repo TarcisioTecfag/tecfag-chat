@@ -267,7 +267,7 @@ export function DealList({
                   const statusBadge = {
                     open: {
                       label: "Em andamento",
-                      color: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+                      color: "bg-muted/80 text-muted-foreground border-border/80",
                     },
                     won: {
                       label: "Vendido",

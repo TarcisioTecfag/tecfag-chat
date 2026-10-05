@@ -1138,7 +1138,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const valentinaDefault: Conversation = {
             id: "valentina",
             name: aiPersona.name,
-            avatar: aiPersona.name === "Valentina" ? "/valentina.png" : "/fagner.png",
+            avatar: aiPersona.avatarUrl,
             initials: aiPersona.name.substring(0, 2).toUpperCase(),
             initialsBg: "var(--primary)",
             phone: "IA",

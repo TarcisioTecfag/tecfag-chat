@@ -1,16 +1,18 @@
 import React, { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useChat } from "@/hooks/useChatState";
 import {
   Building2,
   User,
   Star,
   MessageSquare,
+  MessageCircle,
   Clock,
   AlertTriangle,
   CheckCircle2,
   XCircle,
   PauseCircle,
   MoreVertical,
-  Plus,
   Pencil,
   ListTodo,
   ArrowRight,
@@ -49,6 +51,8 @@ export interface DealCardData {
   } | null;
   conversationsCount?: number;
   contactsCount?: number;
+  primaryConversationId?: string | null;
+  primaryContactId?: string | null;
   nextTask?: {
     id?: string;
     title: string;
@@ -85,6 +89,7 @@ export function DealCard({
   onCreateTaskClick,
   allStages = [],
 }: DealCardProps) {
+  const navigate = useNavigate();
   const [completingTask, setCompletingTask] = useState(false);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
 
@@ -96,25 +101,140 @@ export function DealCard({
   const diffDays = Math.max(0, Math.floor((now.getTime() - lastActiveDate.getTime()) / (1000 * 60 * 60 * 24)));
   const isCooling = coolingEnabled && deal.status === "open" && diffDays >= coolingDays;
 
-  // Formatação de valor: distinção estrita entre null (não informado) e zero (R$ 0,00)
+  // Formatação de valor
   const isNullValue = deal.value === null || deal.value === undefined;
   const rawValue = !isNullValue ? Number(deal.value) : null;
   const formattedValue = rawValue !== null && !isNaN(rawValue)
     ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(rawValue)
     : null;
 
-  // Status visual com estado "Em andamento" visível
+  // Status visual harmonizado com a paleta do sistema (neutro no "Em andamento", sem azul destoante)
   const statusBadge = {
-    open: { label: "Em andamento", color: "text-blue-700 dark:text-blue-400 bg-blue-500/10 border-blue-500/30", icon: Clock },
-    won: { label: "Vendido", color: "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30", icon: CheckCircle2 },
-    lost: { label: "Perdido", color: "text-red-700 dark:text-red-400 bg-red-500/10 border-red-500/30", icon: XCircle },
-    paused: { label: "Pausado", color: "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30", icon: PauseCircle },
+    open: {
+      label: "Em andamento",
+      color: "text-muted-foreground bg-muted/80 border-border/80",
+      icon: Clock,
+    },
+    won: {
+      label: "Vendido",
+      color: "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
+      icon: CheckCircle2,
+    },
+    lost: {
+      label: "Perdido",
+      color: "text-destructive bg-destructive/10 border-destructive/30",
+      icon: XCircle,
+    },
+    paused: {
+      label: "Pausado",
+      color: "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30",
+      icon: PauseCircle,
+    },
   }[deal.status];
 
   // Drag start
   const handleDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData("text/plain", JSON.stringify({ dealId: deal.id, version: deal.version, fromStageId: deal.stageId }));
+    e.dataTransfer.setData(
+      "text/plain",
+      JSON.stringify({ dealId: deal.id, version: deal.version, fromStageId: deal.stageId })
+    );
     e.dataTransfer.effectAllowed = "move";
+  };
+
+  // Concluir tarefa rapidamente
+  const handleCompleteTask = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!deal.nextTask?.id || completingTask) return;
+    setCompletingTask(true);
+    try {
+      const res = await fetch(`/api/crm/deals/${deal.id}/activities/${deal.nextTask.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "completed" }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Erro ao concluir tarefa.");
+      }
+      toast.success("Tarefa concluída!");
+      onTaskCompleted?.(deal.id, deal.nextTask.id);
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao concluir tarefa.");
+    } finally {
+      setCompletingTask(false);
+    }
+  };
+
+  // Ação de abrir no Mini Chat
+  const handleOpenMiniChat = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (deal.primaryConversationId) {
+      window.dispatchEvent(
+        new CustomEvent("crm:open-mini-chat", {
+          detail: { conversationId: deal.primaryConversationId },
+        })
+      );
+      return;
+    }
+    if (deal.primaryContactId) {
+      fetch(`/api/contacts/${deal.primaryContactId}/conversations`, { method: "POST" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.conversationId) {
+            window.dispatchEvent(
+              new CustomEvent("crm:open-mini-chat", {
+                detail: { conversationId: data.conversationId },
+              })
+            );
+          } else {
+            window.dispatchEvent(new CustomEvent("crm:open-mini-chat", { detail: {} }));
+          }
+        })
+        .catch(() => {
+          window.dispatchEvent(new CustomEvent("crm:open-mini-chat", { detail: {} }));
+        });
+      return;
+    }
+    if (deal.account?.phone) {
+      window.dispatchEvent(
+        new CustomEvent("crm:open-mini-chat", {
+          detail: { phone: deal.account.phone, name: deal.account.name },
+        })
+      );
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("crm:open-mini-chat", { detail: {} }));
+  };
+
+  const { setActiveView, setSelectedChatId } = useChat();
+
+  // Ação de abrir conversa completa no Chat
+  const handleOpenFullChat = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (deal.primaryConversationId) {
+      setSelectedChatId(deal.primaryConversationId);
+      setActiveView("chat");
+      if (window.location.pathname !== "/") navigate({ to: "/" });
+      return;
+    }
+    if (deal.primaryContactId) {
+      fetch(`/api/contacts/${deal.primaryContactId}/conversations`, { method: "POST" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.conversationId) {
+            setSelectedChatId(data.conversationId);
+          }
+          setActiveView("chat");
+          if (window.location.pathname !== "/") navigate({ to: "/" });
+        })
+        .catch(() => {
+          setActiveView("chat");
+          if (window.location.pathname !== "/") navigate({ to: "/" });
+        });
+      return;
+    }
+    setActiveView("chat");
+    if (window.location.pathname !== "/") navigate({ to: "/" });
   };
 
   return (
@@ -122,32 +242,34 @@ export function DealCard({
       draggable
       onDragStart={handleDragStart}
       onClick={() => onClick(deal)}
-      className={`group relative rounded-xl border p-3.5 shadow-xs transition-all duration-200 ease-out cursor-grab active:cursor-grabbing bg-card hover:shadow-md hover:-translate-y-1 hover:border-primary/50 active:scale-[0.99] select-none ${
+      className={`group relative flex flex-col justify-between h-[196px] min-h-[196px] max-h-[196px] rounded-xl border p-3 shadow-xs transition-all duration-200 ease-out cursor-grab active:cursor-grabbing bg-card hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 select-none overflow-hidden ${
         isCooling
-          ? "border-amber-400/60 dark:border-amber-500/40 bg-amber-500/[0.03]"
+          ? "border-amber-400/70 dark:border-amber-500/50 bg-amber-500/[0.04]"
           : deal.status === "won"
           ? "border-emerald-500/40 bg-emerald-500/[0.02]"
           : deal.status === "lost"
-          ? "border-red-500/30 bg-red-500/[0.02]"
-          : "border-border"
+          ? "border-destructive/30 bg-destructive/[0.02]"
+          : "border-border/80"
       }`}
     >
-      {/* Alerta de Esfriamento */}
-      {isCooling && (
-        <div className="mb-2 flex items-center gap-1.5 rounded-md bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">
-          <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400 animate-pulse" />
-          <span>Esfriando há {diffDays} {diffDays === 1 ? "dia" : "dias"}</span>
-        </div>
-      )}
-
-      {/* Título com espaço próprio; status aparece nos metadados abaixo. */}
-      <div className="flex items-start justify-between gap-2">
+      {/* ── 1. TOPO: Título (altura fixa 36px) + Chip de Esfriamento + Menu ── */}
+      <div className="flex items-start justify-between gap-1.5 min-h-[36px] max-h-[36px]">
         <SystemTooltip content={deal.title}>
-          <h4 className="min-w-0 flex-1 break-words text-sm font-semibold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors cursor-pointer">
+          <h4 className="min-w-0 flex-1 break-words text-xs font-bold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors cursor-pointer">
             {deal.title}
           </h4>
         </SystemTooltip>
+
         <div className="flex items-center gap-1 shrink-0">
+          {/* Chip compacto de Esfriamento: mesmo tamanho de card sem distorcer altura */}
+          {isCooling && (
+            <SystemTooltip content={`Esfriando há ${diffDays} ${diffDays === 1 ? "dia" : "dias"} sem atividade recente`}>
+              <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/35 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                <AlertTriangle className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+                <span>{diffDays}d</span>
+              </span>
+            </SystemTooltip>
+          )}
 
           {/* Menu Rápido de Ações */}
           <div className="relative">
@@ -159,7 +281,7 @@ export function DealCard({
                   e.stopPropagation();
                   setShowQuickMenu(!showQuickMenu);
                 }}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <MoreVertical className="h-3.5 w-3.5" />
               </button>
@@ -224,8 +346,8 @@ export function DealCard({
         </div>
       </div>
 
-      {/* Identificação do Cliente / Empresa */}
-      <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      {/* ── 2. CLIENTE / EMPRESA (altura fixa 16px) ── */}
+      <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground h-4 min-w-0 overflow-hidden">
         {deal.account ? (
           <>
             {deal.account.type === "company" ? (
@@ -240,18 +362,17 @@ export function DealCard({
             </SystemTooltip>
           </>
         ) : (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-[11px] text-muted-foreground/60 italic truncate">
             Cliente não definido
           </span>
         )}
       </div>
 
-      {/* Rodapé do Card: Valor Comercial + Vendedor + Contador de Conversas */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-xs">
-        {/* Valor Comercial ou "Adicionar valor" */}
-        <div>
+      {/* ── 3. VALOR COMERCIAL + VENDEDOR / CONVERSAS (altura fixa 20px) ── */}
+      <div className="mt-1.5 flex items-center justify-between gap-2 text-xs h-5">
+        <div className="min-w-0 shrink-0">
           {formattedValue !== null ? (
-            <span className="font-semibold text-foreground tabular-nums text-sm">
+            <span className="font-bold text-foreground tabular-nums text-xs">
               {formattedValue}
             </span>
           ) : (
@@ -262,7 +383,7 @@ export function DealCard({
                   e.stopPropagation();
                   onClick(deal);
                 }}
-                className="text-xs font-medium text-primary hover:underline transition-colors cursor-pointer"
+                className="text-[11px] font-medium text-primary hover:underline transition-colors cursor-pointer"
               >
                 + Adicionar valor
               </button>
@@ -270,53 +391,36 @@ export function DealCard({
           )}
         </div>
 
-        {/* Informações da Direita: Conversas + Vendedor */}
-        <div className="flex w-full min-w-0 items-center justify-between gap-2">
-          {/* Contador de conversas clicável */}
+        <div className="flex items-center gap-1.5 min-w-0 justify-end">
           {(deal.conversationsCount || 0) > 0 && (
-            <SystemTooltip content={`${deal.conversationsCount} conversas vinculadas (clique para abrir ficha)`}>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClick(deal);
-                }}
-                className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors cursor-pointer"
-              >
+            <SystemTooltip content={`${deal.conversationsCount} conversa(s) vinculada(s)`}>
+              <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-bold text-primary">
                 <MessageSquare className="h-2.5 w-2.5" />
                 {deal.conversationsCount}
-              </button>
+              </span>
             </SystemTooltip>
           )}
 
-          {/* Vendedor / Responsável */}
           {operatorName ? (
             <SystemTooltip content={`Responsável: ${operatorName}`}>
-              <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                <User className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{operatorName}</span>
+              <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                <User className="h-3 w-3 shrink-0" />
+                <span className="truncate max-w-[120px]">{operatorName}</span>
               </span>
             </SystemTooltip>
           ) : (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground/60 truncate">
               Sem responsável
             </span>
           )}
         </div>
       </div>
 
-      {/* ── FAIXA DA PRÓXIMA AÇÃO COMERCIAL (Estilo RD Station) ── */}
-      <div className="mt-2.5 pt-2 border-t border-border/50">
-        {deal.nextTask ? (
-          <div
-            className={`flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-xs font-medium border transition-colors ${
-              deal.nextTask.isOverdue
-                ? "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/25"
-                : deal.nextTask.isToday
-                ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/25"
-                : "bg-muted/50 text-foreground/80 border-border/60"
-            }`}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
+      {/* ── 4. PRÓXIMA TAREFA / AÇÕES RÁPIDAS (Ícones discretos substituindo + Tarefa) ── */}
+      <div className="mt-1.5 pt-1.5 border-t border-border/50">
+        <div className="flex items-center justify-between gap-2 h-7 px-2 rounded-lg border bg-muted/40 border-border/50 text-xs">
+          {deal.nextTask ? (
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
               <Clock
                 className={`h-3 w-3 shrink-0 ${
                   deal.nextTask.isOverdue
@@ -327,84 +431,98 @@ export function DealCard({
                 }`}
               />
               <SystemTooltip content={deal.nextTask.title}>
-                <span className="line-clamp-2 break-words cursor-default">
+                <span className="truncate text-foreground/80 cursor-default text-[11px]">
                   {deal.nextTask.isOverdue && (
-                    <strong className="font-extrabold mr-1 text-red-600 dark:text-red-400">
+                    <strong className="text-red-600 dark:text-red-400 mr-1 font-bold">
                       Atrasada:
                     </strong>
                   )}
                   {deal.nextTask.isToday && (
-                    <strong className="font-extrabold mr-1 text-amber-600 dark:text-amber-400">
+                    <strong className="text-amber-600 dark:text-amber-400 mr-1 font-bold">
                       Hoje:
                     </strong>
                   )}
                   {deal.nextTask.title}
-                  {deal.nextTask.dueDate && (
-                    <span className="opacity-70 ml-1">
-                      ({new Date(deal.nextTask.dueDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })})
-                    </span>
-                  )}
                 </span>
               </SystemTooltip>
             </div>
+          ) : (
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 text-[11px] text-muted-foreground">
+              {isCooling ? (
+                <span className="truncate text-amber-700 dark:text-amber-400 font-medium">
+                  Sem tarefas recentes
+                </span>
+              ) : (
+                <span className="truncate">Sem tarefas pendentes</span>
+              )}
+            </div>
+          )}
 
-            {deal.nextTask.id && (
-                <SystemTooltip content="Concluir tarefa rapidamente">
-                  <button
-                    type="button"
-                    aria-label={`Concluir tarefa: ${deal.nextTask.title}`}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (!deal.nextTask?.id || completingTask) return;
-                      setCompletingTask(true);
-                      try {
-                        const res = await fetch(`/api/crm/deals/${deal.id}/activities/${deal.nextTask.id}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ status: "completed" }),
-                        });
-                        if (!res.ok) {
-                          const err = await res.json();
-                          throw new Error(err.error || "Erro ao concluir tarefa.");
-                        }
-                        toast.success("Tarefa concluída!");
-                        onTaskCompleted?.(deal.id, deal.nextTask.id);
-                      } catch (err: any) {
-                        toast.error(err.message || "Erro ao concluir tarefa.");
-                      } finally {
-                        setCompletingTask(false);
-                      }
-                    }}
-                    disabled={completingTask}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-primary transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5 hover:scale-110 transition-transform" />
-                  </button>
-                </SystemTooltip>
+          {/* Ícones de ação à direita: Checkmark de tarefa + Mini Chat + Chat Completo */}
+          <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            {deal.nextTask?.id && (
+              <SystemTooltip content="Concluir tarefa rapidamente">
+                <button
+                  type="button"
+                  aria-label={`Concluir tarefa: ${deal.nextTask.title}`}
+                  onClick={handleCompleteTask}
+                  disabled={completingTask}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-emerald-500 hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                </button>
+              </SystemTooltip>
             )}
+
+            {/* Abrir no Mini Chat */}
+            <SystemTooltip content="Abrir no Mini Chat">
+              <button
+                type="button"
+                aria-label="Abrir no Mini Chat"
+                onClick={handleOpenMiniChat}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
+
+            {/* Abrir conversa no Chat */}
+            <SystemTooltip content="Abrir conversa no Chat">
+              <button
+                type="button"
+                aria-label="Abrir conversa no Chat"
+                onClick={handleOpenFullChat}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
           </div>
-        ) : (
-          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground py-1">
-            <span>Sem tarefas pendentes</span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCreateTaskClick ? onCreateTaskClick(deal) : onClick(deal);
-              }}
-              className="shrink-0 text-xs font-medium text-primary hover:underline cursor-pointer"
-            >
-              + Tarefa
-            </button>
-          </div>
-        )}
+        </div>
       </div>
-      <div className="mt-3 flex items-center justify-between gap-2">
-        {statusBadge && <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${statusBadge.color}`}>
-          <statusBadge.icon className="h-3 w-3" />{statusBadge.label}
-        </span>}
+
+      {/* ── 5. RODAPÉ: Status (Sem azul) + Estrelas Vermelhas (Paleta do Sistema) ── */}
+      <div className="mt-1.5 flex items-center justify-between gap-2 h-5">
+        {statusBadge && (
+          <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${statusBadge.color}`}>
+            <statusBadge.icon className="h-2.5 w-2.5" />
+            {statusBadge.label}
+          </span>
+        )}
+
+        {/* Estrelas vermelhas na cor primária do sistema */}
         <div aria-label={`Qualificação: ${deal.rating || 0} de 5`} className="flex items-center gap-0.5">
-          {[1, 2, 3, 4, 5].map((star) => <Star key={star} aria-hidden="true" className={`h-3 w-3 ${(deal.rating || 0) >= star ? "fill-amber-400 text-amber-400" : "text-muted-foreground/25"}`} />)}
+          {[1, 2, 3, 4, 5].map((star) => (
+            <Star
+              key={star}
+              aria-hidden="true"
+              className={`h-3 w-3 ${
+                (deal.rating || 0) >= star
+                  ? "fill-primary text-primary"
+                  : "text-muted-foreground/25"
+              }`}
+            />
+          ))}
         </div>
       </div>
     </div>

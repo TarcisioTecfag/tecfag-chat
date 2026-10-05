@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
+import { getAiPersona } from "@/lib/ai-persona";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
 import { formatPhoneNumber } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -122,6 +123,8 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
     setTenant,
     availableTenants,
   } = useChat();
+
+  const aiPersona = getAiPersona(tenant || "valem");
 
   const [showStatusMenu, setShowStatusMenu] = useState(false);
 
@@ -548,7 +551,7 @@ export const ValentinaFeed: React.FC<ValentinaFeedProps> = ({
             <span className="text-xl font-black text-foreground block">
               {metrics.performanceScore}<span className="text-xs font-normal text-muted-foreground">/100</span>
             </span>
-            <span className="text-[10px] text-muted-foreground font-medium">Avaliação Valentina</span>
+            <span className="text-[10px] text-muted-foreground font-medium">Avaliação {aiPersona.name}</span>
           </div>
         </motion.div>
       </motion.div>

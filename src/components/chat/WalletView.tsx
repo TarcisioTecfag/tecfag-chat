@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { Conversation, OperatorTemplate } from "@/lib/mockData";
 import { toast } from "sonner";
+import { getAiPersona } from "@/lib/ai-persona";
 
 export function WalletView() {
   const {
@@ -46,6 +47,8 @@ export function WalletView() {
     setActiveView,
     setActiveQueue,
   } = useChat();
+
+  const aiPersona = getAiPersona(tenant || "valem");
 
   const [activeTab, setActiveTab] = useState<"wallet" | "templates">("wallet");
 
@@ -383,7 +386,7 @@ export function WalletView() {
                         <tbody className="divide-y divide-line text-xs">
                           {walletClients.map((c) => {
                             const statusInfo = getAttendanceStatus(c);
-                            const isValentina = c.id === "valentina" || c.contactId === "valentina" || c.name.toLowerCase().includes("valentina");
+                            const isAiContact = c.id === "valentina" || c.id === "fagner" || c.contactId === "valentina" || c.contactId === "fagner" || c.name.toLowerCase().includes(aiPersona.name.toLowerCase()) || c.name.toLowerCase().includes("valentina") || c.name.toLowerCase().includes("fagner");
                             const initials = c.name
                               .split(" ")
                               .map((w) => w[0])
@@ -409,7 +412,7 @@ export function WalletView() {
                                     <div>
                                       <div className="font-semibold text-foreground flex items-center gap-1.5">
                                         {c.name}
-                                        {isValentina && (
+                                        {isAiContact && (
                                           <span className="inline-flex items-center gap-1 bg-primary/15 text-primary text-[9px] font-black px-1.5 py-0.5 rounded-md border border-primary/20">
                                             <Bot className="h-2.5 w-2.5" /> IA
                                           </span>
@@ -462,7 +465,7 @@ export function WalletView() {
                                 </td>
                                 <td className="p-4 text-right">
                                   <div className="flex items-center justify-end gap-2">
-                                    {!isValentina && (
+                                    {!isAiContact && (
                                       <button
                                         onClick={() => setConfirmRemoveClient(c)}
                                         className="inline-flex items-center gap-1 rounded-xl bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-red-200 dark:border-red-800"
@@ -491,7 +494,7 @@ export function WalletView() {
                     <div className="flex flex-col gap-3 md:hidden">
                       {walletClients.map((c) => {
                         const statusInfo = getAttendanceStatus(c);
-                        const isValentina = c.id === "valentina" || c.contactId === "valentina" || c.name.toLowerCase().includes("valentina");
+                        const isAiContact = c.id === "valentina" || c.id === "fagner" || c.contactId === "valentina" || c.contactId === "fagner" || c.name.toLowerCase().includes(aiPersona.name.toLowerCase()) || c.name.toLowerCase().includes("valentina") || c.name.toLowerCase().includes("fagner");
                         const initials = c.name
                           .split(" ")
                           .map((w) => w[0])
@@ -511,7 +514,14 @@ export function WalletView() {
                                   </div>
                                 )}
                                 <div>
-                                  <span className="font-bold text-sm text-foreground block">{c.name}</span>
+                                  <span className="font-bold text-sm text-foreground flex items-center gap-1.5">
+                                    {c.name}
+                                    {isAiContact && (
+                                      <span className="inline-flex items-center gap-1 bg-primary/15 text-primary text-[9px] font-black px-1.5 py-0.5 rounded-md border border-primary/20">
+                                        <Bot className="h-2.5 w-2.5" /> IA
+                                      </span>
+                                    )}
+                                  </span>
                                   <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusInfo.color}`}>
                                     {statusInfo.text}
                                   </span>
@@ -537,7 +547,7 @@ export function WalletView() {
                             </div>
 
                             <div className="flex items-center gap-2 pt-1 border-t border-border/60">
-                              {!isValentina && (
+                              {!isAiContact && (
                                 <button
                                   onClick={() => setConfirmRemoveClient(c)}
                                   className="flex-1 py-2 px-3 rounded-xl border border-red-200 text-red-600 bg-red-50 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
@@ -657,7 +667,7 @@ export function WalletView() {
               </div>
 
               <div className="bg-muted/40 rounded-2xl p-3 border border-border/60 text-[11px] text-muted-foreground leading-relaxed">
-                Quando o cliente enviar mensagem no WhatsApp, ele não entrará em "Meus", mas sim na automação da <strong>Valentina IA</strong>.
+                Quando o cliente enviar mensagem no WhatsApp, ele não entrará em "Meus", mas sim na automação {aiPersona.gender === "female" ? "da" : "do"} <strong>{aiPersona.name} IA</strong>.
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
@@ -674,7 +684,7 @@ export function WalletView() {
                     if (client) {
                       const contactId = client.contactId || client.id;
                       await updateContactWallet(contactId, null);
-                      toast.success(`${client.name} foi removido da carteira! Retornado para a Valentina IA.`);
+                      toast.success(`${client.name} foi removido da carteira! Retornado para ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name} IA.`);
                     }
                   }}
                   className="px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-700 text-xs font-extrabold text-white transition cursor-pointer shadow-soft"

@@ -12,6 +12,7 @@ import { db } from "../../db";
 import { contacts, conversations } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import { rdRequest, isRdCrmConfigured, buildPhoneSearchTerms, getCachedUsers } from "../rdCrmService";
+import { getAiPersona } from "../ai-persona";
 
 interface CreateCrmDealFromTriageOptions {
   tenantId: string;
@@ -238,7 +239,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
   console.log(`\n================================================================================`);
   console.log(`[RD CRM Auto] 🚀 INICIANDO AUTOMAÇÃO DE CRIAÇÃO/ATUALIZAÇÃO DE CARD NO RD CRM`);
   console.log(`[RD CRM Auto] Tenant: "${tenantId}" | ConversationId: "${conversationId}" | Phone: "${contactPhone}"`);
-  console.log(`[RD CRM Auto] 📋 Dados Coletados na Triagem:`, JSON.stringify(collectedData, null, 2));
+  const persona = getAiPersona(tenantId);
 
   try {
     // 1. Verificar se a integração com o RD CRM está configurada para este tenant
@@ -430,7 +431,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
 
     const dealTitle = productVal
       ? `${companyName} - ${productVal}`
-      : `${companyName} - Triagem Valentina`;
+      : `${companyName} - Triagem ${persona.name}`;
 
     // Matcher de Opção do Dropdown
     const matchBestOption = (fieldObj: any, rawValue: string): string => {
@@ -496,7 +497,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
 
     // Monta o resumo formatado
     const infoLines = [
-      `📋 TRIAGEM FINALIZADA POR VALENTINA (SDR)`,
+      `📋 TRIAGEM FINALIZADA POR ${persona.name.toUpperCase()} (SDR)`,
       `----------------------------------------`,
       `• Nome do Cliente: ${clientName}`,
       `• Razão Social / Empresa: ${companyName}`,
@@ -623,7 +624,7 @@ export async function autoCreateOrUpdateRdCrmDeal({
       try {
         console.log(`[RD CRM Auto] 📝 Enviando nota de relatório de triagem para timeline do deal ${dealId}...`);
         await rdRequest(tenantId, "POST", `/deals/${dealId}/notes`, {
-          description: `[Triagem Valentina SDR]<br><br>${infoComplementarHtml}`,
+          description: `[Triagem ${persona.name} SDR]<br><br>${infoComplementarHtml}`,
         });
         console.log(`[RD CRM Auto] ✅ Nota adicionada com sucesso na timeline do CRM.`);
       } catch (noteErr: any) {

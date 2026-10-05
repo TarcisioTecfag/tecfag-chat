@@ -120,7 +120,7 @@ export const Route = createFileRoute("/api/gestao/costs")({
 
           const featureBreakdown = Object.entries(featureMap).map(([feature, data]) => ({
             feature,
-            featureName: getFeatureLabel(feature),
+            featureName: getFeatureLabel(feature, tenantId),
             calls: data.calls,
             tokens: data.tokens,
             costUsd: Number(data.usd.toFixed(4)),
@@ -183,13 +183,14 @@ export const Route = createFileRoute("/api/gestao/costs")({
   },
 });
 
-function getFeatureLabel(feature: string): string {
+function getFeatureLabel(feature: string, tenantId?: string): string {
   switch (feature) {
     case "sdr_agent":           return "SDR Bot (Triagem de Leads)";
     case "conversation_audit":  return "Auditoria de Atendimento QA";
     case "sla_advisor":         return "Análise SLA & Alertas";
-    case "supervisor_chat":     return "Valentina Supervisor (Chat Interno)";
+    case "supervisor_chat":     return tenantId === "tecfag" ? "Fagner Supervisor (Chat Interno)" : "Valentina Supervisor (Chat Interno)";
     case "valentina_chat":      return "Valentina Chat do Operador";
+    case "fagner_chat":         return "Fagner Chat do Operador";
     case "sentiment_analysis":  return "Análise de Sentimento (Clientes)";
     case "call_transcription":  return "Transcrição de Ligações";
     case "knowledge_rag":       return "Base de Conhecimento RAG";

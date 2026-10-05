@@ -1,15 +1,17 @@
 import { useEffect, useState, useRef } from "react";
 import { RotateCw, Sparkles } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
+import { getAiPersona } from "@/lib/ai-persona";
 
 /**
  * Componente Modal Responsivo de Notificação de Novo Deploy (Railway)
- * Exibe a foto da Valentina e solicita o recarregamento da página
+ * Exibe a foto da IA (Valentina na Valem, Fagner na Tecfag) e solicita o recarregamento da página
  * quando uma nova versão da aplicação é detectada no servidor.
  * As cores se adaptam dinamicamente ao tenant ativo (Valem = Verde #2dc4a0, Tecfag = Vermelho #df3d3d).
  */
 export function DeployNotificationModal() {
   const { tenant } = useChat();
+  const persona = getAiPersona(tenant || "valem");
   const [hasNewDeploy, setHasNewDeploy] = useState(false);
   const initialVersionRef = useRef<string | null>(null);
   const isCheckingRef = useRef(false);
@@ -104,20 +106,20 @@ export function DeployNotificationModal() {
         <div className="absolute -top-16 -left-16 w-32 h-32 bg-primary/20 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute -bottom-16 -right-16 w-32 h-32 bg-primary/15 rounded-full blur-2xl pointer-events-none" />
 
-        {/* Badge Valentina IA */}
+        {/* Badge da IA */}
         <div className="flex items-center justify-center">
           <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-primary-soft text-primary border border-primary/20 shadow-sm">
             <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
-            <span>Valentina IA • Atualização do Sistema</span>
+            <span>{persona.name} IA • Atualização do Sistema</span>
           </span>
         </div>
 
-        {/* Foto da Valentina em tamanho destacado */}
+        {/* Foto da IA em tamanho destacado */}
         <div className="relative mx-auto w-28 h-28 sm:w-32 sm:h-32">
           <div className={`absolute -inset-1.5 rounded-full bg-gradient-to-r from-primary ${gradientVia} to-primary opacity-75 blur-sm animate-pulse`} />
           <img
-            src="/valentina.png"
-            alt="Valentina IA"
+            src={persona.avatarUrl}
+            alt={`${persona.name} IA`}
             className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-card shadow-2xl"
           />
           {/* Status Indicator */}

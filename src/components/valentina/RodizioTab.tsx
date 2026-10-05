@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { getAiPersona } from "@/lib/ai-persona";
 
 export type RodizioOperator = {
   id: string;
@@ -87,6 +88,7 @@ function OperatorAvatar({
 
 export function RodizioTab() {
   const { tenant, operators: globalOperators, setActiveView, setSelectedChatId } = useChat();
+  const persona = getAiPersona(tenant || "valem");
 
   const [operators, setOperators] = useState<RodizioOperator[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -218,7 +220,7 @@ export function RodizioTab() {
               Configuração do Rodízio
             </h2>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Defina a disponibilidade da equipe para recebimento automático de leads pós-triagem da Valentina.
+              Defina a disponibilidade da equipe para recebimento automático de leads pós-triagem {persona.gender === "female" ? "da" : "do"} {persona.name}.
             </p>
           </div>
 

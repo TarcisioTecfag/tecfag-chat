@@ -1288,7 +1288,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           {/* Avatar & Channel Badge */}
           <div className="relative">
             {activeChat.id === "valentina" ? (
-              <span aria-label={aiPersona.name} className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-primary-soft text-2xl">{aiPersona.avatar}</span>
+              <img
+                src={aiPersona.avatarUrl}
+                alt={aiPersona.name}
+                className="h-10 w-10 rounded-full object-cover border border-border shadow-xs"
+              />
             ) : activeChat.avatar ? (
               <img
                 src={activeChat.avatar}
@@ -2179,14 +2183,21 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
                   <MessageReactions reactions={m.reactions} side="in" />
 
-                  {/* Dynamic Suggestions for Valentina Welcome Message */}
+                  {/* Dynamic Suggestions for AI Welcome Message */}
                   {m.id === "val_welcome" && (
                     <div className="mt-2.5 flex flex-col gap-1.5 max-w-sm">
-                      {[
-                        "Quantos leads tenho sem resposta?",
-                        "Quais são meus leads quentes?",
-                        "Como está a pontuação atual dos meus atendimentos?",
-                      ].map((q, idx) => (
+                      {(aiPersona.name === "Fagner"
+                        ? [
+                            "Quantos atendimentos tenho pendentes?",
+                            "Como estão os prazos de SLA da minha fila?",
+                            "Quais são meus chamados abertos hoje?",
+                          ]
+                        : [
+                            "Quantos leads tenho sem resposta?",
+                            "Quais são meus leads quentes?",
+                            "Como está a pontuação atual dos meus atendimentos?",
+                          ]
+                      ).map((q, idx) => (
                         <button
                           key={idx}
                           onClick={() => {
@@ -2214,7 +2225,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           });
         })()}
 
-        {/* Indicador da Valentina Digitando */}
+        {/* Indicador da IA Digitando */}
         <AnimatePresence>
           {activeChat.id === "valentina" && isValentinaTyping && (
             <motion.div
@@ -2224,7 +2235,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               transition={{ duration: 0.2 }}
               className="flex items-end gap-2 my-2.5 w-full"
             >
-              <span aria-label={aiPersona.name} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-primary-soft text-base shadow-soft">{aiPersona.avatar}</span>
+              <img
+                src={aiPersona.avatarUrl}
+                alt={aiPersona.name}
+                className="h-7 w-7 rounded-full object-cover border border-border shrink-0 shadow-soft"
+              />
               <div className="rounded-2xl rounded-bl-[5px] bg-primary-soft border border-primary/20 px-4 py-2 text-xs font-bold text-primary shadow-soft flex items-center gap-2">
                 <span>{aiPersona.name} está digitando</span>
                 <motion.span
@@ -2519,7 +2534,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               }`}
             >
               <Package className="h-3 w-3" />
-              <span>Válvulas</span>
+              <span>{tenant === "tecfag" ? "Catálogo" : "Válvulas"}</span>
             </button>
           </div>
 

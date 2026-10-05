@@ -184,7 +184,11 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Pesquisar por nome, SKU, rosca ou frasco (ex: pump, spray, 180013, 24/410)..."
+            placeholder={
+              tenantId === "tecfag"
+                ? "Pesquisar por nome, modelo, SKU ou código..."
+                : "Pesquisar por nome, SKU, rosca ou frasco (ex: pump, spray, 180013, 24/410)..."
+            }
             className="w-full pl-9 pr-8 py-1.5 text-xs bg-background border border-border rounded-xl focus:outline-none focus:border-primary/60 text-foreground placeholder:text-muted-foreground transition"
             autoFocus
           />
@@ -237,7 +241,11 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-full space-y-2 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            <span className="text-xs">Carregando fotos reais de válvulas e embalagens...</span>
+            <span className="text-xs">
+              {tenantId === "tecfag"
+                ? "Carregando catálogo de produtos e máquinas..."
+                : "Carregando fotos reais de válvulas e embalagens..."}
+            </span>
           </div>
         ) : filteredImages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full space-y-2 text-muted-foreground py-10">

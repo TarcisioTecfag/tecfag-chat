@@ -11,6 +11,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
 import { MultiTenantAccessPanel } from "./MultiTenantAccessPanel";
+import { getAiPersona } from "@/lib/ai-persona";
 
 interface OperatorWalletCardProps {
   op: Operator;
@@ -406,6 +407,8 @@ export function GroupsView() {
     deleteQuickResponse,
     tenant,
   } = useChat();
+
+  const aiPersona = getAiPersona(tenant || "valem");
 
   // Active sub-views / tabs
   const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors" | "wallets" | "templates">("users");
@@ -1499,7 +1502,7 @@ export function GroupsView() {
                           { key: "tasks",     label: "Tarefas & Compromissos", desc: "Acesso ao kanban de tarefas do operador" },
                           { key: "contacts",  label: "Base de Contatos", desc: "Acesso à lista e fichas de clientes" },
                           { key: "wallets",   label: "Carteiras Globais", desc: "Acesso à gestão de carteiras comerciais" },
-                          { key: "valentina", label: "Valentina IA Hub", desc: "Acesso ao SDR, Rodízio e Base de Conhecimento" },
+                          { key: "valentina", label: `${aiPersona.name} IA Hub`, desc: "Acesso ao SDR, Rodízio e Base de Conhecimento" },
                           { key: "ligacoes",  label: "Ligações & Telefonia", desc: "Acesso ao módulo de voz Twilio IA" },
                           { key: "monitor",   label: "Monitoramento & QA", desc: "Acesso ao espião, alertas e auditorias" },
                           { key: "analytics", label: "Estatísticas & BI", desc: "Acesso às métricas, SLA e relatórios" },
@@ -1687,7 +1690,7 @@ export function GroupsView() {
                         className="flex items-center gap-2 text-left flex-1"
                       >
                         <Bot className="h-4 w-4 text-primary" />
-                        <span className="text-xs font-black uppercase tracking-wide text-foreground">4. Valentina IA Hub</span>
+                        <span className="text-xs font-black uppercase tracking-wide text-foreground">4. {aiPersona.name} IA Hub</span>
                       </button>
                       <div className="flex items-center gap-2">
                         <button
@@ -1715,12 +1718,12 @@ export function GroupsView() {
                     {openSections.valentina && (
                       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         {[
-                          { key: "canAccessChat",      label: "Chat com a Valentina", desc: "Conversar diretamente com a assistente de IA" },
+                          { key: "canAccessChat",      label: `Chat com ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}`, desc: "Conversar diretamente com a assistente de IA" },
                           { key: "canAccessSdr",       label: "Visualizar Leads SDR", desc: "Ver a fila de triagem e captação de leads" },
                           { key: "canManageSdr",       label: "Gerenciar & Pausar SDR", desc: "Alterar comportamento ou pausar bot SDR" },
                           { key: "canAccessRodizio",   label: "Visualizar Rodízio de Leads", desc: "Acompanhar distribuição e pesos de fila" },
                           { key: "canManageRodizio",   label: "Configurar Rodízio & Pesos", desc: "Adicionar/remover atendentes do rodízio" },
-                          { key: "canAccessSupervisor",label: "Valentina Supervisor", desc: "Consultar IA para análise operacional" },
+                          { key: "canAccessSupervisor",label: `${aiPersona.name} Supervisor`, desc: "Consultar IA para análise operacional" },
                           { key: "canAccessKnowledge", label: "Consultar Base de Conhecimento", desc: "Ler manuais, PDFs e FAQs ingeridos" },
                           { key: "canManageKnowledge", label: "Ingerir Base de Conhecimento", desc: "Upload de novos documentos e treinar RAG" },
                         ].map(({ key, label, desc }) => {
@@ -1785,7 +1788,7 @@ export function GroupsView() {
                           { key: "canAccessAgenda",     label: "Agenda de Ligações", desc: "Ver compromissos e agendamentos telefônicos" },
                           { key: "canAccessHistorico",  label: "Histórico & Transcrições", desc: "Ouvir gravações e ler transcrições da IA" },
                           { key: "canAccessClientes",   label: "Base de Clientes de Voz", desc: "Listagem de contatos qualificados para ligação" },
-                          { key: "canTriggerTestCall",  label: "Disparar Teste de Ligação", desc: "Fazer ligação de teste imediata com a Valentina" },
+                          { key: "canTriggerTestCall",  label: "Disparar Teste de Ligação", desc: `Fazer ligação de teste imediata com ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}` },
                           { key: "canManageCampanhas",  label: "Gerenciar Campanhas em Massa", desc: "Criar e disparar disparos de voz para listas" },
                           { key: "canManageObjetivos",  label: "Definir Objetivos da IA", desc: "Configurar metas e prompts de ligação" },
                         ].map(({ key, label, desc }) => {

@@ -146,23 +146,23 @@ export function PipelineColumn({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`flex flex-col h-full min-w-[280px] max-w-[320px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-all duration-200 ${
+      className={`flex flex-col h-full min-w-[330px] max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-all duration-200 ${
         isOver
-          ? "border-primary/80 ring-2 ring-primary/30 bg-primary/[0.04] scale-[1.008]"
-          : "border-border/60 bg-muted/20"
+          ? "border-primary/80 ring-2 ring-primary/30 bg-primary/[0.06] scale-[1.008]"
+          : "border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs"
       }`}
     >
-      {/* Cabeçalho da Coluna */}
-      <div className="shrink-0 px-3.5 py-3 border-b border-border/50">
+      {/* Cabeçalho da Coluna com sólido aprimorado */}
+      <div className="shrink-0 px-3.5 py-3 border-b border-border/70 bg-muted/85 dark:bg-muted/45 rounded-t-2xl">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <SystemTooltip content={stage.name}>
-              <h3 className="text-sm font-semibold text-foreground line-clamp-2 break-words cursor-default">
+              <h3 className="text-sm font-bold text-foreground line-clamp-2 break-words cursor-default">
                 {stage.name}
               </h3>
             </SystemTooltip>
             <SystemTooltip content={`${displayCount} negociações no total nesta etapa`}>
-              <span className="flex h-6 shrink-0 items-center justify-center rounded-md bg-muted px-2 text-xs font-semibold tabular-nums text-muted-foreground cursor-default">
+              <span className="flex h-6 shrink-0 items-center justify-center rounded-md bg-background/90 border border-border/70 px-2 text-xs font-semibold tabular-nums text-foreground/80 cursor-default">
                 {displayCount}
               </span>
             </SystemTooltip>

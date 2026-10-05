@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SharedFiles } from "@/components/chat/SharedFiles";
+import { getAiPersona } from "@/lib/ai-persona";
 
 interface MobileActionsModalProps {
   isOpen: boolean;
@@ -29,7 +30,10 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     operators,
     transferChat,
     setActiveView,
+    tenant,
   } = useChat();
+
+  const persona = getAiPersona(tenant || "valem");
 
   const [showTransferSelect, setShowTransferSelect] = useState(false);
   const [showCustomerFile, setShowCustomerFile] = useState(false);
@@ -37,10 +41,14 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
 
   if (!isOpen || !activeChat) return null;
 
-  const isValentina =
+  const isAiChat =
     activeChat.id === "valentina" ||
+    activeChat.id === "fagner" ||
     activeChat.contactId === "valentina" ||
-    activeChat.name.toLowerCase().includes("valentina");
+    activeChat.contactId === "fagner" ||
+    activeChat.name.toLowerCase().includes(persona.name.toLowerCase()) ||
+    activeChat.name.toLowerCase().includes("valentina") ||
+    activeChat.name.toLowerCase().includes("fagner");
 
   // Permissões RBAC e Estado do Chat
   const canCapture = currentGroup?.canCaptureChat ?? true;
@@ -55,7 +63,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
   const isPendingInQueue =
     !isMine &&
     activeChat.queue !== "finalizados" &&
-    activeChat.id !== "valentina";
+    !isAiChat;
 
   const handleCapture = () => {
     captureChat(activeChat.id);
@@ -107,7 +115,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                     {activeChat.name}
                   </h3>
                   <span className="text-[11px] text-muted-foreground font-medium">
-                    {isValentina ? "Assistente Virtual IA" : "Ações de Atendimento"}
+                    {isAiChat ? "Assistente Virtual IA" : "Ações de Atendimento"}
                   </span>
                 </div>
               </div>
@@ -119,8 +127,8 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
               </button>
             </div>
 
-            {/* CASO 1: AÇÕES DA VALENTINA */}
-            {isValentina ? (
+            {/* CASO 1: AÇÕES DA IA */}
+            {isAiChat ? (
               <div className="flex flex-col gap-2.5 py-1">
                 <button
                   onClick={() => {
@@ -130,7 +138,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                   className="w-full py-3 px-4 rounded-2xl bg-primary-soft text-primary font-bold text-xs flex items-center gap-3 border border-primary/20 hover:bg-primary-soft/80 transition cursor-pointer"
                 >
                   <BookOpen className="w-4 h-4" />
-                  <span>Ver Feed & Sugestões da Valentina</span>
+                  <span>Ver Feed & Sugestões {persona.gender === "female" ? "da" : "do"} {persona.name}</span>
                 </button>
               </div>
             ) : showFinishConfirm ? (

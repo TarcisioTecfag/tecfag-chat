@@ -490,13 +490,25 @@ export function CrmChatWidget() {
     location.pathname.startsWith("/crm/deals/") ||
     (location.pathname === "/" && activeView === "crm");
 
+  const [isSuppressed, setIsSuppressed] = useState(false);
+
+  useEffect(() => {
+    const handleSuppressed = (event: Event) => {
+      const custom = event as CustomEvent<{ suppressed?: boolean }>;
+      setIsSuppressed(Boolean(custom.detail?.suppressed));
+    };
+    window.addEventListener("crm:set-chat-widget-suppressed", handleSuppressed);
+    return () => window.removeEventListener("crm:set-chat-widget-suppressed", handleSuppressed);
+  }, []);
+
   const visible =
     isAuthenticated &&
     !isMobile &&
     inCrm &&
     canAccessView("crm") &&
     canViewCrm &&
-    canAccessView("chat");
+    canAccessView("chat") &&
+    !isSuppressed;
 
   const assigned = conversations.filter(
     (conversation) =>

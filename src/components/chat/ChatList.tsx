@@ -349,7 +349,11 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             >
               {/* Avatar da IA com indicador de canal/presença */}
               <div className="relative shrink-0">
-                <span aria-label={aiPersona.name} className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-primary-soft text-lg">{aiPersona.avatar}</span>
+                <img
+                  src={aiPersona.avatarUrl}
+                  alt={aiPersona.name}
+                  className="h-8 w-8 rounded-full object-cover border border-border shadow-xs"
+                />
                 
                 {/* Indicador Online Pulsante como Channel Badge */}
                 <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card bg-primary text-primary-foreground shadow-soft">

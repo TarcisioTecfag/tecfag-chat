@@ -12,6 +12,7 @@ import {
   ExternalLink, Star, X, ChevronDown, ChevronUp, Repeat2,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
+import { getAiPersona } from "@/lib/ai-persona";
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -273,7 +274,8 @@ function TimelineFilters({
 // ── Componente principal ─────────────────────────────────────────────────────
 
 export function SupervisorTab() {
-  const { setSelectedChatId, setActiveView } = useChat();
+  const { setSelectedChatId, setActiveView, tenant } = useChat();
+  const persona = getAiPersona(tenant || "valem");
 
   const [data, setData] = useState<SupervisorApiData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -301,7 +303,7 @@ export function SupervisorTab() {
   const fetchData = useCallback(async () => {
     try {
       const params = new URLSearchParams({
-        tenantId: "valem",
+        tenantId: tenant || "valem",
         dateFrom: from.toISOString(),
         dateTo:   to.toISOString(),
       });
@@ -551,7 +553,7 @@ export function SupervisorTab() {
               Perguntas Recentes
             </h3>
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              Últimas perguntas feitas à Valentina pelos operadores
+              Últimas perguntas feitas {persona.gender === "female" ? "à" : "ao"} {persona.name} pelos operadores
             </p>
           </div>
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 scrollbar-thin">
@@ -572,7 +574,7 @@ export function SupervisorTab() {
                 <MessageCircleQuestion className="h-6 w-6 mb-2 opacity-40" />
                 <p className="text-xs font-medium">Nenhuma pergunta ainda</p>
                 <p className="text-[10px] mt-1 text-center px-4">
-                  Quando um operador perguntar algo à Valentina, aparecerá aqui
+                  Quando um operador perguntar algo {persona.gender === "female" ? "à" : "ao"} {persona.name}, aparecerá aqui
                 </p>
               </div>
             ) : (

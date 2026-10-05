@@ -19,6 +19,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaAssistantModal } from "../chat/ValentinaAssistantModal";
 import { ProductCatalogPicker } from "../chat/ProductCatalogPicker";
+import { getAiPersona } from "@/lib/ai-persona";
 
 interface MobileMessageInputProps {
   onSendMessage?: (text: string, isInternalNote: boolean) => void;
@@ -34,6 +35,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   onSendMessage,
 }) => {
   const { sendMessage, templates, selectedChatId, conversations, tenant, operatorProfile } = useChat();
+  const aiPersona = getAiPersona(tenant || "valem");
 
   const [activeTab, setActiveTab] = useState<"message" | "internal_note">("message");
   const [text, setText] = useState("");
@@ -356,7 +358,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                   className="relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs text-primary hover:opacity-85 font-bold"
                 >
                   <Sparkles className="w-3 h-3" />
-                  <span>Valentina</span>
+                  <span>{aiPersona.name}</span>
                 </motion.button>
 
                 <motion.button
@@ -391,7 +393,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                   }`}
                 >
                   <Package className="w-3 h-3" />
-                  <span>Válvulas</span>
+                  <span>{tenant === "tecfag" ? "Catálogo" : "Válvulas"}</span>
                   {isCatalogOpen && (
                     <motion.span
                       layoutId="mobileInputActiveTab"

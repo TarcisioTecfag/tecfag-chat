@@ -18,6 +18,8 @@ import { DeployNotificationModal } from "@/components/ui/DeployNotificationModal
 import { CrmChatWidget } from "@/components/crm/CrmChatWidget";
 import { useTheme } from "../hooks/useTheme";
 
+import { getAiPersona } from "@/lib/ai-persona";
+
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -47,23 +49,37 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
 
+  let tenant = "valem";
+  if (typeof window !== "undefined") {
+    try {
+      const savedTenant = localStorage.getItem("chat_tenant");
+      if (savedTenant === "tecfag" || savedTenant === "valem") {
+        tenant = savedTenant;
+      }
+    } catch (e) {}
+  }
+  const persona = getAiPersona(tenant);
+  const isTecfag = tenant === "tecfag";
+  const systemName = isTecfag ? "Tecfag Chat" : "Valem Chat";
+  const teamsMsg = encodeURIComponent(`Olá, Tarcisio! Ocorreu um erro no sistema ${systemName}.`);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-card px-4 py-8">
       <div className="max-w-md w-full text-center bg-card rounded-3xl border border-border p-8 shadow-2xl space-y-6">
-        {/* Foto da Valentina */}
+        {/* Foto da IA (Fagner para Tecfag / Valentina para Valem) */}
         <div className="relative mx-auto w-24 h-24">
           <img
-            src="/valentina.png"
-            alt="Valentina IA"
+            src={persona.avatarUrl}
+            alt={`${persona.name} IA`}
             className="w-24 h-24 rounded-full object-cover border-4 border-primary/30 shadow-xl"
           />
           <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-primary ring-4 ring-card animate-pulse" />
         </div>
 
-        {/* Mensagem da Valentina */}
+        {/* Mensagem da IA */}
         <div className="space-y-2">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-primary-soft text-primary border border-primary/20">
-            Valentina IA
+            {persona.name} IA
           </span>
           <h1 className="text-lg font-black text-foreground leading-snug">
             Ops, acho que algo deu errado!
@@ -86,7 +102,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
           </button>
 
           <a
-            href="https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br&message=Olá,%20Tarcisio!%20Ocorreu%20um%20erro%20no%20sistema%20Valem%20Chat."
+            href={`https://teams.microsoft.com/l/chat/0/0?users=suporte2@tecfag.com.br&message=${teamsMsg}`}
             target="_blank"
             rel="noopener noreferrer"
             className="w-full py-3.5 px-4 rounded-2xl bg-primary-soft hover:bg-primary-soft/80 text-primary font-black text-xs border border-primary/30 transition flex items-center justify-center gap-2.5 cursor-pointer decoration-none"

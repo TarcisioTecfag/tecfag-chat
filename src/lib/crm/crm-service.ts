@@ -2042,6 +2042,8 @@ export class CrmService {
         account: CrmAccount | null;
         contactsCount: number;
         conversationsCount: number;
+        primaryConversationId?: string | null;
+        primaryContactId?: string | null;
       }
     >;
     total: number;
@@ -2181,11 +2183,12 @@ export class CrmService {
       }
     }
 
-    // Contagem de conversas ativas por deal
+    // Contagem de conversas ativas por deal e ID da conversa mais recente
     const convCounts = await db
       .select({
         dealId: crmConversationDeals.dealId,
         count: sql<number>`count(distinct ${crmConversationDeals.conversationId})::int`,
+        latestConvId: sql<string>`(array_agg(${crmConversationDeals.conversationId} order by ${crmConversationDeals.createdAt} desc))[1]`,
       })
       .from(crmConversationDeals)
       .where(
@@ -2198,15 +2201,20 @@ export class CrmService {
       .groupBy(crmConversationDeals.dealId);
 
     const convCountMap = new Map<string, number>();
+    const convLatestMap = new Map<string, string>();
     for (const c of convCounts) {
       convCountMap.set(c.dealId, c.count);
+      if (c.latestConvId) {
+        convLatestMap.set(c.dealId, c.latestConvId);
+      }
     }
 
-    // Contagem de contatos por deal
+    // Contagem de contatos por deal e ID do contato principal
     const contactCounts = await db
       .select({
         dealId: crmDealContacts.dealId,
         count: sql<number>`count(*)::int`,
+        firstContactId: sql<string>`(array_agg(${crmDealContacts.contactId} order by ${crmDealContacts.createdAt} asc))[1]`,
       })
       .from(crmDealContacts)
       .where(
@@ -2218,8 +2226,12 @@ export class CrmService {
       .groupBy(crmDealContacts.dealId);
 
     const contactCountMap = new Map<string, number>();
+    const contactFirstMap = new Map<string, string>();
     for (const cc of contactCounts) {
       contactCountMap.set(cc.dealId, cc.count);
+      if (cc.firstContactId) {
+        contactFirstMap.set(cc.dealId, cc.firstContactId);
+      }
     }
 
     // Próxima atividade pendente por deal (excluindo notas e trazendo operadores)
@@ -2279,6 +2291,8 @@ export class CrmService {
       account: deal.accountId ? accountsMap.get(deal.accountId) || null : null,
       conversationsCount: convCountMap.get(deal.id) || 0,
       contactsCount: contactCountMap.get(deal.id) || 0,
+      primaryConversationId: convLatestMap.get(deal.id) || null,
+      primaryContactId: contactFirstMap.get(deal.id) || null,
       nextTask: nextActivityMap.get(deal.id) || null,
     }));
 
