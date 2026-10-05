@@ -152,7 +152,6 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           // 3. Concorrência Atômica com incremento de version dentro de db.transaction
           const updateData: Record<string, any> = {
             queueState,
-            responsibleName: respName,
             version: sql`${conversations.version} + 1`,
             updatedAt: new Date(),
           };

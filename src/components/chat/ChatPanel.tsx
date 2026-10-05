@@ -70,8 +70,20 @@ function appendUniqueFiles(previous: File[], incoming: File[]): File[] {
   return result;
 }
 
+// ── Formatação padronizada do título do áudio ───────────────────────────────
+export function getAudioLabel(authorName?: string, isMe?: boolean, clientName?: string): string {
+  const name = isMe
+    ? (authorName && authorName !== "Você" ? authorName : null)
+    : (authorName || clientName || null);
+
+  if (name) {
+    return `Áudio de ${name}`;
+  }
+  return isMe ? "Áudio do operador" : "Áudio do cliente";
+}
+
 // ── Player de áudio customizado ────────────────────────────────────────────
-function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
+function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; isMe?: boolean }) {
   const audioRef = React.useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = React.useState(false);
   const [current, setCurrent] = React.useState(0);
@@ -99,7 +111,7 @@ function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
   const pct = duration > 0 ? (current / duration) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl bg-card border border-border shadow-soft px-4 py-3 min-w-[260px] max-w-xs">
+    <div className="flex items-center gap-3 rounded-2xl bg-card border border-border/80 shadow-soft px-4 py-3 w-[280px] sm:w-[320px] max-w-full">
       <audio
         ref={audioRef}
         src={src}
@@ -114,7 +126,7 @@ function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
       {/* Play / Pause */}
       <button
         onClick={toggle}
-        className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft hover:opacity-90 transition"
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft hover:opacity-90 transition cursor-pointer"
       >
         {playing ? (
           <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
@@ -129,8 +141,8 @@ function AudioBubble({ src, fileName }: { src: string; fileName: string }) {
       </button>
 
       <div className="flex flex-1 flex-col gap-1.5 min-w-0">
-        {/* Nome do arquivo */}
-        <p className="truncate text-[11px] font-semibold text-foreground leading-none">
+        {/* Nome do arquivo padronizado */}
+        <p className="truncate text-xs font-bold text-foreground leading-none">
           {fileName}
         </p>
 
@@ -280,6 +292,8 @@ function renderMessageContent(
   onMediaClick?: (type: "image" | "video", url: string) => void,
   isMe?: boolean,
   onSaveSticker?: (messageId: string, url: string) => void,
+  authorName?: string,
+  clientName?: string,
 ) {
   // Separar a tag de mídia da legenda (se enviada com a mídia)
   const newlineIndex = text.indexOf("\n");
@@ -289,7 +303,7 @@ function renderMessageContent(
   const wrapMediaWithCaption = (mediaNode: React.ReactNode) => {
     if (!captionText) return mediaNode;
     return (
-      <div className="flex flex-col gap-1.5 max-w-sm">
+      <div className="flex flex-col gap-1.5 max-w-sm sm:max-w-md">
         {mediaNode}
         <p className="whitespace-pre-wrap text-sm leading-relaxed px-0.5 pt-0.5 font-medium select-text">
           {renderTextWithLinks(captionText, isMe)}
@@ -314,7 +328,7 @@ function renderMessageContent(
     if (type === "image") {
       return wrapMediaWithCaption(
         <div
-          className="relative group max-w-sm rounded-xl overflow-hidden cursor-pointer"
+          className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
           onClick={() => {
             if (onMediaClick) {
               onMediaClick("image", blobUrl);
@@ -323,8 +337,8 @@ function renderMessageContent(
             }
           }}
         >
-          <img src={blobUrl} alt={fileName} className="max-h-60 w-full object-contain rounded-xl" />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition rounded-xl" />
+          <img src={blobUrl} alt={fileName} className="max-h-72 sm:max-h-80 w-full object-contain rounded-2xl" />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition rounded-2xl" />
         </div>
       );
     }
@@ -332,7 +346,7 @@ function renderMessageContent(
     if (type === "video") {
       return wrapMediaWithCaption(
         <div
-          className="relative group max-w-sm rounded-xl overflow-hidden cursor-pointer bg-black/5 flex items-center justify-center border border-border"
+          className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden cursor-pointer bg-black/5 flex items-center justify-center border border-border shadow-soft"
           onClick={() => {
             if (onMediaClick) {
               onMediaClick("video", blobUrl);
@@ -341,10 +355,10 @@ function renderMessageContent(
         >
           <video
             src={blobUrl}
-            className="max-h-60 w-full object-contain rounded-xl pointer-events-none"
+            className="max-h-72 sm:max-h-80 w-full object-contain rounded-2xl pointer-events-none"
           />
           <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/25 transition">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-105">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-105">
               <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
             </div>
           </div>
@@ -353,7 +367,20 @@ function renderMessageContent(
     }
 
     if (type === "audio") {
-      return wrapMediaWithCaption(<AudioBubble src={blobUrl} fileName={fileName} />);
+      const audioTitle = getAudioLabel(authorName, isMe, clientName);
+      return wrapMediaWithCaption(<AudioBubble src={blobUrl} fileName={audioTitle} isMe={isMe} />);
+    }
+
+    if (type === "sticker") {
+      return wrapMediaWithCaption(
+        <div className="relative w-44 h-44 sm:w-52 sm:h-52 group overflow-visible">
+          <img
+            src={blobUrl}
+            alt={fileName || "Figurinha"}
+            className="w-full h-full object-contain drop-shadow-sm hover:scale-105 transition-transform duration-200"
+          />
+        </div>
+      );
     }
 
     // document
@@ -369,7 +396,7 @@ function renderMessageContent(
       if (type === "image") {
         return wrapMediaWithCaption(
           <div
-            className="relative group max-w-sm rounded-xl overflow-hidden border border-border bg-black/5 hover:opacity-95 transition cursor-pointer"
+            className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
             onClick={() => {
               if (onMediaClick) {
                 onMediaClick("image", mediaUrl);
@@ -378,7 +405,7 @@ function renderMessageContent(
               }
             }}
           >
-            <img src={mediaUrl} alt="Imagem" className="max-h-60 w-full object-contain" />
+            <img src={mediaUrl} alt="Imagem" className="max-h-72 sm:max-h-80 w-full object-contain rounded-2xl" />
           </div>
         );
       }
@@ -386,16 +413,16 @@ function renderMessageContent(
       if (type === "video") {
         return wrapMediaWithCaption(
           <div
-            className="relative group max-w-sm rounded-xl overflow-hidden border border-border bg-black/5 cursor-pointer flex items-center justify-center"
+            className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 cursor-pointer flex items-center justify-center shadow-soft"
             onClick={() => {
               if (onMediaClick) {
                 onMediaClick("video", mediaUrl);
               }
             }}
           >
-            <video src={mediaUrl} className="max-h-60 w-full object-contain pointer-events-none" />
+            <video src={mediaUrl} className="max-h-72 sm:max-h-80 w-full object-contain pointer-events-none rounded-2xl" />
             <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/25 transition">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-105">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-105">
                 <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
               </div>
             </div>
@@ -404,7 +431,8 @@ function renderMessageContent(
       }
 
       if (type === "audio") {
-        return wrapMediaWithCaption(<AudioBubble src={mediaUrl} fileName="Áudio" />);
+        const audioTitle = getAudioLabel(authorName, isMe, clientName);
+        return wrapMediaWithCaption(<AudioBubble src={mediaUrl} fileName={audioTitle} isMe={isMe} />);
       }
 
       if (type === "document") {
@@ -414,11 +442,11 @@ function renderMessageContent(
 
       if (type === "sticker") {
         return wrapMediaWithCaption(
-          <div className="relative max-w-[120px] group overflow-visible">
+          <div className="relative w-44 h-44 sm:w-52 sm:h-52 group overflow-visible">
             <img
               src={mediaUrl}
               alt="Figurinha"
-              className="h-28 w-28 object-contain"
+              className="w-full h-full object-contain drop-shadow-sm hover:scale-105 transition-transform duration-200"
               onError={(e) => {
                 const target = e.currentTarget;
                 target.style.display = "none";
@@ -427,18 +455,18 @@ function renderMessageContent(
               }}
             />
             <div
-              className="h-28 w-28 items-center justify-center text-muted-foreground hidden"
+              className="w-full h-full items-center justify-center text-muted-foreground hidden"
               title="Figurinha"
             >
-              <Sparkles className="h-8 w-8" />
+              <Sparkles className="h-10 w-10" />
             </div>
             {onSaveSticker && (
               <button
                 onClick={() => onSaveSticker(messageId, mediaUrl)}
-                className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 hover:scale-110 transition-all duration-150 cursor-pointer shadow-md z-10"
+                className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 hover:scale-110 transition-all duration-150 cursor-pointer shadow-md z-10"
                 title="Salvar Figurinha"
               >
-                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
               </button>
             )}
           </div>
@@ -1917,7 +1945,31 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               );
             }
 
-            const isSticker = m.text.startsWith("[MEDIA:sticker]");
+            const isSticker = m.text.startsWith("[MEDIA:sticker]") || m.text.startsWith("[LOCAL_MEDIA:sticker]");
+            const isMedia = m.text.startsWith("[MEDIA:") || m.text.startsWith("[LOCAL_MEDIA:");
+            const hasCaption = isMedia && m.text.includes("\n") && m.text.split("\n").slice(1).join("\n").trim().length > 0;
+            const isAudioOrDoc = m.text.startsWith("[MEDIA:audio]") || m.text.startsWith("[LOCAL_MEDIA:audio]") || m.text.startsWith("[MEDIA:document]") || m.text.startsWith("[LOCAL_MEDIA:document]");
+
+            // Resolução da mensagem citada (busca no histórico se o conteúdo não veio direto)
+            const quotedTarget = (m.quotedMessageId && !m.quotedMessageContent)
+              ? allMessages.find((prev) => prev.id === m.quotedMessageId || prev.externalId === m.quotedMessageId)
+              : null;
+            const displayQuotedContent = m.quotedMessageContent || quotedTarget?.text || null;
+            const displayQuotedSender = m.quotedMessageSender || (quotedTarget ? (quotedTarget.side === "out" ? "Você" : quotedTarget.author || activeChat.name) : "Mensagem");
+
+            // Função para rolar suavemente até a mensagem citada ao clicar
+            const handleScrollToQuoted = (e: React.MouseEvent) => {
+              e.stopPropagation();
+              const targetId = m.quotedMessageId || quotedTarget?.id;
+              if (targetId) {
+                const el = document.getElementById(`msg-dom-${targetId}`);
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el.classList.add("ring-2", "ring-primary", "transition-all");
+                  setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 1500);
+                }
+              }
+            };
 
             // Border-radius por posição no grupo (estilo WhatsApp)
             const outR =
@@ -1977,11 +2029,33 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     </SystemTooltip>
                     {isSticker ? (
                       <div className="leading-relaxed">
-                        {renderMessageContent(m.text, handleMediaClick, true, handleSaveSticker)}
+                        {displayQuotedContent && (
+                          <div
+                            onClick={handleScrollToQuoted}
+                            className="mb-1 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
+                          >
+                            <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                          </div>
+                        )}
+                        {renderMessageContent(m.text, handleMediaClick, true, handleSaveSticker, m.author, activeChat.name)}
                       </div>
-                    ) : m.text.startsWith("[LOCAL_MEDIA:") ? (
-                      <div>{renderMessageContent(m.text, handleMediaClick, true)}</div>
-                    ) : isEmojiOnly(m.text) ? (
+                    ) : isAudioOrDoc ? (
+                      <div className="flex flex-col items-end gap-1.5">
+                        {displayQuotedContent && (
+                          <div
+                            onClick={handleScrollToQuoted}
+                            className="mb-0.5 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
+                          >
+                            <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                          </div>
+                        )}
+                        {renderMessageContent(m.text, handleMediaClick, true, undefined, m.author, activeChat.name)}
+                      </div>
+                    ) : isMedia && !hasCaption && !displayQuotedContent ? (
+                      <div>{renderMessageContent(m.text, handleMediaClick, true, undefined, m.author, activeChat.name)}</div>
+                    ) : isEmojiOnly(m.text) && !displayQuotedContent ? (
                       <div className="text-4xl leading-none select-none py-1">{m.text}</div>
                     ) : (
                       <div
@@ -1994,13 +2068,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           outlineOffset: isMatch ? "2px" : undefined,
                         }}
                       >
-                        {m.quotedMessageContent && (
-                          <div className="mb-1.5 rounded-lg border-l-4 border-l-white/50 bg-white/10 px-2 py-1 text-[10px] text-white/90 select-none max-w-full">
-                            <div className="font-bold mb-0.5">{m.quotedMessageSender || "Mensagem"}</div>
-                            <div className="truncate font-medium">{getFriendlyQuotedContent(m.quotedMessageContent)}</div>
+                        {displayQuotedContent && (
+                          <div
+                            onClick={handleScrollToQuoted}
+                            className="mb-1.5 rounded-lg border-l-4 border-l-white/60 bg-white/10 px-2.5 py-1.5 text-[11px] text-white/95 select-none max-w-full cursor-pointer hover:bg-white/20 transition"
+                          >
+                            <div className="font-bold text-[10px] mb-0.5 opacity-90">{displayQuotedSender}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
                           </div>
                         )}
-                        {renderMessageContent(m.text, handleMediaClick, true)}
+                        {renderMessageContent(m.text, handleMediaClick, true, undefined, m.author, activeChat.name)}
                       </div>
                     )}
                   </div>
@@ -2059,8 +2136,34 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   <div className="flex items-center gap-2">
                     {isSticker ? (
                       <div className="leading-relaxed">
-                        {renderMessageContent(m.text, handleMediaClick, false, handleSaveSticker)}
+                        {displayQuotedContent && (
+                          <div
+                            onClick={handleScrollToQuoted}
+                            className="mb-1 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
+                          >
+                            <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                          </div>
+                        )}
+                        {renderMessageContent(m.text, handleMediaClick, false, handleSaveSticker, m.author, activeChat.name)}
                       </div>
+                    ) : isAudioOrDoc && !m.isWarning ? (
+                      <div className="flex flex-col items-start gap-1.5">
+                        {displayQuotedContent && (
+                          <div
+                            onClick={handleScrollToQuoted}
+                            className="mb-0.5 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
+                          >
+                            <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                          </div>
+                        )}
+                        {renderMessageContent(m.text, handleMediaClick, false, undefined, m.author, activeChat.name)}
+                      </div>
+                    ) : isMedia && !hasCaption && !displayQuotedContent && !m.isWarning ? (
+                      <div>{renderMessageContent(m.text, handleMediaClick, false, undefined, m.author, activeChat.name)}</div>
+                    ) : isEmojiOnly(m.text) && !displayQuotedContent && !m.isWarning ? (
+                      <div className="text-4xl leading-none select-none py-1">{m.text}</div>
                     ) : (
                       <div
                         onClick={onBubbleClick}
@@ -2082,13 +2185,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             Aviso de {aiPersona.name}
                           </div>
                         )}
-                        {m.quotedMessageContent && (
-                          <div className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2 py-1 text-[10px] text-muted-foreground select-none max-w-full">
-                            <div className="font-bold mb-0.5 text-primary">{m.quotedMessageSender || "Mensagem"}</div>
-                            <div className="truncate font-medium">{getFriendlyQuotedContent(m.quotedMessageContent)}</div>
+                        {displayQuotedContent && (
+                          <div
+                            onClick={handleScrollToQuoted}
+                            className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-muted/80 transition"
+                          >
+                            <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
+                            <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
                           </div>
                         )}
-                        {renderMessageContent(m.text, handleMediaClick, false)}
+                        {renderMessageContent(m.text, handleMediaClick, false, undefined, m.author, activeChat.name)}
 
                         {/* Card interativo: Atraso de Resposta */}
                         {m.isWarning && m.warningType === "delay" && m.warningMetadata && (

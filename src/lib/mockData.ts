@@ -11,6 +11,7 @@ export type Message = {
   side: "in" | "out";
   isInternalNote?: boolean;
   avatar?: string;
+  externalId?: string | null;
   quotedMessageId?: string | null;
   quotedMessageSender?: string | null;
   quotedMessageContent?: string | null;

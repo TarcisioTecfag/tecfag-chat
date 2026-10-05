@@ -857,8 +857,14 @@ export class SessionManager {
       if (quotedMessageId) {
         try {
           foundQuotedMsg = await db.query.messages.findFirst({
-            where: (t, { eq: dEq, and: dAnd }) =>
-              dAnd(dEq(t.id, quotedMessageId as string), dEq(t.tenantId, tenantId))
+            where: (t, { eq: dEq, and: dAnd, or: dOr }) =>
+              dAnd(
+                dEq(t.tenantId, tenantId),
+                dOr(
+                  dEq(t.id, quotedMessageId as string),
+                  dEq(t.externalId, quotedMessageId as string)
+                )
+              )
           });
         } catch (e) {
           console.error("Erro ao buscar mensagem citada no DB:", e);

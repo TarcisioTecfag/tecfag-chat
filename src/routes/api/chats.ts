@@ -178,6 +178,27 @@ export const Route = createFileRoute("/api/chats")({
           const beforeCursor = url.searchParams.get("before");
           const requestedConversationId = url.searchParams.get("conversationId");
 
+          if (url.searchParams.get("ownership") === "1") {
+            if (session.operator.role !== "admin" && !session.permissions?.views?.chat) {
+              return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+            }
+            const ownership = await db.select({
+              id: conversations.id,
+              operatorId: conversations.operatorId,
+              queueState: conversations.queueState,
+              responsibleName: operators.name,
+              sectorId: conversations.sectorId,
+              version: conversations.version,
+            }).from(conversations)
+              .leftJoin(operators, and(eq(operators.id, conversations.operatorId), eq(operators.tenantId, session.tenantId)))
+              .where(eq(conversations.tenantId, session.tenantId))
+              .orderBy(desc(conversations.updatedAt))
+              .limit(500);
+            return Response.json({ operatorId: session.operator.id, ownership }, {
+              headers: { "Cache-Control": "no-store" },
+            });
+          }
+
           // 0. Carregar mapa de operadores do tenant em memória
           const allOperators = await db
             .select({ id: operators.id, name: operators.name })

@@ -37,11 +37,11 @@ export const Route = createFileRoute("/api/baileys/send")({
             .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
           if (config?.connectionStatus === "switching") return Response.json({ error: "Canal em transição." }, { status: 409 });
 
-          const [conversation] = await db.select({ contactId: conversations.contactId, operatorId: conversations.operatorId })
+          const [conversation] = await db.select({ contactId: conversations.contactId, operatorId: conversations.operatorId, queueState: conversations.queueState })
             .from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
           if (!conversation) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
-          if (!["admin", "supervisor"].includes(session.operator.role) && conversation.operatorId !== session.operator.id) {
-            return Response.json({ error: "Sem permissão para responder nesta conversa." }, { status: 403 });
+          if (conversation.queueState !== "meus" || conversation.operatorId !== session.operator.id) {
+            return Response.json({ error: "Capture o atendimento antes de responder nesta conversa." }, { status: 403 });
           }
           if (!conversation.contactId) return Response.json({ error: "Conversa sem contato." }, { status: 400 });
           const [contact] = await db.select({ phone: contacts.phone }).from(contacts).where(and(

@@ -16,7 +16,7 @@ import {
 } from "@/lib/rbac";
 
 export function usePermissions() {
-  const { currentGroup, operatorProfile, tenant } = useChat();
+  const { currentGroup, operatorProfile, tenant, sessionPermissions, sessionRole } = useChat();
 
   // Proteção Master: Dono da conta / Suporte Tecfag nunca pode ser trancado fora das telas de gestão
   const isMasterAccount = Boolean(
@@ -26,7 +26,20 @@ export function usePermissions() {
   );
 
   const permissions: GroupPermissions = useMemo(() => {
-    const norm = normalizeGroupPermissions(currentGroup);
+    const sessionBased = sessionPermissions ?? normalizeGroupPermissions(currentGroup);
+    const norm = sessionRole === "admin"
+      ? {
+          ...sessionBased,
+          chat: {
+            ...sessionBased.chat,
+            canCaptureChat: true,
+            canOverrideChat: true,
+            canTransferChat: true,
+            canFinishChat: true,
+            canSendInternalNotes: true,
+          },
+        }
+      : sessionBased;
     if (isMasterAccount) {
       return {
         ...norm,
@@ -65,7 +78,7 @@ export function usePermissions() {
       };
     }
     return norm;
-  }, [currentGroup, isMasterAccount]);
+  }, [currentGroup, isMasterAccount, sessionPermissions, sessionRole]);
 
   // Checagem de Módulos (Menu Lateral)
   const canAccessView = (viewId: ViewId): boolean => {

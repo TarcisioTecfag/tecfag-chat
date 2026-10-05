@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db/index.js";
-import { contacts, conversations } from "../../db/schema.js";
+import { channelConfigs, contacts, conversations } from "../../db/schema.js";
 import { eq, and, count, desc, ilike, or, sql } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
 import { requireSession } from "../../lib/auth-session.js";
@@ -123,8 +123,9 @@ export const Route = createFileRoute("/api/contacts")({
           const finalContactId = `cont-${crypto.randomUUID()}`;
           const finalConversationId = `conv-${crypto.randomUUID()}`;
 
-          const validOperatorId = session.operator.id;
-          const respName = session.operator.name;
+          const [channelConfig] = await db.select({ activeProvider: channelConfigs.activeProvider })
+            .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId)).limit(1);
+          const requiresExplicitCapture = channelConfig?.activeProvider === "meta";
 
           const duplicate = await db.transaction(async (tx) => {
             if (normalizedPhone || normalizedEmail) {
@@ -143,13 +144,16 @@ export const Route = createFileRoute("/api/contacts")({
               id: finalContactId, tenantId, name: name.trim(),
               phone: normalizedPhone || null, email: normalizedEmail || null,
               cnpj: cnpj ? cnpj.replace(/\D/g, "") : null,
-              mainChannel: channel || "whatsapp", walletOperatorId: validOperatorId,
-              responsibleName: respName, createdAt: now,
+              mainChannel: channel || "whatsapp",
+              walletOperatorId: requiresExplicitCapture ? null : session.operator.id,
+              responsibleName: requiresExplicitCapture ? "Na Fila" : session.operator.name,
+              createdAt: now,
             });
             await tx.insert(conversations).values({
               id: finalConversationId, tenantId, contactId: finalContactId,
-              operatorId: validOperatorId, queueState: "meus",
-              lastMessageText: "Contato criado e atendimento iniciado.",
+              operatorId: requiresExplicitCapture ? null : session.operator.id,
+              queueState: requiresExplicitCapture ? "fila" : "meus",
+              lastMessageText: requiresExplicitCapture ? "Contato criado. Aguardando captura do atendimento." : "Contato criado e atendimento iniciado.",
               lastMessageTime: now, version: 1, updatedAt: now, createdAt: now,
             });
             return null;
@@ -163,6 +167,7 @@ export const Route = createFileRoute("/api/contacts")({
               success: true,
               contactId: finalContactId,
               conversationId: finalConversationId,
+              queueState: requiresExplicitCapture ? "fila" : "meus",
             }),
             {
               status: 201,

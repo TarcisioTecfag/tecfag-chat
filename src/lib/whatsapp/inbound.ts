@@ -7,7 +7,7 @@ import {
   mediaFiles,
   operators,
 } from "../../db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, or, like } from "drizzle-orm";
 import { UniversalInboundMessage } from "./types";
 import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
@@ -224,8 +224,8 @@ export class InboundProcessor {
         let initialOperatorId: string | null = null;
         let initialQueueState = "fila";
 
-        // Se o cliente tem carteira fixa, roteia para o operador
-        if (contact.walletOperatorId) {
+        // Na Meta, carteira não equivale a captura de atendimento.
+        if (contact.walletOperatorId && provider !== "meta") {
           const [walletOp] = await db
             .select({ id: operators.id, name: operators.name })
             .from(operators)
@@ -271,10 +271,10 @@ export class InboundProcessor {
         activeConv = createdConv;
       } else if (activeConv.queueState === "finalizados") {
         // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico
-        let reOpenOperatorId: string | null = activeConv.operatorId || null;
+        let reOpenOperatorId: string | null = provider === "meta" ? null : activeConv.operatorId || null;
         let reOpenQueueState = "fila";
 
-        if (contact.walletOperatorId) {
+        if (contact.walletOperatorId && provider !== "meta") {
           const [walletOp] = await db
             .select({ id: operators.id, name: operators.name })
             .from(operators)
@@ -356,6 +356,47 @@ export class InboundProcessor {
       const messageContent = mediaFileId && media?.mediaType
         ? `[MEDIA:${media.mediaType}]${mediaFileId}${media.mediaType === "document" ? `:${safeFileName}` : ""}${text ? `\n${text}` : ""}`
         : text || (media ? `[Mídia: ${safeFileName}]` : "");
+
+      // Resolução da mensagem citada (Reply / Quote do WhatsApp)
+      let resolvedQuotedId: string | null = quotedExternalId || null;
+      let quotedMessageSender: string | null = null;
+      let quotedMessageContent: string | null = null;
+
+      if (quotedExternalId) {
+        try {
+          const [foundQuoted] = await db
+            .select({
+              id: messages.id,
+              senderType: messages.senderType,
+              senderName: messages.senderName,
+              content: messages.content,
+            })
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                or(
+                  eq(messages.externalId, quotedExternalId),
+                  eq(messages.id, quotedExternalId),
+                  like(messages.externalId, `%${quotedExternalId}%`)
+                )
+              )
+            )
+            .limit(1);
+
+          if (foundQuoted) {
+            resolvedQuotedId = foundQuoted.id;
+            quotedMessageSender = foundQuoted.senderType === "agent" ? "Você" : (foundQuoted.senderName || contact.name || "Cliente");
+            quotedMessageContent = foundQuoted.content;
+          } else {
+            quotedMessageSender = "Mensagem";
+            quotedMessageContent = "Mensagem citada";
+          }
+        } catch (qErr) {
+          console.error("[InboundProcessor] Erro ao buscar mensagem citada:", qErr);
+        }
+      }
+
       await db.insert(messages).values({
         id: messageId,
         tenantId,
@@ -363,7 +404,9 @@ export class InboundProcessor {
         senderType: "client",
         senderName: contact.name,
         content: messageContent,
-        quotedMessageId: quotedExternalId || null,
+        quotedMessageId: resolvedQuotedId,
+        quotedMessageSender,
+        quotedMessageContent,
         isInternalNote: false,
         direction: "inbound",
         provider,
@@ -386,7 +429,9 @@ export class InboundProcessor {
           phone: contact.phone || cleanPhone || "",
           avatar: contact.avatar || null,
           sentAt: timestamp,
-          quotedMessageId: quotedExternalId || null,
+          quotedMessageId: resolvedQuotedId,
+          quotedMessageSender,
+          quotedMessageContent,
           queue: activeConv.queueState,
           operatorId: activeConv.operatorId ?? null,
           walletOperatorId: contact.walletOperatorId ?? null,

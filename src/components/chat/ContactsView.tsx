@@ -22,7 +22,7 @@ import {
   ArrowRight,
   Shield,
 } from "lucide-react";
-import { Channel, Conversation } from "@/lib/mockData";
+import { Channel, Conversation, QueueType } from "@/lib/mockData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 
@@ -95,6 +95,7 @@ export function ContactsView() {
     conversations,
     createContact,
     refreshConversations,
+    setActiveQueue,
     setSelectedChatId,
     setActiveView,
     operators,
@@ -213,6 +214,10 @@ export function ContactsView() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível abrir o atendimento.");
       await refreshConversations(result.conversationId);
+      const queue: QueueType = result.readOnly
+        ? result.queueState === "fila" ? "fila" : result.queueState === "automacao" ? "automacao" : "todos"
+        : "meus";
+      setActiveQueue(queue);
       setSelectedChatId(result.conversationId);
       setActiveView("chat");
     } catch (error) {
@@ -222,6 +227,7 @@ export function ContactsView() {
 
   const handleOpenFromSearch = (id: string) => {
     setShowSearchModal(false);
+    setActiveQueue("todos");
     setSelectedChatId(id);
     setActiveView("chat");
   };
@@ -240,6 +246,7 @@ export function ContactsView() {
         toast.warning("Contato criado. Abra o atendimento pela lista de contatos.");
         return;
       }
+      setActiveQueue(result.queueState);
       setSelectedChatId(result.conversationId);
       setActiveView("chat");
     } catch (error) {

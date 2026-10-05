@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { db } from "../../../../db";
-import { contacts, conversations } from "../../../../db/schema";
+import { channelConfigs, contacts, conversations } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
 
 export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
@@ -17,6 +17,9 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
         }
         const contactId = params.contactId;
         try {
+          const [channel] = await db.select({ activeProvider: channelConfigs.activeProvider })
+            .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId)).limit(1);
+          const requiresExplicitCapture = channel?.activeProvider === "meta";
           const result = await db.transaction(async (tx) => {
             await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId}))`);
             const [contact] = await tx.select({ id: contacts.id, walletOperatorId: contacts.walletOperatorId })
@@ -25,11 +28,25 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
             if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only" && contact.walletOperatorId !== session.operator.id) {
               return { forbidden: true } as const;
             }
-            const [existing] = await tx.select({ id: conversations.id }).from(conversations)
+            const [existing] = await tx.select({
+              id: conversations.id,
+              operatorId: conversations.operatorId,
+              queueState: conversations.queueState,
+            }).from(conversations)
               .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId), ne(conversations.queueState, "finalizados")))
               .orderBy(desc(conversations.lastMessageTime)).limit(1);
             const now = new Date();
             if (existing) {
+              // Abrir o histórico não transfere a conversa. Na Meta, somente a ação
+              // explícita de captura/assunção pode alterar o responsável.
+              if (requiresExplicitCapture) {
+                return {
+                  conversationId: existing.id,
+                  created: false,
+                  readOnly: existing.operatorId !== session.operator.id || existing.queueState !== "meus",
+                  queueState: existing.queueState,
+                };
+              }
               await tx.update(conversations)
                 .set({
                   operatorId: session.operator.id,
@@ -46,24 +63,28 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 })
                 .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
-              return { conversationId: existing.id, created: false };
+              return { conversationId: existing.id, created: false, readOnly: false, queueState: "meus" };
             }
 
             const conversationId = `conv-${crypto.randomUUID()}`;
             await tx.insert(conversations).values({
-              id: conversationId, tenantId, contactId, operatorId: session.operator.id,
-              queueState: "meus", lastMessageText: "Atendimento iniciado.",
+              id: conversationId, tenantId, contactId,
+              operatorId: requiresExplicitCapture ? null : session.operator.id,
+              queueState: requiresExplicitCapture ? "fila" : "meus",
+              lastMessageText: "Atendimento iniciado.",
               lastMessageTime: now, createdAt: now, updatedAt: now,
             });
 
-            await tx.update(contacts)
-              .set({
-                walletOperatorId: session.operator.id,
-                responsibleName: session.operator.name,
-              })
-              .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+            if (!requiresExplicitCapture) {
+              await tx.update(contacts)
+                .set({
+                  walletOperatorId: session.operator.id,
+                  responsibleName: session.operator.name,
+                })
+                .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+            }
 
-            return { conversationId, created: true };
+            return { conversationId, created: true, readOnly: requiresExplicitCapture, queueState: requiresExplicitCapture ? "fila" : "meus" };
           });
           if (!result) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
           if ("forbidden" in result) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });

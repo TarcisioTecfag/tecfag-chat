@@ -465,55 +465,94 @@ export function SharedFiles() {
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   // Scan all messages of this client/chat to extract media files and links
-  const mediaMessages = activeChat.messages.filter((m) => m.text.startsWith("[MEDIA:"));
+  const parsedMediaFiles = activeChat.messages
+    .flatMap((m) => {
+      const results: Array<{
+        id: string;
+        messageId: string;
+        type: string;
+        name: string;
+        time: string;
+        author: string;
+        url: string;
+      }> = [];
 
-  const parsedMediaFiles = mediaMessages
-    .map((m) => {
-      const match = m.text.match(
-        /^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/,
+      // Extrai mídias Baileys/Meta [MEDIA:type]messageId:filename
+      const baileysMatch = m.text.match(
+        /\[MEDIA:(image|video|audio|document|sticker)\]([^:\n]+)(?::([^\n]+))?/,
       );
-      if (!match) return null;
-      const [, type, messageId, extra] = match;
+      if (baileysMatch) {
+        const [, type, messageId, extra] = baileysMatch;
+        let displayName = "Arquivo";
+        if (type === "image") displayName = "Imagem";
+        else if (type === "sticker") displayName = "Figurinha";
+        else if (type === "video") displayName = "Vídeo";
+        else if (type === "audio") displayName = "Mensagem de voz";
+        else if (type === "document") displayName = extra || "Documento";
 
-      // For visual display:
-      let displayName = "Arquivo";
-      if (type === "image") displayName = "Imagem";
-      else if (type === "sticker") displayName = "Figurinha";
-      else if (type === "video") displayName = "Vídeo";
-      else if (type === "audio") displayName = "Mensagem de voz";
-      else if (type === "document") displayName = extra || "Documento";
+        results.push({
+          id: `${m.id}-baileys`,
+          messageId,
+          type,
+          name: displayName,
+          time: m.time,
+          author: m.author,
+          url: `${BACKEND_URL}/api/baileys/media?messageId=${messageId}`,
+        });
+      }
 
-      return {
-        id: m.id,
-        messageId,
-        type,
-        name: displayName,
+      // Extrai mídias locais [LOCAL_MEDIA:type:url:filename]
+      const localMatches = Array.from(m.text.matchAll(/\[LOCAL_MEDIA:([^:]+):(.+?):([^\]\n]+)\]/g));
+      for (const localMatch of localMatches) {
+        const [, type, fileUrl, fileName] = localMatch;
+        let displayName = fileName || "Arquivo";
+        if (type === "image" && (!fileName || fileName === "image.png")) displayName = "Imagem";
+        else if (type === "sticker") displayName = "Figurinha";
+        else if (type === "video") displayName = "Vídeo";
+        else if (type === "audio") displayName = "Áudio";
+
+        results.push({
+          id: `${m.id}-local-${results.length}`,
+          messageId: m.id,
+          type,
+          name: displayName,
+          time: m.time,
+          author: m.author,
+          url: fileUrl,
+        });
+      }
+
+      return results;
+    });
+
+  // Extract shared URLs/Links (excluindo tags de mídia e arquivos locais/internos)
+  const linkRegex = /(?:https?:\/\/|www\.)[^\s<>"'()]+|\b[a-zA-Z0-9][-a-zA-Z0-9]*\.(?:com\.br|ind\.br|eco\.br|net\.br|org\.br|gov\.br|edu\.br|com|net|org|io|dev|app|ai|me|cc|co|info|biz)\b(?:\/[^\s<>"'()]*)?/gi;
+
+  const parsedLinks = activeChat.messages.flatMap((m) => {
+    // Remove tags de mídia antes de buscar links
+    const textWithoutMedia = m.text
+      .replace(/\[LOCAL_MEDIA:[^\]]+\]/g, "")
+      .replace(/\[MEDIA:[^\]]+\]/g, "")
+      .trim();
+
+    if (!textWithoutMedia) return [];
+
+    const matches = textWithoutMedia.match(linkRegex);
+    if (!matches) return [];
+
+    return matches
+      .map((rawUrl) => {
+        const clean = rawUrl.replace(/[.,?!;:)]+$/, "");
+        if (clean.includes("/api/baileys/media") || clean.startsWith("blob:")) return null;
+        return clean;
+      })
+      .filter((u): u is string => !!u)
+      .map((url, idx) => ({
+        id: `${m.id}-link-${idx}`,
+        url,
         time: m.time,
         author: m.author,
-        url: `${BACKEND_URL}/api/baileys/media?messageId=${messageId}`,
-      };
-    })
-    .filter(Boolean) as Array<{
-    id: string;
-    messageId: string;
-    type: string;
-    name: string;
-    time: string;
-    author: string;
-    url: string;
-  }>;
-
-  // Extract shared URLs/Links
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const parsedLinks = activeChat.messages.flatMap((m) => {
-    const matches = m.text.match(urlRegex);
-    if (!matches) return [];
-    return matches.map((url, idx) => ({
-      id: `${m.id}-link-${idx}`,
-      url,
-      time: m.time,
-      author: m.author,
-    }));
+      }));
   });
 
   const docsCount = parsedMediaFiles.filter((f) => f.type === "document").length;
@@ -1261,7 +1300,7 @@ export function SharedFiles() {
                       <div className="flex items-start gap-2.5 min-w-0">
                         <Link2 className="h-4 w-4 shrink-0 text-primary mt-0.5" />
                         <a
-                          href={link.url}
+                          href={link.url.match(/^https?:\/\//i) ? link.url : `https://${link.url}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-xs font-semibold text-primary break-all hover:underline"

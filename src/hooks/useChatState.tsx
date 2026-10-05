@@ -103,6 +103,8 @@ type ChatContextType = {
   sectors: Sector[];
   currentOperatorId: string;
   currentGroup: AccessGroup;
+  sessionPermissions: GroupPermissions | null;
+  sessionRole: string | null;
   impersonateOperator: (id: string) => void;
   createOperator: (operator: Omit<Operator, "id" | "status" | "avatar">) => void;
   updateOperator: (id: string, fields: Partial<Operator>) => void;
@@ -136,7 +138,7 @@ type ChatContextType = {
   updateTags: (id: string, tags: string[]) => void;
   updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => void;
   updateContactWallet: (contactId: string, walletOperatorId: string | null, targetOperatorId?: string | null) => Promise<void>;
-  createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => Promise<{ contactId: string; conversationId: string; chatReady: boolean }>;
+  createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => Promise<{ contactId: string; conversationId: string; chatReady: boolean; queueState: QueueType }>;
   refreshConversations: (conversationId?: string) => Promise<void>;
   markAsRead: (id: string) => void;
   markAsUnread: (id: string) => void;
@@ -271,14 +273,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return [];
   });
 
-  // Inicializar operador ativo diretamente do localStorage (nunca hardcode op-1 Tecfag)
-  const [currentOperatorId, setCurrentOperatorId] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const savedOpId = localStorage.getItem("rbac_current_operator_id");
-      if (savedOpId) return savedOpId;
-    }
-    return "";
-  });
+  // A identidade de escrita vem sempre da sessão do servidor, nunca do localStorage.
+  const [currentOperatorId, setCurrentOperatorId] = useState("");
+  const [sessionPermissions, setSessionPermissions] = useState<GroupPermissions | null>(null);
+  const [sessionRole, setSessionRole] = useState<string | null>(null);
 
   // Refs to avoid stale closures in SSE event listener
   const selectedChatIdRef = useRef(selectedChatId);
@@ -362,6 +360,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               updateDocumentTitle(activeTenant, "baileys");
             }
             setCurrentOperatorId(data.operator.id);
+            setSessionPermissions(data.permissions || null);
+            setSessionRole(data.operator.role || null);
 
             setOperators((prev) => {
               const exists = prev.some((o) => o.id === data.operator.id);
@@ -381,12 +381,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .catch((err) => console.error("Erro ao sincronizar operadores da sessão:", err));
           } else {
             setIsAuthenticated(false);
+            setSessionPermissions(null);
+            setSessionRole(null);
             localStorage.removeItem("chat_is_authenticated");
             localStorage.removeItem("rbac_operators");
           }
         })
         .catch(() => {
           setIsAuthenticated(false);
+          setSessionPermissions(null);
+          setSessionRole(null);
           localStorage.removeItem("chat_is_authenticated");
           localStorage.removeItem("rbac_operators");
         });
@@ -454,23 +458,55 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [tenant, currentOperatorId]);
 
-  // Garantir que currentOperatorId seja sempre um operador válido na lista do tenant.
-  // Só executa o fallback se o usuário estiver autenticado, a lista de operadores já tiver sido carregada do banco para o tenant atual
-  // e o operador ativo realmente não pertencer a este tenant.
+  // SSE é imediato, mas pode perder eventos entre instâncias do servidor.
+  // Reconcilia somente a atribuição, sem recarregar mensagens nem sobrescrever rascunhos.
   useEffect(() => {
-    if (!isAuthenticated || operators.length === 0 || !currentOperatorId) return;
-
-    const exists = operators.some((op) => op.id === currentOperatorId);
-    if (!exists) {
-      console.warn(`[useChatState] Operador ativo '${currentOperatorId}' não encontrado no tenant '${tenant}'. Ajustando para '${operators[0].id}' (${operators[0].name}).`);
-      setCurrentOperatorId(operators[0].id);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("rbac_current_operator_id", operators[0].id);
-        } catch (e) {}
+    if (!isAuthenticated || !currentOperatorId) return;
+    let disposed = false;
+    const reconcileOwnership = async () => {
+      if (disposed || document.hidden) return;
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/chats?ownership=1`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.operatorId !== currentOperatorIdRef.current) {
+          window.location.reload();
+          return;
+        }
+        const byId = new Map<string, any>((data.ownership || []).map((item: any) => [item.id, item]));
+        if (disposed) return;
+        setConversations((previous) => previous.map((chat) => {
+          const latest = byId.get(chat.id);
+          if (!latest || (chat.operatorId === latest.operatorId && chat.queue === latest.queueState && chat.version === latest.version)) return chat;
+          return {
+            ...chat,
+            operatorId: latest.operatorId,
+            queue: latest.queueState,
+            responsibleName: latest.responsibleName,
+            sectorId: latest.sectorId,
+            version: latest.version,
+          };
+        }));
+      } catch (error) {
+        console.warn("[Chat] Falha temporária ao reconciliar responsáveis:", error);
       }
-    }
-  }, [operators, currentOperatorId, tenant, isAuthenticated]);
+    };
+    void reconcileOwnership();
+    const timer = window.setInterval(reconcileOwnership, 12000);
+    const onFocus = () => void reconcileOwnership();
+    const onVisibility = () => { if (!document.hidden) void reconcileOwnership(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [isAuthenticated, currentOperatorId, tenant]);
 
   // Persistir alterações apenas após o cliente estar pronto.
   // passwordHash é explicitamente excluído — NUNCA deve ficar no localStorage.
@@ -612,16 +648,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Impersonation
   const impersonateOperator = (id: string) => {
-    const targetOp = operators.find((op) => op.id === id);
-    if (!targetOp) return;
-    setCurrentOperatorId(id);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("rbac_current_operator_id", id);
-      } catch (e) {
-        console.error("Erro ao persistir rbac_current_operator_id no localStorage:", e);
-      }
-    }
+    if (id !== currentOperatorId) toast.error("Troque de conta para atuar como outro operador.");
   };
 
   // CRUD Operators
@@ -1044,6 +1071,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const currentConvs = tenant === "tecfag" ? tecfagConvs : valemConvs;
     if (currentConvs.length === 0) return;
+    if (selectedChatId && currentConvs.some((c) =>
+      c.id === selectedChatId && (activeQueue === "todos" || c.queue === activeQueue) &&
+      (activeQueue !== "meus" || c.operatorId === currentOperatorId)
+    )) return;
     const firstInQueue = currentConvs.find((c) => (activeQueue === "todos" || c.queue === activeQueue) && (activeQueue !== "meus" || c.operatorId === currentOperatorId));
     if (firstInQueue) {
       setSelectedChatId(firstInQueue.id);
@@ -1615,42 +1646,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const previousState = conversationsRef.current.find((c) => c.id === id);
     const isTakingFromAnother = !!previousState?.operatorId && previousState.operatorId !== currentOperatorId;
     if (!previousState || (isTakingFromAnother
-      ? !currentGroup.permissions?.chat.canOverrideChat
-      : !currentGroup.permissions?.chat.canCaptureChat)) {
+      ? sessionRole !== "admin" && !sessionPermissions?.chat.canOverrideChat
+      : sessionRole !== "admin" && !sessionPermissions?.chat.canCaptureChat)) {
       toast.error("Sem permissão para assumir este atendimento.");
       return;
     }
 
     const textLog = `CONVERSA INICIADA POR ${operatorProfile.name.toUpperCase()}`;
-    const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-
-    // Snapshot do estado anterior para rollback em caso de falha
-    // Optimistic update
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id === id) {
-          const systemMsg: Message = {
-            id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            author: "Sistema",
-            text: textLog,
-            time: now,
-            side: "out",
-            isInternalNote: true,
-          };
-          return {
-            ...c,
-            queue: "meus",
-            operatorId: currentOperatorId,
-            responsibleName: operatorProfile.name,
-            messages: [...c.messages, systemMsg],
-          };
-        }
-        return c;
-      })
-    );
-    setActiveQueue("meus");
-    setSelectedChatId(id);
-
     try {
       const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
@@ -1666,31 +1668,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (res.status === 409) {
-        // Outro operador capturou antes — rollback
-        console.warn("[captureChat] Conflito: chat já foi capturado por outro operador.");
-        toast.error("Conflito: Esta conversa já foi capturada ou modificada por outro atendente.");
-        if (previousState) {
-          setConversations((prev) =>
-            prev.map((c) => (c.id === id ? { ...previousState } : c))
-          );
-        }
-        setSelectedChatId(null);
+        toast.error("Este atendimento mudou. Atualizei o responsável; tente novamente se ainda tiver permissão.");
+        await refreshConversations(id);
         return;
       }
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || `HTTP ${res.status}`);
       }
       const updated = await res.json();
-      setConversations((prev) => prev.map((c) => c.id === id ? { ...c, version: updated.version } : c));
+      await refreshConversations(id);
+      setConversations((prev) => prev.map((c) => c.id === id ? {
+        ...c,
+        queue: updated.queueState,
+        operatorId: updated.operatorId,
+        responsibleName: updated.responsibleName,
+        version: updated.version,
+      } : c));
+      setActiveQueue("meus");
+      setSelectedChatId(id);
     } catch (err) {
-      console.error("[captureChat] Erro ao persistir no DB — revertendo estado:", err);
-      if (previousState) {
-        setConversations((prev) =>
-          prev.map((c) => (c.id === id ? { ...previousState } : c))
-        );
-      }
-      setSelectedChatId(null);
+      console.error("[captureChat] Erro ao assumir atendimento:", err);
+      toast.error(err instanceof Error ? err.message : "Não foi possível assumir o atendimento.");
     }
   };
 
@@ -2174,7 +2174,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn("Contato criado, mas a lista de atendimentos não atualizou:", error);
     }
     if (chatReady) setSelectedChatId(result.conversationId);
-    return { contactId: result.contactId as string, conversationId: result.conversationId as string, chatReady };
+    const queueState: QueueType = result.queueState === "fila" ? "fila" : "meus";
+    return { contactId: result.contactId as string, conversationId: result.conversationId as string, chatReady, queueState };
   };
 
   const disconnectBaileys = async () => {
@@ -2500,6 +2501,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (exists) {
             return prev.map((c) => {
               if (c.id === message.conversationId) {
+                if (!incomingMsg.quotedMessageContent && incomingMsg.quotedMessageId) {
+                  const quoted = c.messages.find((m) => m.id === incomingMsg.quotedMessageId || (m as any).externalId === incomingMsg.quotedMessageId);
+                  if (quoted) {
+                    incomingMsg.quotedMessageContent = quoted.text;
+                    incomingMsg.quotedMessageSender = quoted.author || (quoted.side === "out" ? "Você" : c.name);
+                  }
+                }
+
                 const isCurrentOpen = message.conversationId === selectedChatId;
                 const newUnread = message.senderType === "client"
                   ? (isCurrentOpen ? 0 : c.unreadCount + 1)
@@ -2608,19 +2617,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           })
         );
 
-        const myId = currentOperatorIdRef.current;
-        const isCurrentlyViewing = selectedChatIdRef.current === conversationId;
-
-        if (isCurrentlyViewing) {
-          const chatFinalized = queueState === "finalizados";
-          const chatTransferredAway =
-            (queueState === "fila" || queueState === "automacao") ||
-            (queueState === "meus" && newOperatorId && newOperatorId !== myId);
-
-          if (chatFinalized || chatTransferredAway) {
-            setSelectedChatId(null);
-          }
-        }
+        // Quem estava lendo a conversa continua vendo o histórico. O composer
+        // muda para somente leitura quando o operador responsável muda.
       }
     } catch (err) {
       console.error("Erro ao processar dados recebidos do SSE:", err);
@@ -2870,6 +2868,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
 
           setCurrentOperatorId(matchedOp.id);
+          setSessionRole(matchedOp.role || null);
+          setSessionPermissions(null);
 
           if (matchedOp.tenantId) {
             setTenantState(matchedOp.tenantId);
@@ -2907,6 +2907,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .catch(() => {});
           }
 
+          const sessionResponse = await fetch(`${BACKEND_URL}/api/auth/session`, { credentials: "include" });
+          if (!sessionResponse.ok) throw new Error("Não foi possível confirmar as permissões da sessão.");
+          const confirmedSession = await sessionResponse.json();
+          setCurrentOperatorId(confirmedSession.operator.id);
+          setSessionRole(confirmedSession.operator.role || null);
+          setSessionPermissions(confirmedSession.permissions || null);
           setIsAuthenticated(true);
           return true;
         }
@@ -2931,6 +2937,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error("Erro ao efetuar logout no servidor:", e);
     } finally {
       setIsAuthenticated(false);
+      setSessionPermissions(null);
+      setSessionRole(null);
       setTenantState(null);
       setAvailableTenants([]);
       setCurrentOperatorId("");
@@ -2986,6 +2994,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sectors: sectors.filter((s) => s.tenantId === tenant),
         currentOperatorId,
         currentGroup,
+        sessionPermissions,
+        sessionRole,
         impersonateOperator,
         createOperator,
         updateOperator,
