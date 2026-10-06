@@ -3174,33 +3174,198 @@ export class CrmService {
   }
 
   /**
-   * Atualização em massa de negociações (mover etapa, atribuir vendedor ou alterar status).
+   * Atualização em massa de negociações (mover etapa/funil, atribuir vendedor, alterar status,
+   * qualificação, campanha, fonte, produto, criar negociações para empresas, criar tarefas ou excluir).
    * Executa em transação, valida isolamento de tenant e registra auditoria.
    */
   async bulkUpdateDeals(
     tenantId: string,
     operatorId: string,
     params: {
-      dealIds: string[];
+      dealIds?: string[];
+      allFiltered?: boolean;
+      filterParams?: Record<string, any>;
+      pipelineId?: string;
       stageId?: string;
       operatorId?: string;
       status?: "open" | "won" | "lost" | "paused";
       lossReason?: string;
+      rating?: number;
+      campaign?: string;
+      source?: string;
+      productId?: string;
+      action?: "delete_trash" | "delete_permanent" | "create_deals_for_companies" | "create_tasks";
+      taskData?: {
+        title: string;
+        type?: string;
+        dueDate?: string | null;
+        description?: string;
+      };
     }
-  ): Promise<{ success: boolean; updatedCount: number; dealIds: string[] }> {
-    if (!params.dealIds || params.dealIds.length === 0) {
-      throw new CrmValidationError("Nenhuma negociação informada para atualização em massa.");
-    }
-
+  ): Promise<{ success: boolean; updatedCount: number; dealIds: string[]; message?: string }> {
     return await db.transaction(async (tx) => {
       // 1. Busca todos os deals no tenant
-      const foundDeals = await tx
-        .select()
-        .from(crmDeals)
-        .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, params.dealIds)));
+      let foundDeals: CrmDeal[] = [];
+
+      if (params.allFiltered && params.filterParams) {
+        const filterResult = await this.getDeals(tenantId, {
+          ...params.filterParams,
+          limit: 10000,
+          offset: 0,
+          includeTotal: false,
+        });
+        const dealIdsFromFilter = filterResult.deals.map((d) => d.id);
+        if (dealIdsFromFilter.length > 0) {
+          foundDeals = await tx
+            .select()
+            .from(crmDeals)
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, dealIdsFromFilter)));
+        }
+      } else if (params.dealIds && params.dealIds.length > 0) {
+        foundDeals = await tx
+          .select()
+          .from(crmDeals)
+          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, params.dealIds)));
+      } else {
+        throw new CrmValidationError("Nenhuma negociação informada para atualização em massa.");
+      }
 
       if (foundDeals.length === 0) {
         throw new CrmNotFoundError("Nenhuma negociação correspondente encontrada no tenant.");
+      }
+
+      const now = new Date();
+
+      // Ação Especial 1: Exclusão Permanente
+      if (params.action === "delete_permanent") {
+        const idsToDelete = foundDeals.map((d) => d.id);
+        await tx
+          .delete(crmDeals)
+          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, idsToDelete)));
+
+        return {
+          success: true,
+          updatedCount: idsToDelete.length,
+          dealIds: idsToDelete,
+          message: `${idsToDelete.length} negociação(ões) excluída(s) permanentemente.`,
+        };
+      }
+
+      // Ação Especial 2: Enviar para a Lixeira (Soft Delete)
+      if (params.action === "delete_trash") {
+        const idsToTrash = foundDeals.map((d) => d.id);
+        await tx
+          .update(crmDeals)
+          .set({
+            status: "paused",
+            pausedReason: "Lixeira",
+            updatedAt: now,
+            lastActivityAt: now,
+          })
+          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, idsToTrash)));
+
+        for (const deal of foundDeals) {
+          await this.logDealEvent(
+            tenantId,
+            deal.id,
+            "status_changed",
+            operatorId,
+            {
+              previousStatus: deal.status,
+              newStatus: "paused",
+              pausedReason: "Lixeira",
+            },
+            tx
+          );
+        }
+
+        return {
+          success: true,
+          updatedCount: idsToTrash.length,
+          dealIds: idsToTrash,
+          message: `${idsToTrash.length} negociação(ões) enviada(s) para a lixeira.`,
+        };
+      }
+
+      // Ação Especial 3: Criar Negociações para Empresas Vinculadas
+      if (params.action === "create_deals_for_companies") {
+        const createdIds: string[] = [];
+        for (const deal of foundDeals) {
+          if (!deal.accountId) continue; // Pula sem empresa
+
+          const [firstStage] = await tx
+            .select({ id: crmStages.id })
+            .from(crmStages)
+            .where(and(eq(crmStages.pipelineId, deal.pipelineId), eq(crmStages.tenantId, tenantId)))
+            .orderBy(asc(crmStages.orderIndex))
+            .limit(1);
+
+          const newDealId = crypto.randomUUID();
+          await tx.insert(crmDeals).values({
+            id: newDealId,
+            tenantId,
+            title: `${deal.title} (Nova)`,
+            accountId: deal.accountId,
+            pipelineId: deal.pipelineId,
+            stageId: firstStage ? firstStage.id : deal.stageId,
+            status: "open",
+            operatorId: deal.operatorId,
+            value: deal.value,
+            currency: deal.currency,
+            rating: deal.rating,
+            source: deal.source,
+            campaign: deal.campaign,
+            createdAt: now,
+            updatedAt: now,
+            lastActivityAt: now,
+          });
+
+          await this.logDealEvent(
+            tenantId,
+            newDealId,
+            "created",
+            operatorId,
+            { source: "bulk_company_deal", originDealId: deal.id },
+            tx
+          );
+          createdIds.push(newDealId);
+        }
+
+        return {
+          success: true,
+          updatedCount: createdIds.length,
+          dealIds: createdIds,
+          message: `${createdIds.length} nova(s) negociação(ões) criada(s) para empresas vinculadas.`,
+        };
+      }
+
+      // Ação Especial 4: Criar Tarefa em Massa
+      if (params.action === "create_tasks" && params.taskData) {
+        const taskCreatedIds: string[] = [];
+        for (const deal of foundDeals) {
+          const actId = crypto.randomUUID();
+          await tx.insert(crmDealActivities).values({
+            id: actId,
+            tenantId,
+            dealId: deal.id,
+            type: params.taskData.type || "task",
+            title: params.taskData.title || "Nova tarefa",
+            description: params.taskData.description || null,
+            dueDate: params.taskData.dueDate ? new Date(params.taskData.dueDate) : null,
+            operatorId: deal.operatorId || operatorId,
+            status: "pending",
+            createdAt: now,
+            updatedAt: now,
+          });
+          taskCreatedIds.push(actId);
+        }
+
+        return {
+          success: true,
+          updatedCount: taskCreatedIds.length,
+          dealIds: foundDeals.map((d) => d.id),
+          message: `Tarefa criada para ${taskCreatedIds.length} negociação(ões).`,
+        };
       }
 
       // 2. Se stageId informado, valida se a etapa pertence ao mesmo funil de cada deal
@@ -3232,7 +3397,17 @@ export class CrmService {
         }
       }
 
-      const now = new Date();
+      // 4. Se productId informado, valida produto no tenant
+      let targetProduct: CrmProduct | null = null;
+      if (params.productId) {
+        const [prod] = await tx
+          .select()
+          .from(crmProducts)
+          .where(and(eq(crmProducts.id, params.productId), eq(crmProducts.tenantId, tenantId)))
+          .limit(1);
+        if (prod) targetProduct = prod;
+      }
+
       let updatedCount = 0;
       const updatedIds: string[] = [];
 
@@ -3244,21 +3419,41 @@ export class CrmService {
         };
 
         if (params.stageId && targetStage) {
-          if (deal.pipelineId !== targetStage.pipelineId) {
-            throw new CrmValidationError(
-              `A negociação '${deal.title}' pertence a outro funil (${deal.pipelineId}) e não pode ser movida para a etapa de funil distinto (${targetStage.pipelineId}).`,
-              "STAGE_PIPELINE_MISMATCH"
-            );
+          // Permite mover entre funis se params.pipelineId informado ou funil diferente
+          if (params.pipelineId || targetStage.pipelineId !== deal.pipelineId) {
+            setPayload.pipelineId = targetStage.pipelineId;
           }
           if (deal.stageId !== params.stageId) {
-            const missing = missingStageFields(targetStage.requiredFields, targetStageFields, deal.customFields as CustomFieldValues, deal.pipelineId);
-            if (missing.length) throw new CrmValidationError(`A negociação '${deal.title}' precisa preencher: ${missing.join(", ")}.`, "REQUIRED_STAGE_FIELDS");
+            const missing = missingStageFields(
+              targetStage.requiredFields,
+              targetStageFields,
+              deal.customFields as CustomFieldValues,
+              targetStage.pipelineId
+            );
+            if (missing.length) {
+              throw new CrmValidationError(
+                `A negociação '${deal.title}' precisa preencher: ${missing.join(", ")}.`,
+                "REQUIRED_STAGE_FIELDS"
+              );
+            }
           }
           setPayload.stageId = params.stageId;
         }
 
         if (params.operatorId) {
           setPayload.operatorId = params.operatorId;
+        }
+
+        if (params.rating !== undefined) {
+          setPayload.rating = Math.max(0, Math.min(5, Number(params.rating)));
+        }
+
+        if (params.campaign !== undefined) {
+          setPayload.campaign = params.campaign;
+        }
+
+        if (params.source !== undefined) {
+          setPayload.source = params.source;
         }
 
         let newStatus = params.status;
@@ -3283,6 +3478,37 @@ export class CrmService {
           .update(crmDeals)
           .set(setPayload)
           .where(and(eq(crmDeals.id, deal.id), eq(crmDeals.tenantId, tenantId)));
+
+        // Se produto informado, adiciona à negociação
+        if (targetProduct) {
+          await tx.insert(crmDealProducts).values({
+            id: crypto.randomUUID(),
+            tenantId,
+            dealId: deal.id,
+            productId: targetProduct.id,
+            name: targetProduct.name,
+            unitPrice: targetProduct.unitPrice || "0.00",
+            quantity: "1.000",
+            discountPercent: "0.00",
+            totalPrice: targetProduct.unitPrice || "0.00",
+            createdAt: now,
+          });
+        }
+
+        // Se mudou funil, audita
+        if (setPayload.pipelineId && setPayload.pipelineId !== deal.pipelineId) {
+          await this.logDealEvent(
+            tenantId,
+            deal.id,
+            "pipeline_changed",
+            operatorId,
+            {
+              fromPipelineId: deal.pipelineId,
+              toPipelineId: setPayload.pipelineId,
+            },
+            tx
+          );
+        }
 
         // Evento de auditoria
         await this.logDealEvent(

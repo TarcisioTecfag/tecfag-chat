@@ -32,6 +32,9 @@ export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("whatsapp");
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
   const [pipelineSettingsOpen, setPipelineSettingsOpen] = useState(false);
+  const [sourcesCampaignsOpen, setSourcesCampaignsOpen] = useState(false);
+  const [lossReasonsOpen, setLossReasonsOpen] = useState(false);
+  const [segmentsOpen, setSegmentsOpen] = useState(false);
   const [catalogKind, setCatalogKind] = useState<CatalogKind | null>(null);
 
   const [metaForm, setMetaForm] = useState({ ...metaConfig });
@@ -1000,25 +1003,47 @@ export function SettingsView() {
                 Configurar campos de cadastro
               </button>
             </div>
-            {([
-              ["segment", "Segmentos", "Organize os segmentos das empresas."],
-              ["source", "Fontes e campanhas", "Padronize a origem e as campanhas das negociações."],
-              ["loss_reason", "Motivos de perda", "Configure os motivos usados no fechamento de negociações."],
-            ] as const).map(([kind, title, description]) => (
-              <div key={kind} className="rounded-2xl border border-border bg-card p-6 shadow-soft flex flex-col justify-between">
-                <div>
-                  <h3 className="text-base font-bold text-foreground">{title}</h3>
-                  <p className="mt-2 text-xs text-muted-foreground">{description}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCatalogKind(kind)}
-                  className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer self-start shadow-soft"
-                >
-                  Configurar {title.toLowerCase()}
-                </button>
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-soft flex flex-col justify-between">
+              <div>
+                <h3 className="text-base font-bold text-foreground">Segmentos</h3>
+                <p className="mt-2 text-xs text-muted-foreground">Organize os segmentos das empresas para filtrar e organizar sua carteira de clientes.</p>
               </div>
-            ))}
+              <button
+                type="button"
+                onClick={() => setSegmentsOpen(true)}
+                className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer self-start shadow-soft"
+              >
+                Configurar segmentos
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-soft flex flex-col justify-between">
+              <div>
+                <h3 className="text-base font-bold text-foreground">Fontes e campanhas</h3>
+                <p className="mt-2 text-xs text-muted-foreground">Padronize a origem e as campanhas de marketing das negociações.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSourcesCampaignsOpen(true)}
+                className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer self-start shadow-soft"
+              >
+                Configurar fontes e campanhas
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-soft flex flex-col justify-between">
+              <div>
+                <h3 className="text-base font-bold text-foreground">Motivos de perda</h3>
+                <p className="mt-2 text-xs text-muted-foreground">Configure e padronize os motivos usados no encerramento de negociações perdidas.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLossReasonsOpen(true)}
+                className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer self-start shadow-soft"
+              >
+                Configurar motivos de perda
+              </button>
+            </div>
           </div>
         )}
 
@@ -1412,7 +1437,28 @@ export function SettingsView() {
       </div>
       <CustomFieldsSettingsModal isOpen={customFieldsOpen} onClose={() => setCustomFieldsOpen(false)} />
       <PipelineSettingsModal isOpen={pipelineSettingsOpen} onClose={() => setPipelineSettingsOpen(false)} />
-      {catalogKind && <CrmCatalogSettingsModal isOpen initialKind={catalogKind} onClose={() => setCatalogKind(null)} />}
+      <CrmCatalogSettingsModal
+        isOpen={sourcesCampaignsOpen}
+        scope="sources_campaigns"
+        onClose={() => setSourcesCampaignsOpen(false)}
+      />
+      <CrmCatalogSettingsModal
+        isOpen={lossReasonsOpen}
+        scope="loss_reasons"
+        onClose={() => setLossReasonsOpen(false)}
+      />
+      <CrmCatalogSettingsModal
+        isOpen={segmentsOpen}
+        scope="segments"
+        onClose={() => setSegmentsOpen(false)}
+      />
+      {catalogKind && (
+        <CrmCatalogSettingsModal
+          isOpen
+          initialKind={catalogKind}
+          onClose={() => setCatalogKind(null)}
+        />
+      )}
     </section>
   );
 }

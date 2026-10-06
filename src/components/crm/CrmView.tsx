@@ -507,6 +507,9 @@ export function CrmView() {
               operators={operators}
               stagesMap={stagesMap}
               operatorsMap={operatorsMap}
+              pipelines={pipelines}
+              currentPipelineId={selectedPipelineId}
+              filterParams={Object.fromEntries(buildFilterQueryParams().entries())}
               onDealClick={(d) =>
                 navigate({
                   to: "/crm/deals/$dealId",
