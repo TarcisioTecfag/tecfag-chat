@@ -10,11 +10,38 @@ import {
   responseTimeLogs,
   operatorDailyMetrics,
   aiReports,
+  aiReportVersions,
+  aiReportFeedback,
   agentFlowStates,
   roundRobinState,
   mediaFiles,
   callSessions,
   tasks,
+  crmActivityMessages,
+  crmDealActivities,
+  crmDealContacts,
+  crmConversationDeals,
+  crmDealProducts,
+  crmProposals,
+  crmDealFiles,
+  crmDealQuestionnaires,
+  crmDealEmails,
+  crmDealEvents,
+  crmDeals,
+  crmAccountConversations,
+  crmContactAccountHistory,
+  crmAccounts,
+  crmStageSettings,
+  crmStages,
+  crmPipelines,
+  crmCustomFieldDefinitions,
+  crmCatalogItems,
+  crmCatalogPolicies,
+  crmProducts,
+  crmActionHistory,
+  crmMigrationRuns,
+  quickResponses,
+  pendingInbounds,
 } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
@@ -249,48 +276,136 @@ export const Route = createFileRoute("/api/admin/reset")({
 
           const results: Record<string, number> = {};
 
-          // Deleções estritamente filtradas pelo tenant do administrador autenticado
-          const [r_aiLogs] = await db.delete(aiUsageLogs).where(eq(aiUsageLogs.tenantId, tenantId)).returning({ id: aiUsageLogs.id });
-          results.ai_usage_logs = Array.isArray(r_aiLogs) ? r_aiLogs.length : 0;
+          // Deleções estritamente filtradas pelo tenant do administrador autenticado (ordem de FKs)
+          // 1. CRM Atividades e Negociações
+          const r_crmActMsgs = await db.delete(crmActivityMessages).where(eq(crmActivityMessages.tenantId, tenantId)).returning({ id: crmActivityMessages.id });
+          results.crm_activity_messages = r_crmActMsgs.length;
 
-          const [r_audits] = await db.delete(aiConversationAudits).where(eq(aiConversationAudits.tenantId, tenantId)).returning({ id: aiConversationAudits.id });
-          results.ai_conversation_audits = Array.isArray(r_audits) ? r_audits.length : 0;
+          const r_crmAct = await db.delete(crmDealActivities).where(eq(crmDealActivities.tenantId, tenantId)).returning({ id: crmDealActivities.id });
+          results.crm_deal_activities = r_crmAct.length;
 
-          const [r_reports] = await db.delete(aiReports).where(eq(aiReports.tenantId, tenantId)).returning({ id: aiReports.id });
-          results.ai_reports = Array.isArray(r_reports) ? r_reports.length : 0;
+          const r_crmContacts = await db.delete(crmDealContacts).where(eq(crmDealContacts.tenantId, tenantId)).returning({ id: crmDealContacts.id });
+          results.crm_deal_contacts = r_crmContacts.length;
 
-          const [r_metrics] = await db.delete(operatorDailyMetrics).where(eq(operatorDailyMetrics.tenantId, tenantId)).returning({ id: operatorDailyMetrics.id });
-          results.operator_daily_metrics = Array.isArray(r_metrics) ? r_metrics.length : 0;
+          const r_crmConvDeals = await db.delete(crmConversationDeals).where(eq(crmConversationDeals.tenantId, tenantId)).returning({ id: crmConversationDeals.id });
+          results.crm_conversation_deals = r_crmConvDeals.length;
 
-          const [r_internal] = await db.delete(internalMessages).where(eq(internalMessages.tenantId, tenantId)).returning({ id: internalMessages.id });
-          results.internal_messages = Array.isArray(r_internal) ? r_internal.length : 0;
+          const r_crmProducts = await db.delete(crmDealProducts).where(eq(crmDealProducts.tenantId, tenantId)).returning({ id: crmDealProducts.id });
+          results.crm_deal_products = r_crmProducts.length;
 
-          const [r_rtLogs] = await db.delete(responseTimeLogs).where(eq(responseTimeLogs.tenantId, tenantId)).returning({ id: responseTimeLogs.id });
-          results.response_time_logs = Array.isArray(r_rtLogs) ? r_rtLogs.length : 0;
+          const r_crmProposals = await db.delete(crmProposals).where(eq(crmProposals.tenantId, tenantId)).returning({ id: crmProposals.id });
+          results.crm_proposals = r_crmProposals.length;
 
-          const [r_media] = await db.delete(mediaFiles).where(eq(mediaFiles.tenantId, tenantId)).returning({ id: mediaFiles.id });
-          results.media_files = Array.isArray(r_media) ? r_media.length : 0;
+          const r_crmFiles = await db.delete(crmDealFiles).where(eq(crmDealFiles.tenantId, tenantId)).returning({ id: crmDealFiles.id });
+          results.crm_deal_files = r_crmFiles.length;
 
-          const [r_calls] = await db.delete(callSessions).where(eq(callSessions.tenantId, tenantId)).returning({ id: callSessions.id });
-          results.call_sessions = Array.isArray(r_calls) ? r_calls.length : 0;
+          const r_crmQuest = await db.delete(crmDealQuestionnaires).where(eq(crmDealQuestionnaires.tenantId, tenantId)).returning({ id: crmDealQuestionnaires.id });
+          results.crm_deal_questionnaires = r_crmQuest.length;
 
-          const [r_tasks] = await db.delete(tasks).where(eq(tasks.tenantId, tenantId)).returning({ id: tasks.id });
-          results.tasks = Array.isArray(r_tasks) ? r_tasks.length : 0;
+          const r_crmEmails = await db.delete(crmDealEmails).where(eq(crmDealEmails.tenantId, tenantId)).returning({ id: crmDealEmails.id });
+          results.crm_deal_emails = r_crmEmails.length;
 
-          const [r_flowStates] = await db.delete(agentFlowStates).where(eq(agentFlowStates.tenantId, tenantId)).returning({ id: agentFlowStates.id });
-          results.agent_flow_states = Array.isArray(r_flowStates) ? r_flowStates.length : 0;
+          const r_crmEvents = await db.delete(crmDealEvents).where(eq(crmDealEvents.tenantId, tenantId)).returning({ id: crmDealEvents.id });
+          results.crm_deal_events = r_crmEvents.length;
 
-          const [r_rr] = await db.delete(roundRobinState).where(eq(roundRobinState.tenantId, tenantId)).returning({ id: roundRobinState.id });
-          results.round_robin_state = Array.isArray(r_rr) ? r_rr.length : 0;
+          const r_crmDeals = await db.delete(crmDeals).where(eq(crmDeals.tenantId, tenantId)).returning({ id: crmDeals.id });
+          results.crm_deals = r_crmDeals.length;
 
-          const [r_msgs] = await db.delete(messages).where(eq(messages.tenantId, tenantId)).returning({ id: messages.id });
-          results.messages = Array.isArray(r_msgs) ? r_msgs.length : 0;
+          // 2. Chat, Mensagens e Tarefas
+          const r_tasks = await db.delete(tasks).where(eq(tasks.tenantId, tenantId)).returning({ id: tasks.id });
+          results.tasks = r_tasks.length;
 
-          const [r_convs] = await db.delete(conversations).where(eq(conversations.tenantId, tenantId)).returning({ id: conversations.id });
-          results.conversations = Array.isArray(r_convs) ? r_convs.length : 0;
+          const r_msgs = await db.delete(messages).where(eq(messages.tenantId, tenantId)).returning({ id: messages.id });
+          results.messages = r_msgs.length;
+
+          const r_media = await db.delete(mediaFiles).where(eq(mediaFiles.tenantId, tenantId)).returning({ id: mediaFiles.id });
+          results.media_files = r_media.length;
+
+          const r_calls = await db.delete(callSessions).where(eq(callSessions.tenantId, tenantId)).returning({ id: callSessions.id });
+          results.call_sessions = r_calls.length;
+
+          const r_rtLogs = await db.delete(responseTimeLogs).where(eq(responseTimeLogs.tenantId, tenantId)).returning({ id: responseTimeLogs.id });
+          results.response_time_logs = r_rtLogs.length;
+
+          const r_audits = await db.delete(aiConversationAudits).where(eq(aiConversationAudits.tenantId, tenantId)).returning({ id: aiConversationAudits.id });
+          results.ai_conversation_audits = r_audits.length;
+
+          const r_metrics = await db.delete(operatorDailyMetrics).where(eq(operatorDailyMetrics.tenantId, tenantId)).returning({ id: operatorDailyMetrics.id });
+          results.operator_daily_metrics = r_metrics.length;
+
+          const r_repFb = await db.delete(aiReportFeedback).where(eq(aiReportFeedback.tenantId, tenantId)).returning({ id: aiReportFeedback.id });
+          results.ai_report_feedback = r_repFb.length;
+
+          const r_repVer = await db.delete(aiReportVersions).where(eq(aiReportVersions.tenantId, tenantId)).returning({ id: aiReportVersions.id });
+          results.ai_report_versions = r_repVer.length;
+
+          const r_reports = await db.delete(aiReports).where(eq(aiReports.tenantId, tenantId)).returning({ id: aiReports.id });
+          results.ai_reports = r_reports.length;
+
+          const r_flowStates = await db.delete(agentFlowStates).where(eq(agentFlowStates.tenantId, tenantId)).returning({ id: agentFlowStates.id });
+          results.agent_flow_states = r_flowStates.length;
+
+          const r_rr = await db.delete(roundRobinState).where(eq(roundRobinState.tenantId, tenantId)).returning({ id: roundRobinState.id });
+          results.round_robin_state = r_rr.length;
+
+          const r_internal = await db.delete(internalMessages).where(eq(internalMessages.tenantId, tenantId)).returning({ id: internalMessages.id });
+          results.internal_messages = r_internal.length;
+
+          const r_pending = await db.delete(pendingInbounds).where(eq(pendingInbounds.tenantId, tenantId)).returning({ id: pendingInbounds.id });
+          results.pending_inbounds = r_pending.length;
+
+          const r_aiLogs = await db.delete(aiUsageLogs).where(eq(aiUsageLogs.tenantId, tenantId)).returning({ id: aiUsageLogs.id });
+          results.ai_usage_logs = r_aiLogs.length;
+
+          // 3. Conversas e Vínculos de Empresa
+          const r_accConvs = await db.delete(crmAccountConversations).where(eq(crmAccountConversations.tenantId, tenantId)).returning({ id: crmAccountConversations.id });
+          results.crm_account_conversations = r_accConvs.length;
+
+          const r_convs = await db.delete(conversations).where(eq(conversations.tenantId, tenantId)).returning({ id: conversations.id });
+          results.conversations = r_convs.length;
+
+          // 4. Contatos e Histórico
+          const r_cAccHist = await db.delete(crmContactAccountHistory).where(eq(crmContactAccountHistory.tenantId, tenantId)).returning({ id: crmContactAccountHistory.id });
+          results.crm_contact_account_history = r_cAccHist.length;
 
           const r_contacts = await db.delete(contacts).where(eq(contacts.tenantId, tenantId)).returning({ id: contacts.id });
           results.contacts = r_contacts.length;
+
+          // 5. Empresas
+          const r_accounts = await db.delete(crmAccounts).where(eq(crmAccounts.tenantId, tenantId)).returning({ id: crmAccounts.id });
+          results.crm_accounts = r_accounts.length;
+
+          // 6. Funis e Etapas
+          const r_stageSet = await db.delete(crmStageSettings).where(eq(crmStageSettings.tenantId, tenantId)).returning({ stageId: crmStageSettings.stageId });
+          results.crm_stage_settings = r_stageSet.length;
+
+          const r_stages = await db.delete(crmStages).where(eq(crmStages.tenantId, tenantId)).returning({ id: crmStages.id });
+          results.crm_stages = r_stages.length;
+
+          const r_pipelines = await db.delete(crmPipelines).where(eq(crmPipelines.tenantId, tenantId)).returning({ id: crmPipelines.id });
+          results.crm_pipelines = r_pipelines.length;
+
+          // 7. Campos Personalizados, Catálogos e Produtos
+          const r_cfDefs = await db.delete(crmCustomFieldDefinitions).where(eq(crmCustomFieldDefinitions.tenantId, tenantId)).returning({ id: crmCustomFieldDefinitions.id });
+          results.crm_custom_field_definitions = r_cfDefs.length;
+
+          const r_catItems = await db.delete(crmCatalogItems).where(eq(crmCatalogItems.tenantId, tenantId)).returning({ id: crmCatalogItems.id });
+          results.crm_catalog_items = r_catItems.length;
+
+          const r_catPolicies = await db.delete(crmCatalogPolicies).where(eq(crmCatalogPolicies.tenantId, tenantId)).returning({ id: crmCatalogPolicies.tenantId });
+          results.crm_catalog_policies = r_catPolicies.length;
+
+          const r_prod = await db.delete(crmProducts).where(eq(crmProducts.tenantId, tenantId)).returning({ id: crmProducts.id });
+          results.crm_products = r_prod.length;
+
+          const r_actHist = await db.delete(crmActionHistory).where(eq(crmActionHistory.tenantId, tenantId)).returning({ id: crmActionHistory.id });
+          results.crm_action_history = r_actHist.length;
+
+          const r_migRuns = await db.delete(crmMigrationRuns).where(eq(crmMigrationRuns.tenantId, tenantId)).returning({ id: crmMigrationRuns.id });
+          results.crm_migration_runs = r_migRuns.length;
+
+          const r_quick = await db.delete(quickResponses).where(eq(quickResponses.tenantId, tenantId)).returning({ id: quickResponses.id });
+          results.quick_responses = r_quick.length;
           if (r_contacts.length) await recordCrmAction({ tenantId,
             operatorId: session.operator.id, operatorName: session.operator.name,
             action: "delete_contact", entityType: "contact", itemCount: r_contacts.length,

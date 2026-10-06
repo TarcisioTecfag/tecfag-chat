@@ -1,6 +1,27 @@
 import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+
+// Carrega .env nativamente se existir no ambiente de execução
+if (typeof process.loadEnvFile === "function") {
+  try {
+    if (existsSync(".env")) process.loadEnvFile(".env");
+  } catch (e) {}
+} else if (existsSync(".env")) {
+  try {
+    const envContent = readFileSync(".env", "utf8");
+    for (const line of envContent.split("\n")) {
+      const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+      if (match) {
+        const key = match[1];
+        let val = (match[2] || "").trim();
+        if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+        if (!process.env[key]) process.env[key] = val;
+      }
+    }
+  } catch (e) {}
+}
 
 const migrations = [
   {
@@ -141,6 +162,25 @@ if (!databaseUrl) {
       }
     } else {
       console.log(`[platform migration] ${tecfagCfMigrationName} já aplicada anteriormente.`);
+    }
+
+    // 4. Reset pontual de dados operacionais do tenant Tecfag (executa APENAS UMA VEZ no próximo deploy)
+    const tecfagResetMigrationName = "reset_tecfag_crm_chat_data_v1";
+    const [appliedTecfagReset] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagResetMigrationName}
+    `;
+    if (!appliedTecfagReset) {
+      console.log(`[platform migration] Iniciando execução de ${tecfagResetMigrationName}...`);
+      try {
+        const { runTenantReset } = await import("./reset-tenant-data.mjs");
+        await runTenantReset(sql, "tecfag", { isDryRun: false });
+        await sql`INSERT INTO app_deploy_migrations (name) VALUES (${tecfagResetMigrationName}) ON CONFLICT (name) DO NOTHING`;
+        console.log(`[platform migration] ${tecfagResetMigrationName} concluída e registrada com sucesso.`);
+      } catch (resetErr) {
+        console.error(`[platform migration] Aviso: Falha no reset do tenant Tecfag (${tecfagResetMigrationName}):`, resetErr);
+      }
+    } else {
+      console.log(`[platform migration] ${tecfagResetMigrationName} já aplicada anteriormente.`);
     }
   } catch (error) {
     console.error("[platform migration] Falha crítica ao aplicar migrações estruturais DDL:", error);
