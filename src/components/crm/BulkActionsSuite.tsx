@@ -510,9 +510,9 @@ export function BulkActionsSuite({
   return (
     <>
       {/* ──────────────────────────────────────────────────────────────────────────
-          BARRA DE AÇÕES EM MASSA ESCURA SUPERIOR (IDÊNTICA AO RD CRM / SCREENSHOTS)
+          BARRA DE AÇÕES EM MASSA (EM HARMONIA COM A PALETA DO SISTEMA TECFAG/VALEM)
           ────────────────────────────────────────────────────────────────────────── */}
-      <div className="w-full bg-[#0a2333] dark:bg-[#071926] text-white px-4 py-2.5 flex items-center justify-between border-b border-border/40 select-none shadow-sm transition-all duration-200">
+      <div className="w-full bg-slate-900 dark:bg-[#0f172a] text-slate-100 px-4 py-2.5 flex items-center justify-between border-b border-border select-none shadow-xs transition-all duration-200">
         {/* Esquerda: Contador & Link Limpar Seleção */}
         <div className="flex items-center gap-3">
           <span className="font-bold text-sm tracking-tight text-white whitespace-nowrap">
@@ -521,7 +521,7 @@ export function BulkActionsSuite({
           <button
             type="button"
             onClick={onClearSelection}
-            className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 dark:text-cyan-400 hover:underline cursor-pointer transition"
+            className="text-xs font-bold text-primary hover:underline cursor-pointer transition"
           >
             Limpar seleção
           </button>
@@ -534,7 +534,7 @@ export function BulkActionsSuite({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="text-xs font-medium px-2.5 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/10 transition cursor-pointer"
               >
                 Transferir
               </button>
@@ -548,7 +548,7 @@ export function BulkActionsSuite({
                   placeholder="Buscar"
                   value={transferSearch}
                   onChange={(e) => setTransferSearch(e.target.value)}
-                  className="h-8 pl-8 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:ring-1 focus-visible:ring-cyan-500"
+                  className="h-8 pl-8 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:ring-1 focus-visible:ring-primary"
                 />
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
               </div>
@@ -712,7 +712,7 @@ export function BulkActionsSuite({
                   }}
                   className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-medium text-foreground transition cursor-pointer"
                 >
-                  <Building2 className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+                  <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
                   <span>Negociações para Empresas</span>
                 </button>
                 <button
@@ -723,7 +723,7 @@ export function BulkActionsSuite({
                   }}
                   className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-medium text-foreground transition cursor-pointer"
                 >
-                  <Calendar className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <Calendar className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   <span>Tarefa</span>
                 </button>
               </div>
@@ -756,7 +756,7 @@ export function BulkActionsSuite({
               setDeleteConfirmCheckbox(false);
               setIsDeleteModalOpen(true);
             }}
-            className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition cursor-pointer"
+            className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/10 transition cursor-pointer"
           >
             Excluir
           </button>
@@ -771,7 +771,7 @@ export function BulkActionsSuite({
           checked={isAllFilterSelected}
           onCheckedChange={onToggleAllFilter}
           id="bulk-select-all-filter"
-          className="data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500 rounded-sm"
+          className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
         />
         <label
           htmlFor="bulk-select-all-filter"
@@ -780,7 +780,7 @@ export function BulkActionsSuite({
           Selecionar todos os {total} itens deste filtro
         </label>
         {isAllFilterSelected && (
-          <span className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 ml-1">
+          <span className="text-[11px] font-bold text-primary ml-1">
             (Todos os {total} itens selecionados)
           </span>
         )}
@@ -870,7 +870,7 @@ export function BulkActionsSuite({
               size="sm"
               onClick={handleExecuteMove}
               disabled={loading || !targetMoveStageId}
-              className="text-xs font-bold bg-[#0b3346] hover:bg-[#0e4058] text-cyan-300 dark:bg-cyan-600 dark:hover:bg-cyan-500 dark:text-white cursor-pointer"
+              className="text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer"
             >
               {loading ? (
                 <>
@@ -949,7 +949,7 @@ export function BulkActionsSuite({
               type="button"
               size="sm"
               onClick={handleExecuteExport}
-              className="text-xs font-bold bg-[#0b3346] hover:bg-[#0e4058] text-cyan-300 dark:bg-cyan-600 dark:hover:bg-cyan-500 dark:text-white cursor-pointer"
+              className="text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer"
             >
               Exportar dados
             </Button>
@@ -992,7 +992,7 @@ export function BulkActionsSuite({
               size="sm"
               onClick={handleExecuteCreateCompanyDeals}
               disabled={loading}
-              className="text-xs font-bold bg-cyan-500 hover:bg-cyan-600 text-white cursor-pointer"
+              className="text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer"
             >
               {loading ? (
                 <>
@@ -1054,7 +1054,7 @@ export function BulkActionsSuite({
                 checked={deleteConfirmCheckbox}
                 onCheckedChange={(val) => setDeleteConfirmCheckbox(Boolean(val))}
                 id="delete-perm-checkbox"
-                className="rounded-sm"
+                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
               />
               <label
                 htmlFor="delete-perm-checkbox"
@@ -1068,10 +1068,11 @@ export function BulkActionsSuite({
           <DialogFooter className="flex items-center justify-end gap-2 pt-3 border-t border-border">
             <Button
               type="button"
+              variant="outline"
               size="sm"
               onClick={handleDeleteTrash}
               disabled={loading}
-              className="text-xs font-bold bg-cyan-500 hover:bg-cyan-600 text-white cursor-pointer"
+              className="text-xs font-bold border-border hover:bg-muted text-foreground cursor-pointer"
             >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
@@ -1161,7 +1162,7 @@ export function BulkActionsSuite({
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
-              <Star className="h-4 w-4 text-amber-400" />
+              <Star className="h-4 w-4 fill-primary text-primary" />
               <span>Alterar Qualificação em Massa</span>
             </DialogTitle>
           </DialogHeader>
@@ -1181,7 +1182,7 @@ export function BulkActionsSuite({
                   <Star
                     className={`h-6 w-6 transition ${
                       star <= selectedRating
-                        ? "fill-amber-400 text-amber-400"
+                        ? "fill-primary text-primary"
                         : "text-muted-foreground/30"
                     }`}
                   />

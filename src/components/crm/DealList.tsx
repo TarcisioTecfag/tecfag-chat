@@ -233,7 +233,7 @@ export function DealList({
                     checked={isAllFilterSelected || isAllCurrentSelected}
                     onCheckedChange={handleToggleSelectAll}
                     aria-label="Selecionar todas as negociações da página"
-                    className="data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500 rounded-sm"
+                    className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
                   />
                 </th>
                 <th className="py-3 px-3">Negociações</th>
@@ -332,7 +332,7 @@ export function DealList({
                       onClick={() => onDealClick(deal)}
                       className={`transition-colors cursor-pointer group ${
                         isSelected
-                          ? "bg-cyan-500/10 dark:bg-cyan-500/15 hover:bg-cyan-500/15 dark:hover:bg-cyan-500/20"
+                          ? "bg-primary/5 dark:bg-primary/10 hover:bg-primary/10 dark:hover:bg-primary/15"
                           : "hover:bg-muted/40"
                       }`}
                     >
@@ -345,7 +345,7 @@ export function DealList({
                           checked={isSelected}
                           onCheckedChange={() => {}}
                           aria-label={`Selecionar ${deal.title}`}
-                          className="data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500 rounded-sm"
+                          className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
                         />
                       </td>
 
@@ -382,11 +382,14 @@ export function DealList({
                         </div>
                       </td>
 
-                      {/* Qualificação (Número com estrelas) */}
+                      {/* Qualificação (Número com estrelas na cor primária) */}
                       <td className="py-3 px-2 text-center whitespace-nowrap">
-                        <span className="font-bold text-xs text-foreground">
-                          {deal.rating || 1}
-                        </span>
+                        <div className="inline-flex items-center justify-center gap-1">
+                          <span className="font-bold text-xs text-foreground">
+                            {deal.rating || 1}
+                          </span>
+                          <Star className="h-3 w-3 fill-primary text-primary" />
+                        </div>
                       </td>
 
                       {/* Etapa do Funil */}
@@ -409,7 +412,7 @@ export function DealList({
                               e.stopPropagation();
                               onDealClick(deal);
                             }}
-                            className="text-xs font-semibold text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer"
+                            className="text-xs font-semibold text-primary hover:underline cursor-pointer"
                           >
                             Adicionar valor
                           </button>
