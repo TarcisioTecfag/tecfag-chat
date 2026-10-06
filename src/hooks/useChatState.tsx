@@ -137,9 +137,9 @@ type ChatContextType = {
   finishChat: (id: string) => void;
   logSystemEvent: (chatId: string, eventText: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => void;
-  updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => void;
+  updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & { accountId?: string | null }) => Promise<void>;
   updateContactWallet: (contactId: string, walletOperatorId: string | null, targetOperatorId?: string | null) => Promise<void>;
-  createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => Promise<{ contactId: string; conversationId: string; chatReady: boolean; queueState: QueueType }>;
+  createContact: (name: string, phone: string, email: string, accountId: string | null, channel: Channel) => Promise<{ contactId: string; conversationId: string; chatReady: boolean; queueState: QueueType }>;
   refreshConversations: (conversationId?: string) => Promise<void>;
   loadConversationPage: (queue: QueueType, cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" }) => Promise<{ nextCursor: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null }>;
   markAsRead: (id: string) => void;
@@ -2090,7 +2090,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const updateClientInfo = async (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email" | "cnpj" | "cpf">>) => {
+  const updateClientInfo = async (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & { accountId?: string | null }) => {
     // 1. Atualiza estado local imediatamente (optimistic update)
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...fields } : c))
@@ -2101,8 +2101,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const contactId = (conv as any)?.contactId as string | undefined;
 
     if (!contactId) {
-      console.warn("[updateClientInfo] Sem contactId para conversa:", id);
-      return;
+      throw new Error("Contato do atendimento não encontrado.");
     }
 
     try {
@@ -2113,12 +2112,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        console.error("[updateClientInfo] Erro ao persistir:", err);
+        throw new Error(err.error || "Não foi possível salvar os dados do contato.");
       } else {
         console.log("[updateClientInfo] Contato atualizado com sucesso:", contactId);
       }
     } catch (e) {
       console.error("[updateClientInfo] Falha na requisição:", e);
+      throw e;
     }
   };
 
@@ -2315,12 +2315,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   refreshAssignedChatRef.current = refreshConversations;
 
-  const createContact = async (name: string, phone: string, email: string, cnpj: string, channel: Channel) => {
+  const createContact = async (name: string, phone: string, email: string, accountId: string | null, channel: Channel) => {
     const response = await fetch(`${BACKEND_URL}/api/contacts`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, phone, email, cnpj, channel }),
+      body: JSON.stringify({ name, phone, email, accountId, channel }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || "Não foi possível criar o contato.");

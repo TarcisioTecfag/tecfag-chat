@@ -12,6 +12,8 @@ import { fetchCnpjInfo, CnpjFullDetails } from "@/lib/valentina/cnpj-service";
 import { useChat } from "@/hooks/useChatState";
 import { RdCrmCard } from "./RdCrmCard";
 import { ConversationDealsPanel } from "@/components/crm/ConversationDealsPanel";
+import { AccountPicker } from "@/components/crm/AccountPicker";
+import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -214,14 +216,34 @@ export function SharedFiles() {
   }, [activeChat?.id]);
 
   const [isEditingInfo, setIsEditingInfo] = useState(false);
+  const [linkedAccount, setLinkedAccount] = useState<CrmAccountDTO | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<CrmAccountDTO | null>(null);
+  const [savingInfo, setSavingInfo] = useState(false);
+
+  useEffect(() => {
+    const contactId = activeChat?.contactId;
+    setLinkedAccount(null);
+    setSelectedAccount(null);
+    setIsEditingInfo(false);
+    if (!contactId) return;
+    const controller = new AbortController();
+    fetch(`/api/contacts/${encodeURIComponent(contactId)}`, { signal: controller.signal })
+      .then((res) => res.ok ? res.json() : null)
+      .then((contact) => {
+        if (!controller.signal.aborted) {
+          setLinkedAccount(contact?.account || null);
+          setSelectedAccount(contact?.account || null);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [activeChat?.contactId]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const [editForm, setEditForm] = React.useState({
     name: "",
     phone: "",
     email: "",
-    cnpj: "",
-    cpf: "",
   });
 
   const [cnpjDetails, setCnpjDetails] = useState<CnpjFullDetails>({});
@@ -406,15 +428,23 @@ export function SharedFiles() {
       name: activeChat.name || "",
       phone: activeChat.phone || "",
       email: activeChat.email || "",
-      cnpj: maskCNPJ(activeChat.cnpj || ""),
-      cpf: maskCPF((activeChat as any).cpf || ""),
     });
+    setSelectedAccount(linkedAccount);
     setIsEditingInfo(true);
   };
 
-  const handleSaveInfo = () => {
-    updateClientInfo(activeChat.id, editForm);
-    setIsEditingInfo(false);
+  const handleSaveInfo = async () => {
+    setSavingInfo(true);
+    try {
+      await updateClientInfo(activeChat.id, { ...editForm, accountId: selectedAccount?.id || null });
+      setLinkedAccount(selectedAccount);
+      setIsEditingInfo(false);
+      toast.success("Contato atualizado.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível salvar o contato.");
+    } finally {
+      setSavingInfo(false);
+    }
   };
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
@@ -661,6 +691,7 @@ export function SharedFiles() {
               {canEditClientInfo && (
                 <button
                   onClick={isEditingInfo ? handleSaveInfo : startEditing}
+                  disabled={savingInfo}
                   className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
                 >
                   {isEditingInfo ? "Salvar" : "Editar"}
@@ -688,23 +719,10 @@ export function SharedFiles() {
                     className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                   />
                 </div>
-                <div className="space-y-0.5">
-                  <label className="text-[9px] font-bold text-muted-foreground">CNPJ</label>
-                  <input
-                    type="text"
-                    value={editForm.cnpj}
-                    onChange={(e) => setEditForm({ ...editForm, cnpj: maskCNPJ(e.target.value) })}
-                    className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border"
-                  />
-                </div>
-                <div className="space-y-0.5">
-                  <label className="text-[9px] font-bold text-muted-foreground">CPF</label>
-                  <input
-                    type="text"
-                    value={editForm.cpf}
-                    onChange={(e) => setEditForm({ ...editForm, cpf: maskCPF(e.target.value) })}
-                    className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border"
-                  />
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-muted-foreground">Empresa / cliente vinculado</label>
+                  <AccountPicker value={selectedAccount?.id || null} selectedAccount={selectedAccount} onSelectAccount={setSelectedAccount} lookupUrl="/api/contacts/account-options" placeholder="Buscar empresa por nome ou CNPJ..." />
+                  <p className="text-[10px] text-muted-foreground">O CNPJ ou CPF é cadastrado na ficha da empresa ou cliente PF.</p>
                 </div>
               </div>
             ) : (
@@ -721,24 +739,16 @@ export function SharedFiles() {
                     {activeChat.email || "Não informado"}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Building className="h-3.5 w-3.5 text-muted-foreground" />
-                  <div>
-                    <div className="text-xs text-foreground font-medium">
-                      {formatCNPJ(activeChat.cnpj)}
-                    </div>
-                    {activeChat.cnpj && (
-                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30 mt-0.5 inline-block">
-                        CNPJ Validado
-                      </span>
+                <div className="flex items-start gap-2">
+                  <Building className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
+                  <div className="text-xs text-foreground font-medium">
+                    {linkedAccount ? linkedAccount.name : "Sem empresa / cliente vinculado"}
+                    {linkedAccount?.document && (
+                      <div className="text-[10px] text-muted-foreground font-normal">
+                        {linkedAccount.type === "company" ? formatCNPJ(linkedAccount.document) : formatCPF(linkedAccount.document)}
+                      </div>
                     )}
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs text-foreground font-medium">
-                    {formatCPF((activeChat as any).cpf)}
-                  </span>
                 </div>
               </div>
             )}

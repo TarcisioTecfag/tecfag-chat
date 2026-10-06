@@ -32,6 +32,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { CatalogSelect } from "./CatalogSelect";
 import {
   Search,
   ArrowRightLeft,
@@ -1251,10 +1252,16 @@ export function BulkActionsSuite({
               <strong className="text-foreground">{effectiveCount} negociações</strong> para
               Perdido.
             </p>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-semibold">Motivo da Perda (Opcional)</Label>
+              <CatalogSelect
+                kind="loss_reason"
+                value={lossReasonText}
+                onChange={setLossReasonText}
+                placeholder="Selecione um motivo cadastrado"
+              />
               <Input
-                placeholder="Ex: Preço elevado, sem orçamento, optou por concorrente..."
+                placeholder="Ou digite/complemente observações adicionais..."
                 value={lossReasonText}
                 onChange={(e) => setLossReasonText(e.target.value)}
                 className="h-8 text-xs"

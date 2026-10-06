@@ -115,6 +115,9 @@ export const Route = createFileRoute("/api/crm/contacts")({
           const contact = outcome.contact;
           return Response.json({ contact }, { status: 201 });
         } catch (error) {
+          if ((error as { constraint?: string })?.constraint === "contacts_tenant_phone_identity") {
+            return Response.json({ error: "Já existe um contato com este telefone.", code: "CONTACT_EXISTS" }, { status: 409 });
+          }
           if (error instanceof Error && "statusCode" in error) return Response.json({ error: error.message }, { status: 400 });
           console.error("[CRM Contacts API] Erro ao criar contato:", error);
           return Response.json({ error: "Não foi possível criar o contato." }, { status: 500 });

@@ -11,6 +11,7 @@ interface AccountPickerProps {
   disabled?: boolean;
   placeholder?: string;
   divergentWarning?: string | null;
+  lookupUrl?: string;
 }
 
 function formatDoc(doc?: string | null, type?: string): string {
@@ -33,6 +34,7 @@ export function AccountPicker({
   disabled = false,
   placeholder = "Buscar cliente existente por nome, razão social ou CPF/CNPJ...",
   divergentWarning,
+  lookupUrl = "/api/crm/accounts",
 }: AccountPickerProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CrmAccountDTO[]>([]);
@@ -51,7 +53,7 @@ export function AccountPicker({
   // Se tem value mas não tem activeAccount, busca dados da conta
   useEffect(() => {
     if (value && (!activeAccount || activeAccount.id !== value)) {
-      fetch(`/api/crm/accounts/${value}`)
+      fetch(lookupUrl === "/api/crm/accounts" ? `${lookupUrl}/${encodeURIComponent(value)}` : `${lookupUrl}?id=${encodeURIComponent(value)}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data?.account) {
@@ -62,7 +64,7 @@ export function AccountPicker({
     } else if (!value && activeAccount) {
       setActiveAccount(null);
     }
-  }, [value]);
+  }, [value, lookupUrl]);
 
   // Debounce search
   useEffect(() => {
@@ -74,7 +76,7 @@ export function AccountPicker({
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/crm/accounts?search=${encodeURIComponent(query.trim())}&limit=8`);
+        const res = await fetch(`${lookupUrl}?search=${encodeURIComponent(query.trim())}&limit=8`);
         if (res.ok) {
           const data = await res.json();
           setResults(data.accounts || []);
@@ -87,7 +89,7 @@ export function AccountPicker({
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [query, activeAccount]);
+  }, [query, activeAccount, lookupUrl]);
 
   // Close dropdown on click outside
   useEffect(() => {

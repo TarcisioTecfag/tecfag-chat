@@ -88,6 +88,14 @@ const migrations = [
     name: "0023_crm_action_history",
     url: new URL("../src/db/migrations/0023_crm_action_history.sql", import.meta.url),
   },
+  {
+    name: "0024_customer_identity_guards",
+    url: new URL("../src/db/migrations/0024_customer_identity_guards.sql", import.meta.url),
+  },
+  {
+    name: "0025_crm_catalog_standard_items_policy",
+    url: new URL("../src/db/migrations/0025_crm_catalog_standard_items_policy.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

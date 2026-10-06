@@ -900,6 +900,8 @@ export const crmCatalogPolicies = pgTable("crm_catalog_policies", {
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   kind: text("kind").notNull(),
   allowUserCreate: boolean("allow_user_create").default(false).notNull(),
+  includeStandard: boolean("include_standard").default(true).notNull(),
+  disabledStandardItems: jsonb("disabled_standard_items").$type<string[]>().default([]).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   tenantKindUnique: uniqueIndex("idx_crm_catalog_policies_tenant_kind").on(table.tenantId, table.kind),

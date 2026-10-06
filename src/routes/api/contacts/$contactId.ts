@@ -127,7 +127,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           });
         } catch (e: any) {
           console.error("Erro ao atualizar contato:", e);
-          const statusCode = e?.statusCode || 500;
+          const statusCode = e?.constraint === "contacts_tenant_phone_identity" ? 409 : e?.statusCode || 500;
           return new Response(JSON.stringify({ error: e.message, code: e?.code }), {
             status: statusCode,
             headers: { ...CORS, "Content-Type": "application/json" },

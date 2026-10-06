@@ -2,7 +2,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
-import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
+import { formatPhoneNumber, formatCPF, formatCNPJ } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -25,6 +25,8 @@ import {
 import { Channel, Conversation, QueueType } from "@/lib/mockData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
+import { AccountPicker } from "@/components/crm/AccountPicker";
+import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 
 type ContactListItem = {
   id: string;
@@ -32,6 +34,10 @@ type ContactListItem = {
   phone: string;
   whatsappUsername: string;
   email: string;
+  accountId: string | null;
+  accountName: string | null;
+  accountDocument: string | null;
+  accountType: string | null;
   cnpj: string;
   cpf: string;
   avatar: string | null;
@@ -111,6 +117,9 @@ export function ContactsView() {
   const [totalContacts, setTotalContacts] = useState(0);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
+  const [newAccount, setNewAccount] = useState<CrmAccountDTO | null>(null);
+  const [editAccount, setEditAccount] = useState<CrmAccountDTO | null>(null);
+  const [editAccountId, setEditAccountId] = useState<string | null>(null);
   const contactsRequestRevision = useRef(0);
 
   const loadContacts = async (offset = 0, signal?: AbortSignal) => {
@@ -128,6 +137,10 @@ export function ContactsView() {
       phone: item.phone || "",
       whatsappUsername: item.whatsappUsername || "",
       email: item.email || "",
+      accountId: item.accountId || null,
+      accountName: item.accountName || null,
+      accountDocument: item.accountDocument || null,
+      accountType: item.accountType || null,
       cnpj: item.cnpj || "",
       cpf: item.cpf || "",
       avatar: item.avatar || null,
@@ -211,7 +224,6 @@ export function ContactsView() {
     name: "",
     phone: "",
     email: "",
-    cnpj: "",
     channel: "whatsapp" as Channel,
   });
 
@@ -220,8 +232,6 @@ export function ContactsView() {
     phone: "",
     whatsappUsername: "",
     email: "",
-    cnpj: "",
-    cpf: "",
     tagsInput: "",
   });
 
@@ -256,8 +266,9 @@ export function ContactsView() {
     if (!addForm.name.trim()) return;
     setSavingContact(true);
     try {
-      const result = await createContact(addForm.name, addForm.phone, addForm.email, addForm.cnpj, addForm.channel);
-      setAddForm({ name: "", phone: "", email: "", cnpj: "", channel: "whatsapp" });
+      const result = await createContact(addForm.name, addForm.phone, addForm.email, newAccount?.id || null, addForm.channel);
+      setAddForm({ name: "", phone: "", email: "", channel: "whatsapp" });
+      setNewAccount(null);
       setShowAddModal(false);
       if (!result.chatReady) {
         try { await loadContacts(0); }
@@ -277,13 +288,13 @@ export function ContactsView() {
 
   const startEditing = (c: ContactListItem) => {
     setEditingContact(c);
+    setEditAccount(null);
+    setEditAccountId(c.accountId);
     setEditForm({
       name: c.name,
       phone: c.phone || "",
       whatsappUsername: c.whatsappUsername || "",
       email: c.email || "",
-      cnpj: maskCNPJ(c.cnpj || ""),
-      cpf: maskCPF(c.cpf || ""),
       tagsInput: c.tags.join(", "),
     });
   };
@@ -296,7 +307,7 @@ export function ContactsView() {
     try {
       const response = await fetch(`/api/contacts/${encodeURIComponent(editingContact.id)}`, {
         method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editForm.name, phone: editForm.phone, whatsappUsername: editForm.whatsappUsername, email: editForm.email, cnpj: editForm.cnpj, cpf: editForm.cpf, tags: tagsArray }),
+        body: JSON.stringify({ name: editForm.name, phone: editForm.phone, whatsappUsername: editForm.whatsappUsername, email: editForm.email, accountId: editAccountId, tags: tagsArray }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível salvar o contato.");
@@ -424,13 +435,13 @@ export function ContactsView() {
                       )}
                     </td>
                     <td className="py-3.5 px-4">
-                      {c.cnpj ? (
+                      {c.accountName ? (
                         <div>
-                          <div className="flex items-center gap-1 text-foreground font-mono">
+                          <div className="flex items-center gap-1 text-foreground">
                             <Building className="h-3 w-3 text-muted-foreground" />
-                            {formatCNPJ(c.cnpj)}
+                            {c.accountName}
                           </div>
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/15 px-1 py-0.2 rounded border border-emerald-500/30 mt-0.5 inline-block">Informado</span>
+                          {c.accountDocument && <span className="text-[10px] text-muted-foreground font-mono">{c.accountType === "company" ? formatCNPJ(c.accountDocument) : formatCPF(c.accountDocument)}</span>}
                         </div>
                       ) : (
                         <span className="text-muted-foreground italic font-medium">Nenhum</span>
@@ -527,16 +538,16 @@ export function ContactsView() {
                   </span>
                 </div>
 
-                {/* Dados do Contato: Telefone, Email, CNPJ */}
+                {/* Dados do contato e cliente vinculado */}
                 <div className="bg-muted/40 rounded-xl p-3 text-xs space-y-1.5 border border-border/50">
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       <Phone className="h-3.5 w-3.5 text-primary" />
                       <span className="font-semibold text-foreground">{c.phone ? formatPhoneNumber(c.phone) : "Número não informado"}</span>
                     </span>
-                    {c.cnpj && (
+                    {c.accountName && (
                       <span className="text-[10px] text-emerald-600 font-mono bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
-                        {formatCNPJ(c.cnpj)}
+                        {c.accountName}
                       </span>
                     )}
                   </div>
@@ -779,10 +790,10 @@ export function ContactsView() {
                     <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
                     <input type="text" placeholder="Ex: (81) 99876-5432" value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CNPJ</label>
-                    <input type="text" placeholder="Ex: 12.345.678/0001-90" value={addForm.cnpj} onChange={(e) => setAddForm({ ...addForm, cnpj: maskCNPJ(e.target.value) })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
-                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
+                  <AccountPicker value={newAccount?.id || null} selectedAccount={newAccount} onSelectAccount={setNewAccount} lookupUrl="/api/contacts/account-options" placeholder="Buscar empresa por nome ou CNPJ..." />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
@@ -851,14 +862,10 @@ export function ContactsView() {
                     <input type="text" placeholder="@usuario" value={editForm.whatsappUsername} onChange={(e) => setEditForm({ ...editForm, whatsappUsername: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
                     <p className="text-[10px] text-muted-foreground">O nome é para identificação. O envio depende do identificador recebido do WhatsApp ou do telefone.</p>
                   </div>}
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CNPJ</label>
-                    <input type="text" value={editForm.cnpj} onChange={(e) => setEditForm({ ...editForm, cnpj: maskCNPJ(e.target.value) })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CPF</label>
-                    <input type="text" value={editForm.cpf} onChange={(e) => setEditForm({ ...editForm, cpf: maskCPF(e.target.value) })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
-                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
+                  <AccountPicker value={editAccountId} selectedAccount={editAccount || undefined} onSelectAccount={(account) => { setEditAccount(account); setEditAccountId(account?.id || null); }} lookupUrl="/api/contacts/account-options" placeholder="Buscar empresa por nome ou CNPJ..." />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>

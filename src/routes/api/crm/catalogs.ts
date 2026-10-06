@@ -6,8 +6,10 @@ import { requireCrmPermission } from "../../../lib/rbac";
 import {
   getCatalogPolicy,
   isCatalogKind,
+  listAvailableCatalogOptions,
   listCatalogItems,
   normalizeCatalogName,
+  STANDARD_CATALOG_ITEMS,
 } from "../../../lib/crm/catalogs";
 
 export const Route = createFileRoute("/api/crm/catalogs")({
@@ -22,9 +24,16 @@ export const Route = createFileRoute("/api/crm/catalogs")({
         if (!isCatalogKind(kind))
           return Response.json({ error: "Catálogo inválido." }, { status: 400 });
         const tenantId = auth.session.tenantId;
+        const policy = await getCatalogPolicy(tenantId, kind);
+        const items = await listCatalogItems(tenantId, kind);
+        const options = await listAvailableCatalogOptions(tenantId, kind);
         return Response.json({
-          items: await listCatalogItems(tenantId, kind),
-          allowUserCreate: await getCatalogPolicy(tenantId, kind),
+          items,
+          options,
+          allowUserCreate: policy.allowUserCreate,
+          includeStandard: policy.includeStandard,
+          disabledStandardItems: policy.disabledStandardItems,
+          standardItems: STANDARD_CATALOG_ITEMS[kind] || [],
           isAdmin: auth.session.operator.role === "admin",
         });
       },
@@ -37,9 +46,10 @@ export const Route = createFileRoute("/api/crm/catalogs")({
         try {
           const body = await request.json();
           if (!isCatalogKind(body.kind)) throw new Error("Catálogo inválido.");
+          const policy = await getCatalogPolicy(session.tenantId, body.kind);
           if (
             session.operator.role !== "admin" &&
-            !(await getCatalogPolicy(session.tenantId, body.kind))
+            !policy.allowUserCreate
           )
             return Response.json(
               { error: "Permissão insuficiente.", code: "FORBIDDEN" },
@@ -89,25 +99,57 @@ export const Route = createFileRoute("/api/crm/catalogs")({
           );
         try {
           const body = await request.json();
-          if (
-            !isCatalogKind(body.kind) ||
-            body.kind === "loss_reason" ||
-            typeof body.allowUserCreate !== "boolean"
-          )
-            throw new Error("Preferência inválida.");
+          if (!isCatalogKind(body.kind)) {
+            throw new Error("Catálogo inválido.");
+          }
+
+          const currentPolicy = await getCatalogPolicy(session.tenantId, body.kind);
+
+          const allowUserCreate =
+            body.kind === "loss_reason"
+              ? false
+              : typeof body.allowUserCreate === "boolean"
+                ? body.allowUserCreate
+                : currentPolicy.allowUserCreate;
+
+          const includeStandard =
+            typeof body.includeStandard === "boolean"
+              ? body.includeStandard
+              : currentPolicy.includeStandard;
+
+          const disabledStandardItems = Array.isArray(body.disabledStandardItems)
+            ? (body.disabledStandardItems.filter((i: unknown) => typeof i === "string") as string[])
+            : currentPolicy.disabledStandardItems;
+
           const [policy] = await db
             .insert(crmCatalogPolicies)
             .values({
               tenantId: session.tenantId,
               kind: body.kind,
-              allowUserCreate: body.allowUserCreate,
+              allowUserCreate,
+              includeStandard,
+              disabledStandardItems,
+              updatedAt: new Date(),
             })
             .onConflictDoUpdate({
               target: [crmCatalogPolicies.tenantId, crmCatalogPolicies.kind],
-              set: { allowUserCreate: body.allowUserCreate, updatedAt: new Date() },
+              set: {
+                allowUserCreate,
+                includeStandard,
+                disabledStandardItems,
+                updatedAt: new Date(),
+              },
             })
             .returning();
-          return Response.json({ policy });
+
+          return Response.json({
+            policy: {
+              kind: policy.kind,
+              allowUserCreate: policy.allowUserCreate,
+              includeStandard: policy.includeStandard,
+              disabledStandardItems: policy.disabledStandardItems,
+            },
+          });
         } catch (error) {
           return Response.json(
             { error: error instanceof Error ? error.message : "Dados inválidos." },

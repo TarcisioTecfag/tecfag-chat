@@ -41,7 +41,7 @@ export function CatalogSelect({
       })
       .then((data) => {
         if (active) {
-          setItems(data.items || []);
+          setItems(data.options || data.items || []);
           setAllowCreate(data.allowUserCreate || data.isAdmin);
         }
       })

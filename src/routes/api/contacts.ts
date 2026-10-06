@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db/index.js";
-import { channelConfigs, contacts, conversations } from "../../db/schema.js";
+import { channelConfigs, contacts, conversations, crmAccounts, crmContactAccountHistory } from "../../db/schema.js";
 import { eq, and, count, desc, ilike, or, sql } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
 import { requireSession } from "../../lib/auth-session.js";
@@ -47,7 +47,7 @@ export const Route = createFileRoute("/api/contacts")({
           conditions.push(or(
             ilike(contacts.name, pattern), ilike(contacts.email, pattern),
             ilike(contacts.whatsappUsername, pattern),
-            ilike(contacts.phone, pattern), ilike(contacts.cnpj, pattern), ilike(contacts.cpf, pattern),
+            ilike(contacts.phone, pattern), ilike(crmAccounts.name, pattern), ilike(crmAccounts.document, pattern),
             ilike(contacts.responsibleName, pattern),
             sql`${contacts.tags}::text ILIKE ${pattern}`,
             digits.length >= 4 ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}` : undefined,
@@ -60,6 +60,8 @@ export const Route = createFileRoute("/api/contacts")({
               id: contacts.id, name: contacts.name, phone: contacts.phone,
               whatsappUsername: contacts.whatsappUsername,
               email: contacts.email, cnpj: contacts.cnpj, cpf: contacts.cpf,
+              accountId: contacts.accountId,
+              accountName: crmAccounts.name, accountDocument: crmAccounts.document, accountType: crmAccounts.type,
               avatar: contacts.avatar, tags: contacts.tags,
               mainChannel: contacts.mainChannel, walletOperatorId: contacts.walletOperatorId,
               responsibleName: contacts.responsibleName,
@@ -73,8 +75,8 @@ export const Route = createFileRoute("/api/contacts")({
                 WHERE conv.contact_id = ${contacts.id} AND conv.tenant_id = ${tenantId}
                 ORDER BY conv.last_message_time DESC, conv.created_at DESC LIMIT 1
               )`,
-            }).from(contacts).where(where).orderBy(desc(contacts.createdAt), desc(contacts.id)).limit(limit).offset(offset),
-            db.select({ total: count() }).from(contacts).where(where),
+            }).from(contacts).leftJoin(crmAccounts, and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId))).where(where).orderBy(desc(contacts.createdAt), desc(contacts.id)).limit(limit).offset(offset),
+            db.select({ total: count() }).from(contacts).leftJoin(crmAccounts, and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId))).where(where),
           ]);
           return Response.json({ contacts: items, total: totals[0]?.total || 0, limit, offset });
         } catch (error) {
@@ -93,7 +95,7 @@ export const Route = createFileRoute("/api/contacts")({
           }
 
           const body = await request.json().catch(() => ({}));
-          const { name, phone, email, cnpj, channel } = body;
+          const { name, phone, email, accountId, channel } = body;
 
           if (typeof name !== "string" || !name.trim() || name.trim().length > 200) {
             return new Response(
@@ -110,8 +112,13 @@ export const Route = createFileRoute("/api/contacts")({
               normalizedEmail.length > 254 ||
               (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) ||
               (channel && !["whatsapp", "instagram", "messenger", "livechat"].includes(channel)) ||
-              (cnpj && (typeof cnpj !== "string" || cnpj.length > 32))) {
+              (accountId !== undefined && accountId !== null && typeof accountId !== "string")) {
             return Response.json({ error: "Dados do contato inválidos." }, { status: 400 });
+          }
+          if (accountId) {
+            const [account] = await db.select({ id: crmAccounts.id }).from(crmAccounts)
+              .where(and(eq(crmAccounts.tenantId, tenantId), eq(crmAccounts.id, accountId), sql`${crmAccounts.archivedAt} IS NULL`)).limit(1);
+            if (!account) return Response.json({ error: "Empresa não encontrada neste tenant." }, { status: 404 });
           }
           if (phone && shouldIgnoreJid(phone)) {
             return new Response(
@@ -143,12 +150,19 @@ export const Route = createFileRoute("/api/contacts")({
             await tx.insert(contacts).values({
               id: finalContactId, tenantId, name: name.trim(),
               phone: normalizedPhone || null, email: normalizedEmail || null,
-              cnpj: cnpj ? cnpj.replace(/\D/g, "") : null,
+              accountId: accountId || null,
               mainChannel: channel || "whatsapp",
               walletOperatorId: requiresExplicitCapture ? null : session.operator.id,
               responsibleName: requiresExplicitCapture ? "Na Fila" : session.operator.name,
               createdAt: now,
             });
+            if (accountId) {
+              await tx.insert(crmContactAccountHistory).values({
+                id: `cah-${crypto.randomUUID()}`, tenantId, contactId: finalContactId,
+                accountId, reason: "Vínculo definido no cadastro do contato",
+                changedByOperatorId: session.operator.id, createdAt: now,
+              });
+            }
             await tx.insert(conversations).values({
               id: finalConversationId, tenantId, contactId: finalContactId,
               operatorId: requiresExplicitCapture ? null : session.operator.id,
@@ -176,6 +190,9 @@ export const Route = createFileRoute("/api/contacts")({
           );
         } catch (e: any) {
           console.error("[POST /api/contacts] Erro ao criar contato e conversa no DB:", e);
+          if (e?.constraint === "contacts_tenant_phone_identity") {
+            return Response.json({ error: "Já existe um contato com este telefone.", code: "CONTACT_EXISTS" }, { status: 409 });
+          }
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },

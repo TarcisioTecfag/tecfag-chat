@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Plus, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import type { CatalogKind } from "@/lib/crm/catalogs";
+import { STANDARD_CATALOG_ITEMS, type CatalogKind } from "@/lib/crm/catalogs";
 import { Switch } from "@/components/ui/switch";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
@@ -55,41 +55,6 @@ const allTabs: Record<CatalogKind, CatalogTabMeta> = {
   },
 };
 
-const standardItems: Record<CatalogKind, string[]> = {
-  segment: [
-    "Indústria & Fabricação",
-    "Comércio Varejista & Atacadista",
-    "Serviços & Consultoria",
-    "Alimentos & Bebidas",
-    "Química, Farmacêutica & Cosméticos",
-    "Agronegócio & Agroindústria",
-    "Tecnologia & Comunicação",
-  ],
-  source: [
-    "WhatsApp",
-    "Site Institucional",
-    "Indicação de Cliente",
-    "Telefone / Receptivo",
-    "E-mail Direto",
-    "Feiras & Eventos Comerciais",
-  ],
-  campaign: [
-    "Google Ads (Pesquisa & Display)",
-    "Meta Ads (Facebook & Instagram)",
-    "Tráfego Orgânico / SEO",
-    "Prospecção Ativa (Outbound)",
-    "Campanhas Institucionais",
-  ],
-  loss_reason: [
-    "Preço elevado / Fora do orçamento",
-    "Fechou com concorrente",
-    "Contato sem retorno / Sumiu",
-    "Desistência da compra / Projeto cancelado",
-    "Especificação técnica incompatível",
-    "Prazo de entrega não atende",
-  ],
-};
-
 function getScopeTabs(scope: CatalogScope): CatalogTabMeta[] {
   if (scope === "sources_campaigns") return [allTabs.source, allTabs.campaign];
   if (scope === "segments") return [allTabs.segment];
@@ -129,6 +94,9 @@ export function CrmCatalogSettingsModal({
   const [items, setItems] = useState<Item[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [allowUserCreate, setAllowUserCreate] = useState(false);
+  const [includeStandard, setIncludeStandard] = useState(true);
+  const [disabledStandardItems, setDisabledStandardItems] = useState<string[]>([]);
+  const [updatingStandard, setUpdatingStandard] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState<Item | "new" | null>(null);
@@ -156,7 +124,9 @@ export function CrmCatalogSettingsModal({
       if (!response.ok) throw new Error(data.error || "Não foi possível carregar o catálogo.");
       setItems(data.items || []);
       setIsAdmin(data.isAdmin);
-      setAllowUserCreate(data.allowUserCreate);
+      setAllowUserCreate(data.allowUserCreate ?? false);
+      setIncludeStandard(data.includeStandard ?? true);
+      setDisabledStandardItems(data.disabledStandardItems || []);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao carregar catálogo.");
     } finally {
@@ -243,6 +213,114 @@ export function CrmCatalogSettingsModal({
       toast.error(
         error instanceof Error ? error.message : "Não foi possível alterar a preferência.",
       );
+    }
+  };
+
+  const toggleIncludeStandard = async (targetValue?: boolean) => {
+    if (!isAdmin) return;
+    const nextValue = typeof targetValue === "boolean" ? targetValue : !includeStandard;
+    const prevValue = includeStandard;
+    setIncludeStandard(nextValue);
+    setUpdatingStandard(true);
+    try {
+      const response = await fetch("/api/crm/catalogs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          includeStandard: nextValue,
+          disabledStandardItems,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Não foi possível alterar a preferência.");
+      }
+      toast.success(
+        nextValue
+          ? `${currentTab.itemPlural} padrão ativad${kind === "campaign" || kind === "source" ? "as" : "os"} com sucesso.`
+          : `${currentTab.itemPlural} padrão desativad${kind === "campaign" || kind === "source" ? "as" : "os"}. Apenas opções personalizadas serão utilizadas.`,
+      );
+    } catch (error) {
+      setIncludeStandard(prevValue);
+      toast.error(error instanceof Error ? error.message : "Não foi possível alterar a preferência.");
+    } finally {
+      setUpdatingStandard(false);
+    }
+  };
+
+  const toggleStandardItem = async (itemName: string) => {
+    if (!isAdmin) return;
+    const isCurrentlyDisabled = disabledStandardItems.includes(itemName);
+    const nextDisabled = isCurrentlyDisabled
+      ? disabledStandardItems.filter((name) => name !== itemName)
+      : [...disabledStandardItems, itemName];
+
+    const prevDisabled = disabledStandardItems;
+    setDisabledStandardItems(nextDisabled);
+    setUpdatingStandard(true);
+    try {
+      const response = await fetch("/api/crm/catalogs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          includeStandard,
+          disabledStandardItems: nextDisabled,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Não foi possível atualizar o item padrão.");
+      }
+      toast.success(
+        isCurrentlyDisabled
+          ? `"${itemName}" reativado.`
+          : `"${itemName}" desativado.`,
+      );
+    } catch (error) {
+      setDisabledStandardItems(prevDisabled);
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar item padrão.");
+    } finally {
+      setUpdatingStandard(false);
+    }
+  };
+
+  const setAllStandardStatus = async (activate: boolean) => {
+    if (!isAdmin) return;
+    const standards = Array.from(STANDARD_CATALOG_ITEMS[kind] || []);
+    const nextDisabled = activate ? [] : standards;
+    const prevDisabled = disabledStandardItems;
+    const prevInclude = includeStandard;
+
+    setIncludeStandard(true);
+    setDisabledStandardItems(nextDisabled);
+    setUpdatingStandard(true);
+    try {
+      const response = await fetch("/api/crm/catalogs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          includeStandard: true,
+          disabledStandardItems: nextDisabled,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Não foi possível atualizar.");
+      }
+      toast.success(
+        activate
+          ? `Todos os ${currentTab.itemPlural.toLowerCase()} padrão foram ativados.`
+          : `Todos os ${currentTab.itemPlural.toLowerCase()} padrão foram desativados.`,
+      );
+    } catch (error) {
+      setDisabledStandardItems(prevDisabled);
+      setIncludeStandard(prevInclude);
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar.");
+    } finally {
+      setUpdatingStandard(false);
     }
   };
 
@@ -497,30 +575,143 @@ export function CrmCatalogSettingsModal({
                 )}
               </section>
 
-              {/* SEÇÃO 2: ITENS PADRÃO DO SISTEMA (PARIDADE COM CAMPOS PADRÃO) */}
+              {/* SEÇÃO 2: ITENS PADRÃO DO SISTEMA COM CONTROLE DE ATIVAÇÃO / DESATIVAÇÃO */}
               <section>
-                <h3 className="mb-3 text-sm font-bold text-foreground">
-                  {kind === "segment"
-                    ? "Segmentos padrão"
-                    : kind === "source"
-                      ? "Fontes padrão"
-                      : kind === "campaign"
-                        ? "Campanhas padrão"
-                        : "Motivos padrão"}
-                </h3>
-                <div className="overflow-hidden rounded-xl border border-border bg-card shadow-soft">
-                  {standardItems[kind].map((name) => (
-                    <div
-                      key={name}
-                      className="flex justify-between items-center border-b border-border/60 px-4 py-3 text-xs last:border-0 hover:bg-muted/10 transition-colors"
-                    >
-                      <span className="font-semibold text-foreground">{name}</span>
-                      <span className="text-muted-foreground text-[11px] flex items-center gap-1.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
-                        {getSystemBadgeText()}
-                      </span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">
+                      {kind === "segment"
+                        ? "Segmentos padrão"
+                        : kind === "source"
+                          ? "Fontes padrão"
+                          : kind === "campaign"
+                            ? "Campanhas padrão"
+                            : "Motivos padrão"}
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {kind === "loss_reason"
+                        ? "Motivos de perda fornecidos de fábrica pelo sistema. Você pode desativá-los para manter apenas os motivos personalizados da sua empresa."
+                        : `Itens de ${currentTab.label.toLowerCase()} fornecidos pelo sistema. Você pode ativá-los ou desativá-los conforme a necessidade da operação.`}
+                    </p>
+                  </div>
+
+                  {isAdmin && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={updatingStandard}
+                        onClick={() => void setAllStandardStatus(false)}
+                        className="text-[11px] font-semibold text-muted-foreground hover:text-foreground transition cursor-pointer disabled:opacity-50"
+                      >
+                        Desativar todos
+                      </button>
+                      <span className="text-muted-foreground/40 text-xs">•</span>
+                      <button
+                        type="button"
+                        disabled={updatingStandard}
+                        onClick={() => void setAllStandardStatus(true)}
+                        className="text-[11px] font-semibold text-primary hover:underline transition cursor-pointer disabled:opacity-50"
+                      >
+                        Ativar todos
+                      </button>
                     </div>
-                  ))}
+                  )}
+                </div>
+
+                {/* CARD DE CONTROLE GERAL DOS ITENS PADRÃO */}
+                {isAdmin && (
+                  <div className="mb-4 rounded-xl border border-border bg-card p-4 shadow-soft flex items-center justify-between">
+                    <div className="space-y-0.5 pr-4">
+                      <span className="text-xs font-semibold text-foreground">
+                        {kind === "loss_reason"
+                          ? "Habilitar motivos de perda padrão do sistema"
+                          : `Habilitar ${currentTab.label.toLowerCase()} padrão do sistema`}
+                      </span>
+                      <p className="text-[11px] text-muted-foreground">
+                        {includeStandard
+                          ? "Ativo. Os itens abaixo com chave ligada estarão disponíveis nas opções operacionais do CRM."
+                          : "Desativado globalmente. Apenas itens personalizados cadastrados pela sua empresa estarão disponíveis."}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={includeStandard}
+                      disabled={updatingStandard}
+                      onCheckedChange={(val) => void toggleIncludeStandard(val)}
+                    />
+                  </div>
+                )}
+
+                {/* LISTA DE ITENS PADRÃO COM CONTROLE INDIVIDUAL */}
+                <div className="overflow-hidden rounded-xl border border-border bg-card shadow-soft">
+                  {STANDARD_CATALOG_ITEMS[kind].map((name) => {
+                    const isItemDisabled = !includeStandard || disabledStandardItems.includes(name);
+                    const isActive = !isItemDisabled;
+
+                    return (
+                      <div
+                        key={name}
+                        className={`flex justify-between items-center border-b border-border/60 px-4 py-3 text-xs last:border-0 transition-colors ${
+                          isActive ? "hover:bg-muted/10" : "bg-muted/5 opacity-75"
+                        }`}
+                      >
+                        <div className="space-y-0.5">
+                          <span
+                            className={`font-semibold block ${
+                              isActive
+                                ? "text-foreground"
+                                : "text-muted-foreground line-through decoration-muted-foreground/50"
+                            }`}
+                          >
+                            {name}
+                          </span>
+                          <span className="text-muted-foreground text-[10px] flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
+                            {getSystemBadgeText()}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {isActive ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                              Ativo
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
+                              Desativado
+                            </span>
+                          )}
+
+                          {isAdmin && (
+                            <Switch
+                              checked={isActive}
+                              disabled={updatingStandard}
+                              onCheckedChange={() => {
+                                if (!includeStandard) {
+                                  const standards = Array.from(STANDARD_CATALOG_ITEMS[kind] || []);
+                                  const otherDisabled = standards.filter((s) => s !== name);
+                                  setIncludeStandard(true);
+                                  setDisabledStandardItems(otherDisabled);
+                                  void fetch("/api/crm/catalogs", {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      kind,
+                                      includeStandard: true,
+                                      disabledStandardItems: otherDisabled,
+                                    }),
+                                  });
+                                } else {
+                                  void toggleStandardItem(name);
+                                }
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             </motion.div>

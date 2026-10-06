@@ -132,6 +132,11 @@ export class CrmConcurrencyError extends CrmError {
 }
 
 export function handleCrmError(err: any, corsHeaders: Record<string, string> = {}): Response {
+  if (err?.constraint === "crm_accounts_tenant_document_identity" || err?.constraint === "idx_crm_accounts_tenant_doc_uniq") {
+    return new Response(JSON.stringify({ error: "Já existe uma empresa ou cliente com este documento.", code: "DUPLICATE_DOCUMENT" }), {
+      status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
   if (err?.statusCode && err?.code) {
     return new Response(JSON.stringify({ error: err.message, code: err.code }), {
       status: err.statusCode,
@@ -1047,20 +1052,25 @@ export class CrmService {
 
     // Se já existe uma conta com o mesmo documento válido no tenant, retorna a existente
     if (cleanDoc) {
-      const [existing] = await db
+      const matches = await db
         .select()
         .from(crmAccounts)
         .where(
           and(
             eq(crmAccounts.tenantId, tenantId),
-            eq(crmAccounts.document, cleanDoc),
-            sql`${crmAccounts.archivedAt} IS NULL`
+            sql`regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') = ${cleanDoc}`
           )
         )
-        .limit(1);
+        .limit(2);
 
-      if (existing) {
-        return existing;
+      if (matches.length > 1) {
+        throw new CrmError("Há empresas duplicadas com este documento. Consolide os cadastros antes de prosseguir.", "DUPLICATE_DOCUMENT", 409);
+      }
+      if (matches[0]) {
+        if (matches[0].archivedAt) {
+          throw new CrmError("Este documento pertence a um cadastro arquivado. Reative-o antes de prosseguir.", "ARCHIVED_DOCUMENT", 409);
+        }
+        return matches[0];
       }
     }
 
@@ -1324,9 +1334,8 @@ export class CrmService {
           .where(
             and(
               eq(crmAccounts.tenantId, tenantId),
-              eq(crmAccounts.document, cleanDoc),
-              sql`${crmAccounts.id} != ${accountId}`,
-              sql`${crmAccounts.archivedAt} IS NULL`
+            sql`regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') = ${cleanDoc}`,
+              sql`${crmAccounts.id} != ${accountId}`
             )
           )
           .limit(1);

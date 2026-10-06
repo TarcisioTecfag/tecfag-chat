@@ -93,6 +93,7 @@ import { Route as ApiCrmActionHistoryRouteImport } from './routes/api/crm/action
 import { Route as ApiCrmAccountsRouteImport } from './routes/api/crm/accounts'
 import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
 import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/contacts/check-inactivity'
+import { Route as ApiContactsAccountOptionsRouteImport } from './routes/api/contacts/account-options'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiChatsTagTaskRouteImport } from './routes/api/chats/tag-task'
@@ -576,6 +577,12 @@ const ApiContactsCheckInactivityRoute =
     path: '/check-inactivity',
     getParentRoute: () => ApiContactsRoute,
   } as any)
+const ApiContactsAccountOptionsRoute =
+  ApiContactsAccountOptionsRouteImport.update({
+    id: '/account-options',
+    path: '/account-options',
+    getParentRoute: () => ApiContactsRoute,
+  } as any)
 const ApiContactsContactIdRoute = ApiContactsContactIdRouteImport.update({
   id: '/$contactId',
   path: '/$contactId',
@@ -933,6 +940,7 @@ export interface FileRoutesByFullPath {
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
+  '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
@@ -1075,6 +1083,7 @@ export interface FileRoutesByTo {
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
+  '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
@@ -1218,6 +1227,7 @@ export interface FileRoutesById {
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
+  '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
@@ -1362,6 +1372,7 @@ export interface FileRouteTypes {
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/contacts/account-options'
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
@@ -1504,6 +1515,7 @@ export interface FileRouteTypes {
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/contacts/account-options'
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
@@ -1646,6 +1658,7 @@ export interface FileRouteTypes {
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
     | '/api/contacts/$contactId'
+    | '/api/contacts/account-options'
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
@@ -2431,6 +2444,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiContactsCheckInactivityRouteImport
       parentRoute: typeof ApiContactsRoute
     }
+    '/api/contacts/account-options': {
+      id: '/api/contacts/account-options'
+      path: '/account-options'
+      fullPath: '/api/contacts/account-options'
+      preLoaderRoute: typeof ApiContactsAccountOptionsRouteImport
+      parentRoute: typeof ApiContactsRoute
+    }
     '/api/contacts/$contactId': {
       id: '/api/contacts/$contactId'
       path: '/$contactId'
@@ -2867,12 +2887,14 @@ const ApiContactsContactIdRouteWithChildren =
 
 interface ApiContactsRouteChildren {
   ApiContactsContactIdRoute: typeof ApiContactsContactIdRouteWithChildren
+  ApiContactsAccountOptionsRoute: typeof ApiContactsAccountOptionsRoute
   ApiContactsCheckInactivityRoute: typeof ApiContactsCheckInactivityRoute
   ApiContactsUpdateWalletRoute: typeof ApiContactsUpdateWalletRoute
 }
 
 const ApiContactsRouteChildren: ApiContactsRouteChildren = {
   ApiContactsContactIdRoute: ApiContactsContactIdRouteWithChildren,
+  ApiContactsAccountOptionsRoute: ApiContactsAccountOptionsRoute,
   ApiContactsCheckInactivityRoute: ApiContactsCheckInactivityRoute,
   ApiContactsUpdateWalletRoute: ApiContactsUpdateWalletRoute,
 }

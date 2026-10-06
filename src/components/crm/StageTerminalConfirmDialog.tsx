@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { CheckCircle2, XCircle, AlertTriangle, X } from "lucide-react";
+import { CatalogSelect } from "./CatalogSelect";
 
 interface StageTerminalConfirmDialogProps {
   isOpen: boolean;
@@ -100,11 +101,18 @@ export function StageTerminalConfirmDialog({
               <label className="text-xs font-semibold text-foreground">
                 Motivo da Perda (obrigatório para análise comercial)
               </label>
+              <CatalogSelect
+                kind="loss_reason"
+                value={lossReason}
+                onChange={setLossReason}
+                placeholder="Selecione um motivo cadastrado"
+                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
               <textarea
                 value={lossReason}
                 onChange={(e) => setLossReason(e.target.value)}
-                placeholder="Ex: Preço acima do orçamento, optou por concorrente, sem retorno..."
-                rows={3}
+                placeholder="Ou detalhe/complemente observações adicionais..."
+                rows={2}
                 required
                 className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
