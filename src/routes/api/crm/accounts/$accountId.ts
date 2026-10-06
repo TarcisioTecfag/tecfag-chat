@@ -2,6 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
+import { recordCrmAction } from "../../../../lib/crm/action-history";
+import { db } from "../../../../db";
+import { crmAccounts } from "../../../../db/schema";
+import { and, eq } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -96,7 +100,12 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId")({
           if (permError) return permError;
 
           const { accountId } = params as any;
+          const [account] = await db.select({ name: crmAccounts.name }).from(crmAccounts)
+            .where(and(eq(crmAccounts.id, accountId), eq(crmAccounts.tenantId, tenantId))).limit(1);
           const result = await crmService.archiveAccount(tenantId, accountId);
+          await recordCrmAction({ tenantId, operatorId: session.operator.id,
+            operatorName: session.operator.name, action: "archive_account", entityType: "account",
+            itemCount: 1, details: { accountId, name: account?.name || accountId } });
 
           return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

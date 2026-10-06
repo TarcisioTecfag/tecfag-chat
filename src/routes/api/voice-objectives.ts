@@ -5,6 +5,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { voiceObjectives } from "../../db/schema";
 import { eq, and } from "drizzle-orm";
+import { requireSession } from "../../lib/auth-session";
+import { recordCrmAction } from "../../lib/crm/action-history";
 
 const corsHeaders = { "Content-Type": "application/json" };
 function json(data: unknown, status = 200) {
@@ -244,14 +246,21 @@ export const Route = createFileRoute("/api/voice-objectives")({
 
       DELETE: async ({ request }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
           const url = new URL(request.url);
-          const tenantId = url.searchParams.get("tenantId");
-          if (!tenantId) return json({ error: "tenantId e obrigatorio" }, 400);
+          const tenantId = session.tenantId;
           const id = url.searchParams.get("id");
           if (!id) return json({ error: "id e obrigatorio" }, 400);
-          await db
+          const [deleted] = await db
             .delete(voiceObjectives)
-            .where(and(eq(voiceObjectives.id, id), eq(voiceObjectives.tenantId, tenantId)));
+            .where(and(eq(voiceObjectives.id, id), eq(voiceObjectives.tenantId, tenantId)))
+            .returning({ id: voiceObjectives.id, name: voiceObjectives.name });
+          if (!deleted) return json({ error: "Objetivo não encontrado." }, 404);
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_voice_objective", entityType: "voice_objective", itemCount: 1,
+            details: { id: deleted.id, name: deleted.name } });
           return json({ success: true });
         } catch (err: any) {
           return json({ error: err?.message ?? "Erro ao remover" }, 500);

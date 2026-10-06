@@ -4,6 +4,7 @@ import path from "path";
 import { requireSession } from "../../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../../lib/crm/crm-service";
+import { recordCrmAction } from "../../../../../../lib/crm/action-history";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -93,6 +94,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files/$fileId")({
           const { dealId, fileId } = params as { dealId: string; fileId: string };
 
           await crmService.deleteDealFile(tenantId, dealId, fileId, session.operator.id);
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_deal_file", entityType: "deal_file", itemCount: 1,
+            details: { dealId, fileId } });
 
           return new Response(
             JSON.stringify({ success: true, message: "Arquivo excluído com sucesso." }),

@@ -108,7 +108,7 @@ type ChatContextType = {
   impersonateOperator: (id: string) => void;
   createOperator: (operator: Omit<Operator, "id" | "status" | "avatar">) => void;
   updateOperator: (id: string, fields: Partial<Operator>) => void;
-  deleteOperator: (id: string) => void;
+  deleteOperator: (id: string, transferToOperatorId?: string) => Promise<{ success: boolean; stats?: any }>;
   resetOperatorPassword: (id: string, newPasswordHash: string) => void;
   createAccessGroup: (group: Omit<AccessGroup, "id">) => void;
   updateAccessGroup: (id: string, fields: Partial<AccessGroup>) => void;
@@ -745,8 +745,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const deleteOperator = async (id: string) => {
-    if (id === currentOperatorId) return;
+  const deleteOperator = async (id: string, transferToOperatorId?: string): Promise<{ success: boolean; stats?: any }> => {
+    if (id === currentOperatorId) return { success: false };
 
     // Otimista: remove da UI imediatamente
     const previousOperators = operators;
@@ -759,8 +759,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     try {
-      // Sem ?tenantId= — o servidor usa a sessão autenticada como autoridade
-      const res = await fetch(`${BACKEND_URL}/api/operators?id=${id}`, {
+      const url = new URL(`${BACKEND_URL}/api/operators`);
+      url.searchParams.set("id", id);
+      if (transferToOperatorId && transferToOperatorId !== "unassign") {
+        url.searchParams.set("transferToOperatorId", transferToOperatorId);
+      }
+      const res = await fetch(url.toString(), {
         method: "DELETE",
         credentials: "include",
       });
@@ -775,7 +779,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try { localStorage.setItem("rbac_operators", JSON.stringify(previousOperators)); } catch (e) {}
         }
         toast.error(`Erro ao excluir operador: ${errBody.error || res.statusText}`);
+        return { success: false };
       }
+
+      const data = await res.json().catch(() => ({ success: true }));
+      // Atualizar lista de conversas no estado local
+      if (transferToOperatorId && transferToOperatorId !== "unassign") {
+        setConversations((prev) =>
+          prev.map((c) => (c.operatorId === id ? { ...c, operatorId: transferToOperatorId } : c))
+        );
+      } else {
+        setConversations((prev) =>
+          prev.map((c) => (c.operatorId === id ? { ...c, operatorId: undefined, queueState: "fila" as any } : c))
+        );
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("refresh-conversations"));
+      }
+      return { success: true, stats: data.stats };
     } catch (err) {
       console.error("[deleteOperator] Falha na requisição:", err);
       // Rollback em caso de erro de rede
@@ -784,6 +805,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try { localStorage.setItem("rbac_operators", JSON.stringify(previousOperators)); } catch (e) {}
       }
       toast.error("Erro de conexão ao tentar excluir o operador.");
+      return { success: false };
     }
   };
 
@@ -1950,6 +1972,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetch(`${BACKEND_URL}/api/chats`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ conversationId: id, unreadCount: 0 }),
     }).catch((e) => {
       console.error("[markAsRead] Falha ao atualizar unreadCount no servidor:", e);
@@ -1965,6 +1988,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetch(`${BACKEND_URL}/api/chats`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ conversationId: id, unreadCount: 1 }),
     }).catch((e) => {
       console.error("[markAsUnread] Falha ao atualizar unreadCount no servidor:", e);
@@ -2585,6 +2609,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   fetch(`${BACKEND_URL}/api/chats`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
+                    credentials: "include",
                     body: JSON.stringify({ conversationId: c.id, unreadCount: 0 }),
                   }).catch((e) => console.error("Erro ao marcar como lido via SSE:", e));
                 }
@@ -2612,7 +2637,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .join("")
               .toUpperCase()
               .substring(0, 2);
-            const initialsBg = "#a6d6f2";
+            const initialsBg = "";
             
             const isCurrentOpen = message.conversationId === selectedChatId;
             const newUnread = isCurrentOpen ? 0 : 1;
@@ -2621,6 +2646,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               fetch(`${BACKEND_URL}/api/chats`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
+                credentials: "include",
                 body: JSON.stringify({ conversationId: message.conversationId, unreadCount: 0 }),
               }).catch((e) => console.error("Erro ao marcar como lido via SSE para nova conversa:", e));
             }

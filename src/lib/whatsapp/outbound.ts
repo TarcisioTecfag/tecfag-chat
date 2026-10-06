@@ -113,7 +113,7 @@ function isIdempotencyConflict(err: any): boolean {
 
       await db
         .update(conversations)
-        .set({ lastMessageTime: now, updatedAt: now })
+        .set({ lastMessageTime: now, updatedAt: now, unreadCount: 0 })
         .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
 
       return {
@@ -234,7 +234,7 @@ function isIdempotencyConflict(err: any): boolean {
 
         await db
           .update(conversations)
-          .set({ lastMessageTime: new Date(), updatedAt: new Date() })
+          .set({ lastMessageTime: new Date(), updatedAt: new Date(), unreadCount: 0 })
           .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
 
         return {

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { recordCrmAction } from "../../lib/crm/action-history";
 import { db } from "../../db/index.js";
 import { quickResponses } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -137,6 +138,9 @@ export const Route = createFileRoute("/api/quick-responses")({
           await db
             .delete(quickResponses)
             .where(and(eq(quickResponses.id, id), eq(quickResponses.tenantId, tenantId)));
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_quick_response", entityType: "quick_response", itemCount: 1,
+            details: { id } });
 
           return new Response(JSON.stringify({ success: true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

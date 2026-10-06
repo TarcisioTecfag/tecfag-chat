@@ -414,7 +414,7 @@ export function Meta24hInfoModal({ isOpen, onClose }: Meta24hInfoModalProps) {
       <DialogContent className="max-w-lg p-6 bg-card border-border shadow-2xl rounded-2xl">
         <DialogHeader className="space-y-2">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
               <HelpCircle className="h-5 w-5" />
             </div>
             <DialogTitle className="text-base font-bold text-foreground">

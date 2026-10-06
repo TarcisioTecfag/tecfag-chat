@@ -15,17 +15,72 @@ export const Route = createFileRoute("/api/chats")({
           status: 204,
           headers: {
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
           },
         });
+      },
+
+      // PATCH /api/chats — Atualiza contador de mensagens não lidas com isolamento por tenant
+      PATCH: async ({ request }) => {
+        const corsHeaders = {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+          "Content-Type": "application/json",
+        };
+
+        try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const session = auth.session;
+
+          const body = (await request.json().catch(() => ({}))) as {
+            conversationId?: string;
+            unreadCount?: number;
+          };
+
+          const { conversationId, unreadCount = 0 } = body;
+          if (!conversationId) {
+            return new Response(JSON.stringify({ error: "conversationId é obrigatório" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+
+          const targetUnread = Math.max(0, Math.floor(Number(unreadCount) || 0));
+
+          await db
+            .update(conversations)
+            .set({
+              unreadCount: targetUnread,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(conversations.id, conversationId),
+                eq(conversations.tenantId, session.tenantId)
+              )
+            );
+
+          return new Response(JSON.stringify({ success: true, conversationId, unreadCount: targetUnread }), {
+            status: 200,
+            headers: corsHeaders,
+          });
+        } catch (e: any) {
+          console.error("[api/chats PATCH] Erro:", e);
+          return new Response(JSON.stringify({ error: e.message }), {
+            status: 500,
+            headers: corsHeaders,
+          });
+        }
       },
 
       // POST /api/chats — Persiste mensagem (nota interna ou do sistema) no banco
       POST: async ({ request }) => {
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
           "Content-Type": "application/json",
         };
@@ -109,7 +164,7 @@ export const Route = createFileRoute("/api/chats")({
 
           await db
             .update(conversations)
-            .set({ lastMessageTime: now, updatedAt: now })
+            .set({ lastMessageTime: now, updatedAt: now, unreadCount: 0 })
             .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId)));
 
           // Se for nota comercial vinculada explicitamente a um card/deal
@@ -302,7 +357,7 @@ export const Route = createFileRoute("/api/chats")({
               name: row.contact.name,
               avatar: row.contact.avatar || "",
               initials: initials || "C",
-              initialsBg: "#a6d6f2",
+              initialsBg: "",
               phone: row.contact.phone || "",
               whatsappUsername: row.contact.whatsappUsername || "",
               email: row.contact.email || "",
@@ -317,7 +372,42 @@ export const Route = createFileRoute("/api/chats")({
               responsibleName: respName,
               sectorId: row.conversation.sectorId || null,
               sectorName: row.sectorName || null,
-              unreadCount: row.conversation.unreadCount || 0,
+              unreadCount: (() => {
+                // Cálculo preciso de mensagens não lidas:
+                // 1) Se a última mensagem for enviada pelo operador/bot/sistema (outbound), não há mensagens não lidas (0).
+                // 2) Se for do cliente, conta apenas as mensagens consecutivas do cliente desde a última resposta do atendente.
+                // 3) O unreadCount nunca pode exceder o número de mensagens novas do cliente.
+                if (convMsgs.length === 0) return 0;
+                const lastMsg = convMsgs[convMsgs.length - 1];
+                if (lastMsg.senderType !== "client") {
+                  if (row.conversation.unreadCount > 0) {
+                    db.update(conversations)
+                      .set({ unreadCount: 0, updatedAt: new Date() })
+                      .where(and(eq(conversations.id, row.conversation.id), eq(conversations.tenantId, session.tenantId)))
+                      .catch(() => {});
+                  }
+                  return 0;
+                }
+
+                let trailingClientCount = 0;
+                for (let i = convMsgs.length - 1; i >= 0; i--) {
+                  if (convMsgs[i].senderType === "client") {
+                    trailingClientCount++;
+                  } else {
+                    break;
+                  }
+                }
+
+                const rawUnread = Number(row.conversation.unreadCount) || 0;
+                const computed = rawUnread > 0 ? Math.min(rawUnread, trailingClientCount) : 0;
+                if (rawUnread !== computed) {
+                  db.update(conversations)
+                    .set({ unreadCount: computed, updatedAt: new Date() })
+                    .where(and(eq(conversations.id, row.conversation.id), eq(conversations.tenantId, session.tenantId)))
+                    .catch(() => {});
+                }
+                return computed;
+              })(),
               version: row.conversation.version || 1, // Concorrência otimista (Entrega C)
               lastMessageTime: new Date(row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
                 hour: "2-digit",

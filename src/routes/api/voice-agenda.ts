@@ -7,6 +7,7 @@ import { voiceAgenda } from "../../db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
+import { recordCrmAction } from "../../lib/crm/action-history";
 
 const corsHeaders = { "Content-Type": "application/json" };
 function json(data: unknown, status = 200) {
@@ -81,6 +82,10 @@ export const Route = createFileRoute("/api/voice-agenda")({
             }));
 
             await db.insert(voiceAgenda).values(rows);
+            await recordCrmAction({ tenantId, operatorId: session.operator.id,
+              operatorName: session.operator.name, action: "bulk_voice_appointments",
+              entityType: "voice_appointment", itemCount: rows.length,
+              details: { appointments: rows.map((row) => ({ id: row.id, name: row.clientName })) } });
             return json({ success: true, count: rows.length }, 201);
           }
 
@@ -151,9 +156,14 @@ export const Route = createFileRoute("/api/voice-agenda")({
           const id = url.searchParams.get("id");
           if (!id) return json({ error: "id e obrigatorio" }, 400);
 
-          await db
+          const [deleted] = await db
             .delete(voiceAgenda)
-            .where(and(eq(voiceAgenda.id, id), eq(voiceAgenda.tenantId, tenantId)));
+            .where(and(eq(voiceAgenda.id, id), eq(voiceAgenda.tenantId, tenantId)))
+            .returning({ id: voiceAgenda.id, clientName: voiceAgenda.clientName });
+          if (!deleted) return json({ error: "Agendamento não encontrado." }, 404);
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_voice_appointment", entityType: "voice_appointment", itemCount: 1,
+            details: { id: deleted.id, name: deleted.clientName } });
 
           return json({ success: true });
         } catch (err: any) {

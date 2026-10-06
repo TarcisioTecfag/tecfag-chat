@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { recordCrmAction } from "../../../lib/crm/action-history";
 import { db } from "../../../db";
 import { knowledgeFiles, knowledgeFolders } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
@@ -463,11 +464,21 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
           }
 
           if (type === "file") {
-            await db.delete(knowledgeFiles).where(and(eq(knowledgeFiles.id, id), eq(knowledgeFiles.tenantId, tenantId)));
+            const deleted = await db.delete(knowledgeFiles).where(and(eq(knowledgeFiles.id, id), eq(knowledgeFiles.tenantId, tenantId)))
+              .returning({ id: knowledgeFiles.id, name: knowledgeFiles.name });
+            if (deleted.length) await recordCrmAction({ tenantId, operatorId: session.operator.id,
+              operatorName: session.operator.name, action: "delete_knowledge_file", entityType: "knowledge_file",
+              itemCount: deleted.length, details: { files: deleted } });
           } else if (type === "folder") {
             // Remove pasta e arquivos vinculados ao mesmo tenant
-            await db.delete(knowledgeFiles).where(and(eq(knowledgeFiles.folderId, id), eq(knowledgeFiles.tenantId, tenantId)));
-            await db.delete(knowledgeFolders).where(and(eq(knowledgeFolders.id, id), eq(knowledgeFolders.tenantId, tenantId)));
+            const deletedFiles = await db.delete(knowledgeFiles).where(and(eq(knowledgeFiles.folderId, id), eq(knowledgeFiles.tenantId, tenantId)))
+              .returning({ id: knowledgeFiles.id, name: knowledgeFiles.name });
+            const deletedFolders = await db.delete(knowledgeFolders).where(and(eq(knowledgeFolders.id, id), eq(knowledgeFolders.tenantId, tenantId)))
+              .returning({ id: knowledgeFolders.id, name: knowledgeFolders.name });
+            if (deletedFolders.length) await recordCrmAction({ tenantId, operatorId: session.operator.id,
+              operatorName: session.operator.name, action: "delete_knowledge_folder", entityType: "knowledge_folder",
+              itemCount: deletedFiles.length + deletedFolders.length,
+              details: { folders: deletedFolders, files: deletedFiles } });
           }
 
           return new Response(JSON.stringify({ success: true }), {

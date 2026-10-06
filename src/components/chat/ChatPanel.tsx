@@ -1399,22 +1399,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               />
             ) : (
               <div
-                className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-foreground"
-                style={{ background: activeChat.initialsBg || "#eee" }}
+                className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-primary bg-primary/10 border border-primary/20"
               >
                 {activeChat.initials || "U"}
               </div>
             )}
             <span
-              className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-white ${
-                activeChat.id === "valentina"
-                  ? "bg-primary"
-                  : activeChat.channel === "whatsapp"
-                    ? "bg-emerald-500"
-                    : activeChat.channel === "instagram"
-                      ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
-                      : "bg-blue-600"
-              }`}
+              className="absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-primary-foreground shadow-soft bg-primary"
             >
               {activeChat.id === "valentina" ? (
                 <span className="relative flex h-1.5 w-1.5">
@@ -1578,7 +1569,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         return `tel:${n}`;
                       })()}
                       onClick={logVigosPhoneCall}
-                      className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition cursor-pointer"
+                      className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-primary hover:bg-primary/10 hover:border-primary/30 transition cursor-pointer"
                     >
                       <PhoneCall className="h-3.5 w-3.5" />
                     </a>
@@ -2246,8 +2237,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     />
                   ) : (
                     <div
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-foreground self-end"
-                      style={{ background: activeChat.initialsBg || "#eee" }}
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 self-end"
                     >
                       {activeChat.initials || "U"}
                     </div>
@@ -2527,8 +2517,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 />
               ) : (
                 <div
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-foreground"
-                  style={{ background: activeChat.initialsBg || "#eee" }}
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-primary bg-primary/10 border border-primary/20"
                 >
                   {activeChat.initials || "U"}
                 </div>
@@ -2692,12 +2681,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </div>
           ) : !activeChat.operatorId && activeChat.queue !== "automacao" ? (
             /* ── BLOQUEIO: fila de espera ── */
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-sky-300 bg-sky-50 dark:bg-sky-950/30 dark:border-sky-700 text-center">
-              <div className="h-12 w-12 rounded-full flex items-center justify-center bg-sky-100 dark:bg-sky-900">
-                <Clock className="h-6 w-6 text-sky-600 dark:text-sky-400" />
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-primary/20 bg-primary-soft/30 dark:bg-primary/10 text-center">
+              <div className="h-12 w-12 rounded-full flex items-center justify-center bg-primary-soft">
+                <Clock className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-sm font-bold text-sky-800 dark:text-sky-300">Fila de Espera</p>
+                <p className="text-sm font-bold text-foreground">Fila de Espera</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Capture este atendimento para começar a responder o cliente.
                 </p>
@@ -2705,7 +2694,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               {canCapture && (
                 <button
                   onClick={() => captureChat(activeChat.id)}
-                  className="mt-1 h-9 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-6 transition cursor-pointer"
+                  className="mt-1 h-9 rounded-xl bg-primary hover:opacity-95 text-white text-xs font-bold px-6 transition cursor-pointer shadow-soft"
                 >
                   Capturar Atendimento
                 </button>
@@ -2733,15 +2722,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               )}
             </div>
           ) : activeProvider === "meta" && activeChat.channel === "whatsapp" && metaWindow?.open !== true ? (
-            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-amber-500 bg-card p-5 shadow-sm">
+            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-sm">
               {metaWindow === null ? (
                 <div className="flex items-center gap-2.5 text-xs text-muted-foreground py-1">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                   <span>Consultando a janela de atendimento da Meta...</span>
                 </div>
               ) : (
                 <div className="flex items-start gap-3.5">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <AlertCircle className="h-5 w-5" />
                   </div>
                   <div className="flex-1 space-y-3">
@@ -2768,7 +2757,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       <button
                         type="button"
                         onClick={() => setShow24hInfoModal(true)}
-                        className="text-xs font-medium text-sky-600 dark:text-sky-400 hover:underline cursor-pointer"
+                        className="text-xs font-semibold text-primary hover:underline cursor-pointer"
                       >
                         Saiba Mais
                       </button>
@@ -2818,11 +2807,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 }}
                 className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
                   !isCatalogOpen && msgMode === "internal"
-                    ? "border-amber-500 text-amber-600 dark:text-amber-400"
+                    ? "border-primary text-primary font-bold"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Lock className="h-3 w-3 text-amber-500" />
+                <Lock className="h-3 w-3 text-primary" />
                 <span>Nota Interna</span>
               </button>
             )}

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
+import { listCustomFields } from "../../../../lib/crm/custom-fields";
 import { db } from "../../../../db";
 import { conversations, contacts, crmAccounts } from "../../../../db/schema";
 import { eq, and } from "drizzle-orm";
@@ -47,7 +48,10 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
             });
           }
 
-          const deals = await crmService.getConversationDeals(tenantId, conversationId);
+          const [deals, customFieldDefinitions] = await Promise.all([
+            crmService.getConversationDeals(tenantId, conversationId),
+            listCustomFields(tenantId, "deal"),
+          ]);
 
           const [contact] = await db
             .select({
@@ -72,6 +76,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           return new Response(
             JSON.stringify({
               deals,
+              customFieldDefinitions,
               contact: contact
                 ? {
                     id: contact.id,

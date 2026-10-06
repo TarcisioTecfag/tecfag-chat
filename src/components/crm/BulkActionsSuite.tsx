@@ -133,7 +133,7 @@ export function BulkActionsSuite({
 
   const [isExportSheetOpen, setIsExportSheetOpen] = useState(false);
   const [exportDataType, setExportDataType] = useState("deals");
-  const [exportFormat, setExportFormat] = useState("csv");
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv">("xlsx");
 
   // Modais de Criação
   const [isCreateCompanyDealsOpen, setIsCreateCompanyDealsOpen] = useState(false);
@@ -541,13 +541,14 @@ export function BulkActionsSuite({
     if (ok) setProductModalOpen(false);
   };
 
-  // 7. AÇÃO: Exportar Dados (CSV completo padrão RD Station CRM sem travas)
+  // 7. AÇÃO: Exportar Dados (Planilha completa com todas as informações dos cards)
   const handleExecuteExport = async () => {
     try {
-      const toastId = toast.loading(`Preparando exportação completa de ${effectiveCount} negociação(ões)...`);
+      const toastId = toast.loading(`Gerando exportação de ${effectiveCount} negociação(ões)...`);
 
       const payload = {
         action: "export",
+        format: exportFormat,
         dealIds: isAllFilterSelected ? [] : Array.from(selectedIds),
         allFiltered: isAllFilterSelected,
         filterParams: isAllFilterSelected ? filterParams : undefined,
@@ -566,8 +567,22 @@ export function BulkActionsSuite({
       }
 
       const data = await res.json();
-      const filename = data.filename || `deal_export_${new Date().toISOString().slice(0, 10)}.csv`;
-      const blob = new Blob([data.csv], { type: "text/csv;charset=utf-8;" });
+      let blob: Blob;
+      const filename = data.filename || `negociacoes_exportacao_${new Date().toISOString().slice(0, 10)}.${exportFormat}`;
+
+      if (data.format === "xlsx" && data.base64) {
+        const byteCharacters = atob(data.base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        blob = new Blob([byteArray], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+      } else {
+        blob = new Blob([data.csv], { type: "text/csv;charset=utf-8;" });
+      }
 
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -579,7 +594,7 @@ export function BulkActionsSuite({
       URL.revokeObjectURL(url);
 
       toast.dismiss(toastId);
-      toast.success(`Exportação concluída! ${effectiveCount} negociações exportadas no padrão RD Station.`);
+      toast.success(`Exportação concluída! ${effectiveCount} negociação(ões) exportada(s) com sucesso.`);
       setIsExportSheetOpen(false);
     } catch (e: any) {
       console.error("[Export] Erro:", e);
@@ -1034,16 +1049,16 @@ export function BulkActionsSuite({
                 <Label className="text-xs font-semibold text-foreground">
                   Formato do arquivo
                 </Label>
-                <Select value={exportFormat} onValueChange={setExportFormat}>
+                <Select value={exportFormat} onValueChange={(val: "xlsx" | "csv") => setExportFormat(val)}>
                   <SelectTrigger className="h-9 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="csv" className="text-xs">
-                      Planilha CSV
-                    </SelectItem>
                     <SelectItem value="xlsx" className="text-xs">
-                      Planilha Excel (XLSX)
+                      Planilha Excel (.xlsx) — Recomendado
+                    </SelectItem>
+                    <SelectItem value="csv" className="text-xs">
+                      Planilha CSV (.csv) — Separador ponto e vírgula
                     </SelectItem>
                   </SelectContent>
                 </Select>

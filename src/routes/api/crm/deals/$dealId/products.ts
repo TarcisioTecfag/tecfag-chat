@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
+import { recordCrmAction } from "../../../../../lib/crm/action-history";
 import { db } from "../../../../../db";
 import { crmDeals, crmProducts } from "../../../../../db/schema";
 import { eq, and } from "drizzle-orm";
@@ -203,6 +204,10 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
               { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_deal_product", entityType: "deal_product", itemCount: 1,
+            details: { dealId, dealProductId } });
 
           return new Response(JSON.stringify({ success: true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

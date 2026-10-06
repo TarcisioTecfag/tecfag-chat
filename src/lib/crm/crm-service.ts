@@ -15,6 +15,7 @@ import {
   crmDealActivities,
   crmActivityMessages,
   crmDealEvents,
+  crmActionHistory,
   crmProducts,
   crmDealProducts,
   crmProposals,
@@ -3204,9 +3205,17 @@ export class CrmService {
         description?: string;
         operatorId?: string;
       };
-    }
+    },
+    operatorName: string
   ): Promise<{ success: boolean; updatedCount: number; dealIds: string[]; message?: string }> {
     return await db.transaction(async (tx) => {
+      const audit = async (action: string, ids: string[], details: Record<string, unknown> = {}) => {
+        await tx.insert(crmActionHistory).values({
+          id: crypto.randomUUID(), tenantId, operatorId, operatorName,
+          action, entityType: "deal", itemCount: ids.length,
+          details: { dealIds: ids, ...details },
+        });
+      };
       // 1. Busca todos os deals no tenant
       let foundDeals: CrmDeal[] = [];
 
@@ -3238,6 +3247,10 @@ export class CrmService {
       // Ação Especial 1: Exclusão Permanente
       if (params.action === "delete_permanent") {
         const idsToDelete = foundDeals.map((d) => d.id);
+        await audit("delete_permanent", idsToDelete, {
+          deals: foundDeals.map((d) => ({ id: d.id, title: d.title })),
+          allFiltered: !!params.allFiltered,
+        });
         for (let i = 0; i < idsToDelete.length; i += 500) {
           const chunk = idsToDelete.slice(i, i + 500);
           await tx
@@ -3283,6 +3296,11 @@ export class CrmService {
             tx
           );
         }
+
+        await audit("delete_trash", idsToTrash, {
+          deals: foundDeals.map((d) => ({ id: d.id, title: d.title })),
+          allFiltered: !!params.allFiltered,
+        });
 
         return {
           success: true,
@@ -3336,6 +3354,8 @@ export class CrmService {
           createdIds.push(newDealId);
         }
 
+        await audit("create_deals_for_companies", createdIds, { sourceDealIds: foundDeals.map((d) => d.id) });
+
         return {
           success: true,
           updatedCount: createdIds.length,
@@ -3365,6 +3385,8 @@ export class CrmService {
           });
           taskCreatedIds.push(actId);
         }
+
+        await audit("create_tasks", foundDeals.map((d) => d.id), { taskIds: taskCreatedIds, taskTitle: params.taskData.title });
 
         return {
           success: true,
@@ -3537,6 +3559,15 @@ export class CrmService {
         updatedIds.push(deal.id);
       }
 
+      await audit("bulk_update", updatedIds, {
+        changes: {
+          pipelineId: params.pipelineId, stageId: params.stageId, operatorId: params.operatorId,
+          status: params.status, lossReason: params.lossReason, rating: params.rating,
+          campaign: params.campaign, source: params.source, productId: params.productId,
+        },
+        allFiltered: !!params.allFiltered,
+      });
+
       return {
         success: true,
         updatedCount,
@@ -3552,13 +3583,36 @@ export class CrmService {
   /**
    * Lista negociações ativas vinculadas a uma conversa específica.
    */
-  async getConversationDeals(tenantId: string, conversationId: string): Promise<CrmDeal[]> {
+  async getConversationDeals(
+    tenantId: string,
+    conversationId: string
+  ): Promise<
+    Array<
+      CrmDeal & {
+        stageName?: string | null;
+        stageColor?: string | null;
+        stageOrderIndex?: number | null;
+        pipelineName?: string | null;
+        accountName?: string | null;
+        operatorName?: string | null;
+      }
+    >
+  > {
     const rows = await db
       .select({
         deal: crmDeals,
+        stageName: crmStages.name,
+        stageOrderIndex: crmStages.orderIndex,
+        pipelineName: crmPipelines.name,
+        accountName: crmAccounts.name,
+        operatorName: operators.name,
       })
       .from(crmConversationDeals)
       .innerJoin(crmDeals, eq(crmConversationDeals.dealId, crmDeals.id))
+      .leftJoin(crmStages, eq(crmDeals.stageId, crmStages.id))
+      .leftJoin(crmPipelines, eq(crmDeals.pipelineId, crmPipelines.id))
+      .leftJoin(crmAccounts, eq(crmDeals.accountId, crmAccounts.id))
+      .leftJoin(operators, eq(crmDeals.operatorId, operators.id))
       .where(
         and(
           eq(crmConversationDeals.tenantId, tenantId),
@@ -3568,7 +3622,15 @@ export class CrmService {
       )
       .orderBy(desc(crmDeals.lastActivityAt));
 
-    return rows.map((r) => r.deal);
+    return rows.map((r) => ({
+      ...r.deal,
+      stageName: r.stageName ?? null,
+      stageColor: null,
+      stageOrderIndex: r.stageOrderIndex ?? null,
+      pipelineName: r.pipelineName ?? null,
+      accountName: r.accountName ?? null,
+      operatorName: r.operatorName ?? null,
+    }));
   }
 
   /**
@@ -5772,7 +5834,7 @@ export class CrmService {
   }
 
   /**
-   * Exporta negociações em formato CSV 100% compatível com a extração completa do RD Station CRM.
+   * Exporta negociações em formato de planilha completa (XLSX ou CSV limpo e formatado).
    * Não aplica limites artificiais: processa todas as negociações filtradas ou selecionadas,
    * incluindo todos os 70+ campos padrão e campos personalizados dinâmicos do tenant.
    */
@@ -5782,8 +5844,22 @@ export class CrmService {
       dealIds?: string[];
       allFiltered?: boolean;
       filterParams?: Record<string, any>;
+      format?: "csv" | "xlsx";
     }
-  ): Promise<string> {
+  ): Promise<{
+    format: "csv" | "xlsx";
+    csv?: string;
+    xlsxBase64?: string;
+    filename: string;
+    count: number;
+    dealIds: string[];
+  }> {
+    const exportFormat = params.format === "xlsx" ? "xlsx" : "csv";
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const filename = `negociacoes_exportacao_${timestamp}.${exportFormat}`;
+
     // 1. Busca os deals no tenant sem travas ou cortes
     let deals: (typeof crmDeals.$inferSelect)[] = [];
 
@@ -5890,7 +5966,27 @@ export class CrmService {
     ];
 
     if (deals.length === 0) {
-      return `sep=,\n${allHeaders.join(",")}\n`;
+      if (exportFormat === "xlsx") {
+        const XLSX = await import("xlsx");
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([allHeaders]);
+        XLSX.utils.book_append_sheet(wb, ws, "Negociações");
+        const xlsxBase64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+        return {
+          format: "xlsx",
+          xlsxBase64,
+          filename,
+          count: 0,
+          dealIds: [],
+        };
+      }
+      return {
+        format: "csv",
+        csv: "\uFEFF" + allHeaders.join(";") + "\r\n",
+        filename,
+        count: 0,
+        dealIds: [],
+      };
     }
 
     // 4. Carrega entidades relacionadas em lote
@@ -5997,7 +6093,7 @@ export class CrmService {
       }
     }
 
-    // 5. Helpers de formatação
+    // 5. Helpers de formatação e sanitização de texto
     const formatPtBrDate = (date: Date | string | null | undefined): string => {
       if (!date) return "";
       const d = new Date(date);
@@ -6017,17 +6113,32 @@ export class CrmService {
       return `${hours}:${mins}`;
     };
 
-    const escapeCsv = (val: any): string => {
+    const sanitizeText = (val: any): string => {
       if (val === null || val === undefined) return "";
-      const str = String(val).trim();
-      if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+      let str = String(val).trim();
+      // Elimina escapes legados desnecessários
+      str = str.replace(/\\;/g, "; ").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      // Substitui quebras de linha raw para manter a integridade de 1 registro por linha
+      str = str.replace(/\r\n|\r|\n/g, " ");
+      // Remove múltiplos espaços
+      str = str.replace(/\s{2,}/g, " ");
+      return str;
+    };
+
+    const formatCsvCell = (val: any): string => {
+      if (val === null || val === undefined || val === "") return "";
+      if (typeof val === "number") {
+        return val.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/\./g, "");
+      }
+      const str = sanitizeText(val);
+      if (str.includes(";") || str.includes('"') || str.includes(",") || str.includes("\n") || str.includes("\r")) {
         return `"${str.replace(/"/g, '""')}"`;
       }
       return str;
     };
 
-    // 6. Geração linha a linha
-    const rows: string[] = [];
+    // 6. Geração linha a linha estruturada
+    const rawRows: (string | number)[][] = [];
 
     for (const deal of deals) {
       const account = deal.accountId ? accountMap.get(deal.accountId) : null;
@@ -6047,25 +6158,23 @@ export class CrmService {
       const estado = statusMap[deal.status] || deal.status;
 
       const valorUnico =
-        deal.value !== null && deal.value !== undefined
-          ? Number(deal.value).toFixed(1)
-          : "0.0";
+        deal.value !== null && deal.value !== undefined ? Number(deal.value) : 0;
 
       const budgetVal =
         (deal.customFields as any)?.["Budget"] ??
         (deal.customFields as any)?.["budget"] ??
         "";
 
-      const prefixRow = [
-        escapeCsv(deal.title),
-        escapeCsv(account ? account.name || account.tradeName || "" : ""),
+      const prefixRow: (string | number)[] = [
+        sanitizeText(deal.title),
+        sanitizeText(account ? account.name || account.tradeName || "" : ""),
         deal.rating !== null && deal.rating !== undefined && deal.rating > 0 ? String(deal.rating) : "",
-        escapeCsv(pipelineMap.get(deal.pipelineId) || ""),
-        escapeCsv(stageMap.get(deal.stageId) || ""),
-        escapeCsv(estado),
-        escapeCsv(deal.lossReason || ""),
+        sanitizeText(pipelineMap.get(deal.pipelineId) || ""),
+        sanitizeText(stageMap.get(deal.stageId) || ""),
+        sanitizeText(estado),
+        sanitizeText(deal.lossReason || ""),
         valorUnico,
-        "0.0",
+        0,
         deal.status === "paused" ? "Sim" : "Não",
         formatPtBrDate(deal.createdAt),
         formatPtBrTime(deal.createdAt),
@@ -6078,45 +6187,88 @@ export class CrmService {
         formatPtBrDate(deal.expectedCloseDate),
         formatPtBrDate(deal.closedAt),
         formatPtBrTime(deal.closedAt),
-        escapeCsv(deal.source || ""),
-        escapeCsv(deal.campaign || ""),
-        escapeCsv(op ? op.name : ""),
-        escapeCsv((dealProductsMap.get(deal.id) || []).join(", ")),
-        escapeCsv(opGroup || ""),
-        escapeCsv(deal.pausedReason || ""),
-        escapeCsv(budgetVal),
+        sanitizeText(deal.source || ""),
+        sanitizeText(deal.campaign || ""),
+        sanitizeText(op ? op.name : ""),
+        sanitizeText((dealProductsMap.get(deal.id) || []).join(", ")),
+        sanitizeText(opGroup || ""),
+        sanitizeText(deal.pausedReason || ""),
+        sanitizeText(budgetVal),
       ];
 
-      const customRowValues = customFieldKeys.map((k) => {
+      const customRowValues: (string | number)[] = customFieldKeys.map((k) => {
         const raw =
           (deal.customFields as any)?.[k] ??
           (deal.customFields as any)?.[customDefs.find((d) => d.name === k)?.id || ""];
 
         if (raw === null || raw === undefined) return "";
-        if (Array.isArray(raw)) return escapeCsv(raw.join(", "));
+        if (typeof raw === "number") return raw;
+        if (Array.isArray(raw)) return sanitizeText(raw.join(", "));
         if (typeof raw === "boolean") return raw ? "Sim" : "Não";
         if (typeof raw === "object") {
-          return escapeCsv((raw as any).label || (raw as any).name || JSON.stringify(raw));
+          return sanitizeText((raw as any).label || (raw as any).name || JSON.stringify(raw));
         }
-        return escapeCsv(String(raw));
+        return sanitizeText(String(raw));
       });
 
-      const suffixRow = [
-        escapeCsv(primaryContact?.name || (account ? account.name : "")),
-        escapeCsv(primaryContact?.role || ""),
-        escapeCsv(primaryContact?.email || (account ? account.email : "")),
-        escapeCsv(primaryContact?.phone || (account ? account.phone : "")),
-        escapeCsv(deal.rdDealId || deal.id),
-        escapeCsv(account?.rdOrganizationId || account?.id || ""),
+      const suffixRow: (string | number)[] = [
+        sanitizeText(primaryContact?.name || (account ? account.name : "")),
+        sanitizeText(primaryContact?.role || ""),
+        sanitizeText(primaryContact?.email || (account ? account.email : "")),
+        sanitizeText(primaryContact?.phone || (account ? account.phone : "")),
+        sanitizeText(deal.rdDealId || deal.id),
+        sanitizeText(account?.rdOrganizationId || account?.id || ""),
         "",
         "",
-        escapeCsv(primaryContact?.contactId || ""),
+        sanitizeText(primaryContact?.contactId || ""),
       ];
 
-      rows.push([...prefixRow, ...customRowValues, ...suffixRow].join(","));
+      rawRows.push([...prefixRow, ...customRowValues, ...suffixRow]);
     }
 
-    return `sep=,\n${allHeaders.join(",")}\n${rows.join("\n")}`;
+    if (exportFormat === "xlsx") {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      const wsData = [allHeaders, ...rawRows];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // Auto col widths
+      const colWidths = allHeaders.map((h, i) => {
+        let maxLen = h.length;
+        for (let r = 1; r < Math.min(wsData.length, 100); r++) {
+          const cellVal = String(wsData[r][i] ?? "");
+          if (cellVal.length > maxLen) maxLen = Math.min(cellVal.length, 50);
+        }
+        return { wch: Math.max(maxLen + 3, 12) };
+      });
+      ws["!cols"] = colWidths;
+
+      XLSX.utils.book_append_sheet(wb, ws, "Negociações");
+      const xlsxBase64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+
+      return {
+        format: "xlsx",
+        xlsxBase64,
+        filename,
+        count: deals.length,
+        dealIds: deals.map((deal) => deal.id),
+      };
+    }
+
+    // Exportação em formato CSV limpo (separador ';' e BOM UTF-8)
+    const csvLines = [
+      allHeaders.join(";"),
+      ...rawRows.map((row) => row.map(formatCsvCell).join(";")),
+    ];
+    const csvContent = "\uFEFF" + csvLines.join("\r\n") + "\r\n";
+
+    return {
+      format: "csv",
+      csv: csvContent,
+      filename,
+      count: deals.length,
+      dealIds: deals.map((deal) => deal.id),
+    };
   }
 }
 

@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
+import { db } from "../../../../db";
+import { crmActionHistory } from "../../../../db/schema";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,21 +34,39 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
             const permError = requireCrmPermission(session, "canViewCrm");
             if (permError) return permError;
 
-            const csvString = await crmService.exportDealsRD(tenantId, {
+            const format = body.format === "xlsx" ? "xlsx" : "csv";
+
+            const exported = await crmService.exportDealsRD(tenantId, {
               dealIds: body.dealIds || [],
               allFiltered: body.allFiltered,
               filterParams: body.filterParams,
+              format,
             });
 
-            const now = new Date();
-            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}_${String(now.getMinutes()).padStart(2, "0")}`;
-            const filename = `deal_export_${timestamp}.csv`;
+            await db.insert(crmActionHistory).values({
+              id: crypto.randomUUID(),
+              tenantId,
+              operatorId: session.operator.id,
+              operatorName: session.operator.name,
+              action: "export",
+              entityType: "deal",
+              itemCount: exported.count,
+              details: {
+                filename: exported.filename,
+                format: exported.format,
+                allFiltered: !!body.allFiltered,
+                dealIds: exported.dealIds,
+              },
+            });
 
             return new Response(
               JSON.stringify({
                 success: true,
-                filename,
-                csv: "\uFEFF" + csvString,
+                filename: exported.filename,
+                format: exported.format,
+                count: exported.count,
+                base64: exported.xlsxBase64,
+                csv: exported.csv,
               }),
               {
                 status: 200,
@@ -80,7 +100,7 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
             productId: body.productId,
             action: body.action,
             taskData: body.taskData,
-          });
+          }, session.operator.name);
 
           return new Response(JSON.stringify(result), {
             status: 200,

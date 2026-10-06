@@ -11,6 +11,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
 import { PipelineSettingsModal } from "@/components/crm/PipelineSettingsModal";
 import { CrmCatalogSettingsModal } from "@/components/crm/CrmCatalogSettingsModal";
+import { CrmActionHistoryModal } from "@/components/crm/CrmActionHistoryModal";
 import type { CatalogKind } from "@/lib/crm/catalogs";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -20,6 +21,7 @@ type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 export function SettingsView() {
   const {
     tenant,
+    sessionRole,
     metaConfig,
     setMetaConfig,
     baileysConfig,
@@ -36,6 +38,7 @@ export function SettingsView() {
   const [lossReasonsOpen, setLossReasonsOpen] = useState(false);
   const [segmentsOpen, setSegmentsOpen] = useState(false);
   const [catalogKind, setCatalogKind] = useState<CatalogKind | null>(null);
+  const [actionHistoryOpen, setActionHistoryOpen] = useState(false);
 
   const [metaForm, setMetaForm] = useState({ ...metaConfig });
   const [isSaved, setIsSaved] = useState(false);
@@ -1044,6 +1047,17 @@ export function SettingsView() {
                 Configurar motivos de perda
               </button>
             </div>
+            {sessionRole === "admin" && (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-soft flex flex-col justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Histórico de ações</h3>
+                  <p className="mt-2 text-xs text-muted-foreground">Consulte quem excluiu registros, realizou ações em massa ou exportou relatórios.</p>
+                </div>
+                <button type="button" onClick={() => setActionHistoryOpen(true)} className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer self-start shadow-soft">
+                  Ver histórico
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1436,6 +1450,7 @@ export function SettingsView() {
         {activeTab === "livechat" && <LiveChatSettingsTab />}
       </div>
       <CustomFieldsSettingsModal isOpen={customFieldsOpen} onClose={() => setCustomFieldsOpen(false)} />
+      <CrmActionHistoryModal isOpen={actionHistoryOpen} onClose={() => setActionHistoryOpen(false)} />
       <PipelineSettingsModal isOpen={pipelineSettingsOpen} onClose={() => setPipelineSettingsOpen(false)} />
       <CrmCatalogSettingsModal
         isOpen={sourcesCampaignsOpen}

@@ -19,7 +19,8 @@ import {
 import { eq, and } from "drizzle-orm";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import { rdRequest } from "../../../lib/rdCrmService";
-import { getAuthSession } from "../../../lib/auth-session.js";
+import { requireSession } from "../../../lib/auth-session.js";
+import { recordCrmAction } from "../../../lib/crm/action-history";
 
 const corsHeaders = {
   "Content-Type": "application/json",
@@ -46,8 +47,10 @@ export const Route = createFileRoute("/api/admin/reset")({
           );
         }
 
-        const session = await getAuthSession(request);
-        if (!session || session.operator.role !== "admin") {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        if (session.operator.role !== "admin") {
           return new Response(
             JSON.stringify({ error: "Acesso restrito a administradores autenticados." }),
             { status: 403, headers: corsHeaders }
@@ -121,6 +124,7 @@ export const Route = createFileRoute("/api/admin/reset")({
         const log: string[] = [];
         let mergedGroups = 0;
         let deletedContacts = 0;
+        const deletedContactDetails: Array<{ id: string; name: string }> = [];
 
         try {
           // 1. Buscar todos os contatos do tenant com phone preenchido
@@ -159,14 +163,15 @@ export const Route = createFileRoute("/api/admin/reset")({
 
               for (const conv of dupeConvs) {
                 SdrDebouncer.getInstance().clearSession(conv.id);
-                await db.delete(agentFlowStates).where(eq(agentFlowStates.conversationId, conv.id));
-                await db.delete(messages).where(eq(messages.conversationId, conv.id));
-                await db.delete(conversations).where(eq(conversations.id, conv.id));
+                await db.delete(agentFlowStates).where(and(eq(agentFlowStates.conversationId, conv.id), eq(agentFlowStates.tenantId, tenantId)));
+                await db.delete(messages).where(and(eq(messages.conversationId, conv.id), eq(messages.tenantId, tenantId)));
+                await db.delete(conversations).where(and(eq(conversations.id, conv.id), eq(conversations.tenantId, tenantId)));
                 log.push(`  Conversa duplicada ${conv.id} removida`);
               }
 
-              await db.delete(contacts).where(eq(contacts.id, dupe.id));
+              await db.delete(contacts).where(and(eq(contacts.id, dupe.id), eq(contacts.tenantId, tenantId)));
               deletedContacts++;
+              deletedContactDetails.push({ id: dupe.id, name: dupe.name || dupe.id });
               log.push(`  Contato duplicado ${dupe.id} deletado`);
             }
 
@@ -178,14 +183,19 @@ export const Route = createFileRoute("/api/admin/reset")({
 
             for (const conv of primaryConvs) {
               SdrDebouncer.getInstance().clearSession(conv.id);
-              await db.delete(agentFlowStates).where(eq(agentFlowStates.conversationId, conv.id));
-              await db.delete(messages).where(eq(messages.conversationId, conv.id));
+              await db.delete(agentFlowStates).where(and(eq(agentFlowStates.conversationId, conv.id), eq(agentFlowStates.tenantId, tenantId)));
+              await db.delete(messages).where(and(eq(messages.conversationId, conv.id), eq(messages.tenantId, tenantId)));
               await db.update(conversations)
                 .set({ queueState: "automacao", operatorId: null, unreadCount: 0, lastMessageText: null })
-                .where(eq(conversations.id, conv.id));
+                .where(and(eq(conversations.id, conv.id), eq(conversations.tenantId, tenantId)));
               log.push(`  Conversa principal ${conv.id} resetada (fresh start)`);
             }
           }
+
+          if (deletedContactDetails.length) await recordCrmAction({ tenantId,
+            operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_contact", entityType: "contact", itemCount: deletedContactDetails.length,
+            details: { contacts: deletedContactDetails, source: "duplicate_cleanup" } });
 
           return new Response(JSON.stringify({
             ok: true,
@@ -213,8 +223,10 @@ export const Route = createFileRoute("/api/admin/reset")({
             );
           }
 
-          const session = await getAuthSession(request);
-          if (!session || session.operator.role !== "admin") {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          if (session.operator.role !== "admin") {
             return new Response(
               JSON.stringify({ error: "Acesso restrito a administradores autenticados." }),
               { status: 403, headers: corsHeaders }
@@ -277,10 +289,18 @@ export const Route = createFileRoute("/api/admin/reset")({
           const [r_convs] = await db.delete(conversations).where(eq(conversations.tenantId, tenantId)).returning({ id: conversations.id });
           results.conversations = Array.isArray(r_convs) ? r_convs.length : 0;
 
-          const [r_contacts] = await db.delete(contacts).where(eq(contacts.tenantId, tenantId)).returning({ id: contacts.id });
-          results.contacts = Array.isArray(r_contacts) ? r_contacts.length : 0;
+          const r_contacts = await db.delete(contacts).where(eq(contacts.tenantId, tenantId)).returning({ id: contacts.id });
+          results.contacts = r_contacts.length;
+          if (r_contacts.length) await recordCrmAction({ tenantId,
+            operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_contact", entityType: "contact", itemCount: r_contacts.length,
+            details: { contactIds: r_contacts.map((contact) => contact.id), source: "development_reset" } });
 
           const total = Object.values(results).reduce((a, b) => a + b, 0);
+
+          await recordCrmAction({ tenantId, operatorId: session.operator.id,
+            operatorName: session.operator.name, action: "reset_tenant", entityType: "system",
+            itemCount: total, details: { counts: results, environment: "development" } });
 
           console.log(`[AdminReset] ✅ Reset completo. ${total} registros removidos:`, results);
 

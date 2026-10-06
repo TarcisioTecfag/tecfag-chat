@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
+import { recordCrmAction } from "../../../../lib/crm/action-history";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -91,7 +92,11 @@ export const Route = createFileRoute("/api/crm/pipelines/$pipelineId")({
           if (permError) return permError;
 
           const { pipelineId } = params as unknown as { pipelineId: string };
+          const pipeline = await crmService.getPipelineById(tenantId, pipelineId);
           const result = await crmService.deletePipeline(tenantId, pipelineId);
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_pipeline", entityType: "pipeline", itemCount: 1,
+            details: { pipelineId, name: pipeline.name } });
 
           return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

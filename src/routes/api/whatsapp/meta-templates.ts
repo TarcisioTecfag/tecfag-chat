@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { recordCrmAction } from "../../../lib/crm/action-history";
 import { requirePermission, requireSession } from "../../../lib/auth-session";
 import {
   createMetaTemplate, deleteMetaTemplate, setMetaTemplateBindings,
@@ -59,7 +60,12 @@ export const Route = createFileRoute("/api/whatsapp/meta-templates")({
         try {
           const id = new URL(request.url).searchParams.get("id");
           if (!id) return Response.json({ error: "ID obrigatório." }, { status: 400 });
-          return Response.json(await deleteMetaTemplate(auth.session.tenantId, id));
+          const result = await deleteMetaTemplate(auth.session.tenantId, id);
+          await recordCrmAction({ tenantId: auth.session.tenantId,
+            operatorId: auth.session.operator.id, operatorName: auth.session.operator.name,
+            action: "delete_meta_template", entityType: "meta_template", itemCount: 1,
+            details: { id } });
+          return Response.json(result);
         } catch (error) { return failure(error); }
       },
     },

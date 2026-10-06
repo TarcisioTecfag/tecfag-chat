@@ -348,6 +348,8 @@ import {
   Eye,
   EyeOff,
   Building2,
+  Briefcase,
+  CheckSquare,
   Lock,
   Edit,
   ChevronDown,
@@ -417,39 +419,105 @@ export function GroupsView() {
   const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors" | "wallets" | "templates">("users");
 
   // Modal de confirmação de exclusão de operador
+  // Delete Operator Confirmation State (com auditoria e transferência de patrimônio)
   const [deleteConfirm, setDeleteConfirm] = useState<{
     operatorId: string;
     operatorName: string;
     linkedCount: number;
     activeCount: number;
+    dealsCount: number;
+    openDealsCount: number;
+    contactsCount: number;
+    tasksCount: number;
+    pendingTasksCount: number;
+    totalItems: number;
+    targetOperatorId: string;
+    actionType: "transfer" | "unassign";
     loading: boolean;
   } | null>(null);
 
   const handleDeleteClick = async (op: any) => {
-    // Consulta o backend: quantos atendimentos estão vinculados a este operador
+    // Consulta o backend: auditoria completa de vínculos do operador
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || "";
-      const res = await fetch(`${backendUrl}/api/operators?action=count-linked&id=${op.id}&tenantId=${tenant}`);
-      const data = res.ok ? await res.json() : { total: 0, active: 0 };
+      const res = await fetch(`${backendUrl}/api/operators?action=count-linked&id=${op.id}`);
+      const data = res.ok ? await res.json() : null;
+
+      const convs = data?.conversations?.total ?? data?.total ?? 0;
+      const activeConvs = data?.conversations?.active ?? data?.active ?? 0;
+      const deals = data?.deals?.total ?? 0;
+      const openDeals = data?.deals?.open ?? 0;
+      const contactsCount = data?.contacts?.total ?? 0;
+      const tasksCount = data?.tasks?.total ?? 0;
+      const pendingTasksCount = data?.tasks?.pending ?? 0;
+      const totalItems = data?.totalItems ?? (convs + deals + contactsCount + tasksCount);
+
+      // Pré-selecionar o primeiro operador disponível diferente do operador que está sendo excluído
+      const otherOps = operators.filter(o => o.id !== op.id);
+      const defaultTarget = otherOps.find(o => o.id === currentOperatorId) || otherOps[0];
+
       setDeleteConfirm({
         operatorId: op.id,
         operatorName: op.name,
-        linkedCount: data.total ?? 0,
-        activeCount: data.active ?? 0,
+        linkedCount: convs,
+        activeCount: activeConvs,
+        dealsCount: deals,
+        openDealsCount: openDeals,
+        contactsCount: contactsCount,
+        tasksCount: tasksCount,
+        pendingTasksCount: pendingTasksCount,
+        totalItems,
+        targetOperatorId: defaultTarget?.id || "",
+        actionType: totalItems > 0 && defaultTarget ? "transfer" : "unassign",
         loading: false,
       });
     } catch {
-      // Se falhar, abre o modal com count 0 mesmo assim
-      setDeleteConfirm({ operatorId: op.id, operatorName: op.name, linkedCount: 0, activeCount: 0, loading: false });
+      const otherOps = operators.filter(o => o.id !== op.id);
+      const defaultTarget = otherOps[0];
+      setDeleteConfirm({
+        operatorId: op.id,
+        operatorName: op.name,
+        linkedCount: 0,
+        activeCount: 0,
+        dealsCount: 0,
+        openDealsCount: 0,
+        contactsCount: 0,
+        tasksCount: 0,
+        pendingTasksCount: 0,
+        totalItems: 0,
+        targetOperatorId: defaultTarget?.id || "",
+        actionType: "unassign",
+        loading: false,
+      });
     }
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteConfirm) return;
-    setDeleteConfirm((prev) => prev ? { ...prev, loading: true } : null);
-    await deleteOperator(deleteConfirm.operatorId);
-    toast.success(`Operador "${deleteConfirm.operatorName}" excluído. Atendimentos desvinculados.`);
-    setDeleteConfirm(null);
+    setDeleteConfirm((prev) => (prev ? { ...prev, loading: true } : null));
+
+    const targetId =
+      deleteConfirm.actionType === "transfer" && deleteConfirm.targetOperatorId
+        ? deleteConfirm.targetOperatorId
+        : undefined;
+
+    const res = await deleteOperator(deleteConfirm.operatorId, targetId);
+
+    if (res.success) {
+      if (deleteConfirm.actionType === "transfer" && targetId) {
+        const dest = operators.find((o) => o.id === targetId)?.name || "novo atendente";
+        toast.success(
+          `Atendente "${deleteConfirm.operatorName}" excluído. Todo o patrimônio foi transferido para ${dest}.`
+        );
+      } else {
+        toast.success(
+          `Atendente "${deleteConfirm.operatorName}" excluído. Atendimentos e negociações movidos para Fila / Sem Responsável.`
+        );
+      }
+      setDeleteConfirm(null);
+    } else {
+      setDeleteConfirm((prev) => (prev ? { ...prev, loading: false } : null));
+    }
   };
 
   // Quick Responses Form States
@@ -2449,107 +2517,264 @@ export function GroupsView() {
         </div>
       )}
       {/* Modal de Confirmação de Exclusão de Operador */}
+      {/* Modal de Confirmação de Exclusão de Operador com Transferência de Custódia (Opção A) */}
       {deleteConfirm && createPortal(
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(6px)" }}
           onClick={(e) => { if (e.target === e.currentTarget && !deleteConfirm.loading) setDeleteConfirm(null); }}
         >
           <div
-            className="relative w-full max-w-md rounded-2xl shadow-2xl overflow-hidden"
-            style={{ background: "var(--card, #fff)", border: "1px solid var(--border, #e5e7eb)" }}
+            className="relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden bg-card border border-border text-foreground animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]"
           >
-            {/* Cabeçalho verde */}
-            <div className="flex items-center gap-3 px-6 pt-6 pb-4" style={{ borderBottom: "1px solid var(--border, #e5e7eb)" }}>
+            {/* Cabeçalho */}
+            <div className="flex items-center gap-3.5 px-6 pt-5 pb-4 border-b border-border bg-muted/20 shrink-0">
               <div
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-                style={{ background: "rgba(var(--primary-rgb, 22,163,74), 0.12)" }}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-destructive/10 text-destructive border border-destructive/20"
               >
-                <Trash className="h-5 w-5" style={{ color: "var(--primary, #16a34a)" }} />
+                <Trash className="h-5 w-5" />
               </div>
-              <div>
-                <h3 className="text-base font-bold" style={{ color: "var(--foreground)" }}>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-extrabold text-foreground truncate">
                   Excluir Atendente
                 </h3>
-                <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                  Esta ação não pode ser desfeita
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                  Auditoria de patrimônio e transferência de custódia
                 </p>
               </div>
+              <button
+                type="button"
+                disabled={deleteConfirm.loading}
+                onClick={() => setDeleteConfirm(null)}
+                className="h-8 w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
-            {/* Corpo */}
-            <div className="px-6 py-5 space-y-4">
-              <p className="text-sm" style={{ color: "var(--foreground)" }}>
-                Você está prestes a excluir o atendente{" "}
-                <span className="font-semibold">"{deleteConfirm.operatorName}"</span>.
-              </p>
+            {/* Corpo com Scroll */}
+            <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
+              <div className="p-3.5 rounded-xl bg-muted/40 border border-border/80 flex items-center gap-3">
+                <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 text-primary font-extrabold flex items-center justify-center border border-primary/20 text-xs">
+                  {deleteConfirm.operatorName.substring(0, 2).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                    Atendente a ser excluído
+                  </span>
+                  <span className="text-sm font-bold text-foreground truncate block">
+                    {deleteConfirm.operatorName}
+                  </span>
+                </div>
+              </div>
 
-              {deleteConfirm.linkedCount > 0 ? (
-                <div
-                  className="rounded-xl p-4 space-y-1.5"
-                  style={{ background: "rgba(var(--primary-rgb, 22,163,74), 0.07)", border: "1px solid rgba(var(--primary-rgb, 22,163,74), 0.2)" }}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full shrink-0" style={{ background: "var(--primary, #16a34a)" }} />
-                    <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
-                      {deleteConfirm.linkedCount} atendimento{deleteConfirm.linkedCount !== 1 ? "s" : ""} vinculado{deleteConfirm.linkedCount !== 1 ? "s" : ""}
+              {/* Quadro de Auditoria de Patrimônio */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-foreground uppercase tracking-wide">
+                    Patrimônio Vinculado no Sistema
+                  </span>
+                  <span className="text-[11px] font-semibold text-muted-foreground">
+                    Total: {deleteConfirm.totalItems} registro{deleteConfirm.totalItems !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  {/* Negociações no CRM */}
+                  <div className="p-3 rounded-xl bg-card border border-border/70 space-y-1 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Negócios CRM</span>
+                      <Briefcase className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                    <div className="text-lg font-black text-foreground">
+                      {deleteConfirm.dealsCount}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {deleteConfirm.openDealsCount} em andamento
                     </p>
                   </div>
-                  {deleteConfirm.activeCount > 0 && (
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-2 rounded-full shrink-0" style={{ background: "#f59e0b" }} />
-                      <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-                        {deleteConfirm.activeCount} em andamento ou na fila
-                      </p>
+
+                  {/* Clientes na Carteira */}
+                  <div className="p-3 rounded-xl bg-card border border-border/70 space-y-1 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Carteira</span>
+                      <Users className="h-3.5 w-3.5 text-primary" />
                     </div>
-                  )}
-                  <p className="text-xs pt-1" style={{ color: "var(--muted-foreground)" }}>
-                    Todos os atendimentos serão movidos para <strong>Sem Responsável</strong> automaticamente.
-                  </p>
+                    <div className="text-lg font-black text-foreground">
+                      {deleteConfirm.contactsCount}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      clientes vinculados
+                    </p>
+                  </div>
+
+                  {/* Conversas no Chat */}
+                  <div className="p-3 rounded-xl bg-card border border-border/70 space-y-1 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Atendimentos</span>
+                      <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                    <div className="text-lg font-black text-foreground">
+                      {deleteConfirm.linkedCount}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {deleteConfirm.activeCount} ativos no chat
+                    </p>
+                  </div>
+
+                  {/* Tarefas Agendadas */}
+                  <div className="p-3 rounded-xl bg-card border border-border/70 space-y-1 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Tarefas</span>
+                      <CheckSquare className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                    <div className="text-lg font-black text-foreground">
+                      {deleteConfirm.tasksCount}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {deleteConfirm.pendingTasksCount} pendentes
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Seletor de Ação e Destinação */}
+              {deleteConfirm.totalItems > 0 ? (
+                <div className="space-y-2.5 pt-1">
+                  <label className="text-xs font-extrabold text-foreground block">
+                    Destinação do patrimônio antes da exclusão:
+                  </label>
+
+                  {/* Opção A: Transferir Custódia */}
+                  <div
+                    onClick={() => setDeleteConfirm({ ...deleteConfirm, actionType: "transfer" })}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      deleteConfirm.actionType === "transfer"
+                        ? "border-primary bg-primary/5 shadow-xs"
+                        : "border-border bg-card hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="deleteActionType"
+                        checked={deleteConfirm.actionType === "transfer"}
+                        onChange={() => setDeleteConfirm({ ...deleteConfirm, actionType: "transfer" })}
+                        className="mt-1 accent-primary cursor-pointer"
+                      />
+                      <div className="flex-1 space-y-2.5">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-extrabold text-foreground">
+                              Transferir patrimônio para outro atendente
+                            </span>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-primary/10 text-primary border border-primary/20">
+                              Recomendado
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-muted-foreground block mt-0.5 leading-relaxed">
+                            Reatribui atomicamente todas as negociações, contatos, tarefas e conversas para o novo atendente sem perder histórico.
+                          </span>
+                        </div>
+
+                        {deleteConfirm.actionType === "transfer" && (
+                          <div className="pt-1" onClick={(e) => e.stopPropagation()}>
+                            <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block mb-1">
+                              Selecionar Novo Atendente Responsável
+                            </label>
+                            <Select
+                              value={deleteConfirm.targetOperatorId}
+                              onValueChange={(val) => setDeleteConfirm({ ...deleteConfirm, targetOperatorId: val })}
+                            >
+                              <SelectTrigger className="h-10 w-full rounded-xl bg-card border border-border text-xs text-foreground px-3.5 focus:ring-1 focus:ring-primary shadow-xs">
+                                <SelectValue placeholder="Escolha um atendente ativo..." />
+                              </SelectTrigger>
+                              <SelectContent className="z-[10000]">
+                                {operators
+                                  .filter((o) => o.id !== deleteConfirm.operatorId)
+                                  .map((dest) => (
+                                    <SelectItem key={dest.id} value={dest.id} className="text-xs py-2">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-semibold text-foreground">{dest.name}</span>
+                                        <span className="text-muted-foreground text-[10px]">({dest.email})</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Opção B: Desvincular sem transferir */}
+                  <div
+                    onClick={() => setDeleteConfirm({ ...deleteConfirm, actionType: "unassign" })}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      deleteConfirm.actionType === "unassign"
+                        ? "border-primary bg-primary/5 shadow-xs"
+                        : "border-border bg-card hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="deleteActionType"
+                        checked={deleteConfirm.actionType === "unassign"}
+                        onChange={() => setDeleteConfirm({ ...deleteConfirm, actionType: "unassign" })}
+                        className="mt-1 accent-primary cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs font-extrabold text-foreground block">
+                          Não transferir (Deixar Sem Responsável e Fila Geral)
+                        </span>
+                        <span className="text-[11px] text-muted-foreground block mt-0.5 leading-relaxed">
+                          Os cards no Kanban ficarão com responsável vazio, contatos serão marcados como "Na Fila" e conversas ativas serão devolvidas à fila geral.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-                  Este atendente não possui atendimentos vinculados.
-                </p>
+                <div className="rounded-xl p-4 bg-muted/30 border border-border/80 text-xs text-muted-foreground leading-relaxed">
+                  Este atendente não possui negociações, contatos na carteira ou atendimentos pendentes vinculados. A exclusão de credencial pode ser efetuada com total segurança.
+                </div>
               )}
             </div>
 
-            {/* Rodapé */}
-            <div className="flex items-center justify-end gap-3 px-6 pb-6">
+            {/* Rodapé com Ações */}
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-muted/20 border-t border-border shrink-0">
               <button
+                type="button"
                 onClick={() => setDeleteConfirm(null)}
                 disabled={deleteConfirm.loading}
-                className="rounded-xl px-4 py-2 text-sm font-medium transition cursor-pointer"
-                style={{
-                  background: "var(--muted, #f3f4f6)",
-                  color: "var(--muted-foreground)",
-                  opacity: deleteConfirm.loading ? 0.5 : 1,
-                }}
+                className="h-10 rounded-xl px-4 text-xs font-bold border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={handleConfirmDelete}
-                disabled={deleteConfirm.loading}
-                className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-white transition cursor-pointer"
-                style={{
-                  background: deleteConfirm.loading ? "var(--primary, #16a34a)" : "#dc2626",
-                  opacity: deleteConfirm.loading ? 0.7 : 1,
-                  boxShadow: "0 2px 8px rgba(220,38,38,0.25)",
-                }}
+                disabled={
+                  deleteConfirm.loading ||
+                  (deleteConfirm.actionType === "transfer" && deleteConfirm.totalItems > 0 && !deleteConfirm.targetOperatorId)
+                }
+                className="flex items-center gap-2 h-10 rounded-xl px-5 text-xs font-bold text-destructive-foreground bg-destructive hover:opacity-90 shadow-soft transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {deleteConfirm.loading ? (
                   <>
-                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
-                      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                    </svg>
-                    Excluindo...
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <span>Processando...</span>
                   </>
                 ) : (
                   <>
                     <Trash className="h-4 w-4" />
-                    Sim, excluir
+                    <span>
+                      {deleteConfirm.actionType === "transfer" && deleteConfirm.totalItems > 0
+                        ? "Transferir Patrimônio e Excluir"
+                        : "Confirmar Exclusão"}
+                    </span>
                   </>
                 )}
               </button>

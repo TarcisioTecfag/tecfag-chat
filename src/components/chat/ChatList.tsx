@@ -165,7 +165,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           />
           <span className={`absolute bottom-0 right-1.5 h-3.5 w-3.5 rounded-full border-2 border-card ${
             operatorProfile.status === "disponivel"
-              ? "bg-emerald-500"
+              ? "bg-primary"
               : operatorProfile.status === "pausa"
               ? "bg-amber-500"
               : "bg-gray-400"
@@ -179,7 +179,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             onClick={() => setShowStatusDropdown(!showStatusDropdown)}
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold transition hover:opacity-90 cursor-pointer capitalize ${
               operatorProfile.status === "disponivel"
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                ? "bg-primary/10 text-primary border border-primary/20"
                 : operatorProfile.status === "pausa"
                 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                 : "bg-muted text-muted-foreground border border-border"
@@ -209,7 +209,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                       className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-foreground hover:bg-muted transition capitalize cursor-pointer"
                     >
                       <span className={`h-2 w-2 rounded-full ${
-                        st === "disponivel" ? "bg-emerald-500" : st === "pausa" ? "bg-amber-500" : "bg-gray-400"
+                        st === "disponivel" ? "bg-primary" : st === "pausa" ? "bg-amber-500" : "bg-gray-400"
                       }`} />
                       {st === "disponivel" ? "Disponível" : st === "pausa" ? "Em Pausa" : "Desconectado"}
                     </button>
@@ -261,8 +261,8 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             onClick={() => setChannelFilter("whatsapp")}
             className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
               channelFilter === "whatsapp"
-                ? "bg-emerald-500 text-white shadow-soft"
-                : "bg-muted text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                ? "bg-primary text-primary-foreground shadow-soft"
+                : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
             }`}
             title="WhatsApp Only"
           >
@@ -274,8 +274,8 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             onClick={() => setChannelFilter("instagram")}
             className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
               channelFilter === "instagram"
-                ? "bg-gradient-to-tr from-yellow-500 to-purple-600 text-white shadow-soft"
-                : "bg-muted text-purple-600 dark:text-purple-400 hover:bg-purple-500/10"
+                ? "bg-primary text-primary-foreground shadow-soft"
+                : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
             }`}
             title="Instagram Only"
           >
@@ -287,8 +287,8 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             onClick={() => setChannelFilter("messenger")}
             className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
               channelFilter === "messenger"
-                ? "bg-blue-600 text-white shadow-soft"
-                : "bg-muted text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+                ? "bg-primary text-primary-foreground shadow-soft"
+                : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
             }`}
             title="Messenger Only"
           >
@@ -420,21 +420,14 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                           <img src={c.avatar} alt={c.name} className="h-8 w-8 rounded-full object-cover border border-border" />
                         ) : (
                           <div
-                            className="grid h-8 w-8 place-items-center rounded-full text-[10px] font-bold text-foreground"
-                            style={{ background: c.initialsBg || "#eee" }}
+                            className="grid h-8 w-8 place-items-center rounded-full text-[10px] font-bold text-primary bg-primary/10 border border-primary/20"
                           >
-                            {c.initials || <User className="h-3 w-3 text-muted-foreground" />}
+                            {c.initials || <User className="h-3 w-3 text-primary" />}
                           </div>
                         )}
 
                         {/* Channel Badge */}
-                        <span className={`absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card text-white shadow-soft ${
-                          c.channel === "whatsapp"
-                            ? "bg-emerald-500"
-                            : c.channel === "instagram"
-                            ? "bg-gradient-to-tr from-yellow-500 to-purple-600"
-                            : "bg-blue-600"
-                        }`}>
+                        <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card text-primary-foreground shadow-soft bg-primary">
                           {c.channel === "whatsapp" && <WhatsappLogo className="h-2 w-2" />}
                           {c.channel === "instagram" && <InstagramLogo className="h-2 w-2" />}
                           {c.channel === "messenger" && <MessengerLogo className="h-2 w-2" />}
@@ -457,7 +450,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                         <div className="flex items-center justify-between mt-0.5">
                           <p className="truncate text-[10px] text-muted-foreground pr-2 flex items-center gap-1">
                             {lastMsg?.isInternalNote && (
-                              <span className="text-amber-500 font-semibold shrink-0">[Nota]</span>
+                              <span className="text-primary font-semibold shrink-0">[Nota]</span>
                             )}
                             {renderMediaIcon(msgMediaType)}
                             <span className="truncate">{msgLabel}</span>
@@ -475,15 +468,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                         {((c.tags && c.tags.length > 0) || c.sectorName) && (
                           <div className="flex flex-wrap gap-1 mt-1.5 items-center">
                             {c.sectorName && (
-                              <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md border ${
-                                c.sectorName === "Comercial"
-                                  ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
-                                  : c.sectorName === "Suporte"
-                                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                                  : c.sectorName === "Financeiro"
-                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                                  : "bg-muted text-muted-foreground border-border"
-                              }`}>
+                              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md border border-primary/20 bg-primary/10 text-primary">
                                 {c.sectorName}
                               </span>
                             )}

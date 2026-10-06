@@ -4,6 +4,7 @@ import { db } from "../../../../db";
 import { crmAccounts, crmCatalogItems, crmDeals } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
 import { listCatalogItems, normalizeCatalogName } from "../../../../lib/crm/catalogs";
+import { recordCrmAction } from "../../../../lib/crm/action-history";
 
 export const Route = createFileRoute("/api/crm/catalogs/$itemId")({
   server: {
@@ -150,6 +151,10 @@ export const Route = createFileRoute("/api/crm/catalogs/$itemId")({
             ),
           )
           .returning();
+        if (item) await recordCrmAction({ tenantId: session.tenantId,
+          operatorId: session.operator.id, operatorName: session.operator.name,
+          action: "delete_catalog_item", entityType: item.kind, itemCount: 1,
+          details: { itemId: item.id, name: item.name } });
         return item
           ? Response.json({ item })
           : Response.json({ error: "Item não encontrado." }, { status: 404 });

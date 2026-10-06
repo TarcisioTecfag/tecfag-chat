@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../../lib/crm/crm-service";
+import { recordCrmAction } from "../../../../../../lib/crm/action-history";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -80,6 +81,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities/$activit
             activityId,
             session.operator.id
           );
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_deal_activity", entityType: "deal_activity", itemCount: 1,
+            details: { dealId, activityId } });
 
           return new Response(JSON.stringify(result), {
             status: 200,

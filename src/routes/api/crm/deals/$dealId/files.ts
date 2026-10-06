@@ -4,6 +4,7 @@ import path from "path";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
+import { recordCrmAction } from "../../../../../lib/crm/action-history";
 import { db } from "../../../../../db";
 import { crmDeals, crmDealFiles } from "../../../../../db/schema";
 import { eq, and } from "drizzle-orm";
@@ -297,6 +298,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
           }
 
           await crmService.deleteDealFile(tenantId, dealId, fileId, session.operator.id);
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_deal_file", entityType: "deal_file", itemCount: 1,
+            details: { dealId, fileId } });
 
           return new Response(JSON.stringify({ success: true, message: "Arquivo excluído com sucesso." }), {
             status: 200,

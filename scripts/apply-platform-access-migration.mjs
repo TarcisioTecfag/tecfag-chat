@@ -63,6 +63,10 @@ const migrations = [
     name: "0022_meta_message_templates",
     url: new URL("../src/db/migrations/0022_meta_message_templates.sql", import.meta.url),
   },
+  {
+    name: "0023_crm_action_history",
+    url: new URL("../src/db/migrations/0023_crm_action_history.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

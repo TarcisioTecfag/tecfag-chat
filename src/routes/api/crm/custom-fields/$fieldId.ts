@@ -4,6 +4,7 @@ import { db } from "../../../../db";
 import { crmCustomFieldDefinitions, crmPipelines } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
 import { conflictsWithStandardField, listCustomFields } from "../../../../lib/crm/custom-fields";
+import { recordCrmAction } from "../../../../lib/crm/action-history";
 
 export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
   server: {
@@ -133,6 +134,12 @@ export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
               ),
             )
             .returning();
+          if (body.archive === true && field && !current.archivedAt) {
+            await recordCrmAction({ tenantId: session.tenantId,
+              operatorId: session.operator.id, operatorName: session.operator.name,
+              action: "delete_custom_field", entityType: current.entityType, itemCount: 1,
+              details: { fieldId, name: current.name } });
+          }
           return Response.json({ field });
         } catch (error) {
           return Response.json(

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
+import { recordCrmAction } from "../../../../lib/crm/action-history";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,6 +67,8 @@ export const Route = createFileRoute("/api/crm/stages/$stageId")({
 
           const { stageId } = params as unknown as { stageId: string };
           const result = await crmService.deleteStage(tenantId, stageId);
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_stage", entityType: "stage", itemCount: 1, details: { stageId } });
 
           return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -694,6 +694,21 @@ export const crmDealEvents = pgTable("crm_deal_events", {
   tenantDealCreatedIdx: index("idx_crm_deal_events_tenant_deal_created").on(table.tenantId, table.dealId, table.createdAt),
 }));
 
+// Histórico administrativo independente dos registros de origem, inclusive após exclusão definitiva.
+export const crmActionHistory = pgTable("crm_action_history", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  operatorName: text("operator_name").notNull(),
+  action: text("action").notNull(),
+  entityType: text("entity_type").notNull(),
+  itemCount: integer("item_count").notNull(),
+  details: jsonb("details").$type<Record<string, unknown>>().default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantCreatedIdx: index("idx_crm_action_history_tenant_created").on(table.tenantId, table.createdAt),
+}));
+
 // ─── 14.11. PRODUTOS & CATÁLOGO COMERCIAL ─────────────────────────────────────
 export const crmProducts = pgTable("crm_products", {
   id: text("id").primaryKey(),

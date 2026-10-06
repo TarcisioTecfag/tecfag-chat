@@ -154,11 +154,11 @@ export function ProfileModal() {
                   onClick={() => setStatus("disponivel")}
                   className={`flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition cursor-pointer ${
                     status === "disponivel"
-                      ? "bg-emerald-500 border-emerald-500 text-white shadow-soft"
+                      ? "bg-primary border-primary text-primary-foreground shadow-soft"
                       : "bg-card border-border text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  <span className={`h-2.5 w-2.5 rounded-full ${status === "disponivel" ? "bg-white" : "bg-emerald-500"}`} />
+                  <span className={`h-2.5 w-2.5 rounded-full ${status === "disponivel" ? "bg-white" : "bg-primary"}`} />
                   Disponível
                 </button>
                 <button

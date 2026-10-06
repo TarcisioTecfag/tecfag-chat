@@ -259,7 +259,7 @@ export function Sidebar() {
           />
           <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-card ${
             operatorProfile.status === "disponivel"
-              ? "bg-emerald-500"
+              ? "bg-primary"
               : operatorProfile.status === "pausa"
               ? "bg-amber-500"
               : "bg-gray-400"

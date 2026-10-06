@@ -1,7 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { recordCrmAction } from "../../lib/crm/action-history";
 import { db } from "../../db/index.js";
-import { operators, conversations, internalMessages, accessGroups, platformAccounts } from "../../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import {
+  operators,
+  conversations,
+  internalMessages,
+  accessGroups,
+  platformAccounts,
+  crmDeals,
+  contacts,
+  crmDealActivities,
+} from "../../db/schema.js";
+import { eq, and, or } from "drizzle-orm";
 import {
   requireSession,
   sanitizeOperator,
@@ -32,10 +42,17 @@ export const Route = createFileRoute("/api/operators")({
         const action = url.searchParams.get("action");
         const id = url.searchParams.get("id");
 
-        // GET ?action=count-linked&id=<operatorId> — conta conversas vinculadas
+        // GET ?action=count-linked&id=<operatorId> — auditoria detalhada de patrimônio e vínculos
         if (action === "count-linked" && id) {
           try {
-            const linked = await db
+            const [targetOp] = await db
+              .select({ id: operators.id, name: operators.name })
+              .from(operators)
+              .where(and(eq(operators.id, id), eq(operators.tenantId, tenantId)))
+              .limit(1);
+
+            // 1. Conversas no Chat
+            const linkedConvs = await db
               .select({ id: conversations.id, queueState: conversations.queueState })
               .from(conversations)
               .where(
@@ -44,12 +61,81 @@ export const Route = createFileRoute("/api/operators")({
                   eq(conversations.operatorId as any, id)
                 )
               );
+            const activeConvs = linkedConvs.filter((c) => c.queueState !== "finalizados").length;
 
-            const active = linked.filter((c) => c.queueState !== "finalizados").length;
-            return new Response(JSON.stringify({ total: linked.length, active }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            // 2. Negociações no CRM (Kanban)
+            const linkedDeals = await db
+              .select({ id: crmDeals.id, status: crmDeals.status })
+              .from(crmDeals)
+              .where(
+                and(
+                  eq(crmDeals.tenantId, tenantId),
+                  eq(crmDeals.operatorId, id)
+                )
+              );
+            const openDeals = linkedDeals.filter((d) => d.status === "open").length;
+
+            // 3. Contatos na Carteira
+            const contactCondition = targetOp?.name
+              ? and(
+                  eq(contacts.tenantId, tenantId),
+                  or(eq(contacts.walletOperatorId, id), eq(contacts.responsibleName, targetOp.name))
+                )
+              : and(
+                  eq(contacts.tenantId, tenantId),
+                  eq(contacts.walletOperatorId, id)
+                );
+
+            const linkedContacts = await db
+              .select({ id: contacts.id })
+              .from(contacts)
+              .where(contactCondition);
+
+            // 4. Tarefas e Atividades do CRM
+            const linkedActivities = await db
+              .select({ id: crmDealActivities.id, status: crmDealActivities.status })
+              .from(crmDealActivities)
+              .where(
+                and(
+                  eq(crmDealActivities.tenantId, tenantId),
+                  or(
+                    eq(crmDealActivities.operatorId, id),
+                    eq(crmDealActivities.assignedToOperatorId, id)
+                  )
+                )
+              );
+            const pendingTasks = linkedActivities.filter((a) => a.status === "pending").length;
+
+            const totalItems = linkedConvs.length + linkedDeals.length + linkedContacts.length + linkedActivities.length;
+
+            return new Response(
+              JSON.stringify({
+                total: linkedConvs.length, // retrocompatibilidade
+                active: activeConvs,      // retrocompatibilidade
+                operatorName: targetOp?.name || "",
+                conversations: {
+                  total: linkedConvs.length,
+                  active: activeConvs,
+                },
+                deals: {
+                  total: linkedDeals.length,
+                  open: openDeals,
+                },
+                contacts: {
+                  total: linkedContacts.length,
+                },
+                tasks: {
+                  total: linkedActivities.length,
+                  pending: pendingTasks,
+                },
+                totalItems,
+              }),
+              {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              }
+            );
           } catch (e: any) {
+            console.error("[GET /api/operators?action=count-linked] Erro:", e);
             return new Response(JSON.stringify({ error: e.message }), {
               status: 500,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -228,9 +314,17 @@ export const Route = createFileRoute("/api/operators")({
 
         const url = new URL(request.url);
         const id = url.searchParams.get("id");
+        const transferToOperatorId = url.searchParams.get("transferToOperatorId"); // ID do operador de destino (Opção A)
 
         if (!id) {
           return new Response(JSON.stringify({ error: "id é obrigatório" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        if (id === session.operator.id) {
+          return new Response(JSON.stringify({ error: "Você não pode excluir sua própria conta.", code: "BAD_REQUEST" }), {
             status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -253,32 +347,157 @@ export const Route = createFileRoute("/api/operators")({
             });
           }
 
+          // Se fornecido operador de destino para transferência, validar existência no mesmo tenant
+          let destOp: any = null;
+          if (transferToOperatorId && transferToOperatorId !== "unassign" && transferToOperatorId !== "none") {
+            if (transferToOperatorId === id) {
+              return new Response(JSON.stringify({ error: "O operador de destino deve ser diferente do operador a ser excluído." }), {
+                status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+            destOp = await db.query.operators.findFirst({
+              where: and(eq(operators.id, transferToOperatorId), eq(operators.tenantId, tenantId)),
+            });
+            if (!destOp) {
+              return new Response(JSON.stringify({ error: "Operador de destino não encontrado neste tenant." }), {
+                status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+          }
+
+          let transferredDealsCount = 0;
+          let transferredContactsCount = 0;
+          let transferredConvsCount = 0;
+          let transferredTasksCount = 0;
+
+          if (destOp) {
+            // ── OPÇÃO A: TRANSFERIR CUSTÓDIA DE TODO O PATRIMÔNIO ──────────
+            // 1. Reatribuir Negociações do CRM
+            const dealsRes = await db
+              .update(crmDeals)
+              .set({ operatorId: destOp.id, updatedAt: new Date() })
+              .where(and(eq(crmDeals.operatorId, id), eq(crmDeals.tenantId, tenantId)))
+              .returning({ id: crmDeals.id });
+            transferredDealsCount = dealsRes.length;
+
+            // 2. Reatribuir Contatos na Carteira
+            const contactsRes = await db
+              .update(contacts)
+              .set({ walletOperatorId: destOp.id, responsibleName: destOp.name })
+              .where(
+                and(
+                  eq(contacts.tenantId, tenantId),
+                  or(eq(contacts.walletOperatorId, id), eq(contacts.responsibleName, existing.name))
+                )
+              )
+              .returning({ id: contacts.id });
+            transferredContactsCount = contactsRes.length;
+
+            // 3. Reatribuir Conversas do Chat
+            const convsRes = await db
+              .update(conversations)
+              .set({ operatorId: destOp.id, updatedAt: new Date() })
+              .where(and(eq(conversations.operatorId as any, id), eq(conversations.tenantId, tenantId)))
+              .returning({ id: conversations.id });
+            transferredConvsCount = convsRes.length;
+
+            // 4. Reatribuir Tarefas e Atividades do CRM
+            const tasksRes = await db
+              .update(crmDealActivities)
+              .set({ operatorId: destOp.id, assignedToOperatorId: destOp.id, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(crmDealActivities.tenantId, tenantId),
+                  or(eq(crmDealActivities.operatorId, id), eq(crmDealActivities.assignedToOperatorId, id))
+                )
+              )
+              .returning({ id: crmDealActivities.id });
+            transferredTasksCount = tasksRes.length;
+          } else {
+            // ── OPÇÃO B: DESVINCULAR COM HIGIENIZAÇÃO EXPLÍCITA ─────────────
+            // 1. Negociações ficam sem vendedor
+            await db
+              .update(crmDeals)
+              .set({ operatorId: null, updatedAt: new Date() })
+              .where(and(eq(crmDeals.operatorId, id), eq(crmDeals.tenantId, tenantId)));
+
+            // 2. Contatos são devolvidos para a fila geral sem dono órfão
+            await db
+              .update(contacts)
+              .set({ walletOperatorId: null, responsibleName: "Na Fila" })
+              .where(
+                and(
+                  eq(contacts.tenantId, tenantId),
+                  or(eq(contacts.walletOperatorId, id), eq(contacts.responsibleName, existing.name))
+                )
+              );
+
+            // 3. Conversas vão para a fila geral
+            await db
+              .update(conversations)
+              .set({ operatorId: null, queueState: "fila", updatedAt: new Date() })
+              .where(and(eq(conversations.operatorId as any, id), eq(conversations.tenantId, tenantId)));
+
+            // 4. Atividades / Tarefas perdem o responsável
+            await db
+              .update(crmDealActivities)
+              .set({ operatorId: null, assignedToOperatorId: null, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(crmDealActivities.tenantId, tenantId),
+                  or(eq(crmDealActivities.operatorId, id), eq(crmDealActivities.assignedToOperatorId, id))
+                )
+              );
+          }
+
           // Revogar todas as sessões do operador deletado
           await revokeAllOperatorSessions(existing.id);
-
-          // Desvincular conversas vinculadas ao operador
-          await db
-            .update(conversations)
-            .set({ operatorId: null })
-            .where(
-              and(
-                eq(conversations.tenantId, tenantId),
-                eq(conversations.operatorId as any, id)
-              )
-            );
 
           // Limpar internalMessages do operador
           await db
             .delete(internalMessages)
             .where(and(eq(internalMessages.operatorId, id), eq(internalMessages.tenantId, tenantId)));
 
+          // Deletar o operador
           await db
             .delete(operators)
             .where(and(eq(operators.id, id), eq(operators.tenantId, tenantId)));
 
-          return new Response(JSON.stringify({ success: true }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          // Registrar na auditoria do CRM
+          await recordCrmAction({
+            tenantId,
+            operatorId: session.operator.id,
+            operatorName: session.operator.name,
+            action: destOp ? "transfer_and_delete_operator" : "delete_operator",
+            entityType: "operator",
+            itemCount: 1,
+            details: {
+              deletedOperator: { id, name: existing.name },
+              transferredTo: destOp ? { id: destOp.id, name: destOp.name } : null,
+              stats: {
+                deals: transferredDealsCount,
+                contacts: transferredContactsCount,
+                conversations: transferredConvsCount,
+                tasks: transferredTasksCount,
+              },
+            },
           });
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              transferredTo: destOp ? { id: destOp.id, name: destOp.name } : null,
+              stats: {
+                deals: transferredDealsCount,
+                contacts: transferredContactsCount,
+                conversations: transferredConvsCount,
+                tasks: transferredTasksCount,
+              },
+            }),
+            {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
         } catch (e: any) {
           console.error("[DELETE /api/operators] Erro ao excluir operador:", e);
           return new Response(JSON.stringify({ error: e.message }), {

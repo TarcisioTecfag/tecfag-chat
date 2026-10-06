@@ -89,6 +89,7 @@ import { Route as ApiCrmCustomFieldsRouteImport } from './routes/api/crm/custom-
 import { Route as ApiCrmContactsRouteImport } from './routes/api/crm/contacts'
 import { Route as ApiCrmCatalogsRouteImport } from './routes/api/crm/catalogs'
 import { Route as ApiCrmCalendarRouteImport } from './routes/api/crm/calendar'
+import { Route as ApiCrmActionHistoryRouteImport } from './routes/api/crm/action-history'
 import { Route as ApiCrmAccountsRouteImport } from './routes/api/crm/accounts'
 import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contacts/update-wallet'
 import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/contacts/check-inactivity'
@@ -554,6 +555,11 @@ const ApiCrmCalendarRoute = ApiCrmCalendarRouteImport.update({
   path: '/api/crm/calendar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmActionHistoryRoute = ApiCrmActionHistoryRouteImport.update({
+  id: '/api/crm/action-history',
+  path: '/api/crm/action-history',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmAccountsRoute = ApiCrmAccountsRouteImport.update({
   id: '/api/crm/accounts',
   path: '/api/crm/accounts',
@@ -930,6 +936,7 @@ export interface FileRoutesByFullPath {
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
+  '/api/crm/action-history': typeof ApiCrmActionHistoryRoute
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
@@ -1071,6 +1078,7 @@ export interface FileRoutesByTo {
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
+  '/api/crm/action-history': typeof ApiCrmActionHistoryRoute
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
@@ -1213,6 +1221,7 @@ export interface FileRoutesById {
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
   '/api/contacts/update-wallet': typeof ApiContactsUpdateWalletRoute
   '/api/crm/accounts': typeof ApiCrmAccountsRouteWithChildren
+  '/api/crm/action-history': typeof ApiCrmActionHistoryRoute
   '/api/crm/calendar': typeof ApiCrmCalendarRoute
   '/api/crm/catalogs': typeof ApiCrmCatalogsRouteWithChildren
   '/api/crm/contacts': typeof ApiCrmContactsRoute
@@ -1356,6 +1365,7 @@ export interface FileRouteTypes {
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
+    | '/api/crm/action-history'
     | '/api/crm/calendar'
     | '/api/crm/catalogs'
     | '/api/crm/contacts'
@@ -1497,6 +1507,7 @@ export interface FileRouteTypes {
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
+    | '/api/crm/action-history'
     | '/api/crm/calendar'
     | '/api/crm/catalogs'
     | '/api/crm/contacts'
@@ -1638,6 +1649,7 @@ export interface FileRouteTypes {
     | '/api/contacts/check-inactivity'
     | '/api/contacts/update-wallet'
     | '/api/crm/accounts'
+    | '/api/crm/action-history'
     | '/api/crm/calendar'
     | '/api/crm/catalogs'
     | '/api/crm/contacts'
@@ -1773,6 +1785,7 @@ export interface RootRouteChildren {
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
   ApiCrmAccountsRoute: typeof ApiCrmAccountsRouteWithChildren
+  ApiCrmActionHistoryRoute: typeof ApiCrmActionHistoryRoute
   ApiCrmCalendarRoute: typeof ApiCrmCalendarRoute
   ApiCrmCatalogsRoute: typeof ApiCrmCatalogsRouteWithChildren
   ApiCrmContactsRoute: typeof ApiCrmContactsRoute
@@ -2388,6 +2401,13 @@ declare module '@tanstack/react-router' {
       path: '/api/crm/calendar'
       fullPath: '/api/crm/calendar'
       preLoaderRoute: typeof ApiCrmCalendarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/action-history': {
+      id: '/api/crm/action-history'
+      path: '/api/crm/action-history'
+      fullPath: '/api/crm/action-history'
+      preLoaderRoute: typeof ApiCrmActionHistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/crm/accounts': {
@@ -3137,6 +3157,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
   ApiCrmAccountsRoute: ApiCrmAccountsRouteWithChildren,
+  ApiCrmActionHistoryRoute: ApiCrmActionHistoryRoute,
   ApiCrmCalendarRoute: ApiCrmCalendarRoute,
   ApiCrmCatalogsRoute: ApiCrmCatalogsRouteWithChildren,
   ApiCrmContactsRoute: ApiCrmContactsRoute,

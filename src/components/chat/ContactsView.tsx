@@ -81,8 +81,7 @@ function ContactAvatar({ avatar, name, initials, initialsBg, size = "h-9 w-9" }:
 
   return (
     <div
-      className={`grid ${size} place-items-center rounded-full text-xs font-bold text-foreground shrink-0`}
-      style={{ background: initialsBg || "#eee" }}
+      className={`grid ${size} place-items-center rounded-full text-xs font-bold text-primary bg-primary/10 border border-primary/20 shrink-0`}
     >
       {displayInitials}
     </div>
@@ -346,10 +345,10 @@ export function ContactsView() {
         </div>
         <div className="flex items-center gap-1.5 self-end sm:self-auto">
           <span className="text-xs text-muted-foreground font-semibold mr-1">Canal:</span>
-          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:bg-border"}`}>Todos</motion.button>
-          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-emerald-500 text-white shadow-soft" : "bg-muted text-emerald-600 hover:bg-emerald-50"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
-          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-gradient-to-tr from-yellow-500 to-purple-600 text-white shadow-soft" : "bg-muted text-purple-600 hover:bg-purple-50"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
-          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-blue-600 text-white shadow-soft" : "bg-muted text-blue-600 hover:bg-blue-50"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
+          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}>Todos</motion.button>
+          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
+          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
+          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
         </div>
       </div>
 

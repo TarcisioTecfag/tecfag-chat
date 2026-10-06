@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { recordCrmAction } from "../../lib/crm/action-history";
 import { db } from "../../db/index.js";
 import { sectors } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -129,6 +130,8 @@ export const Route = createFileRoute("/api/sectors")({
           await db
             .delete(sectors)
             .where(and(eq(sectors.id, id), eq(sectors.tenantId, tenantId)));
+          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
+            action: "delete_sector", entityType: "sector", itemCount: 1, details: { id, name: existing.name } });
 
           return new Response(JSON.stringify({ success: true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
