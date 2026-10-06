@@ -32,7 +32,11 @@ export const Route = createFileRoute("/api/crm/pipelines")({
           const pipelines = await crmService.getPipelines(tenantId);
 
           return new Response(JSON.stringify({ pipelines }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store, no-cache, must-revalidate",
+            },
           });
         } catch (err: any) {
           console.error("[CRM Pipelines API] Erro no GET:", err);

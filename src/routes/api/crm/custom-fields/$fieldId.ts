@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../../../../db";
-import { crmCustomFieldDefinitions, crmPipelines } from "../../../../db/schema";
+import { crmCustomFieldDefinitions, crmPipelines, crmStages } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
 import { conflictsWithStandardField, listCustomFields } from "../../../../lib/crm/custom-fields";
 import { recordCrmAction } from "../../../../lib/crm/action-history";
@@ -89,7 +89,39 @@ export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
               );
             updates.options = options;
           }
-          if (body.required !== undefined) updates.required = body.required === true;
+          if (current.entityType === "deal" && body.isUnique !== undefined) {
+            updates.isUnique = body.isUnique === true;
+          }
+
+          if (body.required !== undefined || body.requiredRule !== undefined || body.requiredFromStageId !== undefined) {
+            const nextRequired = body.required !== undefined ? body.required === true : current.required;
+            updates.required = nextRequired;
+
+            if (nextRequired && current.entityType === "deal") {
+              const nextRule = body.requiredRule !== undefined ? body.requiredRule : current.requiredRule;
+              updates.requiredRule = nextRule === "stage_onwards" ? "stage_onwards" : "always";
+              if (updates.requiredRule === "stage_onwards") {
+                const nextStageId = body.requiredFromStageId !== undefined ? body.requiredFromStageId : current.requiredFromStageId;
+                const stageId = typeof nextStageId === "string" ? nextStageId.trim() : "";
+                if (!stageId) {
+                  throw new Error("Selecione a partir de qual etapa o campo é obrigatório.");
+                }
+                const [stage] = await db
+                  .select({ id: crmStages.id })
+                  .from(crmStages)
+                  .where(and(eq(crmStages.id, stageId), eq(crmStages.tenantId, session.tenantId)))
+                  .limit(1);
+                if (!stage) throw new Error("A etapa selecionada é inválida.");
+                updates.requiredFromStageId = stageId;
+              } else {
+                updates.requiredFromStageId = null;
+              }
+            } else {
+              updates.requiredRule = "always";
+              updates.requiredFromStageId = null;
+            }
+          }
+
           if (body.visibleOnCreate !== undefined)
             updates.visibleOnCreate = body.visibleOnCreate === true;
           if (

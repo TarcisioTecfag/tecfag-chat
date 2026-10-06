@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../../db";
-import { crmCustomFieldDefinitions, crmPipelines } from "../../../db/schema";
+import { crmCustomFieldDefinitions, crmPipelines, crmStages } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
 import {
@@ -106,6 +106,34 @@ export const Route = createFileRoute("/api/crm/custom-fields")({
           if (!allPipelines && !pipelineIds.length) throw new Error("Selecione ao menos um funil.");
           if (body.required === true && body.visibleOnCreate === false)
             throw new Error("Um campo obrigatório deve aparecer no cadastro.");
+
+          let isUnique = false;
+          let requiredRule = "always";
+          let requiredFromStageId: string | null = null;
+
+          if (entityType === "deal") {
+            isUnique = body.isUnique === true;
+            if (body.required === true) {
+              requiredRule = body.requiredRule === "stage_onwards" ? "stage_onwards" : "always";
+              if (requiredRule === "stage_onwards") {
+                const stageId =
+                  typeof body.requiredFromStageId === "string"
+                    ? body.requiredFromStageId.trim()
+                    : "";
+                if (!stageId) {
+                  throw new Error("Selecione a partir de qual etapa o campo é obrigatório.");
+                }
+                const [stage] = await db
+                  .select({ id: crmStages.id })
+                  .from(crmStages)
+                  .where(and(eq(crmStages.id, stageId), eq(crmStages.tenantId, session.tenantId)))
+                  .limit(1);
+                if (!stage) throw new Error("A etapa selecionada é inválida.");
+                requiredFromStageId = stageId;
+              }
+            }
+          }
+
           const existing = await listCustomFields(session.tenantId, entityType);
           if (
             existing.some(
@@ -123,6 +151,9 @@ export const Route = createFileRoute("/api/crm/custom-fields")({
               fieldType: body.fieldType,
               options,
               required: body.required === true,
+              requiredRule,
+              requiredFromStageId,
+              isUnique,
               visibleOnCreate: body.visibleOnCreate !== false,
               allPipelines,
               pipelineIds,

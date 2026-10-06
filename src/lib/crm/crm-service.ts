@@ -47,8 +47,64 @@ import type {
   CrmDealEmail,
 } from "../../db/schema";
 import { vertexAi } from "../vertex-ai";
-import { listCustomFields, missingStageFields, validateFieldValues, type CustomFieldValues } from "./custom-fields";
+import {
+  isFilled,
+  listCustomFields,
+  missingStageFields,
+  validateFieldValues,
+  type CustomFieldDefinition,
+  type CustomFieldValues,
+  type StageContext,
+} from "./custom-fields";
 import { validateCatalogChoice } from "./catalogs";
+
+/**
+ * Garante que nenhum campo de negócio com `isUnique: true` tenha valor duplicado
+ * em outra negociação ativa no mesmo tenant.
+ */
+export async function assertDealCustomFieldsUnique(
+  tenantId: string,
+  definitions: CustomFieldDefinition[],
+  customFields: Record<string, unknown>,
+  excludeDealId?: string | null,
+  tx: any = db,
+): Promise<void> {
+  const uniqueDefs = definitions.filter((def) => def.isUnique);
+  if (!uniqueDefs.length) return;
+
+  for (const def of uniqueDefs) {
+    const rawVal = customFields[def.id] ?? customFields[def.name];
+    if (!isFilled(rawVal)) continue;
+
+    const normalizedVal = String(rawVal).trim();
+    if (!normalizedVal) continue;
+
+    const conditions = [
+      eq(crmDeals.tenantId, tenantId),
+      or(
+        sql`jsonb_extract_path_text(${crmDeals.customFields}, ${def.id}) = ${normalizedVal}`,
+        sql`jsonb_extract_path_text(${crmDeals.customFields}, ${def.name}) = ${normalizedVal}`,
+      ),
+    ];
+
+    if (excludeDealId) {
+      conditions.push(ne(crmDeals.id, excludeDealId));
+    }
+
+    const [existing] = await tx
+      .select({ id: crmDeals.id, title: crmDeals.title })
+      .from(crmDeals)
+      .where(and(...conditions))
+      .limit(1);
+
+    if (existing) {
+      throw new CrmValidationError(
+        `O campo '${def.name}' deve ser único. Já existe outra negociação com o valor '${normalizedVal}'.`,
+        "DUPLICATE_CUSTOM_FIELD_VALUE",
+      );
+    }
+  }
+}
 
 /**
  * Normaliza documento (CPF ou CNPJ) mantendo estritamente dígitos.
@@ -2645,7 +2701,12 @@ export class CrmService {
 
       // 2. Validação estrita da Etapa no tenant E pertencimento ao Funil selecionado
       const [stage] = await tx
-        .select({ id: crmStages.id, pipelineId: crmStages.pipelineId, requiredFields: crmStages.requiredFields })
+        .select({
+          id: crmStages.id,
+          pipelineId: crmStages.pipelineId,
+          orderIndex: crmStages.orderIndex,
+          requiredFields: crmStages.requiredFields,
+        })
         .from(crmStages)
         .where(and(eq(crmStages.id, data.stageId), eq(crmStages.tenantId, tenantId)))
         .limit(1);
@@ -2662,11 +2723,38 @@ export class CrmService {
       }
 
       const dealFieldDefinitions = await listCustomFields(tenantId, "deal", tx);
+      const pipelineStages = await tx
+        .select({ id: crmStages.id, orderIndex: crmStages.orderIndex, pipelineId: crmStages.pipelineId })
+        .from(crmStages)
+        .where(and(eq(crmStages.pipelineId, data.pipelineId), eq(crmStages.tenantId, tenantId)));
+
+      const stageContext: StageContext = {
+        stageId: stage.id,
+        orderIndex: stage.orderIndex,
+        allStages: pipelineStages,
+      };
+
       const dealCustomFields = validateFieldValues(dealFieldDefinitions, data.customFields, {
-        pipelineId: data.pipelineId, requireOnCreate: true,
+        pipelineId: data.pipelineId,
+        requireOnCreate: true,
+        stageContext,
       });
-      const missingInitialFields = missingStageFields(stage.requiredFields, dealFieldDefinitions, dealCustomFields, data.pipelineId);
-      if (missingInitialFields.length) throw new CrmValidationError(`Preencha os campos exigidos pela etapa inicial: ${missingInitialFields.join(", ")}.`, "REQUIRED_STAGE_FIELDS");
+
+      const missingInitialFields = missingStageFields(
+        stage.requiredFields,
+        dealFieldDefinitions,
+        dealCustomFields,
+        data.pipelineId,
+        stageContext,
+      );
+      if (missingInitialFields.length) {
+        throw new CrmValidationError(
+          `Preencha os campos obrigatórios para a etapa inicial: ${missingInitialFields.join(", ")}.`,
+          "REQUIRED_STAGE_FIELDS",
+        );
+      }
+
+      await assertDealCustomFieldsUnique(tenantId, dealFieldDefinitions, dealCustomFields, null, tx);
 
       const now = new Date();
       let targetAccountId: string | null = data.accountId || null;
@@ -2964,11 +3052,23 @@ export class CrmService {
       if (updates.campaign !== undefined) setPayload.campaign = updates.campaign ? updates.campaign.trim() : null;
       if (updates.lossReason !== undefined) setPayload.lossReason = updates.lossReason;
       if (updates.pausedReason !== undefined) setPayload.pausedReason = updates.pausedReason;
-      const dealFields = updates.customFields !== undefined || updates.stageId !== undefined
+
+      // Troca de Funil (Pipeline)
+      let targetPipelineId = updates.pipelineId || current.pipelineId;
+      const pipelineChanged = updates.pipelineId !== undefined && updates.pipelineId !== current.pipelineId;
+
+      const dealFields = updates.customFields !== undefined || updates.stageId !== undefined || pipelineChanged
         ? await listCustomFields(tenantId, "deal", tx) : [];
       if (updates.customFields !== undefined) {
         const patch = validateFieldValues(dealFields, updates.customFields, { pipelineId: current.pipelineId });
         setPayload.customFields = { ...(current.customFields as CustomFieldValues), ...patch };
+        await assertDealCustomFieldsUnique(
+          tenantId,
+          dealFields,
+          setPayload.customFields as CustomFieldValues,
+          dealId,
+          tx,
+        );
       }
 
       // Validação de operador se alterado
@@ -3001,10 +3101,6 @@ export class CrmService {
         }
         setPayload.accountId = updates.accountId;
       }
-
-      // Troca de Funil (Pipeline)
-      let targetPipelineId = updates.pipelineId || current.pipelineId;
-      const pipelineChanged = updates.pipelineId !== undefined && updates.pipelineId !== current.pipelineId;
 
       if (pipelineChanged) {
         const [targetPipe] = await tx
@@ -3043,6 +3139,7 @@ export class CrmService {
           .select({
             id: crmStages.id,
             pipelineId: crmStages.pipelineId,
+            orderIndex: crmStages.orderIndex,
             isWinStage: crmStages.isWinStage,
             isLossStage: crmStages.isLossStage,
             requiredFields: crmStages.requiredFields,
@@ -3062,11 +3159,23 @@ export class CrmService {
           );
         }
 
+        const pipelineStages = await tx
+          .select({ id: crmStages.id, orderIndex: crmStages.orderIndex, pipelineId: crmStages.pipelineId })
+          .from(crmStages)
+          .where(and(eq(crmStages.pipelineId, targetPipelineId), eq(crmStages.tenantId, tenantId)));
+
+        const stageContext: StageContext = {
+          stageId: stage.id,
+          orderIndex: stage.orderIndex,
+          allStages: pipelineStages,
+        };
+
         const missing = missingStageFields(
           stage.requiredFields,
           dealFields,
           (setPayload.customFields ?? current.customFields) as CustomFieldValues,
           targetPipelineId,
+          stageContext,
         );
         if (missing.length) throw new CrmValidationError(`Preencha os campos exigidos pela etapa: ${missing.join(", ")}.`, "REQUIRED_STAGE_FIELDS");
 
@@ -3384,6 +3493,7 @@ export class CrmService {
       // 2. Se stageId informado, valida se a etapa pertence ao mesmo funil de cada deal
       let targetStage: CrmStage | null = null;
       let targetStageFields: Awaited<ReturnType<typeof listCustomFields>> = [];
+      let targetPipelineStages: Array<{ id: string; orderIndex: number; pipelineId: string }> = [];
       if (params.stageId) {
         const [stg] = await tx
           .select()
@@ -3396,6 +3506,10 @@ export class CrmService {
         }
         targetStage = stg;
         targetStageFields = await listCustomFields(tenantId, "deal", tx);
+        targetPipelineStages = await tx
+          .select({ id: crmStages.id, orderIndex: crmStages.orderIndex, pipelineId: crmStages.pipelineId })
+          .from(crmStages)
+          .where(and(eq(crmStages.pipelineId, targetStage.pipelineId), eq(crmStages.tenantId, tenantId)));
       }
 
       // 3. Se operatorId informado, valida operador no tenant
@@ -3437,11 +3551,17 @@ export class CrmService {
             setPayload.pipelineId = targetStage.pipelineId;
           }
           if (deal.stageId !== params.stageId) {
+            const stageContext: StageContext = {
+              stageId: targetStage.id,
+              orderIndex: targetStage.orderIndex,
+              allStages: targetPipelineStages,
+            };
             const missing = missingStageFields(
               targetStage.requiredFields,
               targetStageFields,
               deal.customFields as CustomFieldValues,
-              targetStage.pipelineId
+              targetStage.pipelineId,
+              stageContext,
             );
             if (missing.length) {
               throw new CrmValidationError(

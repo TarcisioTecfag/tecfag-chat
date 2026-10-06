@@ -463,8 +463,13 @@ export function ConversationDealsPanel({
                 ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(rawValue)
                 : "Sem valor";
 
-            // Coleta os campos personalizados que possuem valor preenchido
+            // Coleta os campos personalizados que possuem valor preenchido e pertencem ao funil da negociação
             const filledCustomFields = customFieldDefinitions
+              .filter(
+                (def) =>
+                  def.allPipelines ||
+                  (deal.pipelineId && def.pipelineIds?.includes(deal.pipelineId))
+              )
               .map((def) => {
                 const val = getFieldValue(deal.customFields, def);
                 return { def, value: val };

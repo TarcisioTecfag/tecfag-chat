@@ -94,10 +94,39 @@ export function isFilled(value: unknown): boolean {
   );
 }
 
+export type StageContext = {
+  stageId?: string | null;
+  orderIndex?: number | null;
+  allStages?: Array<{ id: string; orderIndex: number; pipelineId: string }>;
+};
+
+export function isFieldRequiredForStage(
+  field: CustomFieldDefinition,
+  stageContext?: StageContext | null,
+): boolean {
+  if (!field.required) return false;
+  if (field.requiredRule !== "stage_onwards" || !field.requiredFromStageId) {
+    return true;
+  }
+  if (!stageContext || stageContext.orderIndex === undefined || stageContext.orderIndex === null) {
+    return false;
+  }
+  if (!stageContext.allStages || !stageContext.allStages.length) {
+    return stageContext.stageId === field.requiredFromStageId;
+  }
+  const cutoffStage = stageContext.allStages.find((s) => s.id === field.requiredFromStageId);
+  if (!cutoffStage) return false;
+  return stageContext.orderIndex >= cutoffStage.orderIndex;
+}
+
 export function validateFieldValues(
   definitions: CustomFieldDefinition[],
   input: unknown,
-  options: { pipelineId?: string | null; requireOnCreate?: boolean } = {},
+  options: {
+    pipelineId?: string | null;
+    requireOnCreate?: boolean;
+    stageContext?: StageContext | null;
+  } = {},
 ): CustomFieldValues {
   if (input === undefined || input === null) input = {};
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -113,7 +142,9 @@ export function validateFieldValues(
     const field = byId.get(id);
     if (!field) throw new CustomFieldError(`Campo personalizado inválido: ${id}.`);
     if (!isFilled(value)) {
-      if (field.required) throw new CustomFieldError(`O campo ${field.name} é obrigatório.`);
+      if (field.required && isFieldRequiredForStage(field, options.stageContext)) {
+        throw new CustomFieldError(`O campo ${field.name} é obrigatório.`);
+      }
       result[id] = null;
       continue;
     }
@@ -176,7 +207,11 @@ export function validateFieldValues(
   }
   if (options.requireOnCreate) {
     const missing = applicable.filter(
-      (field) => field.required && field.visibleOnCreate && !isFilled(result[field.id]),
+      (field) =>
+        field.required &&
+        field.visibleOnCreate &&
+        isFieldRequiredForStage(field, options.stageContext) &&
+        !isFilled(result[field.id]),
     );
     if (missing.length)
       throw new CustomFieldError(
@@ -191,14 +226,27 @@ export function missingStageFields(
   definitions: CustomFieldDefinition[],
   values: CustomFieldValues,
   pipelineId: string,
+  stageContext?: StageContext | null,
 ): string[] {
-  const byId = new Map(
-    definitions
-      .filter((field) => fieldAppliesToPipeline(field, pipelineId))
-      .map((field) => [field.id, field]),
-  );
-  return requiredIds.flatMap((id) => {
+  const applicable = definitions.filter((field) => fieldAppliesToPipeline(field, pipelineId));
+  const byId = new Map(applicable.map((field) => [field.id, field]));
+  const missingNames = new Set<string>();
+
+  for (const id of requiredIds) {
     const field = byId.get(id);
-    return field && !isFilled(values[id]) ? [field.name] : [];
-  });
+    if (field && !isFilled(values[field.id] ?? values[field.name])) {
+      missingNames.add(field.name);
+    }
+  }
+
+  for (const field of applicable) {
+    if (
+      isFieldRequiredForStage(field, stageContext) &&
+      !isFilled(values[field.id] ?? values[field.name])
+    ) {
+      missingNames.add(field.name);
+    }
+  }
+
+  return Array.from(missingNames);
 }

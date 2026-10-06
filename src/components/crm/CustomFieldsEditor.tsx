@@ -21,6 +21,9 @@ export interface FieldDefinition {
   fieldType: CustomFieldType;
   options: FieldOption[];
   required: boolean;
+  requiredRule?: "always" | "stage_onwards";
+  requiredFromStageId?: string | null;
+  isUnique?: boolean;
   visibleOnCreate: boolean;
   allPipelines: boolean;
   pipelineIds: string[];

@@ -738,6 +738,9 @@ export const crmCustomFieldDefinitions = pgTable("crm_custom_field_definitions",
   fieldType: text("field_type").notNull(), // text | date | single | multiple | number | url
   options: jsonb("options").$type<Array<{ id: string; label: string }>>().default([]).notNull(),
   required: boolean("required").default(false).notNull(),
+  requiredRule: text("required_rule").default("always").notNull(), // 'always' | 'stage_onwards'
+  requiredFromStageId: text("required_from_stage_id"),
+  isUnique: boolean("is_unique").default(false).notNull(),
   visibleOnCreate: boolean("visible_on_create").default(true).notNull(),
   allPipelines: boolean("all_pipelines").default(true).notNull(),
   pipelineIds: jsonb("pipeline_ids").$type<string[]>().default([]).notNull(),

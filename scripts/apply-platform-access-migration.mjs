@@ -96,6 +96,10 @@ const migrations = [
     name: "0025_crm_catalog_standard_items_policy",
     url: new URL("../src/db/migrations/0025_crm_catalog_standard_items_policy.sql", import.meta.url),
   },
+  {
+    name: "0026_crm_custom_fields_unique_and_stage_rules",
+    url: new URL("../src/db/migrations/0026_crm_custom_fields_unique_and_stage_rules.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

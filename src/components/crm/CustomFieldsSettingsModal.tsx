@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Plus, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import type { CustomFieldEntity, CustomFieldType } from "@/lib/crm/custom-fields";
 import type { FieldDefinition, FieldOption } from "./CustomFieldsEditor";
@@ -45,21 +45,40 @@ const standardFields: Record<CustomFieldEntity, string[]> = {
   product: ["Nome", "SKU", "Descrição", "Valor", "Unidade", "Categoria"],
 };
 
+export type PipelineWithStages = {
+  id: string;
+  name: string;
+  orderIndex: number;
+  stages?: Array<{
+    id: string;
+    name: string;
+    orderIndex: number;
+    pipelineId: string;
+  }>;
+};
+
 type FieldDraft = {
   id?: string;
   name: string;
   fieldType: CustomFieldType;
   options: FieldOption[];
   required: boolean;
+  requiredRule: "always" | "stage_onwards";
+  requiredFromStageId: string;
+  isUnique: boolean;
   visibleOnCreate: boolean;
   allPipelines: boolean;
   pipelineIds: string[];
 };
+
 const emptyDraft = (): FieldDraft => ({
   name: "",
   fieldType: "text",
   options: [],
   required: false,
+  requiredRule: "always",
+  requiredFromStageId: "",
+  isUnique: false,
   visibleOnCreate: true,
   allPipelines: true,
   pipelineIds: [],
@@ -74,24 +93,50 @@ export function CustomFieldsSettingsModal({
 }) {
   const [entity, setEntity] = useState<CustomFieldEntity>("deal");
   const [fields, setFields] = useState<FieldDefinition[]>([]);
-  const [pipelines, setPipelines] = useState<Array<{ id: string; name: string }>>([]);
+  const [pipelines, setPipelines] = useState<PipelineWithStages[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingPipelines, setLoadingPipelines] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<FieldDraft | null>(null);
+  const [showUniqueBanner, setShowUniqueBanner] = useState(true);
+
+  const loadPipelines = useCallback(async () => {
+    setLoadingPipelines(true);
+    try {
+      const response = await fetch("/api/crm/pipelines", {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPipelines(data.pipelines || []);
+      }
+    } catch {
+      // Falha silenciosa no refresh avulso
+    } finally {
+      setLoadingPipelines(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [fieldsResponse, pipelinesResponse] = await Promise.all([
-        fetch(`/api/crm/custom-fields?entity=${entity}`),
-        fetch("/api/crm/pipelines"),
+        fetch(`/api/crm/custom-fields?entity=${entity}`, { cache: "no-store" }),
+        fetch("/api/crm/pipelines", {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" },
+        }),
       ]);
       if (!fieldsResponse.ok) throw new Error("Não foi possível carregar os campos.");
       const data = await fieldsResponse.json();
       setFields(data.fields || []);
       setIsAdmin(data.isAdmin === true);
-      if (pipelinesResponse.ok) setPipelines((await pipelinesResponse.json()).pipelines || []);
+      if (pipelinesResponse.ok) {
+        const pData = await pipelinesResponse.json();
+        setPipelines(pData.pipelines || []);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao carregar campos.");
     } finally {
@@ -115,6 +160,19 @@ export function CustomFieldsSettingsModal({
       draft.options.some((option) => !option.label.trim())
     ) {
       toast.error("Preencha o nome de todas as opções.");
+      return;
+    }
+    if (
+      draft.required &&
+      entity === "deal" &&
+      draft.requiredRule === "stage_onwards" &&
+      !draft.requiredFromStageId
+    ) {
+      toast.error("Selecione a partir de qual etapa o campo é obrigatório.");
+      return;
+    }
+    if (entity === "deal" && !draft.allPipelines && draft.pipelineIds.length === 0) {
+      toast.error("Selecione ao menos um funil para a visibilidade do campo.");
       return;
     }
     setSaving(true);
@@ -170,17 +228,42 @@ export function CustomFieldsSettingsModal({
     await patchField(next, { sortOrder: current.sortOrder });
   };
 
-  const openEdit = (field: FieldDefinition) =>
+  const openEdit = (field: FieldDefinition) => {
+    setShowUniqueBanner(true);
     setDraft({
       id: field.id,
       name: field.name,
       fieldType: field.fieldType,
       options: field.options,
       required: field.required,
+      requiredRule: field.requiredRule || "always",
+      requiredFromStageId: field.requiredFromStageId || "",
+      isUnique: field.isUnique === true,
       visibleOnCreate: field.visibleOnCreate,
       allPipelines: field.allPipelines,
-      pipelineIds: field.pipelineIds,
+      pipelineIds: field.pipelineIds || [],
     });
+  };
+
+  const availableStages = useMemo(() => {
+    const relevantPipelines =
+      !draft?.allPipelines && draft?.pipelineIds?.length
+        ? pipelines.filter((p) => draft.pipelineIds.includes(p.id))
+        : pipelines;
+
+    return relevantPipelines.flatMap((p) =>
+      (p.stages || [])
+        .slice()
+        .sort((a, b) => a.orderIndex - b.orderIndex)
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          orderIndex: s.orderIndex,
+          pipelineId: p.id,
+          pipelineName: p.name,
+        })),
+    );
+  }, [pipelines, draft?.allPipelines, draft?.pipelineIds]);
 
   return (
     <div
@@ -208,7 +291,10 @@ export function CustomFieldsSettingsModal({
           {isAdmin && (
             <button
               type="button"
-              onClick={() => setDraft(emptyDraft())}
+              onClick={() => {
+                setShowUniqueBanner(true);
+                setDraft(emptyDraft());
+              }}
               className="flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground"
             >
               <Plus className="h-3.5 w-3.5" /> Criar campo
@@ -298,13 +384,34 @@ export function CustomFieldsSettingsModal({
                           {types.find((type) => type.id === field.fieldType)?.label}
                         </td>
                         <td className="p-3">
-                          {field.required ? "Obrigatório no cadastro" : "Não obrigatório"}
+                          {field.required ? (
+                            field.requiredRule === "stage_onwards" && field.requiredFromStageId ? (
+                              <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                                A partir de etapa
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400">
+                                Sempre obrigatório
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-muted-foreground">Não obrigatório</span>
+                          )}
                         </td>
                         <td className="p-3">
-                          {field.visibleOnCreate ? "Visível no cadastro" : "Visível nos detalhes"}
-                          {entity === "deal" && !field.allPipelines
-                            ? ` · ${field.pipelineIds.length} funil(is)`
-                            : ""}
+                          <div className="flex flex-col gap-1">
+                            <span>
+                              {field.visibleOnCreate ? "Visível no cadastro" : "Visível nos detalhes"}
+                              {entity === "deal" && !field.allPipelines
+                                ? ` · ${field.pipelineIds?.length || 0} funil(is)`
+                                : ""}
+                            </span>
+                            {field.isUnique && (
+                              <span className="inline-flex w-fit items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                Único
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3 text-muted-foreground">
                           {new Date(field.createdAt).toLocaleDateString("pt-BR")}
@@ -484,20 +591,12 @@ export function CustomFieldsSettingsModal({
                   </div>
                 )}
                 <div className="flex items-center justify-between border-t border-border pt-4 font-semibold text-xs">
-                  <span>Obrigatório no cadastro</span>
-                  <Checkbox
-                    checked={draft.required}
-                    onCheckedChange={(checked) =>
-                      setDraft({
-                        ...draft,
-                        required: !!checked,
-                        visibleOnCreate: !!checked ? true : draft.visibleOnCreate,
-                      })
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between border-t border-border pt-4 font-semibold text-xs">
-                  <span>Visível no cadastro</span>
+                  <div>
+                    <span className="text-foreground block">Visível no cadastro</span>
+                    <span className="text-[11px] font-normal text-muted-foreground">
+                      Exibe este campo diretamente na criação da entidade.
+                    </span>
+                  </div>
                   <Checkbox
                     checked={draft.visibleOnCreate}
                     disabled={draft.required}
@@ -506,12 +605,148 @@ export function CustomFieldsSettingsModal({
                     }
                   />
                 </div>
+
+                {entity === "deal" && (
+                  <div className="border-t border-border pt-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-semibold text-xs text-foreground block">Único</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          Não permite ter 2 negociações com a mesma informação para este campo.
+                        </span>
+                      </div>
+                      <Checkbox
+                        checked={draft.isUnique}
+                        onCheckedChange={(checked) => {
+                          setDraft({ ...draft, isUnique: !!checked });
+                          if (checked) setShowUniqueBanner(true);
+                        }}
+                      />
+                    </div>
+
+                    {draft.isUnique && showUniqueBanner && (
+                      <div className="relative rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
+                        <div className="flex items-start gap-2.5 pr-6">
+                          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                          <p className="text-[11px] leading-relaxed">
+                            Ativando este campo as informações repetidas já cadastradas anteriormente ficarão indisponíveis ao salvar.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowUniqueBanner(false)}
+                          aria-label="Fechar aviso"
+                          className="absolute top-2 right-2 text-amber-700/70 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 cursor-pointer"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="border-t border-border pt-4 space-y-3">
+                  <div className="flex items-center justify-between font-semibold text-xs">
+                    <div>
+                      <span className="text-foreground block">Obrigatório</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">
+                        Define se o preenchimento deste campo deve ser exigido.
+                      </span>
+                    </div>
+                    <Checkbox
+                      checked={draft.required}
+                      onCheckedChange={(checked) => {
+                        const req = !!checked;
+                        setDraft({
+                          ...draft,
+                          required: req,
+                          requiredRule: req ? draft.requiredRule : "always",
+                          visibleOnCreate: req ? true : draft.visibleOnCreate,
+                        });
+                      }}
+                    />
+                  </div>
+
+                  {draft.required && entity === "deal" && (
+                    <div className="space-y-3 pl-1 pt-1">
+                      <label className="flex items-start gap-2.5 cursor-pointer text-xs">
+                        <input
+                          type="radio"
+                          name="requiredRule"
+                          checked={draft.requiredRule === "always"}
+                          onChange={() =>
+                            setDraft({ ...draft, requiredRule: "always", requiredFromStageId: "" })
+                          }
+                          className="mt-0.5"
+                        />
+                        <div>
+                          <span className="font-semibold text-foreground block">Sempre obrigatório</span>
+                          <span className="text-[11px] text-muted-foreground">
+                            O campo não pode ficar em branco em nenhuma etapa.
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="flex items-start gap-2.5 cursor-pointer text-xs">
+                        <input
+                          type="radio"
+                          name="requiredRule"
+                          checked={draft.requiredRule === "stage_onwards"}
+                          onChange={() => setDraft({ ...draft, requiredRule: "stage_onwards" })}
+                          className="mt-0.5"
+                        />
+                        <div className="flex-1">
+                          <span className="font-semibold text-foreground block">Obrigatório a partir da etapa</span>
+                          <span className="text-[11px] text-muted-foreground block mb-2">
+                            O campo não pode ficar em branco a partir da etapa escolhida.
+                          </span>
+
+                          {draft.requiredRule === "stage_onwards" && (
+                            <Select
+                              value={draft.requiredFromStageId}
+                              onValueChange={(val) => setDraft({ ...draft, requiredFromStageId: val })}
+                            >
+                              <SelectTrigger className="h-9 w-full rounded-lg border border-border bg-background px-3 font-normal text-xs">
+                                <SelectValue placeholder="Selecione a etapa inicial..." />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-60">
+                                {availableStages.length === 0 ? (
+                                  <div className="p-2 text-center text-xs text-muted-foreground">
+                                    Nenhuma etapa disponível.
+                                  </div>
+                                ) : (
+                                  availableStages.map((stage) => (
+                                    <SelectItem key={stage.id} value={stage.id} className="text-xs">
+                                      {stage.pipelineName} — {stage.name}
+                                    </SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
+                      </label>
+                    </div>
+                  )}
+                </div>
+
                 {entity === "deal" && (
                   <div className="space-y-3 border-t border-border pt-4">
-                    <b>Visibilidade por funil</b>
+                    <div className="flex items-center justify-between">
+                      <b className="text-foreground">Visibilidade por funil</b>
+                      <button
+                        type="button"
+                        onClick={() => void loadPipelines()}
+                        className="text-[10px] text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                        title="Atualizar lista de funis"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${loadingPipelines ? "animate-spin" : ""}`} /> Atualizar
+                      </button>
+                    </div>
                     <label className="flex items-center gap-2 cursor-pointer text-xs">
                       <input
                         type="radio"
+                        name="visibility-funnel"
                         checked={draft.allPipelines}
                         onChange={() => setDraft({ ...draft, allPipelines: true, pipelineIds: [] })}
                       />{" "}
@@ -520,29 +755,56 @@ export function CustomFieldsSettingsModal({
                     <label className="flex items-center gap-2 cursor-pointer text-xs">
                       <input
                         type="radio"
+                        name="visibility-funnel"
                         checked={!draft.allPipelines}
                         onChange={() => setDraft({ ...draft, allPipelines: false })}
                       />{" "}
                       Escolher funis
                     </label>
                     {!draft.allPipelines && (
-                      <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border border-border p-3">
-                        {pipelines.map((pipeline) => (
-                          <label key={pipeline.id} className="flex items-center gap-2 cursor-pointer text-xs select-none">
-                            <Checkbox
-                              checked={draft.pipelineIds.includes(pipeline.id)}
-                              onCheckedChange={(checked) =>
-                                setDraft({
-                                  ...draft,
-                                  pipelineIds: checked
-                                    ? [...draft.pipelineIds, pipeline.id]
-                                    : draft.pipelineIds.filter((id) => id !== pipeline.id),
-                                })
-                              }
-                            />
-                            <span>{pipeline.name}</span>
-                          </label>
-                        ))}
+                      <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                        {loadingPipelines ? (
+                          <div className="flex items-center justify-center py-4 text-xs text-muted-foreground gap-2">
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Carregando funis...
+                          </div>
+                        ) : pipelines.length === 0 ? (
+                          <div className="py-4 text-center text-xs text-muted-foreground space-y-2">
+                            <p>Nenhum funil cadastrado no momento.</p>
+                            <p className="text-[11px]">Crie um funil em Configurações &gt; Funis de Vendas para associar.</p>
+                            <button
+                              type="button"
+                              onClick={() => void loadPipelines()}
+                              className="text-xs font-semibold text-primary hover:underline"
+                            >
+                              Tentar novamente
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="max-h-48 space-y-2 overflow-y-auto">
+                            {pipelines.map((pipeline) => (
+                              <label
+                                key={pipeline.id}
+                                className="flex items-center gap-2 cursor-pointer text-xs select-none hover:bg-muted/40 p-1.5 rounded-md transition-colors"
+                              >
+                                <Checkbox
+                                  checked={draft.pipelineIds.includes(pipeline.id)}
+                                  onCheckedChange={(checked) =>
+                                    setDraft({
+                                      ...draft,
+                                      pipelineIds: checked
+                                        ? [...draft.pipelineIds, pipeline.id]
+                                        : draft.pipelineIds.filter((id) => id !== pipeline.id),
+                                    })
+                                  }
+                                />
+                                <span className="font-medium text-foreground">{pipeline.name}</span>
+                                <span className="text-[10px] text-muted-foreground ml-auto">
+                                  {pipeline.stages?.length || 0} etapa(s)
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
