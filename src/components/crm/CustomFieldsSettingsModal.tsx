@@ -150,6 +150,27 @@ export function CustomFieldsSettingsModal({
   useEffect(() => {
     setDraft(null);
   }, [entity]);
+
+  const availableStages = useMemo(() => {
+    const relevantPipelines =
+      !draft?.allPipelines && draft?.pipelineIds?.length
+        ? pipelines.filter((p) => draft.pipelineIds.includes(p.id))
+        : pipelines;
+
+    return relevantPipelines.flatMap((p) =>
+      (p.stages || [])
+        .slice()
+        .sort((a, b) => a.orderIndex - b.orderIndex)
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          orderIndex: s.orderIndex,
+          pipelineId: p.id,
+          pipelineName: p.name,
+        })),
+    );
+  }, [pipelines, draft?.allPipelines, draft?.pipelineIds]);
+
   if (!isOpen) return null;
 
   const save = async (event: React.FormEvent) => {
@@ -245,25 +266,6 @@ export function CustomFieldsSettingsModal({
     });
   };
 
-  const availableStages = useMemo(() => {
-    const relevantPipelines =
-      !draft?.allPipelines && draft?.pipelineIds?.length
-        ? pipelines.filter((p) => draft.pipelineIds.includes(p.id))
-        : pipelines;
-
-    return relevantPipelines.flatMap((p) =>
-      (p.stages || [])
-        .slice()
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map((s) => ({
-          id: s.id,
-          name: s.name,
-          orderIndex: s.orderIndex,
-          pipelineId: p.id,
-          pipelineName: p.name,
-        })),
-    );
-  }, [pipelines, draft?.allPipelines, draft?.pipelineIds]);
 
   return (
     <div
