@@ -14,6 +14,9 @@ import {
   ThumbsDown,
   ThumbsUp,
   Pause,
+  CheckCircle2,
+  XCircle,
+  PauseCircle,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -293,27 +296,27 @@ export function DealList({
                   const statusBadge = {
                     open: {
                       label: "Em andamento",
-                      color: "bg-muted/80 text-muted-foreground border-border/80",
-                      icon: <Activity className="h-4 w-4 text-sky-500" />,
+                      color: "text-muted-foreground",
+                      icon: <Activity className="h-4 w-4 text-muted-foreground" />,
                     },
                     won: {
                       label: "Vendido",
-                      color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-                      icon: <ThumbsUp className="h-4 w-4 text-emerald-500" />,
+                      color: "text-muted-foreground",
+                      icon: <CheckCircle2 className="h-4 w-4 text-muted-foreground" />,
                     },
                     lost: {
                       label: "Perdido",
-                      color: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
-                      icon: <ThumbsDown className="h-4 w-4 text-red-500" />,
+                      color: "text-muted-foreground",
+                      icon: <XCircle className="h-4 w-4 text-muted-foreground" />,
                     },
                     paused: {
                       label: "Pausado",
-                      color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
-                      icon: <Pause className="h-4 w-4 text-amber-500" />,
+                      color: "text-muted-foreground",
+                      icon: <PauseCircle className="h-4 w-4 text-muted-foreground" />,
                     },
                   }[deal.status] || {
                     label: deal.status,
-                    color: "bg-muted text-muted-foreground border-border",
+                    color: "text-muted-foreground",
                     icon: <Activity className="h-4 w-4 text-muted-foreground" />,
                   };
 
@@ -424,16 +427,13 @@ export function DealList({
                         {formattedCreatedAt}
                       </td>
 
-                      {/* Status (Ícone com Tooltip informativo) */}
+                      {/* Status (Diferenciação clara por ícone neutro com Tooltip) */}
                       <td className="py-3 px-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className="shrink-0">{statusBadge.icon}</span>
-                          <SystemTooltip content={`Status: ${statusBadge.label}`}>
-                            <div className="h-4 w-4 rounded-full bg-muted/80 text-muted-foreground hover:bg-muted flex items-center justify-center text-[10px] font-bold cursor-default select-none">
-                              i
-                            </div>
-                          </SystemTooltip>
-                        </div>
+                        <SystemTooltip content={`Status: ${statusBadge.label}`}>
+                          <div className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/80 transition cursor-default">
+                            {statusBadge.icon}
+                          </div>
+                        </SystemTooltip>
                       </td>
 
                       {/* Próxima Tarefa */}
@@ -446,16 +446,8 @@ export function DealList({
                                 : "Sem prazo"
                             })`}
                           >
-                            <div
-                              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold border truncate cursor-default ${
-                                nextTask.isOverdue
-                                ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
-                                : nextTask.isToday
-                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                                : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                              }`}
-                            >
-                              <Clock className="h-2.5 w-2.5 shrink-0" />
+                            <div className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-medium border border-border/80 bg-muted/40 text-foreground truncate cursor-default">
+                              <Clock className={`h-2.5 w-2.5 shrink-0 ${nextTask.isOverdue ? "text-red-500" : "text-muted-foreground"}`} />
                               <span className="truncate">{nextTask.title}</span>
                             </div>
                           </SystemTooltip>
@@ -466,7 +458,7 @@ export function DealList({
                               e.stopPropagation();
                               onCreateTaskClick ? onCreateTaskClick(deal) : onDealClick(deal);
                             }}
-                            className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                            className="text-[11px] font-medium text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
                           >
                             + Tarefa
                           </button>

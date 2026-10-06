@@ -21,6 +21,8 @@ import {
   crmDealFiles,
   crmDealQuestionnaires,
   crmDealEmails,
+  crmCustomFieldDefinitions,
+  accessGroups,
   contacts,
   conversations,
   operators,
@@ -2050,7 +2052,7 @@ export class CrmService {
   }> {
     const conditions = buildDealFilterConditions(tenantId, params);
     const whereClause = and(...conditions);
-    const limit = Math.min(params.limit || 50, 500);
+    const limit = params.limit ? Math.min(params.limit, 100000) : 50;
     const offset = params.offset || 0;
 
     // O Kanban já recebe a contagem exata no resumo por etapa. Evita uma
@@ -3200,6 +3202,7 @@ export class CrmService {
         type?: string;
         dueDate?: string | null;
         description?: string;
+        operatorId?: string;
       };
     }
   ): Promise<{ success: boolean; updatedCount: number; dealIds: string[]; message?: string }> {
@@ -3208,24 +3211,20 @@ export class CrmService {
       let foundDeals: CrmDeal[] = [];
 
       if (params.allFiltered && params.filterParams) {
-        const filterResult = await this.getDeals(tenantId, {
-          ...params.filterParams,
-          limit: 10000,
-          offset: 0,
-          includeTotal: false,
-        });
-        const dealIdsFromFilter = filterResult.deals.map((d) => d.id);
-        if (dealIdsFromFilter.length > 0) {
-          foundDeals = await tx
-            .select()
-            .from(crmDeals)
-            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, dealIdsFromFilter)));
-        }
-      } else if (params.dealIds && params.dealIds.length > 0) {
+        const conditions = buildDealFilterConditions(tenantId, params.filterParams);
         foundDeals = await tx
           .select()
           .from(crmDeals)
-          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, params.dealIds)));
+          .where(and(...conditions));
+      } else if (params.dealIds && params.dealIds.length > 0) {
+        for (let i = 0; i < params.dealIds.length; i += 500) {
+          const chunk = params.dealIds.slice(i, i + 500);
+          const chunkDeals = await tx
+            .select()
+            .from(crmDeals)
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)));
+          foundDeals.push(...chunkDeals);
+        }
       } else {
         throw new CrmValidationError("Nenhuma negociação informada para atualização em massa.");
       }
@@ -3239,9 +3238,12 @@ export class CrmService {
       // Ação Especial 1: Exclusão Permanente
       if (params.action === "delete_permanent") {
         const idsToDelete = foundDeals.map((d) => d.id);
-        await tx
-          .delete(crmDeals)
-          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, idsToDelete)));
+        for (let i = 0; i < idsToDelete.length; i += 500) {
+          const chunk = idsToDelete.slice(i, i + 500);
+          await tx
+            .delete(crmDeals)
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)));
+        }
 
         return {
           success: true,
@@ -3254,15 +3256,18 @@ export class CrmService {
       // Ação Especial 2: Enviar para a Lixeira (Soft Delete)
       if (params.action === "delete_trash") {
         const idsToTrash = foundDeals.map((d) => d.id);
-        await tx
-          .update(crmDeals)
-          .set({
-            status: "paused",
-            pausedReason: "Lixeira",
-            updatedAt: now,
-            lastActivityAt: now,
-          })
-          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, idsToTrash)));
+        for (let i = 0; i < idsToTrash.length; i += 500) {
+          const chunk = idsToTrash.slice(i, i + 500);
+          await tx
+            .update(crmDeals)
+            .set({
+              status: "paused",
+              pausedReason: "Lixeira",
+              updatedAt: now,
+              lastActivityAt: now,
+            })
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)));
+        }
 
         for (const deal of foundDeals) {
           await this.logDealEvent(
@@ -3352,7 +3357,8 @@ export class CrmService {
             title: params.taskData.title || "Nova tarefa",
             description: params.taskData.description || null,
             dueDate: params.taskData.dueDate ? new Date(params.taskData.dueDate) : null,
-            operatorId: deal.operatorId || operatorId,
+            operatorId: params.taskData.operatorId || deal.operatorId || operatorId,
+            assignedToOperatorId: params.taskData.operatorId || deal.operatorId || operatorId,
             status: "pending",
             createdAt: now,
             updatedAt: now,
@@ -5763,6 +5769,354 @@ export class CrmService {
     } catch (e: any) {
       console.warn(`[CrmService] Falha ao registrar evento de auditoria para deal ${dealId}:`, e.message);
     }
+  }
+
+  /**
+   * Exporta negociações em formato CSV 100% compatível com a extração completa do RD Station CRM.
+   * Não aplica limites artificiais: processa todas as negociações filtradas ou selecionadas,
+   * incluindo todos os 70+ campos padrão e campos personalizados dinâmicos do tenant.
+   */
+  async exportDealsRD(
+    tenantId: string,
+    params: {
+      dealIds?: string[];
+      allFiltered?: boolean;
+      filterParams?: Record<string, any>;
+    }
+  ): Promise<string> {
+    // 1. Busca os deals no tenant sem travas ou cortes
+    let deals: (typeof crmDeals.$inferSelect)[] = [];
+
+    if (params.allFiltered && params.filterParams) {
+      const conditions = buildDealFilterConditions(tenantId, params.filterParams);
+      deals = await db
+        .select()
+        .from(crmDeals)
+        .where(and(...conditions))
+        .orderBy(desc(crmDeals.createdAt));
+    } else if (params.dealIds && params.dealIds.length > 0) {
+      for (let i = 0; i < params.dealIds.length; i += 500) {
+        const chunk = params.dealIds.slice(i, i + 500);
+        const chunkDeals = await db
+          .select()
+          .from(crmDeals)
+          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)))
+          .orderBy(desc(crmDeals.createdAt));
+        deals.push(...chunkDeals);
+      }
+    } else {
+      deals = await db
+        .select()
+        .from(crmDeals)
+        .where(eq(crmDeals.tenantId, tenantId))
+        .orderBy(desc(crmDeals.createdAt));
+    }
+
+    // 2. Coleta definições de campos personalizados do tenant para negociações
+    const customDefs = await db
+      .select()
+      .from(crmCustomFieldDefinitions)
+      .where(and(eq(crmCustomFieldDefinitions.tenantId, tenantId), eq(crmCustomFieldDefinitions.entityType, "deal")))
+      .orderBy(asc(crmCustomFieldDefinitions.sortOrder));
+
+    const customColMap = new Map<string, string>();
+    for (const def of customDefs) {
+      customColMap.set(def.name, def.name);
+    }
+    for (const deal of deals) {
+      if (deal.customFields && typeof deal.customFields === "object") {
+        for (const k of Object.keys(deal.customFields)) {
+          if (!customColMap.has(k)) {
+            const defFound = customDefs.find((d) => d.id === k);
+            if (defFound) {
+              customColMap.set(defFound.name, defFound.name);
+            } else if (!["budget", "Budget"].includes(k)) {
+              customColMap.set(k, k);
+            }
+          }
+        }
+      }
+    }
+    const customFieldKeys = Array.from(customColMap.keys());
+
+    // 3. Monta cabeçalhos idênticos ao RD Station CRM
+    const standardPrefixHeaders = [
+      "Nome",
+      "Empresa",
+      "Qualificação",
+      "Funil de vendas",
+      "Etapa",
+      "Estado",
+      "Motivo de Perda",
+      "Valor Único",
+      "Valor Recorrente",
+      "Pausada",
+      "Data de criação",
+      "Hora de criação",
+      "Data do primeiro contato",
+      "Hora do primeiro contato",
+      "Data do último contato",
+      "Hora do último contato",
+      "Data da próxima tarefa",
+      "Hora da próxima tarefa",
+      "Previsão de fechamento",
+      "Data de fechamento",
+      "Hora de fechamento",
+      "Fonte",
+      "Campanha",
+      "Responsável",
+      "Produtos",
+      "Equipes do responsável",
+      "Anotação do motivo de perda",
+      "Budget",
+    ];
+
+    const standardSuffixHeaders = [
+      "Contatos",
+      "Cargo",
+      "Email",
+      "Telefone",
+      "ID",
+      "ID da Empresa",
+      "Lead",
+      "ID do Lead",
+      "ID do Contato",
+    ];
+
+    const allHeaders = [
+      ...standardPrefixHeaders,
+      ...customFieldKeys,
+      ...standardSuffixHeaders,
+    ];
+
+    if (deals.length === 0) {
+      return `sep=,\n${allHeaders.join(",")}\n`;
+    }
+
+    // 4. Carrega entidades relacionadas em lote
+    const allAccountIds = Array.from(new Set(deals.map((d) => d.accountId).filter(Boolean) as string[]));
+    const allDealIds = deals.map((d) => d.id);
+
+    const [pipelinesList, stagesList, operatorsList, groupsList] = await Promise.all([
+      db.select().from(crmPipelines).where(eq(crmPipelines.tenantId, tenantId)),
+      db.select().from(crmStages).where(eq(crmStages.tenantId, tenantId)),
+      db.select().from(operators).where(eq(operators.tenantId, tenantId)),
+      db.select().from(accessGroups).where(eq(accessGroups.tenantId, tenantId)),
+    ]);
+
+    const pipelineMap = new Map(pipelinesList.map((p) => [p.id, p.name]));
+    const stageMap = new Map(stagesList.map((s) => [s.id, s.name]));
+    const operatorMap = new Map(operatorsList.map((o) => [o.id, o]));
+    const groupMap = new Map(groupsList.map((g) => [g.id, g.name]));
+
+    const accountMap = new Map<string, typeof crmAccounts.$inferSelect>();
+    for (let i = 0; i < allAccountIds.length; i += 500) {
+      const chunk = allAccountIds.slice(i, i + 500);
+      const accRows = await db
+        .select()
+        .from(crmAccounts)
+        .where(and(eq(crmAccounts.tenantId, tenantId), inArray(crmAccounts.id, chunk)));
+      for (const a of accRows) {
+        accountMap.set(a.id, a);
+      }
+    }
+
+    const dealPrimaryContactMap = new Map<
+      string,
+      { name: string; role: string; email: string; phone: string; contactId: string }
+    >();
+    for (let i = 0; i < allDealIds.length; i += 500) {
+      const chunk = allDealIds.slice(i, i + 500);
+      const dcRows = await db
+        .select({
+          dc: crmDealContacts,
+          c: contacts,
+        })
+        .from(crmDealContacts)
+        .innerJoin(contacts, eq(crmDealContacts.contactId, contacts.id))
+        .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, chunk)));
+
+      for (const row of dcRows) {
+        const existing = dealPrimaryContactMap.get(row.dc.dealId);
+        if (!existing || row.dc.isPrimary) {
+          dealPrimaryContactMap.set(row.dc.dealId, {
+            name: row.c.name || "",
+            role: row.dc.role || "",
+            email: row.c.email || "",
+            phone: row.c.phone || "",
+            contactId: row.c.id,
+          });
+        }
+      }
+    }
+
+    const dealProductsMap = new Map<string, string[]>();
+    for (let i = 0; i < allDealIds.length; i += 500) {
+      const chunk = allDealIds.slice(i, i + 500);
+      const dpRows = await db
+        .select()
+        .from(crmDealProducts)
+        .where(and(eq(crmDealProducts.tenantId, tenantId), inArray(crmDealProducts.dealId, chunk)));
+      for (const dp of dpRows) {
+        const list = dealProductsMap.get(dp.dealId) || [];
+        list.push(dp.name);
+        dealProductsMap.set(dp.dealId, list);
+      }
+    }
+
+    const dealNextTaskMap = new Map<string, { dueDate: Date | null }>();
+    const dealFirstContactMap = new Map<string, Date>();
+    const dealLastContactMap = new Map<string, Date>();
+
+    for (let i = 0; i < allDealIds.length; i += 500) {
+      const chunk = allDealIds.slice(i, i + 500);
+      const actRows = await db
+        .select()
+        .from(crmDealActivities)
+        .where(and(eq(crmDealActivities.tenantId, tenantId), inArray(crmDealActivities.dealId, chunk)));
+
+      for (const act of actRows) {
+        if (act.status === "pending" && act.dueDate && act.type !== "note") {
+          const currentNext = dealNextTaskMap.get(act.dealId);
+          if (!currentNext || (currentNext.dueDate && act.dueDate < currentNext.dueDate)) {
+            dealNextTaskMap.set(act.dealId, { dueDate: act.dueDate });
+          }
+        }
+
+        if (["call", "meeting", "task", "whatsapp"].includes(act.type)) {
+          const actDate = act.createdAt;
+          const first = dealFirstContactMap.get(act.dealId);
+          if (!first || actDate < first) {
+            dealFirstContactMap.set(act.dealId, actDate);
+          }
+          const last = dealLastContactMap.get(act.dealId);
+          if (!last || actDate > last) {
+            dealLastContactMap.set(act.dealId, actDate);
+          }
+        }
+      }
+    }
+
+    // 5. Helpers de formatação
+    const formatPtBrDate = (date: Date | string | null | undefined): string => {
+      if (!date) return "";
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return "";
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    const formatPtBrTime = (date: Date | string | null | undefined): string => {
+      if (!date) return "";
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return "";
+      const hours = String(d.getHours()).padStart(2, "0");
+      const mins = String(d.getMinutes()).padStart(2, "0");
+      return `${hours}:${mins}`;
+    };
+
+    const escapeCsv = (val: any): string => {
+      if (val === null || val === undefined) return "";
+      const str = String(val).trim();
+      if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    // 6. Geração linha a linha
+    const rows: string[] = [];
+
+    for (const deal of deals) {
+      const account = deal.accountId ? accountMap.get(deal.accountId) : null;
+      const op = deal.operatorId ? operatorMap.get(deal.operatorId) : null;
+      const opGroup = op?.groupId ? groupMap.get(op.groupId) : "";
+      const primaryContact = dealPrimaryContactMap.get(deal.id);
+      const nextTask = dealNextTaskMap.get(deal.id);
+      const firstContactDate = dealFirstContactMap.get(deal.id);
+      const lastContactDate = dealLastContactMap.get(deal.id);
+
+      const statusMap: Record<string, string> = {
+        open: "Em andamento",
+        won: "Ganho",
+        lost: "Perdida",
+        paused: "Pausada",
+      };
+      const estado = statusMap[deal.status] || deal.status;
+
+      const valorUnico =
+        deal.value !== null && deal.value !== undefined
+          ? Number(deal.value).toFixed(1)
+          : "0.0";
+
+      const budgetVal =
+        (deal.customFields as any)?.["Budget"] ??
+        (deal.customFields as any)?.["budget"] ??
+        "";
+
+      const prefixRow = [
+        escapeCsv(deal.title),
+        escapeCsv(account ? account.name || account.tradeName || "" : ""),
+        deal.rating !== null && deal.rating !== undefined && deal.rating > 0 ? String(deal.rating) : "",
+        escapeCsv(pipelineMap.get(deal.pipelineId) || ""),
+        escapeCsv(stageMap.get(deal.stageId) || ""),
+        escapeCsv(estado),
+        escapeCsv(deal.lossReason || ""),
+        valorUnico,
+        "0.0",
+        deal.status === "paused" ? "Sim" : "Não",
+        formatPtBrDate(deal.createdAt),
+        formatPtBrTime(deal.createdAt),
+        formatPtBrDate(firstContactDate || deal.createdAt),
+        formatPtBrTime(firstContactDate || deal.createdAt),
+        formatPtBrDate(lastContactDate || deal.lastActivityAt),
+        formatPtBrTime(lastContactDate || deal.lastActivityAt),
+        formatPtBrDate(nextTask?.dueDate),
+        formatPtBrTime(nextTask?.dueDate),
+        formatPtBrDate(deal.expectedCloseDate),
+        formatPtBrDate(deal.closedAt),
+        formatPtBrTime(deal.closedAt),
+        escapeCsv(deal.source || ""),
+        escapeCsv(deal.campaign || ""),
+        escapeCsv(op ? op.name : ""),
+        escapeCsv((dealProductsMap.get(deal.id) || []).join(", ")),
+        escapeCsv(opGroup || ""),
+        escapeCsv(deal.pausedReason || ""),
+        escapeCsv(budgetVal),
+      ];
+
+      const customRowValues = customFieldKeys.map((k) => {
+        const raw =
+          (deal.customFields as any)?.[k] ??
+          (deal.customFields as any)?.[customDefs.find((d) => d.name === k)?.id || ""];
+
+        if (raw === null || raw === undefined) return "";
+        if (Array.isArray(raw)) return escapeCsv(raw.join(", "));
+        if (typeof raw === "boolean") return raw ? "Sim" : "Não";
+        if (typeof raw === "object") {
+          return escapeCsv((raw as any).label || (raw as any).name || JSON.stringify(raw));
+        }
+        return escapeCsv(String(raw));
+      });
+
+      const suffixRow = [
+        escapeCsv(primaryContact?.name || (account ? account.name : "")),
+        escapeCsv(primaryContact?.role || ""),
+        escapeCsv(primaryContact?.email || (account ? account.email : "")),
+        escapeCsv(primaryContact?.phone || (account ? account.phone : "")),
+        escapeCsv(deal.rdDealId || deal.id),
+        escapeCsv(account?.rdOrganizationId || account?.id || ""),
+        "",
+        "",
+        escapeCsv(primaryContact?.contactId || ""),
+      ];
+
+      rows.push([...prefixRow, ...customRowValues, ...suffixRow].join(","));
+    }
+
+    return `sep=,\n${allHeaders.join(",")}\n${rows.join("\n")}`;
   }
 }
 

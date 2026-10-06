@@ -31,11 +31,14 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import {
   Search,
   ArrowRightLeft,
   UserCheck,
   CheckCircle2,
+  XCircle,
+  PauseCircle,
   AlertTriangle,
   Loader2,
   ThumbsDown,
@@ -52,8 +55,13 @@ import {
   Download,
   Building2,
   CheckSquare,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { DealCardData } from "./DealCard";
+import { CRM_TASK_TYPES, CrmTaskType } from "./CreateTaskModal";
 
 export interface BulkActionsSuiteProps {
   selectedIds: Set<string>;
@@ -78,6 +86,16 @@ export interface BulkActionsSuiteProps {
   filterParams?: Record<string, any>;
   onSuccess: () => void;
 }
+
+const MONTH_NAMES_PT = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+];
+
+const WEEKDAY_NAMES_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
+
+const HOURS_LIST = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES_LIST = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
 export function BulkActionsSuite({
   selectedIds,
@@ -121,8 +139,15 @@ export function BulkActionsSuite({
   const [isCreateCompanyDealsOpen, setIsCreateCompanyDealsOpen] = useState(false);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
-  const [taskType, setTaskType] = useState("task");
-  const [taskDueDate, setTaskDueDate] = useState("");
+  const [taskType, setTaskType] = useState<CrmTaskType>("task");
+  const [taskTypeOpen, setTaskTypeOpen] = useState(false);
+  const [taskScheduledDate, setTaskScheduledDate] = useState<Date>(new Date());
+  const [taskScheduledTime, setTaskScheduledTime] = useState("10:00");
+  const [isTaskCalendarOpen, setIsTaskCalendarOpen] = useState(false);
+  const [isTaskTimeOpen, setIsTaskTimeOpen] = useState(false);
+  const [taskCalendarMonth, setTaskCalendarMonth] = useState(new Date().getMonth());
+  const [taskCalendarYear, setTaskCalendarYear] = useState(new Date().getFullYear());
+  const [taskOperatorId, setTaskOperatorId] = useState<string>("");
   const [taskDescription, setTaskDescription] = useState("");
 
   // Modais de Atributos (Qualificação, Campanha, Fonte, Produto)
@@ -277,29 +302,150 @@ export function BulkActionsSuite({
     if (ok) setIsCreateCompanyDealsOpen(false);
   };
 
+  // Navegação e Renderização do Calendário da Tarefa
+  const prevTaskMonth = () => {
+    if (taskCalendarMonth === 0) {
+      setTaskCalendarMonth(11);
+      setTaskCalendarYear((prev) => prev - 1);
+    } else {
+      setTaskCalendarMonth((prev) => prev - 1);
+    }
+  };
+
+  const nextTaskMonth = () => {
+    if (taskCalendarMonth === 11) {
+      setTaskCalendarMonth(0);
+      setTaskCalendarYear((prev) => prev + 1);
+    } else {
+      setTaskCalendarMonth((prev) => prev + 1);
+    }
+  };
+
+  const handleSelectTaskDay = (day: number, monthOffset: number = 0) => {
+    let targetMonth = taskCalendarMonth + monthOffset;
+    let targetYear = taskCalendarYear;
+
+    if (targetMonth < 0) {
+      targetMonth = 11;
+      targetYear -= 1;
+    } else if (targetMonth > 11) {
+      targetMonth = 0;
+      targetYear += 1;
+    }
+
+    const newDate = new Date(targetYear, targetMonth, day);
+    setTaskScheduledDate(newDate);
+    setIsTaskCalendarOpen(false);
+  };
+
+  const renderTaskCalendarDays = () => {
+    const firstDayIndex = new Date(taskCalendarYear, taskCalendarMonth, 1).getDay();
+    const daysInCurrentMonth = new Date(taskCalendarYear, taskCalendarMonth + 1, 0).getDate();
+    const daysInPrevMonth = new Date(taskCalendarYear, taskCalendarMonth, 0).getDate();
+
+    const cells: React.ReactNode[] = [];
+
+    // Dias do mês anterior
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const dayNum = daysInPrevMonth - i;
+      cells.push(
+        <button
+          key={`prev-${dayNum}`}
+          type="button"
+          onClick={() => handleSelectTaskDay(dayNum, -1)}
+          className="h-8 w-8 text-xs text-muted-foreground/45 hover:bg-muted/50 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+        >
+          {dayNum}
+        </button>
+      );
+    }
+
+    // Dias do mês atual
+    for (let day = 1; day <= daysInCurrentMonth; day++) {
+      const isSelected =
+        taskScheduledDate.getDate() === day &&
+        taskScheduledDate.getMonth() === taskCalendarMonth &&
+        taskScheduledDate.getFullYear() === taskCalendarYear;
+
+      const dateObj = new Date(taskCalendarYear, taskCalendarMonth, day);
+      const formattedDateTooltip = dateObj.toLocaleDateString("pt-BR", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+      });
+
+      cells.push(
+        <SystemTooltip key={`cur-${day}`} content={formattedDateTooltip}>
+          <button
+            type="button"
+            onClick={() => handleSelectTaskDay(day, 0)}
+            className={`h-8 w-8 text-xs font-semibold rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+              isSelected
+                ? "bg-primary text-primary-foreground font-bold shadow-xs hover:bg-primary/90"
+                : "text-foreground hover:bg-muted"
+            }`}
+          >
+            {day}
+          </button>
+        </SystemTooltip>
+      );
+    }
+
+    // Dias do próximo mês
+    const totalFilled = cells.length;
+    const remaining = (7 - (totalFilled % 7)) % 7;
+    for (let day = 1; day <= remaining; day++) {
+      cells.push(
+        <button
+          key={`next-${day}`}
+          type="button"
+          onClick={() => handleSelectTaskDay(day, 1)}
+          className="h-8 w-8 text-xs text-muted-foreground/45 hover:bg-muted/50 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+        >
+          {day}
+        </button>
+      );
+    }
+
+    return cells;
+  };
+
   // 5. AÇÃO: Criar Tarefa
   const handleExecuteCreateTask = async () => {
     if (!taskTitle.trim()) {
-      toast.error("Informe o título da tarefa.");
+      toast.error("Informe o assunto da tarefa.");
       return;
     }
+
+    const [hoursStr, minsStr] = (taskScheduledTime || "10:00").split(":");
+    const hours = parseInt(hoursStr || "10", 10);
+    const minutes = parseInt(minsStr || "0", 10);
+
+    const dueDateTime = new Date(
+      taskScheduledDate.getFullYear(),
+      taskScheduledDate.getMonth(),
+      taskScheduledDate.getDate(),
+      hours,
+      minutes
+    );
+
     const ok = await executeBulkRequest(
       {
         action: "create_tasks",
         taskData: {
           title: taskTitle.trim(),
           type: taskType,
-          dueDate: taskDueDate || null,
+          dueDate: dueDateTime.toISOString(),
           description: taskDescription.trim() || null,
+          operatorId: taskOperatorId || undefined,
         },
       },
-      "Tarefa criada com sucesso para as negociações selecionadas!"
+      `Tarefa criada com sucesso para as ${effectiveCount} negociações selecionadas!`
     );
     if (ok) {
       setIsCreateTaskModalOpen(false);
       setTaskTitle("");
       setTaskDescription("");
-      setTaskDueDate("");
     }
   };
 
@@ -395,79 +541,49 @@ export function BulkActionsSuite({
     if (ok) setProductModalOpen(false);
   };
 
-  // 7. AÇÃO: Exportar Dados (CSV com cabeçalho UTF-8 BOM e pontuação brasileira)
-  const handleExecuteExport = () => {
+  // 7. AÇÃO: Exportar Dados (CSV completo padrão RD Station CRM sem travas)
+  const handleExecuteExport = async () => {
     try {
-      // Exporta os itens da seleção atual
-      const itemsToExport = isAllFilterSelected
-        ? deals // Na seleção de filtro, exporta a lista carregada
-        : deals.filter((d) => selectedIds.has(d.id));
+      const toastId = toast.loading(`Preparando exportação completa de ${effectiveCount} negociação(ões)...`);
 
-      if (itemsToExport.length === 0) {
-        toast.error("Nenhuma negociação para exportar.");
-        return;
-      }
+      const payload = {
+        action: "export",
+        dealIds: isAllFilterSelected ? [] : Array.from(selectedIds),
+        allFiltered: isAllFilterSelected,
+        filterParams: isAllFilterSelected ? filterParams : undefined,
+      };
 
-      const headers = [
-        "Negociação",
-        "Código",
-        "Cliente/Empresa",
-        "Responsável",
-        "Qualificação",
-        "Etapa do Funil",
-        "Valor Total",
-        "Data de Criação",
-        "Status",
-      ];
-
-      const rows = itemsToExport.map((d) => {
-        const val = d.value !== null && d.value !== undefined ? String(d.value) : "";
-        const clientName = d.account ? (d.account.name || d.account.tradeName || "") : "";
-        const sellerId = d.operatorId || d.ownerId;
-        const opName = sellerId ? operators.find((o) => o.id === sellerId)?.name || "" : "";
-        const stageName =
-          targetMoveStages.find((s) => s.id === d.stageId)?.name || "Etapa";
-        const dateStr = new Date(d.createdAt).toLocaleDateString("pt-BR");
-        const statusMap: Record<string, string> = {
-          open: "Em andamento",
-          won: "Vendido",
-          lost: "Perdido",
-          paused: "Pausado",
-        };
-        const statusLabel = statusMap[d.status] || d.status;
-
-        return [
-          `"${(d.title || "").replace(/"/g, '""')}"`,
-          `"#${d.id.slice(-6)}"`,
-          `"${clientName.replace(/"/g, '""')}"`,
-          `"${opName.replace(/"/g, '""')}"`,
-          `"${d.rating || 0}"`,
-          `"${stageName.replace(/"/g, '""')}"`,
-          `"${val}"`,
-          `"${dateStr}"`,
-          `"${statusLabel}"`,
-        ].join(";");
+      const res = await fetch("/api/crm/deals/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
-      const csvContent = "\uFEFF" + headers.join(";") + "\n" + rows.join("\n");
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.dismiss(toastId);
+        throw new Error(err.error || "Falha ao gerar arquivo de exportação.");
+      }
+
+      const data = await res.json();
+      const filename = data.filename || `deal_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      const blob = new Blob([data.csv], { type: "text/csv;charset=utf-8;" });
+
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute(
-        "download",
-        `negociacoes_exportadas_${new Date().toISOString().slice(0, 10)}.csv`
-      );
+      link.setAttribute("download", filename);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      toast.success("Exportação concluída! Planilha CSV baixada.");
+      toast.dismiss(toastId);
+      toast.success(`Exportação concluída! ${effectiveCount} negociações exportadas no padrão RD Station.`);
       setIsExportSheetOpen(false);
     } catch (e: any) {
       console.error("[Export] Erro:", e);
-      toast.error("Falha ao exportar dados.");
+      toast.error(e.message || "Falha ao exportar dados.");
     }
   };
 
@@ -599,33 +715,33 @@ export function BulkActionsSuite({
                 <button
                   type="button"
                   onClick={() => handleExecuteStatus("open")}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer"
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
                 >
-                  <Activity className="h-4 w-4 text-sky-500 shrink-0" />
+                  <Activity className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
                   <span>Em andamento</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleExecuteStatus("lost")}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer"
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
                 >
-                  <ThumbsDown className="h-4 w-4 text-red-500 shrink-0" />
+                  <XCircle className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
                   <span>Perdido</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleExecuteStatus("paused")}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer"
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
                 >
-                  <Pause className="h-4 w-4 text-amber-500 shrink-0" />
+                  <PauseCircle className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
                   <span>Pausado</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleExecuteStatus("won")}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer"
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
                 >
-                  <ThumbsUp className="h-4 w-4 text-emerald-500 shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
                   <span>Vendido</span>
                 </button>
               </div>
@@ -1399,96 +1515,306 @@ export function BulkActionsSuite({
       </Dialog>
 
       {/* ──────────────────────────────────────────────────────────────────────────
-          MODAL 8: CRIAR TAREFA EM MASSA
+          MODAL 8: CRIAR TAREFA EM MASSA (Drawer Lateral com Calendário & Tooltips)
           ────────────────────────────────────────────────────────────────────────── */}
-      <Dialog open={isCreateTaskModalOpen} onOpenChange={setIsCreateTaskModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-amber-500" />
-              <span>Criar Tarefa para Negociações Selecionadas</span>
-            </DialogTitle>
-          </DialogHeader>
+      <Sheet open={isCreateTaskModalOpen} onOpenChange={setIsCreateTaskModalOpen}>
+        <SheetContent
+          side="right"
+          className="flex h-full w-full max-w-[460px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[460px] shadow-2xl border-l border-border"
+        >
+          {/* Cabeçalho do Drawer */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border/80 shrink-0">
+            <SheetTitle className="text-base font-bold text-foreground flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-primary" />
+              <span>Criar Tarefa em Massa ({effectiveCount})</span>
+            </SheetTitle>
+            <button
+              type="button"
+              onClick={() => setIsCreateTaskModalOpen(false)}
+              className="text-muted-foreground hover:text-foreground p-1 rounded-md transition-colors cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
 
-          <div className="space-y-3 py-2 text-xs">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Título da Tarefa *</Label>
-              <Input
-                placeholder="Ex: Ligar para confirmar proposta, Enviar catálogo..."
-                value={taskTitle}
-                onChange={(e) => setTaskTitle(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Corpo do Formulário com Scroll */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 text-xs scrollbar-thin">
+              {/* Box de contexto */}
+              <div className="rounded-lg bg-muted/40 border border-border/60 p-3 text-xs text-muted-foreground">
+                A tarefa será atribuída a todas as <span className="font-semibold text-foreground">{effectiveCount}</span> negociações selecionadas.
+              </div>
 
-            <div className="grid grid-cols-2 gap-3">
+              {/* 1. Assunto da tarefa */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Tipo</Label>
-                <Select value={taskType} onValueChange={setTaskType}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
+                <Label className="text-xs font-semibold text-foreground">
+                  Assunto da tarefa <span className="text-rose-500">*</span>
+                </Label>
+                <Input
+                  value={taskTitle}
+                  onChange={(e) => setTaskTitle(e.target.value)}
+                  placeholder="Ex: Ligar para confirmar proposta, Enviar catálogo..."
+                  className="h-10 text-xs rounded-lg border-input"
+                  required
+                />
+              </div>
+
+              {/* 2. Descrição da tarefa */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Descrição da tarefa
+                </Label>
+                <textarea
+                  value={taskDescription}
+                  onChange={(e) => setTaskDescription(e.target.value)}
+                  placeholder="Orientações ou detalhes adicionais da tarefa..."
+                  rows={3}
+                  className="w-full rounded-lg border border-input bg-background p-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+                />
+              </div>
+
+              {/* 3. Responsável */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Responsável
+                </Label>
+                <Select
+                  value={taskOperatorId || "__deal_owner__"}
+                  onValueChange={(val) => setTaskOperatorId(val === "__deal_owner__" ? "" : val)}
+                >
+                  <SelectTrigger className="h-10 w-full rounded-lg border border-input bg-background px-3 text-xs">
+                    <SelectValue placeholder="Responsável de cada negociação" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="task" className="text-xs">
-                      Tarefa
+                    <SelectItem value="__deal_owner__" className="text-xs font-medium">
+                      Manter o responsável atual de cada negociação
                     </SelectItem>
-                    <SelectItem value="call" className="text-xs">
-                      Ligação
-                    </SelectItem>
-                    <SelectItem value="meeting" className="text-xs">
-                      Reunião
-                    </SelectItem>
-                    <SelectItem value="whatsapp" className="text-xs">
-                      WhatsApp
-                    </SelectItem>
+                    {operators.map((op) => (
+                      <SelectItem key={op.id} value={op.id} className="text-xs">
+                        {op.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
 
+              {/* 4. Tipo de tarefa */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Data de Vencimento</Label>
-                <Input
-                  type="date"
-                  value={taskDueDate}
-                  onChange={(e) => setTaskDueDate(e.target.value)}
-                  className="h-8 text-xs"
-                />
+                <Label className="text-xs font-semibold text-foreground">
+                  Tipo de tarefa <span className="text-rose-500">*</span>
+                </Label>
+                <Popover open={taskTypeOpen} onOpenChange={setTaskTypeOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs transition-colors hover:bg-muted/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const currentType = CRM_TASK_TYPES.find((t) => t.id === taskType) || CRM_TASK_TYPES[3];
+                          const CurrentIcon = currentType.icon;
+                          return (
+                            <>
+                              <CurrentIcon className="h-4 w-4 text-foreground/80 shrink-0" />
+                              <span className="font-semibold text-foreground">{currentType.label}</span>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground opacity-70" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[240px] p-1.5 rounded-xl shadow-lg border border-border" align="start">
+                    <div className="space-y-0.5">
+                      {CRM_TASK_TYPES.map((t) => {
+                        const Icon = t.icon;
+                        const isSelected = t.id === taskType;
+                        return (
+                          <button
+                            type="button"
+                            key={t.id}
+                            onClick={() => {
+                              setTaskType(t.id);
+                              setTaskTypeOpen(false);
+                            }}
+                            className={`flex w-full items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                              isSelected
+                                ? "bg-primary/10 text-primary font-bold"
+                                : "text-foreground hover:bg-muted"
+                            }`}
+                          >
+                            <Icon className={`h-4 w-4 shrink-0 ${isSelected ? "text-primary" : "text-foreground/75"}`} />
+                            <span>{t.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* 5. Data do agendamento */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Data do agendamento <span className="text-rose-500">*</span>
+                </Label>
+                <Popover open={isTaskCalendarOpen} onOpenChange={setIsTaskCalendarOpen}>
+                  <PopoverTrigger asChild>
+                    <div className="relative flex h-10 w-full items-center rounded-lg border border-input bg-background px-3 cursor-pointer hover:border-border transition-colors">
+                      <Calendar className="h-4 w-4 text-muted-foreground shrink-0 mr-2.5" />
+                      <span className="text-xs font-semibold text-foreground">
+                        {taskScheduledDate.toLocaleDateString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-3 rounded-2xl border border-border shadow-xl bg-card" align="start">
+                    {/* Header do Mês e Navegação */}
+                    <div className="flex items-center justify-between mb-3 px-1">
+                      <button
+                        type="button"
+                        onClick={prevTaskMonth}
+                        className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <span className="text-xs font-bold text-foreground">
+                        {MONTH_NAMES_PT[taskCalendarMonth]} {taskCalendarYear}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={nextTaskMonth}
+                        className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {/* Linha dos dias da semana */}
+                    <div className="grid grid-cols-7 gap-1 mb-1 text-center">
+                      {WEEKDAY_NAMES_PT.map((w) => (
+                        <span key={w} className="text-[10px] font-bold text-muted-foreground">
+                          {w}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Grade dos dias do mês */}
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {renderTaskCalendarDays()}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* 6. Horário da tarefa */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Horário da tarefa <span className="text-rose-500">*</span>
+                </Label>
+                <Popover open={isTaskTimeOpen} onOpenChange={setIsTaskTimeOpen}>
+                  <SystemTooltip content="Horário definido para o agendamento da tarefa">
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:border-border cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span>{taskScheduledTime || "10:00"}</span>
+                        </div>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground opacity-60" />
+                      </button>
+                    </PopoverTrigger>
+                  </SystemTooltip>
+                  <PopoverContent className="w-[190px] p-2.5 rounded-xl shadow-xl border border-border bg-card" align="start">
+                    <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                      <div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
+                          Hora
+                        </div>
+                        <div className="h-44 overflow-y-auto space-y-0.5 scrollbar-thin pr-1">
+                          {HOURS_LIST.map((h) => {
+                            const currentHour = (taskScheduledTime || "10:00").split(":")[0];
+                            const currentMin = (taskScheduledTime || "10:00").split(":")[1] || "00";
+                            const isSelected = currentHour === h;
+                            return (
+                              <button
+                                type="button"
+                                key={h}
+                                onClick={() => setTaskScheduledTime(`${h}:${currentMin}`)}
+                                className={`w-full py-1 rounded-md text-xs transition-colors cursor-pointer ${
+                                  isSelected
+                                    ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                                    : "text-foreground hover:bg-muted font-medium"
+                                }`}
+                              >
+                                {h}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
+                          Minuto
+                        </div>
+                        <div className="h-44 overflow-y-auto space-y-0.5 scrollbar-thin pr-1">
+                          {MINUTES_LIST.map((m) => {
+                            const currentHour = (taskScheduledTime || "10:00").split(":")[0] || "10";
+                            const currentMin = (taskScheduledTime || "10:00").split(":")[1];
+                            const isSelected = currentMin === m;
+                            return (
+                              <button
+                                type="button"
+                                key={m}
+                                onClick={() => setTaskScheduledTime(`${currentHour}:${m}`)}
+                                className={`w-full py-1 rounded-md text-xs transition-colors cursor-pointer ${
+                                  isSelected
+                                    ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                                    : "text-foreground hover:bg-muted font-medium"
+                                }`}
+                              >
+                                {m}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Descrição / Observações</Label>
-              <Input
-                placeholder="Detalhes adicionais da tarefa..."
-                value={taskDescription}
-                onChange={(e) => setTaskDescription(e.target.value)}
-                className="h-8 text-xs"
-              />
+            {/* Rodapé com Ações */}
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-border bg-card shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsCreateTaskModalOpen(false)}
+                className="text-xs cursor-pointer"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleExecuteCreateTask}
+                disabled={loading || !taskTitle.trim()}
+                className="text-xs font-bold bg-primary text-primary-foreground cursor-pointer"
+              >
+                {loading && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                Criar Tarefas ({effectiveCount})
+              </Button>
             </div>
           </div>
-
-          <DialogFooter className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsCreateTaskModalOpen(false)}
-              className="text-xs cursor-pointer"
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleExecuteCreateTask}
-              disabled={loading || !taskTitle.trim()}
-              className="text-xs font-bold bg-primary text-primary-foreground cursor-pointer"
-            >
-              Criar Tarefas
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </>
   );
 }

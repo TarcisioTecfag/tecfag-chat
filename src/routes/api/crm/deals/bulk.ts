@@ -26,10 +26,37 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
+          const body = await request.json();
+
+          if (body.action === "export") {
+            const permError = requireCrmPermission(session, "canViewCrm");
+            if (permError) return permError;
+
+            const csvString = await crmService.exportDealsRD(tenantId, {
+              dealIds: body.dealIds || [],
+              allFiltered: body.allFiltered,
+              filterParams: body.filterParams,
+            });
+
+            const now = new Date();
+            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}_${String(now.getMinutes()).padStart(2, "0")}`;
+            const filename = `deal_export_${timestamp}.csv`;
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                filename,
+                csv: "\uFEFF" + csvString,
+              }),
+              {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              }
+            );
+          }
+
           const permError = requireCrmPermission(session, "canEditDeals");
           if (permError) return permError;
-
-          const body = await request.json();
 
           if (!body.allFiltered && (!body.dealIds || !Array.isArray(body.dealIds) || body.dealIds.length === 0)) {
             return new Response(
