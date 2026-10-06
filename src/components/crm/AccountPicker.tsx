@@ -7,7 +7,7 @@ interface AccountPickerProps {
   value?: string | null;
   selectedAccount?: CrmAccountDTO | null;
   onSelectAccount: (account: CrmAccountDTO | null) => void;
-  onAddNew?: () => void;
+  onAddNew?: (initialQuery?: string) => void;
   disabled?: boolean;
   placeholder?: string;
   divergentWarning?: string | null;
@@ -185,7 +185,7 @@ export function AccountPicker({
               type="button"
               onClick={() => {
                 setIsOpen(false);
-                onAddNew();
+                onAddNew(query.trim());
               }}
               className="absolute inset-y-1 right-1 px-2.5 flex items-center space-x-1 text-xs font-medium text-primary hover:bg-primary/10 rounded-md transition-colors"
             >
@@ -249,7 +249,7 @@ export function AccountPicker({
                       type="button"
                       onClick={() => {
                         setIsOpen(false);
-                        onAddNew();
+                        onAddNew(query.trim());
                       }}
                       className="mt-2 inline-flex items-center space-x-1.5 text-xs text-primary font-medium hover:underline"
                     >

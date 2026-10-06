@@ -21,12 +21,15 @@ import {
   UserPlus,
   ArrowRight,
   Shield,
+  Building2,
+  Loader2,
 } from "lucide-react";
 import { Channel, Conversation, QueueType } from "@/lib/mockData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 import { AccountPicker } from "@/components/crm/AccountPicker";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 type ContactListItem = {
   id: string;
@@ -235,6 +238,56 @@ export function ContactsView() {
     tagsInput: "",
   });
 
+  // Criação rápida de empresa dentro do Drawer de Contato
+  const [creatingCompany, setCreatingCompany] = useState(false);
+  const [companyForm, setCompanyForm] = useState({
+    name: "",
+    tradeName: "",
+    document: "",
+    type: "company" as "company" | "person",
+    phone: "",
+    email: "",
+  });
+  const [savingCompany, setSavingCompany] = useState(false);
+
+  const handleSaveQuickCompany = async () => {
+    if (!companyForm.name.trim()) {
+      toast.error("Informe o nome ou razão social da empresa.");
+      return;
+    }
+    setSavingCompany(true);
+    try {
+      const response = await fetch("/api/crm/accounts", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: companyForm.name.trim(),
+          type: companyForm.type,
+          tradeName: companyForm.tradeName.trim() || undefined,
+          document: companyForm.document.trim() || undefined,
+          phone: companyForm.phone.trim() || undefined,
+          email: companyForm.email.trim() || undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Não foi possível criar a empresa.");
+      const createdAcc: CrmAccountDTO = data.account;
+      if (editingContact) {
+        setEditAccount(createdAcc);
+        setEditAccountId(createdAcc.id);
+      } else {
+        setNewAccount(createdAcc);
+      }
+      setCreatingCompany(false);
+      toast.success(`Empresa "${createdAcc.name}" cadastrada e vinculada!`);
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao cadastrar empresa.");
+    } finally {
+      setSavingCompany(false);
+    }
+  };
+
   const filteredContacts = contactRows;
 
   const handleStartChat = async (contactId: string) => {
@@ -288,8 +341,20 @@ export function ContactsView() {
 
   const startEditing = (c: ContactListItem) => {
     setEditingContact(c);
-    setEditAccount(null);
+    setEditAccount(
+      c.accountId
+        ? {
+            id: c.accountId,
+            tenantId: tenant || "",
+            name: c.accountName || "Empresa vinculada",
+            tradeName: null,
+            document: c.accountDocument || null,
+            type: (c.accountType as "company" | "person") || "company",
+          }
+        : null
+    );
     setEditAccountId(c.accountId);
+    setCreatingCompany(false);
     setEditForm({
       name: c.name,
       phone: c.phone || "",
@@ -353,7 +418,12 @@ export function ContactsView() {
           {/* Botao Novo Contato */}
           {canCreateContact && (
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => {
+                setCreatingCompany(false);
+                setNewAccount(null);
+                setAddForm({ name: "", phone: "", email: "", channel: "whatsapp" });
+                setShowAddModal(true);
+              }}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft"
             >
               <UserPlus className="h-4.5 w-4.5" />
@@ -755,135 +825,555 @@ export function ContactsView() {
         )}
       </AnimatePresence>
 
-      {/* MODAL: NOVO CONTATO */}
-      <AnimatePresence>
-        {showAddModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: "spring", damping: 25, stiffness: 280 }}
-              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-card p-6 border border-border shadow-card flex flex-col"
-            >
-              <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
-                <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">
-                  <UserPlus className="h-5 w-5 text-primary" />
-                  Cadastrar Novo Contato
-                </h3>
-                <button onClick={() => setShowAddModal(false)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer">
-                  <X className="h-4.5 w-4.5" />
-                </button>
-              </div>
-              <form onSubmit={handleCreateContact} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Completo</label>
-                  <input type="text" required placeholder="Ex: Joao da Silva" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
-                    <input type="text" placeholder="Ex: (81) 99876-5432" value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
-                  <AccountPicker value={newAccount?.id || null} selectedAccount={newAccount} onSelectAccount={setNewAccount} lookupUrl="/api/contacts/account-options" placeholder="Buscar empresa por nome ou CNPJ..." />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
-                  <input type="email" placeholder="Ex: joao@empresa.com" value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Canal Principal de Envio</label>
-                  <div className="flex gap-2">
-                    {(["whatsapp", "instagram", "messenger"] as Channel[]).map((ch) => (
-                      <button key={ch} type="button" onClick={() => setAddForm({ ...addForm, channel: ch })} className={`flex-1 flex h-10 items-center justify-center gap-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${addForm.channel === ch ? "bg-primary border-primary text-primary-foreground shadow-soft" : "bg-card border-border text-muted-foreground hover:bg-muted"}`}>
-                        {ch === "whatsapp" && <WhatsappLogo className="h-3.5 w-3.5" />}
-                        {ch === "instagram" && <InstagramLogo className="h-3.5 w-3.5" />}
-                        {ch === "messenger" && <MessengerLogo className="h-3.5 w-3.5" />}
-                        <span className="capitalize">{ch === "whatsapp" ? "WhatsApp" : ch}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="pt-4 border-t border-line flex justify-end gap-3">
-                  <button type="button" onClick={() => setShowAddModal(false)} className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer">Cancelar</button>
-                  <button type="submit" disabled={savingContact} className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50">{savingContact ? "Salvando..." : "Criar e Iniciar Chat"}</button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* DRAWER: NOVO CONTATO */}
+      <Sheet
+        open={showAddModal}
+        onOpenChange={(open) => {
+          setShowAddModal(open);
+          if (!open) {
+            setCreatingCompany(false);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex h-full w-full max-w-[500px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[500px] shadow-2xl border-l border-border"
+        >
+          <SheetHeader className="flex h-16 shrink-0 flex-row items-center justify-between border-b border-border px-6 bg-card space-y-0">
+            <SheetTitle className="text-base font-extrabold text-foreground flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-primary" />
+              Cadastrar Novo Contato
+            </SheetTitle>
+          </SheetHeader>
 
-      {/* MODAL: EDITAR CONTATO */}
-      <AnimatePresence>
-        {editingContact && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: "spring", damping: 25, stiffness: 280 }}
-              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-card p-6 border border-border shadow-card flex flex-col"
-            >
-              <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
-                <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">
-                  <Edit2 className="h-4.5 w-4.5 text-primary" />
-                  Editar Cadastro de Cliente
-                </h3>
-                <button onClick={() => setEditingContact(null)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer">
-                  <X className="h-4.5 w-4.5" />
-                </button>
+          <form onSubmit={handleCreateContact} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Completo *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: João da Silva"
+                  value={addForm.name}
+                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                />
               </div>
-              <form onSubmit={handleSaveEdit} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Completo</label>
-                  <input type="text" required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1 col-span-2">
-                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
-                    <input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
+                <input
+                  type="text"
+                  placeholder="Ex: (81) 99876-5432"
+                  value={addForm.phone}
+                  onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })}
+                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                />
+              </div>
+
+              {/* Seção da Empresa / Cliente Vinculado */}
+              {creatingCompany ? (
+                <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3.5 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between border-b border-primary/20 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 text-primary">
+                        <Building2 className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-foreground">Nova Empresa / Conta</p>
+                        <p className="text-[10px] text-muted-foreground">Cadastre para vincular ao contato</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCreatingCompany(false)}
+                      className="text-[11px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      Voltar à busca
+                    </button>
                   </div>
-                  {editingContact.channel === "whatsapp" && <div className="space-y-1 col-span-2">
-                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome de usuário no WhatsApp</label>
-                    <input type="text" placeholder="@usuario" value={editForm.whatsappUsername} onChange={(e) => setEditForm({ ...editForm, whatsappUsername: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
-                    <p className="text-[10px] text-muted-foreground">O nome é para identificação. O envio depende do identificador recebido do WhatsApp ou do telefone.</p>
-                  </div>}
+
+                  {/* Tipo PJ ou PF */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCompanyForm((prev) => ({ ...prev, type: "company" }))}
+                      className={`py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                        companyForm.type === "company"
+                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                          : "bg-card border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Pessoa Jurídica (PJ)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCompanyForm((prev) => ({ ...prev, type: "person" }))}
+                      className={`py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                        companyForm.type === "person"
+                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                          : "bg-card border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Pessoa Física (PF)
+                    </button>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                      {companyForm.type === "company" ? "Razão Social / Nome da Empresa *" : "Nome Completo *"}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      placeholder={companyForm.type === "company" ? "Ex: Tecfag Máquinas Ltda" : "Ex: Maria Oliveira"}
+                      value={companyForm.name}
+                      onChange={(e) => setCompanyForm((prev) => ({ ...prev, name: e.target.value }))}
+                      className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                    />
+                  </div>
+
+                  {companyForm.type === "company" && (
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Fantasia</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Tecfag"
+                        value={companyForm.tradeName}
+                        onChange={(e) => setCompanyForm((prev) => ({ ...prev, tradeName: e.target.value }))}
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                      {companyForm.type === "company" ? "CNPJ" : "CPF"}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={companyForm.type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
+                      value={companyForm.document}
+                      onChange={(e) => setCompanyForm((prev) => ({ ...prev, document: e.target.value }))}
+                      className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
+                      <input
+                        type="text"
+                        placeholder="(00) 0000-0000"
+                        value={companyForm.phone}
+                        onChange={(e) => setCompanyForm((prev) => ({ ...prev, phone: e.target.value }))}
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
+                      <input
+                        type="email"
+                        placeholder="contato@empresa.com"
+                        value={companyForm.email}
+                        onChange={(e) => setCompanyForm((prev) => ({ ...prev, email: e.target.value }))}
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-primary/20">
+                    <button
+                      type="button"
+                      onClick={() => setCreatingCompany(false)}
+                      className="h-8 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-muted-foreground hover:bg-muted cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingCompany || !companyForm.name.trim()}
+                      onClick={handleSaveQuickCompany}
+                      className="h-8 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-xs"
+                    >
+                      {savingCompany && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                      {savingCompany ? "Cadastrando..." : "Salvar e Vincular"}
+                    </button>
+                  </div>
                 </div>
+              ) : (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
-                  <AccountPicker value={editAccountId} selectedAccount={editAccount || undefined} onSelectAccount={(account) => { setEditAccount(account); setEditAccountId(account?.id || null); }} lookupUrl="/api/contacts/account-options" placeholder="Buscar empresa por nome ou CNPJ..." />
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCompanyForm({ name: "", tradeName: "", document: "", type: "company", phone: "", email: "" });
+                        setCreatingCompany(true);
+                      }}
+                      className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Nova empresa
+                    </button>
+                  </div>
+                  <AccountPicker
+                    value={newAccount?.id || null}
+                    selectedAccount={newAccount}
+                    onSelectAccount={setNewAccount}
+                    lookupUrl="/api/contacts/account-options"
+                    placeholder="Buscar empresa por nome ou CNPJ..."
+                    onAddNew={(initialQuery) => {
+                      setCompanyForm({
+                        name: initialQuery || "",
+                        tradeName: "",
+                        document: "",
+                        type: "company",
+                        phone: "",
+                        email: "",
+                      });
+                      setCreatingCompany(true);
+                    }}
+                  />
                 </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
+                <input
+                  type="email"
+                  placeholder="Ex: joao@empresa.com"
+                  value={addForm.email}
+                  onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
+                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Canal Principal de Envio</label>
+                <div className="flex gap-2">
+                  {(["whatsapp", "instagram", "messenger"] as Channel[]).map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => setAddForm({ ...addForm, channel: ch })}
+                      className={`flex-1 flex h-10 items-center justify-center gap-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                        addForm.channel === ch
+                          ? "bg-primary border-primary text-primary-foreground shadow-soft"
+                          : "bg-card border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {ch === "whatsapp" && <WhatsappLogo className="h-3.5 w-3.5" />}
+                      {ch === "instagram" && <InstagramLogo className="h-3.5 w-3.5" />}
+                      {ch === "messenger" && <MessengerLogo className="h-3.5 w-3.5" />}
+                      <span className="capitalize">{ch === "whatsapp" ? "WhatsApp" : ch}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="shrink-0 border-t border-border bg-card px-6 py-4 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddModal(false);
+                  setCreatingCompany(false);
+                }}
+                className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={savingContact || creatingCompany}
+                className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50 flex items-center gap-2"
+              >
+                {savingContact && <Loader2 className="h-4 w-4 animate-spin" />}
+                {savingContact ? "Salvando..." : "Criar e Iniciar Chat"}
+              </button>
+            </div>
+          </form>
+        </SheetContent>
+      </Sheet>
+
+      {/* DRAWER: EDITAR CONTATO */}
+      <Sheet
+        open={editingContact !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingContact(null);
+            setCreatingCompany(false);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex h-full w-full max-w-[500px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[500px] shadow-2xl border-l border-border"
+        >
+          <SheetHeader className="flex h-16 shrink-0 flex-row items-center justify-between border-b border-border px-6 bg-card space-y-0">
+            <SheetTitle className="text-base font-extrabold text-foreground flex items-center gap-2">
+              <Edit2 className="h-4.5 w-4.5 text-primary" />
+              Editar Cadastro de Cliente
+            </SheetTitle>
+          </SheetHeader>
+
+          {editingContact && (
+            <form onSubmit={handleSaveEdit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Completo *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
+                  <input
+                    type="text"
+                    value={editForm.phone}
+                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
+                </div>
+
+                {editingContact.channel === "whatsapp" && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome de usuário no WhatsApp</label>
+                    <input
+                      type="text"
+                      placeholder="@usuario"
+                      value={editForm.whatsappUsername}
+                      onChange={(e) => setEditForm({ ...editForm, whatsappUsername: e.target.value })}
+                      className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                    />
+                    <p className="text-[10px] text-muted-foreground">O nome é para identificação. O envio depende do identificador recebido do WhatsApp ou do telefone.</p>
+                  </div>
+                )}
+
+                {/* Seção da Empresa / Cliente Vinculado */}
+                {creatingCompany ? (
+                  <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3.5 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="flex items-center justify-between border-b border-primary/20 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 text-primary">
+                          <Building2 className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-foreground">Nova Empresa / Conta</p>
+                          <p className="text-[10px] text-muted-foreground">Cadastre para vincular ao contato</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCreatingCompany(false)}
+                        className="text-[11px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        Voltar à busca
+                      </button>
+                    </div>
+
+                    {/* Tipo PJ ou PF */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCompanyForm((prev) => ({ ...prev, type: "company" }))}
+                        className={`py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                          companyForm.type === "company"
+                            ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                            : "bg-card border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        Pessoa Jurídica (PJ)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCompanyForm((prev) => ({ ...prev, type: "person" }))}
+                        className={`py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                          companyForm.type === "person"
+                            ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                            : "bg-card border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        Pessoa Física (PF)
+                      </button>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                        {companyForm.type === "company" ? "Razão Social / Nome da Empresa *" : "Nome Completo *"}
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        autoFocus
+                        placeholder={companyForm.type === "company" ? "Ex: Tecfag Máquinas Ltda" : "Ex: Maria Oliveira"}
+                        value={companyForm.name}
+                        onChange={(e) => setCompanyForm((prev) => ({ ...prev, name: e.target.value }))}
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+
+                    {companyForm.type === "company" && (
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Fantasia</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Tecfag"
+                          value={companyForm.tradeName}
+                          onChange={(e) => setCompanyForm((prev) => ({ ...prev, tradeName: e.target.value }))}
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                        {companyForm.type === "company" ? "CNPJ" : "CPF"}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={companyForm.type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
+                        value={companyForm.document}
+                        onChange={(e) => setCompanyForm((prev) => ({ ...prev, document: e.target.value }))}
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
+                        <input
+                          type="text"
+                          placeholder="(00) 0000-0000"
+                          value={companyForm.phone}
+                          onChange={(e) => setCompanyForm((prev) => ({ ...prev, phone: e.target.value }))}
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
+                        <input
+                          type="email"
+                          placeholder="contato@empresa.com"
+                          value={companyForm.email}
+                          onChange={(e) => setCompanyForm((prev) => ({ ...prev, email: e.target.value }))}
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-primary/20">
+                      <button
+                        type="button"
+                        onClick={() => setCreatingCompany(false)}
+                        className="h-8 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-muted-foreground hover:bg-muted cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingCompany || !companyForm.name.trim()}
+                        onClick={handleSaveQuickCompany}
+                        className="h-8 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-xs"
+                      >
+                        {savingCompany && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                        {savingCompany ? "Cadastrando..." : "Salvar e Vincular"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCompanyForm({ name: "", tradeName: "", document: "", type: "company", phone: "", email: "" });
+                          setCreatingCompany(true);
+                        }}
+                        className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Nova empresa
+                      </button>
+                    </div>
+                    <AccountPicker
+                      value={editAccountId}
+                      selectedAccount={editAccount || undefined}
+                      onSelectAccount={(account) => {
+                        setEditAccount(account);
+                        setEditAccountId(account?.id || null);
+                      }}
+                      lookupUrl="/api/contacts/account-options"
+                      placeholder="Buscar empresa por nome ou CNPJ..."
+                      onAddNew={(initialQuery) => {
+                        setCompanyForm({
+                          name: initialQuery || "",
+                          tradeName: "",
+                          document: "",
+                          type: "company",
+                          phone: "",
+                          email: "",
+                        });
+                        setCreatingCompany(true);
+                      }}
+                    />
+                  </div>
+                )}
+
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
-                  <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
                 </div>
+
                 <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Tags (Separadas por virgula)</label>
-                  <input type="text" placeholder="Ex: Prioridade, Maquinas, Pos-Venda" value={editForm.tagsInput} onChange={(e) => setEditForm({ ...editForm, tagsInput: e.target.value })} className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent" />
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Tags (Separadas por vírgula)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Prioridade, Máquinas, Pós-Venda"
+                    value={editForm.tagsInput}
+                    onChange={(e) => setEditForm({ ...editForm, tagsInput: e.target.value })}
+                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
                 </div>
-                <div className="pt-4 border-t border-line flex justify-end gap-3">
-                  <button type="button" onClick={() => setEditingContact(null)} className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer">Cancelar</button>
-                  <button type="submit" disabled={savingContact} className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50">{savingContact ? "Salvando..." : "Salvar Cadastro"}</button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </div>
+
+              <div className="shrink-0 border-t border-border bg-card px-6 py-4 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingContact(null);
+                    setCreatingCompany(false);
+                  }}
+                  className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingContact || creatingCompany}
+                  className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50 flex items-center gap-2"
+                >
+                  {savingContact && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {savingContact ? "Salvando..." : "Salvar Cadastro"}
+                </button>
+              </div>
+            </form>
+          )}
+        </SheetContent>
+      </Sheet>
 
     </section>
   );
