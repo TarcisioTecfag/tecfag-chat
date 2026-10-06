@@ -137,44 +137,6 @@ if (!databaseUrl) {
       }
     });
 
-    // 2. Migração de dados de negócio da Tecfag (Planilha de Negociações do Funil Máquinas)
-    const tecfagMigrationName = "import_tecfag_deals_spreadsheet_v1";
-    const [appliedTecfag] = await sql`
-      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagMigrationName}
-    `;
-    if (!appliedTecfag) {
-      console.log(`[platform migration] Iniciando execução de ${tecfagMigrationName}...`);
-      try {
-        const { runTecfagSpreadsheetImport } = await import("./import-tecfag-spreadsheet.mjs");
-        await runTecfagSpreadsheetImport(sql);
-        await sql`INSERT INTO app_deploy_migrations (name) VALUES (${tecfagMigrationName}) ON CONFLICT (name) DO NOTHING`;
-        console.log(`[platform migration] ${tecfagMigrationName} concluída e registrada com sucesso.`);
-      } catch (importErr) {
-        console.error(`[platform migration] Aviso: Falha na importação da planilha Tecfag (${tecfagMigrationName}):`, importErr);
-        // Não encerra o processo: as migrações DDL estruturais já estão aplicadas com sucesso
-      }
-    } else {
-      console.log(`[platform migration] ${tecfagMigrationName} já aplicada anteriormente.`);
-    }
-
-    // 3. Migração de campos personalizados, catálogos e enriquecimento de cards/empresas
-    const tecfagCfMigrationName = "import_tecfag_custom_fields_v2";
-    const [appliedTecfagCf] = await sql`
-      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagCfMigrationName}
-    `;
-    if (!appliedTecfagCf) {
-      console.log(`[platform migration] Iniciando execução de ${tecfagCfMigrationName}...`);
-      try {
-        const { runCustomFieldsMigration } = await import("./migrate-tecfag-custom-fields.mjs");
-        await runCustomFieldsMigration(sql);
-        await sql`INSERT INTO app_deploy_migrations (name) VALUES (${tecfagCfMigrationName}) ON CONFLICT (name) DO NOTHING`;
-        console.log(`[platform migration] ${tecfagCfMigrationName} concluída e registrada com sucesso.`);
-      } catch (cfErr) {
-        console.error(`[platform migration] Aviso: Falha na migração de custom fields (${tecfagCfMigrationName}):`, cfErr);
-      }
-    } else {
-      console.log(`[platform migration] ${tecfagCfMigrationName} já aplicada anteriormente.`);
-    }
 
   } catch (error) {
     console.error("[platform migration] Falha crítica ao aplicar migrações estruturais DDL:", error);
