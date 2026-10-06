@@ -197,6 +197,26 @@ export async function runTecfagSpreadsheetImport(sql) {
   const accountIdByName = new Map();
   const companiesToInsertMap = new Map();
 
+  // Carregar contas que já existem no banco para este tenant para reaproveitamento direto
+  const existingAccounts = await sql`
+    SELECT id, document, rd_organization_id, name
+    FROM crm_accounts
+    WHERE tenant_id = ${tenantId}
+  `;
+  const existingDocSet = new Set();
+  for (const acc of existingAccounts) {
+    if (acc.document) {
+      accountIdByDoc.set(acc.document, acc.id);
+      existingDocSet.add(acc.document);
+    }
+    if (acc.rd_organization_id) {
+      accountIdByRdOrg.set(acc.rd_organization_id, acc.id);
+    }
+    if (acc.name) {
+      accountIdByName.set(acc.name.toLowerCase().trim(), acc.id);
+    }
+  }
+
   for (const r of rows) {
     const rdOrgId = (r['ID da Empresa'] || '').trim();
     const orgName = (r['Empresa'] || r['Nome'] || 'Empresa Sem Nome').trim();
@@ -253,7 +273,7 @@ export async function runTecfagSpreadsheetImport(sql) {
   }
 
   // Deduplicação estrita de document para respeitar o unique index
-  const docSeen = new Set();
+  const docSeen = new Set(existingDocSet);
   const safeCompaniesList = [];
   for (const comp of companiesToInsertMap.values()) {
     if (comp.document) {
@@ -281,6 +301,12 @@ export async function runTecfagSpreadsheetImport(sql) {
       console.log(`[Tecfag Import] Empresas inseridas: ${Math.min(i + BATCH_SIZE, safeCompaniesList.length)}/${safeCompaniesList.length}`);
     }
   }
+
+  // Mapear todas as contas reais e garantidas em crm_accounts para garantir integridade referencial
+  const allAccountsInDb = await sql`
+    SELECT id FROM crm_accounts WHERE tenant_id = ${tenantId}
+  `;
+  const validAccountIds = new Set(allAccountsInDb.map(a => a.id));
 
   // 5. EXTRAÇÃO E INSERÇÃO DE CONTATOS (contacts)
   console.log(`[Tecfag Import] Processando contatos...`);
@@ -328,6 +354,11 @@ export async function runTecfagSpreadsheetImport(sql) {
   }
 
   const contactsList = Array.from(contactsToInsertMap.values());
+  for (const ct of contactsList) {
+    if (ct.account_id && !validAccountIds.has(ct.account_id)) {
+      ct.account_id = null;
+    }
+  }
   console.log(`[Tecfag Import] ${contactsList.length} contatos únicos para inserir.`);
 
   for (let i = 0; i < contactsList.length; i += BATCH_SIZE) {
@@ -459,6 +490,11 @@ export async function runTecfagSpreadsheetImport(sql) {
   }
 
   const finalDeals = Array.from(dealsToInsertMap.values());
+  for (const deal of finalDeals) {
+    if (deal.account_id && !validAccountIds.has(deal.account_id)) {
+      deal.account_id = null;
+    }
+  }
   console.log(`[Tecfag Import] ${finalDeals.length} negociações únicas preparadas para gravação.`);
 
   for (let i = 0; i < finalDeals.length; i += BATCH_SIZE) {
@@ -497,7 +533,17 @@ export async function runTecfagSpreadsheetImport(sql) {
 
   // 7. INSERÇÃO DOS VÍNCULOS NEGOCIAÇÃO ↔ CONTATO (crm_deal_contacts)
   console.log(`[Tecfag Import] Vinculando contatos às negociações...`);
-  const finalLinks = Array.from(dealContactLinksMap.values());
+  
+  // Buscar contatos e negociações reais garantidas no banco para integridade referencial estrita
+  const allContactsInDb = await sql`
+    SELECT id FROM contacts WHERE tenant_id = ${tenantId}
+  `;
+  const validContactIds = new Set(allContactsInDb.map(c => c.id));
+  const validDealIds = new Set(finalDeals.map(d => d.id));
+
+  const finalLinks = Array.from(dealContactLinksMap.values()).filter(
+    link => validDealIds.has(link.deal_id) && validContactIds.has(link.contact_id)
+  );
   console.log(`[Tecfag Import] ${finalLinks.length} vínculos únicos para inserir.`);
 
   for (let i = 0; i < finalLinks.length; i += BATCH_SIZE) {
