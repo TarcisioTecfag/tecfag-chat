@@ -58,60 +58,6 @@ import {
   Paperclip,
 } from "lucide-react";
 
-// ── MiniSelect: dropdown 100% customizado (sem <select> nativo) ──────────────
-interface MiniSelectOption { value: number | string; label: string; }
-function MiniSelect({ value, onChange, options, className }: {
-  value: number | string;
-  onChange: (v: any) => void;
-  options: MiniSelectOption[];
-  className?: string;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-  const selected = options.find((o) => o.value === value) ?? options[0];
-
-  // Fecha ao clicar fora
-  React.useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  return (
-    <div ref={ref} className={`relative ${className ?? ""}`}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full h-8 flex items-center justify-between gap-1 rounded-lg bg-muted px-2 text-xs text-foreground border border-transparent hover:border-primary/20 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-all cursor-pointer"
-      >
-        <span className="truncate">{selected.label}</span>
-        <ChevronDown className={`h-2.5 w-2.5 shrink-0 text-primary/60 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
-      </button>
-
-      {open && (
-        <div className="absolute z-[60] top-[calc(100%+3px)] left-0 min-w-full max-h-48 overflow-y-auto rounded-xl bg-card border border-border/60 shadow-xl [&::-webkit-scrollbar]:w-0 scrollbar-none">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full text-left px-3 py-1.5 text-xs transition-all cursor-pointer outline-none whitespace-nowrap
-                ${opt.value === value
-                  ? "bg-primary/10 text-primary font-semibold"
-                  : "text-foreground hover:bg-muted"
-                }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 interface HistoryEventInfo {
   title: string;
@@ -221,15 +167,25 @@ export function SharedFiles() {
   // ── Estados do formulário de Tarefas ─────────────────────────────────────
   const [taskSubject, setTaskSubject] = useState("");
   const [taskType, setTaskType] = useState("task");
-  // Data e hora separados em partes para evitar o picker nativo do browser
-  const [taskDay,   setTaskDay]   = useState(() => { const d = new Date(); d.setDate(d.getDate()+1); return d.getDate(); });
-  const [taskMonth, setTaskMonth] = useState(() => { const d = new Date(); d.setDate(d.getDate()+1); return d.getMonth()+1; });
-  const [taskYear,  setTaskYear]  = useState(() => { const d = new Date(); d.setDate(d.getDate()+1); return d.getFullYear(); });
-  const [taskHour,  setTaskHour]  = useState(9);
-  const [taskMin,   setTaskMin]   = useState(0);
-  // Valores derivados usados no envio
-  const taskDate = `${taskYear}-${String(taskMonth).padStart(2,"0")}-${String(taskDay).padStart(2,"0")}`;
-  const taskTime = `${String(taskHour).padStart(2,"0")}:${String(taskMin).padStart(2,"0")}`;
+
+  // Helpers para cálculo rápido de data no formato YYYY-MM-DD
+  const formatYMD = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const getRelativeDateYMD = (daysOffset: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysOffset);
+    return formatYMD(d);
+  };
+
+  const [taskDueDate, setTaskDueDate] = useState<string>(() => getRelativeDateYMD(1));
+  const [taskDueTime, setTaskDueTime] = useState<string>("09:00");
+  const taskDate = taskDueDate;
+  const taskTime = taskDueTime;
   const [taskCreating, setTaskCreating] = useState(false);
   const [taskTypeOpen, setTaskTypeOpen] = useState(false);
 
@@ -432,9 +388,8 @@ export function SharedFiles() {
     if (linkedDeals.length !== 1) {
       setSelectedTargetDealId("");
     }
-    const tmr = new Date(); tmr.setDate(tmr.getDate() + 1);
-    setTaskDay(tmr.getDate()); setTaskMonth(tmr.getMonth()+1); setTaskYear(tmr.getFullYear());
-    setTaskHour(9); setTaskMin(0);
+    setTaskDueDate(getRelativeDateYMD(1));
+    setTaskDueTime("09:00");
     setTaskCreating(false);
     toast.success("Tarefa criada com sucesso!");
   };
@@ -925,23 +880,50 @@ export function SharedFiles() {
                 );
               })()}
 
-              {/* ── Data — dia / mês / ano via MiniSelect ───────────────── */}
-              {(() => {
-                const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-                const daysInMonth = new Date(taskYear, taskMonth, 0).getDate();
-                const currentYear = new Date().getFullYear();
-                const dayOpts    = Array.from({length: daysInMonth}, (_,i) => ({ value: i+1, label: String(i+1).padStart(2,"0") }));
-                const monthOpts  = MONTHS.map((m,i) => ({ value: i+1, label: m }));
-                const yearOpts   = [currentYear, currentYear+1, currentYear+2].map(y => ({ value: y, label: String(y) }));
-                return (
+              {/* ── Seletor Rápido de Data & Horário ───────────────────── */}
+              <div className="space-y-2">
+                {/* Atalhos Rápidos de Data */}
+                <div className="flex items-center gap-1">
+                  {[
+                    { label: "Hoje", offset: 0 },
+                    { label: "Amanhã", offset: 1 },
+                    { label: "+2 dias", offset: 2 },
+                    { label: "Próx. sem.", offset: 7 },
+                  ].map(({ label, offset }) => {
+                    const targetYMD = getRelativeDateYMD(offset);
+                    const isSelected = taskDueDate === targetYMD;
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setTaskDueDate(targetYMD)}
+                        className={`flex-1 py-1 rounded-md text-[10px] font-semibold transition-all cursor-pointer text-center ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground shadow-xs"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border/40"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Inputs de Data e Hora Nativos & Elegantes */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  {/* Seletor de Data */}
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="flex gap-1.5 items-center">
-                          <CalendarDays className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <MiniSelect value={taskDay}   onChange={setTaskDay}   options={dayOpts}   className="w-11 shrink-0" />
-                          <MiniSelect value={taskMonth} onChange={setTaskMonth} options={monthOpts} className="flex-1 min-w-0" />
-                          <MiniSelect value={taskYear}  onChange={setTaskYear}  options={yearOpts}  className="w-[3.8rem] shrink-0" />
+                        <div className="relative flex items-center">
+                          <CalendarDays className="absolute left-2.5 h-3.5 w-3.5 text-primary pointer-events-none" />
+                          <input
+                            type="date"
+                            value={taskDueDate}
+                            onChange={(e) => setTaskDueDate(e.target.value)}
+                            required
+                            className="w-full h-8 pl-8 pr-1.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary transition-all cursor-pointer"
+                          />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
@@ -949,22 +931,20 @@ export function SharedFiles() {
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                );
-              })()}
 
-              {/* ── Hora — hora / minuto via MiniSelect ─────────────────── */}
-              {(() => {
-                const hourOpts = Array.from({length:24},(_,i) => ({ value: i, label: String(i).padStart(2,"0")+"h" }));
-                const minOpts  = [0,15,30,45].map(m => ({ value: m, label: String(m).padStart(2,"0") }));
-                return (
+                  {/* Seletor de Hora */}
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="flex gap-1.5 items-center">
-                          <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <MiniSelect value={taskHour} onChange={setTaskHour} options={hourOpts} className="flex-1" />
-                          <span className="text-xs text-muted-foreground shrink-0 font-medium">:</span>
-                          <MiniSelect value={taskMin}  onChange={setTaskMin}  options={minOpts}  className="flex-1" />
+                        <div className="relative flex items-center">
+                          <Clock className="absolute left-2.5 h-3.5 w-3.5 text-primary pointer-events-none" />
+                          <input
+                            type="time"
+                            value={taskDueTime}
+                            onChange={(e) => setTaskDueTime(e.target.value)}
+                            required
+                            className="w-full h-8 pl-8 pr-1.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary transition-all cursor-pointer"
+                          />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
@@ -972,8 +952,34 @@ export function SharedFiles() {
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                );
-              })()}
+                </div>
+
+                {/* Atalhos Rápidos de Horário */}
+                <div className="flex items-center gap-1 justify-between pt-0.5">
+                  <span className="text-[9px] text-muted-foreground/80 font-medium uppercase tracking-wider pl-0.5">
+                    Horário:
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {["09:00", "11:00", "14:00", "16:00", "18:00"].map((timeStr) => {
+                      const isSelected = taskDueTime === timeStr;
+                      return (
+                        <button
+                          key={timeStr}
+                          type="button"
+                          onClick={() => setTaskDueTime(timeStr)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                            isSelected
+                              ? "bg-primary/15 text-primary font-bold border border-primary/30"
+                              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {timeStr}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
 
               {/* Botão criar */}
               <button

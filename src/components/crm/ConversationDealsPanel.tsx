@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateDealDialog } from "./CreateDealDialog";
-import { DealDetailModal } from "./DealDetailModal";
 import { useChat } from "@/hooks/useChatState";
 import { useNavigate } from "@tanstack/react-router";
 import { SystemTooltip } from "@/components/ui/tooltip";
@@ -76,9 +75,6 @@ export function ConversationDealsPanel({
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isLinkingOpen, setIsLinkingOpen] = useState(false);
 
-  // Ficha completa modal
-  const [viewingDealId, setViewingDealId] = useState<string | null>(null);
-
   // Estados de Edição Inline
   const [editingDealId, setEditingDealId] = useState<string | null>(null);
   const [savingDealId, setSavingDealId] = useState<string | null>(null);
@@ -123,17 +119,6 @@ export function ConversationDealsPanel({
       .then((data) => setOperators(Array.isArray(data) ? data : data.operators || []))
       .catch(() => {});
   }, []);
-
-  // Mapeamentos para DealDetailModal
-  const operatorsMap = useMemo(
-    () => new Map(operators.map((op) => [op.id, op.name])),
-    [operators]
-  );
-
-  const allStages = useMemo(
-    () => pipelines.flatMap((p) => p.stages || []),
-    [pipelines]
-  );
 
   // Carrega negócios vinculados a esta conversa
   const fetchLinkedDeals = useCallback(async () => {
@@ -819,11 +804,17 @@ export function ConversationDealsPanel({
                           </button>
                         </SystemTooltip>
 
-                        <SystemTooltip content="Abrir ficha completa no CRM">
+                        <SystemTooltip content="Abrir negociação no CRM">
                           <button
                             type="button"
-                            onClick={() => setViewingDealId(deal.id)}
-                            aria-label="Abrir ficha completa da negociação"
+                            onClick={() =>
+                              navigate({
+                                to: "/crm/deals/$dealId",
+                                params: { dealId: deal.id },
+                                search: { from: "chat" },
+                              })
+                            }
+                            aria-label="Abrir negociação no CRM"
                             className="p-1 rounded-lg text-muted-foreground hover:bg-muted hover:text-primary transition cursor-pointer"
                           >
                             <ExternalLink className="h-3 w-3" />
@@ -846,7 +837,13 @@ export function ConversationDealsPanel({
                     {/* Título da Oportunidade */}
                     <div>
                       <h5
-                        onClick={() => setViewingDealId(deal.id)}
+                        onClick={() =>
+                          navigate({
+                            to: "/crm/deals/$dealId",
+                            params: { dealId: deal.id },
+                            search: { from: "chat" },
+                          })
+                        }
                         className="text-xs font-bold text-foreground leading-snug hover:text-primary transition-colors cursor-pointer"
                       >
                         {deal.title}
@@ -1057,7 +1054,13 @@ export function ConversationDealsPanel({
         onClose={() => setIsCreateOpen(false)}
         onSuccess={(newDeal, createAnother) => {
           fetchLinkedDeals();
-          if (!createAnother) setViewingDealId(newDeal.id);
+          if (!createAnother) {
+            navigate({
+              to: "/crm/deals/$dealId",
+              params: { dealId: newDeal.id },
+              search: { from: "chat" },
+            });
+          }
         }}
         pipelines={pipelines}
         operators={operators}
@@ -1066,23 +1069,6 @@ export function ConversationDealsPanel({
         defaultAccountName={customerName}
         currentOperatorId={currentOperatorId}
       />
-
-      {/* Modal de Visualização da Ficha Completa da Negociação */}
-      {viewingDealId && (
-        <DealDetailModal
-          isOpen={true}
-          dealId={viewingDealId}
-          onClose={() => setViewingDealId(null)}
-          onDealUpdated={fetchLinkedDeals}
-          onOpenConversation={(convId) => {
-            setViewingDealId(null);
-            navigate({ to: "/", search: { chatId: convId } });
-          }}
-          pipelineStages={allStages}
-          operatorsMap={operatorsMap}
-          backLabel="Fechar ficha da negociação"
-        />
-      )}
     </div>
   );
 }
