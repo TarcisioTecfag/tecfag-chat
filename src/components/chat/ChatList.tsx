@@ -75,6 +75,8 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     selectedChatId,
     setSelectedChatId,
     conversations,
+    chatListReady,
+    loadConversationPage,
     searchQuery,
     setSearchQuery,
     channelFilter,
@@ -94,6 +96,46 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ chatId: string; x: number; y: number } | null>(null);
+  const pageCursorRef = React.useRef<{ before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null>(null);
+  const pageLoadingRef = React.useRef(false);
+  const pageGenerationRef = React.useRef(0);
+  const loadPageRef = React.useRef(loadConversationPage);
+  const conversationsRef = React.useRef(conversations);
+  loadPageRef.current = loadConversationPage;
+  conversationsRef.current = conversations;
+
+  React.useEffect(() => {
+    if (!chatListReady) return;
+    const generation = ++pageGenerationRef.current;
+    pageLoadingRef.current = false;
+    const loaded = conversationsRef.current
+      .filter((chat) => chat.id !== "valentina" && (activeQueue === "todos" || chat.queue === activeQueue) &&
+        (activeQueue !== "meus" || chat.operatorId === currentOperatorId))
+      .filter((chat) => !!chat.lastMessageAtISO)
+      .sort((a, b) => Number(a.queue === "finalizados") - Number(b.queue === "finalizados") ||
+        b.lastMessageAtISO!.localeCompare(a.lastMessageAtISO!) || b.id.localeCompare(a.id));
+    const oldest = loaded.at(-1);
+    pageCursorRef.current = oldest
+      ? { before: oldest.lastMessageAtISO!, beforeId: oldest.id, beforeQueue: oldest.queue === "finalizados" ? "finalizados" : "active" }
+      : null;
+    if (oldest || pageLoadingRef.current) return;
+    pageLoadingRef.current = true;
+    void loadPageRef.current(activeQueue)
+      .then(({ nextCursor }) => { if (pageGenerationRef.current === generation) pageCursorRef.current = nextCursor; })
+      .catch((error) => console.warn("Falha ao carregar a fila:", error))
+      .finally(() => { if (pageGenerationRef.current === generation) pageLoadingRef.current = false; });
+  }, [activeQueue, chatListReady, currentOperatorId, tenant]);
+
+  const loadNextPage = () => {
+    const cursor = pageCursorRef.current;
+    if (!cursor || pageLoadingRef.current || searchQuery.trim()) return;
+    pageLoadingRef.current = true;
+    const generation = pageGenerationRef.current;
+    void loadPageRef.current(activeQueue, cursor)
+      .then(({ nextCursor }) => { if (pageGenerationRef.current === generation) pageCursorRef.current = nextCursor; })
+      .catch((error) => console.warn("Falha ao carregar mais atendimentos:", error))
+      .finally(() => { if (pageGenerationRef.current === generation) pageLoadingRef.current = false; });
+  };
 
   // Fecha o context menu ao clicar em qualquer lugar
   React.useEffect(() => {
@@ -117,7 +159,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   ];
 
   // Filter conversations based on UI selections
-  const filteredConvs = conversations.filter((c) => c.id !== "valentina").filter((c) => {
+  const filteredConvs = React.useMemo(() => conversations.filter((c) => c.id !== "valentina").filter((c) => {
     // 1. Queue Filter
     if (activeQueue !== "todos" && c.queue !== activeQueue) return false;
 
@@ -139,7 +181,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     }
 
     return true;
-  });
+  }).sort((a, b) => Number(!!(b as any).pinned) - Number(!!(a as any).pinned) ||
+    Number(a.queue === "finalizados") - Number(b.queue === "finalizados") ||
+    (a.lastMessageAtISO && b.lastMessageAtISO ? b.lastMessageAtISO.localeCompare(a.lastMessageAtISO) : 0)),
+    [conversations, activeQueue, currentOperatorId, channelFilter, searchQuery]);
 
   return (
     <>
@@ -329,7 +374,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {/* Chat List */}
-      <div className="mt-3 flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin">
+      <div
+        className="mt-3 flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin"
+        onScroll={(event) => {
+          const target = event.currentTarget;
+          if (target.scrollHeight - target.scrollTop - target.clientHeight < 180) loadNextPage();
+        }}
+      >
         <AnimatePresence initial={false}>
           {/* Assistente do tenant */}
           <motion.div
@@ -383,9 +434,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           </motion.div>
 
           {filteredConvs.length > 0 ? (
-            filteredConvs
-              .sort((a, b) => ((b as any).pinned ? 1 : 0) - ((a as any).pinned ? 1 : 0))
-              .map((c) => {
+            filteredConvs.map((c) => {
                 const isSelected = c.id === selectedChatId;
                 const lastMsg = c.messages[c.messages.length - 1];
                 const { mediaType: msgMediaType, label: msgLabel } = formatLastMessage(lastMsg?.text || "");

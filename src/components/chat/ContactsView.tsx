@@ -98,6 +98,7 @@ export function ContactsView() {
     setSelectedChatId,
     setActiveView,
     operators,
+    currentGroup,
   } = useChat();
 
   const { canCreateContact, canEditContact } = usePermissions();
@@ -156,7 +157,25 @@ export function ContactsView() {
   // ── Global Conversation Search ──────────────────────────────────────────
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
+  const [searchConversations, setSearchConversations] = useState<Conversation[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const globalSearchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!showSearchModal) return;
+    const controller = new AbortController();
+    setSearchConversations([]);
+    setSearchLoading(true);
+    fetch("/api/chats?limit=150&includeRecent=1", { credentials: "include", signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("Não foi possível carregar as mensagens para busca.");
+        return response.json();
+      })
+      .then((items) => { if (Array.isArray(items)) setSearchConversations(items); })
+      .catch((error) => { if (!controller.signal.aborted) toast.error(error.message); })
+      .finally(() => { if (!controller.signal.aborted) setSearchLoading(false); });
+    return () => controller.abort();
+  }, [showSearchModal, tenant]);
 
   useEffect(() => {
     if (showSearchModal) {
@@ -177,7 +196,8 @@ export function ContactsView() {
   const globalResults = useMemo(() => {
     const q = globalSearch.trim().toLowerCase();
     if (!q) return [];
-    return conversations
+    return searchConversations
+      .filter((conv) => currentGroup.allowedChannels.includes(conv.channel))
       .map((conv) => {
         const matchedMessages = conv.messages.filter((m) =>
           m.text.toLowerCase().includes(q)
@@ -185,7 +205,7 @@ export function ContactsView() {
         return matchedMessages.length > 0 ? { conv, matchedMessages } : null;
       })
       .filter(Boolean) as { conv: Conversation; matchedMessages: Conversation["messages"] }[];
-  }, [globalSearch, conversations]);
+  }, [globalSearch, searchConversations, currentGroup.allowedChannels]);
 
   const [addForm, setAddForm] = useState({
     name: "",
@@ -639,8 +659,12 @@ export function ContactsView() {
                   </div>
                 )}
 
+                {globalSearch.trim() && searchLoading && (
+                  <div className="py-16 text-center text-xs font-semibold text-muted-foreground">Carregando mensagens para busca...</div>
+                )}
+
                 {/* Sem resultados */}
-                {globalSearch.trim() && globalResults.length === 0 && (
+                {globalSearch.trim() && !searchLoading && globalResults.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-16 text-center px-6">
                     <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
                       <Search className="h-7 w-7 text-muted-foreground/50" strokeWidth={1.5} />
@@ -653,7 +677,7 @@ export function ContactsView() {
                 )}
 
                 {/* Lista de resultados */}
-                {globalResults.length > 0 && (
+                {!searchLoading && globalResults.length > 0 && (
                   <div className="p-3 space-y-2">
                     <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground px-2 py-1">
                       {globalResults.length} atendimento{globalResults.length !== 1 ? "s" : ""} encontrado{globalResults.length !== 1 ? "s" : ""}

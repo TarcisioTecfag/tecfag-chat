@@ -2169,39 +2169,50 @@ export class CrmService {
     const dealIds = rawDeals.map((d) => d.id);
     const accountIds = Array.from(new Set(rawDeals.map((d) => d.accountId).filter(Boolean))) as string[];
 
-    // Buscar contas associadas em lote
-    const accountsMap = new Map<string, CrmAccount>();
-    if (accountIds.length > 0) {
-      const accList = await db
-        .select()
-        .from(crmAccounts)
-        .where(
-          and(
-            eq(crmAccounts.tenantId, tenantId),
-            inArray(crmAccounts.id, accountIds)
-          )
-        );
-      for (const a of accList) {
-        accountsMap.set(a.id, a);
-      }
-    }
-
-    // Contagem de conversas ativas por deal e ID da conversa mais recente
-    const convCounts = await db
-      .select({
+    // As quatro consultas de enriquecimento usam os mesmos IDs, sem depender
+    // umas das outras. Executá-las juntas evita quatro viagens sequenciais ao DB.
+    const taskAssignedOp = alias(operators, "task_assigned_op");
+    const [accList, convCounts, contactCounts, pendingActivities] = await Promise.all([
+      accountIds.length > 0
+        ? db.select().from(crmAccounts).where(and(
+            eq(crmAccounts.tenantId, tenantId), inArray(crmAccounts.id, accountIds),
+          ))
+        : Promise.resolve([] as CrmAccount[]),
+      db.select({
         dealId: crmConversationDeals.dealId,
         count: sql<number>`count(distinct ${crmConversationDeals.conversationId})::int`,
         latestConvId: sql<string>`(array_agg(${crmConversationDeals.conversationId} order by ${crmConversationDeals.createdAt} desc))[1]`,
-      })
-      .from(crmConversationDeals)
-      .where(
-        and(
-          eq(crmConversationDeals.tenantId, tenantId),
-          inArray(crmConversationDeals.dealId, dealIds),
-          eq(crmConversationDeals.isActive, true)
-        )
-      )
-      .groupBy(crmConversationDeals.dealId);
+      }).from(crmConversationDeals).where(and(
+        eq(crmConversationDeals.tenantId, tenantId),
+        inArray(crmConversationDeals.dealId, dealIds),
+        eq(crmConversationDeals.isActive, true),
+      )).groupBy(crmConversationDeals.dealId),
+      db.select({
+        dealId: crmDealContacts.dealId,
+        count: sql<number>`count(*)::int`,
+        firstContactId: sql<string>`(array_agg(${crmDealContacts.contactId} order by ${crmDealContacts.createdAt} asc))[1]`,
+      }).from(crmDealContacts).where(and(
+        eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, dealIds),
+      )).groupBy(crmDealContacts.dealId),
+      db.select({
+        activity: crmDealActivities,
+        assignedOperatorName: taskAssignedOp.name,
+      }).from(crmDealActivities)
+        .leftJoin(taskAssignedOp, and(
+          eq(crmDealActivities.assignedToOperatorId, taskAssignedOp.id),
+          eq(taskAssignedOp.tenantId, tenantId),
+        ))
+        .where(and(
+          eq(crmDealActivities.tenantId, tenantId),
+          inArray(crmDealActivities.dealId, dealIds),
+          eq(crmDealActivities.status, "pending"),
+          sql`${crmDealActivities.type} != 'note'`,
+        ))
+        .orderBy(sql`${crmDealActivities.dueDate} ASC NULLS LAST`, asc(crmDealActivities.createdAt)),
+    ]);
+
+    const accountsMap = new Map<string, CrmAccount>();
+    for (const account of accList) accountsMap.set(account.id, account);
 
     const convCountMap = new Map<string, number>();
     const convLatestMap = new Map<string, string>();
@@ -2212,22 +2223,6 @@ export class CrmService {
       }
     }
 
-    // Contagem de contatos por deal e ID do contato principal
-    const contactCounts = await db
-      .select({
-        dealId: crmDealContacts.dealId,
-        count: sql<number>`count(*)::int`,
-        firstContactId: sql<string>`(array_agg(${crmDealContacts.contactId} order by ${crmDealContacts.createdAt} asc))[1]`,
-      })
-      .from(crmDealContacts)
-      .where(
-        and(
-          eq(crmDealContacts.tenantId, tenantId),
-          inArray(crmDealContacts.dealId, dealIds)
-        )
-      )
-      .groupBy(crmDealContacts.dealId);
-
     const contactCountMap = new Map<string, number>();
     const contactFirstMap = new Map<string, string>();
     for (const cc of contactCounts) {
@@ -2236,25 +2231,6 @@ export class CrmService {
         contactFirstMap.set(cc.dealId, cc.firstContactId);
       }
     }
-
-    // Próxima atividade pendente por deal (excluindo notas e trazendo operadores)
-    const taskAssignedOp = alias(operators, "task_assigned_op");
-    const pendingActivities = await db
-      .select({
-        activity: crmDealActivities,
-        assignedOperatorName: taskAssignedOp.name,
-      })
-      .from(crmDealActivities)
-      .leftJoin(taskAssignedOp, eq(crmDealActivities.assignedToOperatorId, taskAssignedOp.id))
-      .where(
-        and(
-          eq(crmDealActivities.tenantId, tenantId),
-          inArray(crmDealActivities.dealId, dealIds),
-          eq(crmDealActivities.status, "pending"),
-          sql`${crmDealActivities.type} != 'note'`
-        )
-      )
-      .orderBy(sql`${crmDealActivities.dueDate} ASC NULLS LAST`, asc(crmDealActivities.createdAt));
 
     const nextActivityMap = new Map<string, any>();
     const now = new Date();

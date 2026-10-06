@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getAuthSession, requireSession } from "../../lib/auth-session";
+import { getAuthSession, isSessionTokenActive, requireSession } from "../../lib/auth-session";
 import { SessionManager } from "../../lib/baileys/session-manager";
 
 export const Route = createFileRoute("/api/events")({
@@ -25,6 +25,7 @@ export const Route = createFileRoute("/api/events")({
 
             const sessionManager = SessionManager.getInstance();
             let heartbeatTimer: ReturnType<typeof setInterval>;
+            let heartbeatCount = 0;
             let closed = false;
             const close = () => {
               if (closed) return;
@@ -36,8 +37,7 @@ export const Route = createFileRoute("/api/events")({
             // Uma sessão revogada não recebe o próximo evento do tenant.
             const onEvent = async (data: any) => {
               try {
-                const stillAuthorized = await getAuthSession(request);
-                if (!stillAuthorized || stillAuthorized.tenantId !== tenantId) return close();
+                if (!await isSessionTokenActive(session)) return close();
                 if (!closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
               } catch { close(); }
             };
@@ -46,8 +46,11 @@ export const Route = createFileRoute("/api/events")({
             // Heartbeat a cada 15 segundos para evitar encerramento por proxies intermediários
             heartbeatTimer = setInterval(async () => {
               try {
-                const stillAuthorized = await getAuthSession(request);
-                if (!stillAuthorized || stillAuthorized.tenantId !== tenantId) return close();
+                heartbeatCount += 1;
+                const stillAuthorized = heartbeatCount % 4 === 0
+                  ? await getAuthSession(request)
+                  : await isSessionTokenActive(session);
+                if (!stillAuthorized || (typeof stillAuthorized !== "boolean" && stillAuthorized.tenantId !== tenantId)) return close();
                 if (!closed) controller.enqueue(encoder.encode(`: ping\n\n`));
               } catch { close(); }
             }, 15000);

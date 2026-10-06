@@ -1,20 +1,9 @@
-import React, { useEffect, useSyncExternalStore } from "react";
+import React, { lazy, Suspense, useEffect, useSyncExternalStore } from "react";
 import { createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { ChatList } from "@/components/chat/ChatList";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { SharedFiles } from "@/components/chat/SharedFiles";
-import { SettingsView } from "@/components/chat/SettingsView";
-import { ContactsView } from "@/components/chat/ContactsView";
-import { WalletView } from "@/components/chat/WalletView";
-import { GroupsView } from "@/components/chat/GroupsView";
-import { ProfileModal } from "@/components/chat/ProfileModal";
-import { MonitorView } from "@/components/chat/MonitorView";
-import { AnalyticsView } from "@/components/chat/AnalyticsView";
-import { TasksView } from "@/components/chat/TasksView";
-import { ValentinaView } from "@/components/valentina/ValentinaView";
-import { LigacoesView } from "@/components/voice/LigacoesView";
-import { CrmView } from "@/components/crm/CrmView";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,6 +12,23 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileLayout } from "@/components/mobile/MobileLayout";
 import { PushNotificationPrompt } from "@/components/chat/PushNotificationPrompt";
 import { getChatLinkKey } from "@/lib/chat-link";
+import { Loader2 } from "lucide-react";
+
+const SettingsView = lazy(() => import("@/components/chat/SettingsView").then((module) => ({ default: module.SettingsView })));
+const ContactsView = lazy(() => import("@/components/chat/ContactsView").then((module) => ({ default: module.ContactsView })));
+const WalletView = lazy(() => import("@/components/chat/WalletView").then((module) => ({ default: module.WalletView })));
+const GroupsView = lazy(() => import("@/components/chat/GroupsView").then((module) => ({ default: module.GroupsView })));
+const ProfileModal = lazy(() => import("@/components/chat/ProfileModal").then((module) => ({ default: module.ProfileModal })));
+const MonitorView = lazy(() => import("@/components/chat/MonitorView").then((module) => ({ default: module.MonitorView })));
+const AnalyticsView = lazy(() => import("@/components/chat/AnalyticsView").then((module) => ({ default: module.AnalyticsView })));
+const TasksView = lazy(() => import("@/components/chat/TasksView").then((module) => ({ default: module.TasksView })));
+const ValentinaView = lazy(() => import("@/components/valentina/ValentinaView").then((module) => ({ default: module.ValentinaView })));
+const LigacoesView = lazy(() => import("@/components/voice/LigacoesView").then((module) => ({ default: module.LigacoesView })));
+const CrmView = lazy(() => import("@/components/crm/CrmView").then((module) => ({ default: module.CrmView })));
+
+function ViewFallback() {
+  return <div className="flex h-full flex-1 items-center justify-center text-primary"><Loader2 className="h-6 w-6 animate-spin" /></div>;
+}
 
 const subscribeHydration = () => () => {};
 const getClientMounted = () => true;
@@ -34,7 +40,7 @@ export const Route = createFileRoute("/")({
 });
 
 export function Index() {
-  const { tenant, activeView, rightSidebarOpen, selectedChatId, isAuthenticated, isProfileModalOpen, activeChat, conversations } = useChat();
+  const { tenant, activeView, rightSidebarOpen, selectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations } = useChat();
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -45,8 +51,8 @@ export function Index() {
     navigate({ to: "/chat/$chatKey", params: { chatKey: getChatLinkKey(activeChat, conversations) }, replace: true });
   }, [activeChat, activeView, conversations, isAuthenticated, location.pathname, navigate]);
 
-  if (!isMounted) {
-    return null; // Retorna null no primeiro render para bater com o HTML vazio do servidor (ssr: false)
+  if (!isMounted || isRestoringSession) {
+    return <div className="flex min-h-screen items-center justify-center bg-background text-primary"><Loader2 className="h-7 w-7 animate-spin" aria-label="Abrindo atendimento" /></div>;
   }
 
   if (!isAuthenticated) {
@@ -81,6 +87,7 @@ export function Index() {
       <div className={`flex h-screen w-full gap-5 ${activeView === "crm" ? "pl-5 pt-5 pb-0 pr-0" : "p-5"} overflow-hidden`}>
         <Sidebar />
         <div className="flex flex-1 h-full overflow-hidden relative">
+          <Suspense fallback={<ViewFallback />}>
           <AnimatePresence mode="wait">
             {activeView === "chat" ? (
               <motion.div
@@ -220,11 +227,12 @@ export function Index() {
               </motion.div>
             )}
           </AnimatePresence>
+          </Suspense>
         </div>
       </div>
-      <AnimatePresence>
+      <Suspense fallback={null}><AnimatePresence>
         {isProfileModalOpen && <ProfileModal />}
-      </AnimatePresence>
+      </AnimatePresence></Suspense>
       <PushNotificationPrompt />
     </div>
   );

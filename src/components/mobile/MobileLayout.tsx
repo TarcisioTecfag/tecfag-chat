@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { lazy, Suspense, useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { MobileHeader } from "./MobileHeader";
 import { MobileBottomNav } from "./MobileBottomNav";
@@ -6,9 +6,11 @@ import { ValentinaFeed } from "./ValentinaFeed";
 import { MobileMessageInput } from "./MobileMessageInput";
 import { ChatList } from "@/components/chat/ChatList";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ContactsView } from "@/components/chat/ContactsView";
-import { WalletView } from "@/components/chat/WalletView";
 import { motion, AnimatePresence } from "framer-motion";
+import { Loader2 } from "lucide-react";
+
+const ContactsView = lazy(() => import("@/components/chat/ContactsView").then((module) => ({ default: module.ContactsView })));
+const WalletView = lazy(() => import("@/components/chat/WalletView").then((module) => ({ default: module.WalletView })));
 
 export const MobileLayout: React.FC = () => {
   const {
@@ -65,6 +67,7 @@ export const MobileLayout: React.FC = () => {
             transition={{ duration: 0.18, ease: "easeOut" }}
             className="h-full w-full"
           >
+            <Suspense fallback={<div className="flex h-full items-center justify-center text-primary"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
             {activeView === "valentina" ? (
               <ValentinaFeed
                 onOpenChat={(id) => {
@@ -98,6 +101,7 @@ export const MobileLayout: React.FC = () => {
                 <ChatList />
               </div>
             )}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
       </main>

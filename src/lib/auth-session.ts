@@ -157,21 +157,21 @@ export async function getAuthSessionByToken(token: string): Promise<AuthSessionC
 
   if (!operatorRow) return null;
 
-  const availableTenants = operatorRow.accountId
-    ? await getAvailableTenants(operatorRow.accountId)
-    : [sessionRow.tenantId];
+  // As duas leituras dependem do operador, mas são independentes entre si.
+  const [availableTenants, groupRow] = await Promise.all([
+    operatorRow.accountId
+      ? getAvailableTenants(operatorRow.accountId)
+      : Promise.resolve([sessionRow.tenantId]),
+    operatorRow.groupId
+      ? db.query.accessGroups.findFirst({
+          where: and(
+            eq(accessGroups.id, operatorRow.groupId),
+            eq(accessGroups.tenantId, sessionRow.tenantId)
+          ),
+        })
+      : Promise.resolve(null),
+  ]);
   if (!availableTenants.includes(sessionRow.tenantId)) return null;
-
-  // Carregar grupo de acesso e permissões
-  let groupRow: any = null;
-  if (operatorRow.groupId) {
-    groupRow = await db.query.accessGroups.findFirst({
-      where: and(
-        eq(accessGroups.id, operatorRow.groupId),
-        eq(accessGroups.tenantId, sessionRow.tenantId)
-      ),
-    });
-  }
 
   const defaultAdmin = {
     id: "group-admin",
@@ -214,6 +214,19 @@ export async function getAuthSession(request: Request): Promise<AuthSessionConte
   const token = extractSessionToken(request);
   if (!token) return null;
   return getAuthSessionByToken(token);
+}
+
+/** Verificação leve para uma conexão SSE já autenticada na abertura. */
+export async function isSessionTokenActive(session: AuthSessionContext): Promise<boolean> {
+  const [active] = await db.select({ id: authSessions.id }).from(authSessions)
+    .where(and(
+      eq(authSessions.id, session.sessionId),
+      eq(authSessions.tokenHash, session.tokenHash),
+      eq(authSessions.tenantId, session.tenantId),
+      isNull(authSessions.revokedAt),
+      gt(authSessions.expiresAt, new Date()),
+    )).limit(1);
+  return !!active;
 }
 
 /**

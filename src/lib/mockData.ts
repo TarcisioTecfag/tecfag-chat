@@ -51,6 +51,7 @@ export type Conversation = {
   queue: QueueType;
   messages: Message[];
   lastMessageTime: string;
+  lastMessageAtISO?: string;
   unreadCount: number;
   operatorId?: string | null;
   walletOperatorId?: string | null;

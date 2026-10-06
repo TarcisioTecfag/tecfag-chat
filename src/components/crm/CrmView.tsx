@@ -14,15 +14,37 @@ import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
+type CrmViewSnapshot = {
+  savedAt: number;
+  pipelines: any[];
+  pipelineId: string;
+  deals: DealCardData[];
+  stagesSummary: any[];
+  stageSettings: Record<string, { coolingEnabled: boolean; coolingDays: number }>;
+  operators: Array<{ id: string; name: string }>;
+};
+
+// Reaproveita o último funil exibido ao alternar entre Chat e CRM.
+// A chave inclui tenant e operador; a tela ainda revalida os dados ao abrir.
+const crmViewSnapshots = new Map<string, CrmViewSnapshot>();
+const CRM_SNAPSHOT_TTL_MS = 60_000;
+
 export function CrmView() {
   const { tenant, currentOperatorId } = useChat();
   const navigate = useNavigate();
+  const snapshotKey = `${tenant}:${currentOperatorId}`;
+  const initialSnapshot = useRef<CrmViewSnapshot | null>(
+    (() => {
+      const cached = crmViewSnapshots.get(snapshotKey);
+      return cached && Date.now() - cached.savedAt < CRM_SNAPSHOT_TTL_MS ? cached : null;
+    })(),
+  );
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialSnapshot.current);
   const [error, setError] = useState<string | null>(null);
-  const [pipelines, setPipelines] = useState<any[]>([]);
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
-  const [deals, setDeals] = useState<DealCardData[]>([]);
+  const [pipelines, setPipelines] = useState<any[]>(initialSnapshot.current?.pipelines || []);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>(initialSnapshot.current?.pipelineId || "");
+  const [deals, setDeals] = useState<DealCardData[]>(initialSnapshot.current?.deals || []);
   const [totalDeals, setTotalDeals] = useState(0);
   const [loadingMoreStages, setLoadingMoreStages] = useState<Record<string, boolean>>({});
 
@@ -48,13 +70,13 @@ export function CrmView() {
   const [listOffset, setListOffset] = useState(0);
 
   // Resumo de Etapas (Agregação Real do Servidor)
-  const [stagesSummary, setStagesSummary] = useState<any[]>([]);
+  const [stagesSummary, setStagesSummary] = useState<any[]>(initialSnapshot.current?.stagesSummary || []);
   const [stageSettings, setStageSettings] = useState<
     Record<string, { coolingEnabled: boolean; coolingDays: number }>
-  >({});
+  >(initialSnapshot.current?.stageSettings || {});
 
   // Operadores
-  const [operators, setOperators] = useState<Array<{ id: string; name: string }>>([]);
+  const [operators, setOperators] = useState<Array<{ id: string; name: string }>>(initialSnapshot.current?.operators || []);
 
   // Modais de Ação
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -185,7 +207,6 @@ export function CrmView() {
   }, []);
 
   const fetchStageSettings = useCallback(async () => {
-    setStageSettings({});
     try {
       const response = await fetch("/api/crm/stage-settings");
       if (!response.ok) return;
@@ -299,11 +320,25 @@ export function CrmView() {
   );
 
   // Inicialização
+  const previousTenantRef = useRef(tenant);
   useEffect(() => {
+    if (previousTenantRef.current === tenant) return;
+    previousTenantRef.current = tenant;
     setDeals([]);
     setStageSettings({});
     setSelectedPipelineId("");
   }, [tenant]);
+
+  useEffect(() => {
+    if (loading || !selectedPipelineId || !pipelines.length || viewMode !== "kanban" ||
+      statusFilter !== "open" || selectedOperatorIds.length || sortBy !== "updated_desc" ||
+      Object.keys(advancedFilters).length) return;
+    crmViewSnapshots.set(snapshotKey, {
+      savedAt: Date.now(), pipelines, pipelineId: selectedPipelineId, deals,
+      stagesSummary, stageSettings, operators,
+    });
+  }, [snapshotKey, loading, pipelines, selectedPipelineId, deals, stagesSummary, stageSettings, operators,
+    viewMode, statusFilter, selectedOperatorIds, sortBy, advancedFilters]);
 
   useEffect(() => {
     fetchPipelines();

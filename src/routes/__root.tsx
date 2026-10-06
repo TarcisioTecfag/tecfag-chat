@@ -6,19 +6,32 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  useLocation,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { ChatProvider } from "@/hooks/useChatState";
+import { ChatProvider, useChat } from "@/hooks/useChatState";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { DeployNotificationModal } from "@/components/ui/DeployNotificationModal";
-import { CrmChatWidget } from "@/components/crm/CrmChatWidget";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useTheme } from "../hooks/useTheme";
 
 import { getAiPersona } from "@/lib/ai-persona";
+
+const CrmChatWidget = lazy(() => import("@/components/crm/CrmChatWidget").then((module) => ({ default: module.CrmChatWidget })));
+
+function MaybeCrmChatWidget() {
+  const { activeView, isAuthenticated } = useChat();
+  const location = useLocation();
+  const isMobile = useIsMobile();
+  const inCrm = location.pathname.startsWith("/crm/deals/") ||
+    (location.pathname === "/" && activeView === "crm");
+  if (!isAuthenticated || isMobile || !inCrm) return null;
+  return <Suspense fallback={null}><CrmChatWidget /></Suspense>;
+}
 
 function NotFoundComponent() {
   return (
@@ -227,7 +240,7 @@ function RootComponent() {
         <ChatProvider>
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
-          <CrmChatWidget />
+          <MaybeCrmChatWidget />
           <Toaster />
           <DeployNotificationModal />
         </ChatProvider>

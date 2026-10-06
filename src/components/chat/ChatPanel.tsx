@@ -678,19 +678,36 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     const chatId = activeChat.id;
     const controller = new AbortController();
     setHistory(null);
-    setLoadingHistory(true);
-    fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/messages?limit=100`, {
-      credentials: "include",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Não foi possível carregar o histórico.");
-        return response.json();
+    const loadHistory = () => {
+      setLoadingHistory(true);
+      fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/messages?limit=100`, {
+        credentials: "include",
+        signal: controller.signal,
       })
-      .then((data) => setHistory({ chatId, messages: data.messages, nextCursor: data.nextCursor }))
-      .catch((error) => { if (error.name !== "AbortError") toast.error(error.message); })
-      .finally(() => { if (!controller.signal.aborted) setLoadingHistory(false); });
-    return () => controller.abort();
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Não foi possível carregar o histórico.");
+          return response.json();
+        })
+        .then((data) => {
+          if (controller.signal.aborted) return;
+          setHistory((current) => {
+            if (current?.chatId !== chatId) return { chatId, messages: data.messages, nextCursor: data.nextCursor };
+            const byId = new Map(current.messages.map((message) => [message.id, message]));
+            for (const message of data.messages as Message[]) byId.set(message.id, message);
+            const messages = Array.from(byId.values()).sort((a, b) =>
+              (a.sentAtISO || "").localeCompare(b.sentAtISO || ""));
+            return { chatId, messages, nextCursor: current.nextCursor || data.nextCursor };
+          });
+        })
+        .catch((error) => { if (error.name !== "AbortError") toast.error(error.message); })
+        .finally(() => { if (!controller.signal.aborted) setLoadingHistory(false); });
+    };
+    loadHistory();
+    window.addEventListener("chat:reconnected", loadHistory);
+    return () => {
+      window.removeEventListener("chat:reconnected", loadHistory);
+      controller.abort();
+    };
   }, [activeChat?.id]);
 
   const allMessages = useMemo(() => {

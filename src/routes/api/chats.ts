@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { conversations, contacts, messages, sectors, operators } from "../../db/schema";
-import { eq, and, desc, lt, inArray, sql } from "drizzle-orm";
+import { eq, and, or, desc, lt, inArray, sql } from "drizzle-orm";
 import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
 import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
@@ -54,7 +54,6 @@ export const Route = createFileRoute("/api/chats")({
             .update(conversations)
             .set({
               unreadCount: targetUnread,
-              updatedAt: new Date(),
             })
             .where(
               and(
@@ -231,7 +230,10 @@ export const Route = createFileRoute("/api/chats")({
           const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100", 10), 1), 300);
           const queueFilter = url.searchParams.get("queue");
           const beforeCursor = url.searchParams.get("before");
+          const beforeId = url.searchParams.get("beforeId");
+          const beforeQueue = url.searchParams.get("beforeQueue");
           const requestedConversationId = url.searchParams.get("conversationId");
+          const includeRecent = url.searchParams.get("includeRecent") === "1";
 
           if (url.searchParams.get("ownership") === "1") {
             if (session.operator.role !== "admin" && !session.permissions?.views?.chat) {
@@ -259,13 +261,6 @@ export const Route = createFileRoute("/api/chats")({
             });
           }
 
-          // 0. Carregar mapa de operadores do tenant em memória
-          const allOperators = await db
-            .select({ id: operators.id, name: operators.name })
-            .from(operators)
-            .where(eq(operators.tenantId, session.tenantId));
-          const operatorMap = new Map(allOperators.map((o) => [o.id, o.name]));
-
           // 1. Montar condições da query com isolamento por tenant
           const conditions = [eq(conversations.tenantId, session.tenantId)];
 
@@ -276,17 +271,31 @@ export const Route = createFileRoute("/api/chats")({
           if (queueFilter && queueFilter !== "todos") {
             conditions.push(eq(conversations.queueState, queueFilter));
           }
+          if (queueFilter === "meus" && url.searchParams.get("mine") === "1") {
+            conditions.push(eq(conversations.operatorId, session.operator.id));
+          }
 
           if (beforeCursor) {
             const beforeDate = new Date(beforeCursor);
             if (!isNaN(beforeDate.getTime())) {
-              conditions.push(lt(conversations.lastMessageTime, beforeDate));
+              const olderInGroup = beforeId
+                ? or(lt(conversations.lastMessageTime, beforeDate), and(
+                    eq(conversations.lastMessageTime, beforeDate), lt(conversations.id, beforeId),
+                  ))!
+                : lt(conversations.lastMessageTime, beforeDate);
+              if ((!queueFilter || queueFilter === "todos") && (beforeQueue === "active" || beforeQueue === "finalizados")) {
+                const rank = beforeQueue === "active" ? 0 : 1;
+                const queueRank = sql<number>`CASE WHEN ${conversations.queueState} != 'finalizados' THEN 0 ELSE 1 END`;
+                conditions.push(or(sql`${queueRank} > ${rank}`, and(sql`${queueRank} = ${rank}`, olderInGroup))!);
+              } else {
+                conditions.push(olderInGroup);
+              }
             }
           }
 
           // 2. Buscar conversas com contacts e sectors via INNER JOIN eficiente
           // Prioriza sempre as conversas ativas (não finalizadas) na ordenação inicial
-          const rows = await db
+          const rowsQuery = db
             .select({
               conversation: conversations,
               contact: contacts,
@@ -298,27 +307,51 @@ export const Route = createFileRoute("/api/chats")({
             .where(and(...conditions))
             .orderBy(
               sql`CASE WHEN ${conversations.queueState} != 'finalizados' THEN 0 ELSE 1 END`,
-              desc(conversations.lastMessageTime)
+              desc(conversations.lastMessageTime),
+              desc(conversations.id)
             )
-            .limit(requestedConversationId ? 1 : limit);
+            .limit(requestedConversationId ? 1 : limit + 1);
+          const [allOperators, fetchedRows] = await Promise.all([
+            db.select({ id: operators.id, name: operators.name }).from(operators)
+              .where(eq(operators.tenantId, session.tenantId)),
+            rowsQuery,
+          ]);
+          const operatorMap = new Map(allOperators.map((operator) => [operator.id, operator.name]));
+          const hasMore = !requestedConversationId && fetchedRows.length > limit;
+          const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
 
           if (rows.length === 0) {
-            return new Response(JSON.stringify([]), { headers: corsHeaders });
+            return new Response(JSON.stringify([]), { headers: { ...corsHeaders, "X-Has-More": "0" } });
           }
 
-          // 3. Buscar mensagens recentes em lote (BATCH) eliminando o problema N+1
+          // A lista só precisa da última mensagem para o preview. O histórico
+          // completo é carregado, com paginação, quando a conversa é aberta.
           const convIds = rows.map((r) => r.conversation.id);
-          const recentMessages = await db
-            .select()
-            .from(messages)
-            .where(
-              and(
-                eq(messages.tenantId, session.tenantId),
-                inArray(messages.conversationId, convIds)
-              )
-            )
-            .orderBy(desc(messages.sentAt))
-            .limit(convIds.length * 30); // Limite razoável para preview
+          const messageFields = {
+            id: messages.id,
+            conversationId: messages.conversationId,
+            senderType: messages.senderType,
+            senderName: messages.senderName,
+            content: messages.content,
+            isInternalNote: messages.isInternalNote,
+            quotedMessageId: messages.quotedMessageId,
+            quotedMessageSender: messages.quotedMessageSender,
+            quotedMessageContent: messages.quotedMessageContent,
+            metaDetails: messages.metaDetails,
+            status: messages.status,
+            provider: messages.provider,
+            errorMessage: messages.errorMessage,
+            sentAt: messages.sentAt,
+          };
+          const recentPerConversation = requestedConversationId || includeRecent ? 30 : 1;
+          const latestMessage = db.select(messageFields).from(messages)
+            .where(and(eq(messages.tenantId, session.tenantId), eq(messages.conversationId, conversations.id)))
+            .orderBy(desc(messages.sentAt), desc(messages.id))
+            .limit(recentPerConversation).as("latest_message");
+          const recentMessages = (await db.select().from(conversations)
+            .leftJoinLateral(latestMessage, sql`true`)
+            .where(and(eq(conversations.tenantId, session.tenantId), inArray(conversations.id, convIds))))
+            .flatMap((row) => row.latest_message ? [row.latest_message] : []);
 
           // Agrupa mensagens por conversa
           const messagesByConv = new Map<string, any[]>();
@@ -333,7 +366,9 @@ export const Route = createFileRoute("/api/chats")({
 
           // 4. Montar a lista formatada de retorno
           const chatList = rows.map((row) => {
-            const convMsgs = (messagesByConv.get(row.conversation.id) || []).reverse();
+            const convMsgs = (messagesByConv.get(row.conversation.id) || [])
+              .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime() || b.id.localeCompare(a.id))
+              .reverse();
 
             const initials = row.contact.name
               .split(" ")
@@ -372,47 +407,17 @@ export const Route = createFileRoute("/api/chats")({
               responsibleName: respName,
               sectorId: row.conversation.sectorId || null,
               sectorName: row.sectorName || null,
-              unreadCount: (() => {
-                // Cálculo preciso de mensagens não lidas:
-                // 1) Se a última mensagem for enviada pelo operador/bot/sistema (outbound), não há mensagens não lidas (0).
-                // 2) Se for do cliente, conta apenas as mensagens consecutivas do cliente desde a última resposta do atendente.
-                // 3) O unreadCount nunca pode exceder o número de mensagens novas do cliente.
-                if (convMsgs.length === 0) return 0;
-                const lastMsg = convMsgs[convMsgs.length - 1];
-                if (lastMsg.senderType !== "client") {
-                  if (row.conversation.unreadCount > 0) {
-                    db.update(conversations)
-                      .set({ unreadCount: 0, updatedAt: new Date() })
-                      .where(and(eq(conversations.id, row.conversation.id), eq(conversations.tenantId, session.tenantId)))
-                      .catch(() => {});
-                  }
-                  return 0;
-                }
-
-                let trailingClientCount = 0;
-                for (let i = convMsgs.length - 1; i >= 0; i--) {
-                  if (convMsgs[i].senderType === "client") {
-                    trailingClientCount++;
-                  } else {
-                    break;
-                  }
-                }
-
-                const rawUnread = Number(row.conversation.unreadCount) || 0;
-                const computed = rawUnread > 0 ? Math.min(rawUnread, trailingClientCount) : 0;
-                if (rawUnread !== computed) {
-                  db.update(conversations)
-                    .set({ unreadCount: computed, updatedAt: new Date() })
-                    .where(and(eq(conversations.id, row.conversation.id), eq(conversations.tenantId, session.tenantId)))
-                    .catch(() => {});
-                }
-                return computed;
-              })(),
+              // Leitura de lista nunca escreve no banco. O contador é mantido
+              // pelos fluxos de mensagem e marcação de leitura.
+              unreadCount: convMsgs.at(-1)?.senderType === "client"
+                ? row.conversation.unreadCount
+                : 0,
               version: row.conversation.version || 1, // Concorrência otimista (Entrega C)
               lastMessageTime: new Date(row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
                 hour: "2-digit",
                 minute: "2-digit",
               }),
+              lastMessageAtISO: row.conversation.lastMessageTime.toISOString(),
               messages: convMsgs.map((m) => ({
                 id: m.id,
                 author: m.senderType === "client" ? row.contact.name : m.senderName,
@@ -441,7 +446,7 @@ export const Route = createFileRoute("/api/chats")({
           });
 
           return new Response(JSON.stringify(chatList), {
-            headers: corsHeaders,
+            headers: { ...corsHeaders, "X-Has-More": hasMore ? "1" : "0" },
           });
 
         } catch (e: any) {

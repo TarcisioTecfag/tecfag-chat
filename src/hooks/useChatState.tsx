@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import {
@@ -81,6 +81,7 @@ type ChatContextType = {
   selectedChatId: string | null;
   setSelectedChatId: (id: string | null) => void;
   conversations: Conversation[];
+  chatListReady: boolean;
   activeChat: Conversation | null;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
@@ -140,6 +141,7 @@ type ChatContextType = {
   updateContactWallet: (contactId: string, walletOperatorId: string | null, targetOperatorId?: string | null) => Promise<void>;
   createContact: (name: string, phone: string, email: string, cnpj: string, channel: Channel) => Promise<{ contactId: string; conversationId: string; chatReady: boolean; queueState: QueueType }>;
   refreshConversations: (conversationId?: string) => Promise<void>;
+  loadConversationPage: (queue: QueueType, cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" }) => Promise<{ nextCursor: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null }>;
   markAsRead: (id: string) => void;
   markAsUnread: (id: string) => void;
   pinChat: (id: string) => void;
@@ -163,6 +165,7 @@ type ChatContextType = {
  
   // Authentication
   isAuthenticated: boolean;
+  isRestoringSession: boolean;
   login: (tenantOrEmail: "tecfag" | "valem" | string, emailOrPass: string, maybePass?: string) => Promise<boolean>;
   logout: () => void;
 };
@@ -170,6 +173,18 @@ type ChatContextType = {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+function mergeRecentMessages(current: Message[], incoming: Message[]): Message[] {
+  if (!incoming.length) return current;
+  const merged = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    merged.set(message.id, { ...merged.get(message.id), ...message });
+  }
+  return Array.from(merged.values()).sort((a, b) => {
+    if (!a.sentAtISO || !b.sentAtISO) return 0;
+    return a.sentAtISO.localeCompare(b.sentAtISO);
+  });
+}
 
 // Atualiza dinamicamente o favicon da aba do navegador conforme o tenant ativo
 export const updateFavicon = (currentTenant: string | null) => {
@@ -326,6 +341,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isClient, setIsClient] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
+  const [chatListReady, setChatListReady] = useState(false);
 
   // Restaurar dados da sessão do servidor após montagem no cliente
   useEffect(() => {
@@ -377,17 +394,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return exists ? prev.map((o) => (o.id === data.operator.id ? data.operator : o)) : [data.operator, ...prev];
             });
 
-            // Sincronizar lista de operadores do tenant autenticado — sem ?tenantId= na URL
-            fetch(`${BACKEND_URL}/api/operators`, {
-              credentials: "include",
-            })
-              .then((res) => res.json())
-              .then((opList) => {
-                if (Array.isArray(opList) && opList.length > 0) {
-                  setOperators(opList); // servidor já retorna sanitizado (sem passwordHash)
-                }
-              })
-              .catch((err) => console.error("Erro ao sincronizar operadores da sessão:", err));
           } else {
             setIsAuthenticated(false);
             setSessionPermissions(null);
@@ -402,14 +408,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setSessionRole(null);
           localStorage.removeItem("chat_is_authenticated");
           localStorage.removeItem("rbac_operators");
-        });
+        })
+        .finally(() => setIsRestoringSession(false));
     }
   }, []);
 
   // Sincronizar grupos, setores, respostas rápidas e operadores do banco de dados quando o tenant mudar.
   // O tenantId não é mais enviado na URL — o servidor usa a sessão autenticada como autoridade.
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && isAuthenticated && tenant) {
       fetch(`${BACKEND_URL}/api/operators`, { credentials: "include" })
         .then((res) => res.json())
         .then((data) => {
@@ -450,12 +457,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch((err) => console.error("Erro ao sincronizar respostas rápidas do banco:", err));
     }
-  }, [tenant]);
+  }, [tenant, isAuthenticated]);
 
   // Sincronizar templates individuais do operador quando o tenant ou o operador ativo mudar.
   // tenantId e operatorId são resolvidos pelo servidor a partir da sessão autenticada.
   useEffect(() => {
-    if (typeof window !== "undefined" && currentOperatorId) {
+    if (typeof window !== "undefined" && isAuthenticated && currentOperatorId) {
       fetch(`${BACKEND_URL}/api/templates`, { credentials: "include" })
         .then((res) => res.json())
         .then((data) => {
@@ -465,7 +472,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch((err) => console.error("Erro ao sincronizar templates do banco:", err));
     }
-  }, [tenant, currentOperatorId]);
+  }, [tenant, currentOperatorId, isAuthenticated]);
 
   // SSE é imediato, mas pode perder eventos entre instâncias do servidor.
   // Reconcilia somente a atribuição, sem recarregar mensagens nem sobrescrever rascunhos.
@@ -493,18 +500,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         const byId = new Map<string, any>((data.ownership || []).map((item: any) => [item.id, item]));
         if (disposed) return;
-        setConversations((previous) => previous.map((chat) => {
-          const latest = byId.get(chat.id);
-          if (!latest || (chat.operatorId === latest.operatorId && chat.queue === latest.queueState && chat.version === latest.version)) return chat;
-          return {
-            ...chat,
-            operatorId: latest.operatorId,
-            queue: latest.queueState,
-            responsibleName: latest.responsibleName,
-            sectorId: latest.sectorId,
-            version: latest.version,
-          };
-        }));
+        setConversations((previous) => {
+          let changed = false;
+          const next = previous.map((chat) => {
+            const latest = byId.get(chat.id);
+            if (!latest || (chat.operatorId === latest.operatorId && chat.queue === latest.queueState && chat.version === latest.version)) return chat;
+            changed = true;
+            return {
+              ...chat,
+              operatorId: latest.operatorId,
+              queue: latest.queueState,
+              responsibleName: latest.responsibleName,
+              sectorId: latest.sectorId,
+              version: latest.version,
+            };
+          });
+          return changed ? next : previous;
+        });
         const knownIds = new Set(conversationsRef.current.map((chat) => chat.id));
         const newlyAssigned = (data.ownership || []).filter((item: any) =>
           item.queueState === "meus" && item.operatorId === currentOperatorIdRef.current && !knownIds.has(item.id)
@@ -580,7 +592,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [selectedChatId, isClient]);
 
-  const defaultAdminGroup: AccessGroup = {
+  const defaultAdminGroup: AccessGroup = useMemo(() => ({
     id: "group-admin",
     name: "Administradores",
     allowedTenants: tenant ? [tenant] : [],
@@ -594,7 +606,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     canViewAllChats: true,
     canOverrideChat: true,
     permissions: DEFAULT_ADMIN_PERMISSIONS,
-  };
+  }), [tenant]);
 
   const defaultOperator: Operator = {
     id: "op-1",
@@ -609,10 +621,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     || (operators.length > 0 ? operators[0] : defaultOperator);
 
   const rawGroup = accessGroups.find((g) => g.id === currentOperator.groupId) || defaultAdminGroup;
-  const currentGroup: AccessGroup = {
+  const currentGroup: AccessGroup = useMemo(() => ({
     ...rawGroup,
     permissions: normalizeGroupPermissions(rawGroup),
-  };
+  }), [rawGroup]);
 
   const operatorProfile: OperatorProfile = {
     name: currentOperator.name,
@@ -1198,7 +1210,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Carregar conversas persistidas no banco (Railway)
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !tenant) return;
+    setChatListReady(false);
     fetch(`${BACKEND_URL}/api/chats?limit=150`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
@@ -1212,7 +1225,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error("Erro ao ler pinned_chats do localStorage:", e);
           }
 
-          const aiPersona = getAiPersona(tenant || "valem");
+          const aiPersona = getAiPersona(tenant);
           const valentinaDefault: Conversation = {
             id: "valentina",
             name: aiPersona.name,
@@ -1220,7 +1233,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             initials: aiPersona.name.substring(0, 2).toUpperCase(),
             initialsBg: "var(--primary)",
             phone: "IA",
-            email: `${aiPersona.name.toLowerCase()}@${tenant || "valem"}.ai`,
+            email: `${aiPersona.name.toLowerCase()}@${tenant}.ai`,
             cnpj: "",
             cpf: "",
             tags: ["IA", aiPersona.company],
@@ -1273,8 +1286,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       })
-      .catch((err) => console.error("Erro ao sincronizar conversas do banco:", err));
-  }, [tenant, currentOperatorId]);
+      .catch((err) => console.error("Erro ao sincronizar conversas do banco:", err))
+      .finally(() => setChatListReady(true));
+  }, [tenant, currentOperatorId, isAuthenticated]);
 
   // Carrega histórico do chat individual do operador com Valentina (scope=operator)
   useEffect(() => {
@@ -1305,9 +1319,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [tenant, currentOperatorId]);
 
   const rawConversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
-  const conversations = rawConversations.filter((c) =>
+  const conversations = useMemo(() => rawConversations.filter((c) =>
     currentGroup.allowedChannels.includes(c.channel)
-  );
+  ), [rawConversations, currentGroup.allowedChannels]);
   const setConversations = tenant === "tecfag" ? setTecfagConvs : setValemConvs;
 
   // Ref to track latest conversations and avoid stale closures in event listeners
@@ -1507,6 +1521,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const shouldSendReal =
       currentChat.channel === "whatsapp" &&
       !isInternalNote;
+    const clientMessageId = `cmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const optimisticMessageId = shouldSendReal && text.trim() && !attachments?.length && !metaTemplate
+      ? `pending-${clientMessageId}` : null;
+    if (optimisticMessageId) {
+      const pendingTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      setConversations((previous) => previous.map((chat) => chat.id === selectedChatId ? {
+        ...chat,
+        lastMessageTime: pendingTime,
+        messages: [...chat.messages, {
+          id: optimisticMessageId,
+          author: "Você",
+          text,
+          time: pendingTime,
+          side: "out" as const,
+          status: "sending",
+          provider: activeProvider,
+          quotedMessageId: quotedMessage?.id || null,
+          quotedMessageSender: quotedMessage?.sender || null,
+          quotedMessageContent: quotedMessage?.content || null,
+        }],
+      } : chat));
+    }
     let sentTextMessageId: string | undefined;
     let sentTextStatus: string | undefined;
     let sentRenderedText: string | undefined;
@@ -1524,7 +1560,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     if (shouldSendReal) {
-      const clientMessageId = `cmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       let partAlreadySent = false;
 
       try {
@@ -1594,6 +1629,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       } catch (err: any) {
+        if (optimisticMessageId) {
+          setConversations((previous) => previous.map((chat) => chat.id === selectedChatId
+            ? { ...chat, messages: chat.messages.filter((message) => message.id !== optimisticMessageId) }
+            : chat));
+        }
         console.error("Falha ao enviar mensagem de WhatsApp pelo backend:", err);
         toast.error(partAlreadySent
           ? `Envio parcial: ${err.message || "um anexo falhou"}. Confira o histórico antes de repetir.`
@@ -1686,12 +1726,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === selectedChatId) {
+          const existingMessages = optimisticMessageId
+            ? c.messages.filter((message) => message.id !== optimisticMessageId)
+            : c.messages;
           return {
             ...c,
             lastMessageTime: now,
             messages: [
-              ...c.messages,
-              ...messagesToAdd.filter((message) => !c.messages.some((existing) => existing.id === message.id)),
+              ...existingMessages,
+              ...messagesToAdd.filter((message) => !existingMessages.some((existing) => existing.id === message.id)),
             ],
           };
         }
@@ -1737,7 +1780,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(error.error || `HTTP ${res.status}`);
       }
       const updated = await res.json();
-      await refreshConversations(id);
       setConversations((prev) => prev.map((c) => c.id === id ? {
         ...c,
         queue: updated.queueState,
@@ -1747,6 +1789,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } : c));
       setActiveQueue("meus");
       setSelectedChatId(id);
+      void refreshConversations(id).catch((error) => console.warn("Atendimento capturado; falha ao atualizar detalhes:", error));
     } catch (err) {
       console.error("[captureChat] Erro ao assumir atendimento:", err);
       toast.error(err instanceof Error ? err.message : "Não foi possível assumir o atendimento.");
@@ -1964,6 +2007,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const markAsRead = (id: string) => {
+    if (!conversationsRef.current.some((chat) => chat.id === id && chat.unreadCount > 0)) return;
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
@@ -2216,7 +2260,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (conversationId) {
         const fresh = freshChats[0];
         const current = previousById.get(conversationId);
-        const updated = { ...fresh, pinned: (current as any)?.pinned || false, messages: current?.messages || fresh.messages };
+        const updated = { ...fresh, pinned: (current as any)?.pinned || false,
+          messages: current ? mergeRecentMessages(current.messages, fresh.messages) : fresh.messages };
         return current ? previous.map((item) => item.id === conversationId ? updated : item) : [updated, ...previous];
       }
       const aiChat = previous.find((item) => item.id === "valentina");
@@ -2226,11 +2271,47 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...freshChats.map((item) => ({
           ...item,
           pinned: (previousById.get(item.id) as any)?.pinned || false,
-          messages: previousById.get(item.id)?.messages || item.messages,
+          messages: previousById.has(item.id)
+            ? mergeRecentMessages(previousById.get(item.id)!.messages, item.messages)
+            : item.messages,
         })),
         ...previous.filter((item) => item.id !== "valentina" && !freshIds.has(item.id)),
       ];
     });
+  };
+
+  const loadConversationPage = async (
+    queue: QueueType,
+    cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" },
+  ) => {
+    const params = new URLSearchParams({ limit: "75" });
+    if (queue !== "todos") params.set("queue", queue);
+    if (queue === "meus") params.set("mine", "1");
+    if (cursor) {
+      params.set("before", cursor.before);
+      params.set("beforeId", cursor.beforeId);
+      if (queue === "todos") params.set("beforeQueue", cursor.beforeQueue);
+    }
+    const response = await fetch(`${BACKEND_URL}/api/chats?${params}`, { credentials: "include" });
+    if (!response.ok) throw new Error("Não foi possível carregar mais atendimentos.");
+    const page = await response.json() as Conversation[];
+    if (!Array.isArray(page)) throw new Error("Resposta inválida ao carregar atendimentos.");
+    if (page.length) {
+      setConversations((previous) => {
+        const known = new Set(previous.map((chat) => chat.id));
+        const additions = page.filter((chat) => !known.has(chat.id));
+        return additions.length ? [...previous, ...additions] : previous;
+      });
+    }
+    const last = page.at(-1);
+    const nextCursor = response.headers.get("X-Has-More") === "1" && last?.lastMessageAtISO
+      ? {
+          before: last.lastMessageAtISO,
+          beforeId: last.id,
+          beforeQueue: last.queue === "finalizados" ? "finalizados" as const : "active" as const,
+        }
+      : null;
+    return { nextCursor };
   };
   refreshAssignedChatRef.current = refreshConversations;
 
@@ -2433,21 +2514,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           return prev;
         });
-      } else if (data.type === "contact_updated" && data.contact) {
-        fetch(`${BACKEND_URL}/api/chats`, { credentials: "include" })
-          .then((res) => res.json())
-          .then((freshChats) => {
-            if (Array.isArray(freshChats)) {
-              setConversations((prev) => {
-                const map = new Map(freshChats.map((item: any) => [item.id, item]));
-                return prev.map((c) => {
-                  const fresh = map.get(c.id);
-                  return fresh ? { ...c, ...fresh, messages: c.messages } : c;
-                });
-              });
-            }
-          })
-          .catch(() => {});
+      } else if (data.type === "contact_updated") {
+        const contactId = data.contact?.id || data.contactId;
+        const conversationId = conversationsRef.current.find((chat) => chat.contactId === contactId)?.id;
+        if (conversationId) {
+          void refreshAssignedChatRef.current(conversationId).catch((error) =>
+            console.warn("Falha ao atualizar contato da conversa:", error)
+          );
+        }
       } else if (data.type === "message") {
         const { message } = data;
 
@@ -2792,17 +2866,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Na reconexão, reconcilia conversas para garantir que nenhuma mensagem foi perdida
         if (wasReconnecting) {
-          fetch(`${BACKEND_URL}/api/chats`, { credentials: "include" })
+          fetch(`${BACKEND_URL}/api/chats?limit=150`, { credentials: "include" })
             .then((r) => r.json())
             .then((freshChats) => {
               if (Array.isArray(freshChats)) {
                 setConversations((prev) => {
                   const map = new Map(freshChats.map((c: any) => [c.id, c]));
-                  return prev.map((c) => {
+                  const updated = prev.map((c) => {
                     const f = map.get(c.id);
-                    return f ? { ...c, ...f, messages: c.messages } : c;
+                    return f ? { ...c, ...f, messages: mergeRecentMessages(c.messages, (f as Conversation).messages) } : c;
                   });
+                  const known = new Set(prev.map((chat) => chat.id));
+                  return [...updated, ...freshChats.filter((chat: Conversation) => !known.has(chat.id))];
                 });
+                window.dispatchEvent(new Event("chat:reconnected"));
               }
             })
             .catch(() => {});
@@ -3005,28 +3082,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             updateDocumentTitle(matchedOp.tenantId, activeProvider);
 
-            // Buscar operadores atualizados e sanitizados do tenant autenticado — sem ?tenantId=
-            fetch(`${BACKEND_URL}/api/operators`, {
-              credentials: "include",
-            })
-              .then((res) => res.json())
-              .then((opList) => {
-                if (Array.isArray(opList) && opList.length > 0) {
-                  setOperators(opList); // servidor retorna sanitizado (sem passwordHash)
-                }
-              })
-              .catch((err) => console.error("Erro ao sincronizar operadores pós-login:", err));
-
-            // Sincronizar o activeProvider configurado para o canal
-            fetch(`${BACKEND_URL}/api/settings/whatsapp`, { credentials: "include" })
-              .then((res) => res.json())
-              .then((cfgData) => {
-                if (cfgData?.activeProvider) {
-                  setActiveProvider(cfgData.activeProvider);
-                  updateDocumentTitle(matchedOp.tenantId, cfgData.activeProvider);
-                }
-              })
-              .catch(() => {});
           }
 
           const sessionResponse = await fetch(`${BACKEND_URL}/api/auth/session`, { credentials: "include" });
@@ -3035,6 +3090,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentOperatorId(confirmedSession.operator.id);
           setSessionRole(confirmedSession.operator.role || null);
           setSessionPermissions(confirmedSession.permissions || null);
+          if (confirmedSession.channelConfig?.activeProvider) {
+            setActiveProvider(confirmedSession.channelConfig.activeProvider);
+            updateDocumentTitle(confirmedSession.tenantId, confirmedSession.channelConfig.activeProvider);
+          }
           setIsAuthenticated(true);
           return true;
         }
@@ -3097,6 +3156,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         selectedChatId,
         setSelectedChatId,
         conversations,
+        chatListReady,
         activeChat,
         searchQuery,
         setSearchQuery,
@@ -3150,6 +3210,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateContactWallet,
         createContact,
         refreshConversations,
+        loadConversationPage,
         markAsRead,
         markAsUnread,
         pinChat,
@@ -3169,6 +3230,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         connectBaileys,
 
         isAuthenticated,
+        isRestoringSession,
         login,
         logout,
       }}

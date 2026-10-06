@@ -624,7 +624,6 @@ export function DealDetailModal({
   useEffect(() => {
     if (isOpen && dealId) {
       loadDealDetail();
-      loadCatalog();
       loadPipelines();
     } else {
       setDeal(null);
@@ -632,6 +631,10 @@ export function DealDetailModal({
       setShowLossPrompt(false);
     }
   }, [isOpen, dealId]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === "products") void loadCatalog();
+  }, [isOpen, activeTab]);
 
   // Manipulação de Produto do Catálogo
   const handleSelectCatalogItem = (productId: string) => {
