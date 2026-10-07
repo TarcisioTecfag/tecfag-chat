@@ -32,8 +32,6 @@ export function Sidebar() {
 
   const navItems = [
     ...(tenant === "tecfag" ? [{ id: "commercialHome", icon: House, label: "Início" }] : []),
-    ...(tenant === "tecfag" && sessionRole === "admin" ? [{ id: "commercialManagement", icon: BriefcaseBusiness, label: "Gestão Comercial" }] : []),
-    ...(tenant === "tecfag" && sessionRole === "admin" ? [{ id: "commercialBi", icon: BarChart2, label: "War Room BI" }] : []),
     { id: "chat", icon: Users, label: "Chat" },
     { id: "crm", icon: Columns3, label: "Negociações" },
     { id: "tasks", icon: ClipboardCheck, label: "Tarefas" },
@@ -42,6 +40,10 @@ export function Sidebar() {
   ].filter((item) => canAccessView(item.id as any));
 
   const decorativeItems = [
+    ...(tenant === "tecfag" && sessionRole === "admin" ? [
+      { id: "commercialManagement", icon: BriefcaseBusiness, label: "Gestão Comercial", isAvailable: true },
+      { id: "commercialBi", icon: BarChart2, label: "War Room", isAvailable: true },
+    ] : []),
     { id: "valentina", icon: Bot,      label: persona.name,          isAvailable: true },
     { id: "ligacoes",  icon: PhoneCall, label: "Ligações",           isAvailable: true },
     { id: "monitor",   icon: Eye,       label: "Monitorar",          isAvailable: true },
