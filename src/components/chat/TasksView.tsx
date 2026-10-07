@@ -21,7 +21,11 @@ import {
   Search,
   X,
   Filter,
+  Plus,
+  Utensils,
+  MapPin,
 } from "lucide-react";
+import { CreateTaskModal } from "../crm/CreateTaskModal";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,10 +37,13 @@ interface TaskData {
   dueDate: string | null;
   description: string | null;
   createdAt: string | null;
-  deal: { id: string; name: string | null } | null;
+  deal: { id: string; name: string | null; value?: string | null; stageName?: string | null } | null;
   client: { name: string | null; phone: string | null };
   chatContactId: string | null;
   chatConversationId: string | null;
+  source?: "kanban" | "rd";
+  operatorId?: string | null;
+  operatorName?: string | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -82,13 +89,33 @@ function getTaskTypeIcon(type: string) {
     case "email": return <Mail className="h-3.5 w-3.5" />;
     case "meeting": return <Users className="h-3.5 w-3.5" />;
     case "whatsapp": return <MessageSquare className="h-3.5 w-3.5" />;
+    case "lunch": return <Utensils className="h-3.5 w-3.5" />;
+    case "visit": return <MapPin className="h-3.5 w-3.5" />;
     default: return <ClipboardCheck className="h-3.5 w-3.5" />;
+  }
+}
+
+function getTaskTypeLabel(type: string): string {
+  switch (type) {
+    case "call": return "Ligação";
+    case "email": return "E-mail";
+    case "meeting": return "Reunião";
+    case "whatsapp": return "WhatsApp";
+    case "lunch": return "Almoço";
+    case "visit": return "Visita";
+    case "task": return "Tarefa";
+    default: return type;
   }
 }
 
 function getTaskTypeColor(type: string): string {
   switch (type) {
     case "whatsapp": return "#128c7e";
+    case "call": return "#2563eb";
+    case "meeting": return "#7c3aed";
+    case "email": return "#ea580c";
+    case "visit": return "#059669";
+    case "lunch": return "#d97706";
     default: return "var(--primary)";
   }
 }
@@ -110,12 +137,24 @@ function formatPhone(phone: string | null): string {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function TasksView() {
-  const { tenant, setSelectedChatId, setActiveView, setActiveQueue, operatorProfile } = useChat();
+  const {
+    tenant,
+    setSelectedChatId,
+    setActiveView,
+    setActiveQueue,
+    operatorProfile,
+    currentOperatorId,
+    sessionRole,
+    refreshConversations,
+  } = useChat();
 
   const [tasks, setTasks] = useState<TaskData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [viewAllTasks, setViewAllTasks] = useState(false);
+  const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
+  const [operatorsList, setOperatorsList] = useState<Array<{ id: string; name: string }>>([]);
 
   // Estados do Modal "Todos" (Filtro e Busca global)
   const [isAllTasksModalOpen, setIsAllTasksModalOpen] = useState(false);
@@ -129,6 +168,18 @@ export function TasksView() {
   const [selectedDate, setSelectedDate] = useState<Date>(today);
 
   const days = getDaysInMonth(currentYear, currentMonth);
+
+  // ─── Carrega operadores para CreateTaskModal ─────────────────────────────
+  useEffect(() => {
+    fetch("/api/operators")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setOperatorsList(data.map((op: any) => ({ id: op.id, name: op.name })));
+        }
+      })
+      .catch((err) => console.warn("[TasksView] Erro ao carregar operadores:", err));
+  }, [tenant]);
 
   // ─── Check if RD CRM is configured ──────────────────────────────────────
   useEffect(() => {
@@ -144,13 +195,17 @@ export function TasksView() {
     setError(null);
     try {
       const emailParam = operatorProfile?.email ? `&email=${encodeURIComponent(operatorProfile.email)}` : "";
-      const res = await fetch(`/api/tasks?tenantId=${tenant}${emailParam}`);
+      const allParam = viewAllTasks ? "&all=true" : "";
+      const res = await fetch(`/api/tasks?tenantId=${tenant}${emailParam}${allParam}`);
       const data = await res.json();
       if (data.error) {
         setError(data.error);
         setTasks([]);
       } else {
         setTasks(data.tasks || []);
+        if (data.configured !== undefined && configured === null) {
+          setConfigured(data.configured);
+        }
       }
     } catch (e: any) {
       setError(e.message || "Erro ao carregar tarefas");
@@ -158,14 +213,12 @@ export function TasksView() {
     } finally {
       setLoading(false);
     }
-  }, [tenant, operatorProfile]);
+  }, [tenant, operatorProfile, viewAllTasks, configured]);
 
-  // Auto-fetch on mount if configured
+  // Busca sempre que montar ou alternar filtros
   useEffect(() => {
-    if (configured === true) {
-      fetchTasks();
-    }
-  }, [configured, fetchTasks]);
+    fetchTasks();
+  }, [fetchTasks]);
 
   // ─── Task completion toggle ─────────────────────────────────────────────
   const toggleTaskStatus = async (task: TaskData) => {
@@ -192,6 +245,30 @@ export function TasksView() {
   const openChat = (task: TaskData) => {
     if (task.chatConversationId) {
       setSelectedChatId(task.chatConversationId);
+      setActiveView("chat");
+    }
+  };
+
+  // ─── Iniciar chat com o contato quando ainda não há conversa vinculada ──
+  const handleStartChatWithContact = async (contactId: string) => {
+    try {
+      const res = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Não foi possível abrir o atendimento.");
+      if (refreshConversations) {
+        await refreshConversations(data.conversationId);
+      }
+      const queue = data.readOnly
+        ? data.queueState === "fila" ? "fila" : data.queueState === "automacao" ? "automacao" : "todos"
+        : "meus";
+      setActiveQueue(queue);
+      setSelectedChatId(data.conversationId);
+      setActiveView("chat");
+    } catch (err: any) {
+      console.error("[TasksView] Erro ao iniciar chat:", err);
       setActiveView("chat");
     }
   };
@@ -229,44 +306,9 @@ export function TasksView() {
     });
 
   const selectedTasks = getTasksForDate(selectedDate);
-  const pendingCount = tasks.filter((t) => t.status !== "done").length;
+  const pendingCount = tasks.filter((t) => t.status !== "done" && t.status !== "completed").length;
 
-  // ─── Not Configured State ──────────────────────────────────────────────
-  if (configured === false) {
-    return (
-      <section className="flex h-full flex-col rounded-3xl bg-chat-panel shadow-soft overflow-hidden">
-        <div className="flex flex-1 items-center justify-center p-12">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center max-w-md"
-          >
-            <div
-              className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl"
-              style={{ background: "var(--primary-soft)" }}
-            >
-              <ClipboardCheck className="h-10 w-10" style={{ color: "var(--primary)" }} />
-            </div>
-            <h2 className="text-2xl font-bold text-foreground mb-3">Integração RD Station CRM</h2>
-            <p className="text-muted-foreground mb-6 leading-relaxed">
-              Conecte seu RD Station CRM para visualizar suas tarefas em um calendário inteligente,
-              com acesso direto aos atendimentos dos clientes.
-            </p>
-            <button
-              onClick={() => setActiveView("settings")}
-              className="inline-flex items-center gap-2 rounded-2xl px-6 py-3 font-semibold text-white transition-all hover:scale-105 active:scale-95"
-              style={{ background: "var(--primary)" }}
-            >
-              <ExternalLink className="h-4 w-4" />
-              Configurar nas Ajustes
-            </button>
-          </motion.div>
-        </div>
-      </section>
-    );
-  }
-
-  // ─── Main Render ────────────────────────────────────────────────────────
+  // ─── Main Render (Sem bloqueio: reconhece e usa Kanban nativo se RD não integrado) ─
   return (
     <section className="flex h-full flex-col rounded-3xl bg-chat-panel shadow-soft overflow-hidden">
       {/* Header */}
@@ -279,15 +321,59 @@ export function TasksView() {
             <ClipboardCheck className="h-5 w-5" style={{ color: "var(--primary)" }} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-foreground">Tarefas CRM</h1>
-            <p className="text-xs text-muted-foreground">
-              {pendingCount > 0 ? `${pendingCount} tarefa${pendingCount > 1 ? "s" : ""} pendente${pendingCount > 1 ? "s" : ""}` : "Nenhuma tarefa pendente"}
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-foreground">Tarefas e Compromissos</h1>
+              {configured === false && (
+                <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
+                  Kanban CRM
+                </span>
+              )}
+              {configured === true && (
+                <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  RD Station CRM
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {configured === false
+                ? "Tarefas e compromissos sincronizados com o Kanban do sistema"
+                : "Tarefas integradas ao RD Station CRM"}
+              {" • "}
+              {pendingCount > 0
+                ? `${pendingCount} pendente${pendingCount > 1 ? "s" : ""}`
+                : "Nenhuma tarefa pendente"}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-           <button
+          {/* Seletor de escopo para Admin */}
+          {sessionRole === "admin" && (
+            <div className="flex bg-muted rounded-xl p-1 shrink-0">
+              <button
+                onClick={() => setViewAllTasks(false)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  !viewAllTasks
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Minhas
+              </button>
+              <button
+                onClick={() => setViewAllTasks(true)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  viewAllTasks
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Equipe
+              </button>
+            </div>
+          )}
+
+          <button
             onClick={() => setIsAllTasksModalOpen(true)}
             className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-all hover:bg-card hover:shadow-sm flex items-center gap-1.5 cursor-pointer"
           >
@@ -300,16 +386,25 @@ export function TasksView() {
           >
             Hoje
           </button>
+
+          <button
+            onClick={() => setIsCreateTaskModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+            style={{ background: "var(--primary)" }}
+          >
+            <Plus className="h-4 w-4" />
+            Nova Tarefa
+          </button>
+
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={fetchTasks}
             disabled={loading}
-            className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all disabled:opacity-60"
-            style={{ background: "var(--primary)" }}
+            className="flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground transition-all hover:bg-card disabled:opacity-60 cursor-pointer"
           >
             {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
             ) : (
               <RefreshCw className="h-4 w-4" />
             )}
@@ -454,7 +549,14 @@ export function TasksView() {
                   className="flex flex-col items-center justify-center py-12 text-center"
                 >
                   <Calendar className="h-12 w-12 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">Nenhuma tarefa nesta data</p>
+                  <p className="text-sm font-semibold text-muted-foreground">Nenhuma tarefa nesta data</p>
+                  <button
+                    onClick={() => setIsCreateTaskModalOpen(true)}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-primary bg-primary/10 border border-primary/20 hover:bg-primary/20 transition cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Nova Tarefa
+                  </button>
                 </motion.div>
               )}
 
@@ -476,9 +578,9 @@ export function TasksView() {
                       whileHover={{ scale: 1.15 }}
                       whileTap={{ scale: 0.85 }}
                       onClick={() => toggleTaskStatus(task)}
-                      className="mt-0.5 shrink-0"
+                      className="mt-0.5 shrink-0 cursor-pointer"
                     >
-                      {task.status === "done" ? (
+                      {task.status === "done" || task.status === "completed" ? (
                         <CheckCircle2 className="h-5 w-5" style={{ color: "var(--primary)" }} />
                       ) : (
                         <Circle className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
@@ -488,25 +590,39 @@ export function TasksView() {
                     <div className="flex-1 min-w-0">
                       <p
                         className={`text-sm font-semibold leading-tight ${
-                          task.status === "done" ? "line-through text-muted-foreground" : "text-foreground"
+                          task.status === "done" || task.status === "completed"
+                            ? "line-through text-muted-foreground"
+                            : "text-foreground"
                         }`}
                       >
                         {task.name}
                       </p>
 
                       {/* Type & Time */}
-                      <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5">
                         <span
                           className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
                           style={{ background: getTaskTypeColor(task.type) }}
                         >
                           {getTaskTypeIcon(task.type)}
-                          {task.type}
+                          {getTaskTypeLabel(task.type)}
                         </span>
+                        {task.operatorName && (
+                          <span className="text-[10px] text-muted-foreground font-medium bg-muted/60 px-1.5 py-0.5 rounded-md border border-border/40">
+                            {task.operatorName}
+                          </span>
+                        )}
                         {task.dueDate && (() => {
-                          const isOverdue = task.status !== "done" && new Date(task.dueDate) < new Date();
+                          const isOverdue =
+                            task.status !== "done" &&
+                            task.status !== "completed" &&
+                            new Date(task.dueDate) < new Date();
                           return (
-                            <span className={`flex items-center gap-1 text-[11px] ${isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
+                            <span
+                              className={`flex items-center gap-1 text-[11px] ${
+                                isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"
+                              }`}
+                            >
                               <Clock className="h-3 w-3" />
                               {formatTime(task.dueDate)} {isOverdue && "(Atrasada)"}
                             </span>
@@ -523,17 +639,28 @@ export function TasksView() {
                         <p className="text-xs font-semibold text-foreground">{task.client.name}</p>
                       )}
                       {task.client.phone && (
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{formatPhone(task.client.phone)}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {formatPhone(task.client.phone)}
+                        </p>
                       )}
                     </div>
                   )}
 
                   {/* Deal Info */}
                   {task.deal?.name && (
-                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <ExternalLink className="h-3 w-3" />
+                    <a
+                      href={`/crm/deals/${task.deal.id}?from=tasks`}
+                      className="mt-2 flex items-center gap-1.5 text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                      title="Abrir negociação no Kanban"
+                    >
+                      <ExternalLink className="h-3 w-3 shrink-0" />
                       <span className="truncate">{task.deal.name}</span>
-                    </div>
+                      {task.deal.stageName && (
+                        <span className="text-[9px] text-muted-foreground bg-muted/80 px-1.5 py-0.5 rounded border border-border/40 ml-1">
+                          {task.deal.stageName}
+                        </span>
+                      )}
+                    </a>
                   )}
 
                   {/* Description */}
@@ -549,14 +676,24 @@ export function TasksView() {
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => openChat(task)}
-                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold text-white transition-all"
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold text-white transition-all cursor-pointer shadow-sm"
                       style={{ background: "var(--primary)" }}
                     >
                       <MessageSquare className="h-3.5 w-3.5" />
                       Abrir Atendimento
                     </motion.button>
+                  ) : task.chatContactId ? (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleStartChatWithContact(task.chatContactId!)}
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold text-primary bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-all cursor-pointer"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      Iniciar Atendimento
+                    </motion.button>
                   ) : (
-                    <div className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-border py-2.5 text-xs text-muted-foreground">
+                    <div className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-border py-2.5 text-xs text-muted-foreground select-none">
                       <MessageSquare className="h-3.5 w-3.5" />
                       Sem conversa ativa
                     </div>
@@ -592,7 +729,9 @@ export function TasksView() {
                     Lista Completa de Tarefas
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Visualize, pesquise e gerencie todas as suas tarefas integradas do RD CRM.
+                    {configured
+                      ? "Visualize, pesquise e gerencie todas as suas tarefas integradas do RD CRM."
+                      : "Visualize, pesquise e gerencie todas as suas tarefas e compromissos do Kanban / CRM."}
                   </p>
                 </div>
                 <button
@@ -701,7 +840,11 @@ export function TasksView() {
                   }
 
                   return filtered.map((task) => {
-                    const isOverdue = task.status !== "done" && task.dueDate && new Date(task.dueDate) < new Date();
+                    const isOverdue =
+                      task.status !== "done" &&
+                      task.status !== "completed" &&
+                      task.dueDate &&
+                      new Date(task.dueDate) < new Date();
                     return (
                       <div
                         key={task.id}
@@ -738,8 +881,13 @@ export function TasksView() {
                                 style={{ background: getTaskTypeColor(task.type) }}
                               >
                                 {getTaskTypeIcon(task.type)}
-                                {task.type}
+                                {getTaskTypeLabel(task.type)}
                               </span>
+                              {task.operatorName && (
+                                <span className="text-[10px] text-muted-foreground font-medium bg-muted/60 px-1.5 py-0.5 rounded-md border border-border/40">
+                                  {task.operatorName}
+                                </span>
+                              )}
                               {task.dueDate && (
                                 <span className={`flex items-center gap-1 text-[11px] ${isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
                                   <Clock className="h-3 w-3" />
@@ -748,6 +896,17 @@ export function TasksView() {
                                 </span>
                               )}
                             </div>
+
+                            {task.deal?.name && (
+                              <a
+                                href={`/crm/deals/${task.deal.id}?from=tasks`}
+                                className="mt-1.5 flex items-center gap-1 text-[11px] text-primary hover:underline font-medium"
+                                title="Abrir negociação no Kanban"
+                              >
+                                <ExternalLink className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{task.deal.name}</span>
+                              </a>
+                            )}
 
                             {task.description && (
                               <p className="mt-1.5 text-[11px] text-muted-foreground line-clamp-1 leading-relaxed">
@@ -784,6 +943,19 @@ export function TasksView() {
                               <MessageSquare className="h-3.5 w-3.5" />
                               Atendimento
                             </motion.button>
+                          ) : task.chatContactId ? (
+                            <motion.button
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.97 }}
+                              onClick={() => {
+                                handleStartChatWithContact(task.chatContactId!);
+                                setIsAllTasksModalOpen(false);
+                              }}
+                              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-primary bg-primary/10 border border-primary/20 hover:bg-primary/20 transition-all cursor-pointer shadow-sm"
+                            >
+                              <MessageSquare className="h-3.5 w-3.5" />
+                              Iniciar Atendimento
+                            </motion.button>
                           ) : (
                             <div className="flex items-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-2 text-xs text-muted-foreground select-none">
                               <MessageSquare className="h-3.5 w-3.5" />
@@ -800,6 +972,15 @@ export function TasksView() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Drawer lateral para criar nova tarefa no Kanban */}
+      <CreateTaskModal
+        isOpen={isCreateTaskModalOpen}
+        onClose={() => setIsCreateTaskModalOpen(false)}
+        onTaskCreated={fetchTasks}
+        operators={operatorsList}
+        currentOperatorId={currentOperatorId}
+      />
     </section>
   );
 }

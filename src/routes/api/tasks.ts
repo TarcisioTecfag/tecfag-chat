@@ -1,9 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
-import { contacts, conversations, tasks as dbTasks } from "../../db/schema";
-import { rdRequest, buildPhoneSearchTerms, getCachedDeal, getCachedContact, getCachedUsers } from "../../lib/rdCrmService";
-import { eq, and } from "drizzle-orm";
+import {
+  contacts,
+  conversations,
+  tasks as dbTasks,
+  crmDealActivities,
+  crmDeals,
+  crmDealContacts,
+  crmStages,
+  crmAccounts,
+  operators,
+} from "../../db/schema";
+import {
+  rdRequest,
+  buildPhoneSearchTerms,
+  getCachedDeal,
+  getCachedContact,
+  getCachedUsers,
+  isRdCrmConfigured,
+} from "../../lib/rdCrmService";
+import { eq, and, sql, desc, inArray, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { requireSession } from "../../lib/auth-session";
+import { crmService } from "../../lib/crm/crm-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +34,156 @@ const corsHeaders = {
 const tasksListCache = new Map<string, { data: any[]; expiresAt: number }>();
 const LIST_CACHE_TTL = 15 * 1000; // 15 segundos
 
+/**
+ * Consulta tarefas e compromissos comerciais nativos do Kanban/CRM (crm_deal_activities)
+ * com joins em negociações, contatos, contas, etapas e operadores, assegurando isolamento estrito de tenant.
+ */
+async function getNativeKanbanTasks(
+  tenantId: string,
+  options: {
+    operatorId?: string | null;
+    email?: string | null;
+    isAdmin?: boolean;
+    all?: boolean;
+  }
+) {
+  const conditions = [
+    eq(crmDealActivities.tenantId, tenantId),
+    sql`${crmDealActivities.type} NOT IN ('note', 'system_event')`,
+  ];
+
+  // Se não for admin e não for pedido 'all', filtra por tarefas sob responsabilidade do operador
+  if (!options.all && !options.isAdmin && options.operatorId) {
+    conditions.push(
+      or(
+        eq(crmDealActivities.assignedToOperatorId, options.operatorId),
+        eq(crmDealActivities.operatorId, options.operatorId),
+        eq(crmDeals.operatorId, options.operatorId)
+      )!
+    );
+  }
+
+  const assignedOp = alias(operators, "task_assigned_op");
+  const creatorOp = alias(operators, "task_creator_op");
+
+  const rows = await db
+    .select({
+      id: crmDealActivities.id,
+      title: crmDealActivities.title,
+      type: crmDealActivities.type,
+      status: crmDealActivities.status,
+      dueDate: crmDealActivities.dueDate,
+      completedAt: crmDealActivities.completedAt,
+      description: crmDealActivities.description,
+      createdAt: crmDealActivities.createdAt,
+      conversationId: crmDealActivities.conversationId,
+      dealId: crmDealActivities.dealId,
+      dealTitle: crmDeals.title,
+      dealValue: crmDeals.value,
+      pipelineId: crmDeals.pipelineId,
+      stageId: crmDeals.stageId,
+      stageName: crmStages.name,
+      contactId: crmDealContacts.contactId,
+      contactName: contacts.name,
+      contactPhone: contacts.phone,
+      accountId: crmDeals.accountId,
+      accountName: crmAccounts.name,
+      accountTradeName: crmAccounts.tradeName,
+      accountPhone: crmAccounts.phone,
+      assignedOperatorId: crmDealActivities.assignedToOperatorId,
+      assignedOperatorName: assignedOp.name,
+      creatorOperatorId: crmDealActivities.operatorId,
+      creatorOperatorName: creatorOp.name,
+    })
+    .from(crmDealActivities)
+    .innerJoin(crmDeals, and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
+    .leftJoin(crmStages, eq(crmDeals.stageId, crmStages.id))
+    .leftJoin(
+      crmDealContacts,
+      and(eq(crmDealActivities.dealId, crmDealContacts.dealId), eq(crmDealContacts.tenantId, tenantId))
+    )
+    .leftJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+    .leftJoin(crmAccounts, and(eq(crmDeals.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)))
+    .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
+    .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
+    .where(and(...conditions))
+    .orderBy(sql`${crmDealActivities.dueDate} ASC NULLS LAST`, desc(crmDealActivities.createdAt));
+
+  // Deduplica linhas por ID da atividade (caso um negócio tenha mais de um contato associado)
+  const uniqueActivitiesMap = new Map<string, typeof rows[0]>();
+  for (const r of rows) {
+    if (!uniqueActivitiesMap.has(r.id)) {
+      uniqueActivitiesMap.set(r.id, r);
+    }
+  }
+  const uniqueRows = Array.from(uniqueActivitiesMap.values());
+
+  // Para tarefas sem conversationId explícito, encontrar a conversa mais recente do contato
+  const missingConvContactIds = [
+    ...new Set(
+      uniqueRows
+        .filter((r) => !r.conversationId && r.contactId)
+        .map((r) => r.contactId!)
+    ),
+  ];
+
+  const contactToConvMap = new Map<string, string>();
+  if (missingConvContactIds.length > 0) {
+    const convRows = await db
+      .select({
+        id: conversations.id,
+        contactId: conversations.contactId,
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.tenantId, tenantId),
+          inArray(conversations.contactId, missingConvContactIds)
+        )
+      )
+      .orderBy(desc(conversations.updatedAt));
+
+    for (const c of convRows) {
+      if (c.contactId && !contactToConvMap.has(c.contactId)) {
+        contactToConvMap.set(c.contactId, c.id);
+      }
+    }
+  }
+
+  return uniqueRows.map((r) => {
+    const clientName = r.contactName || r.accountTradeName || r.accountName || null;
+    const clientPhone = r.contactPhone || r.accountPhone || null;
+    const resolvedConvId = r.conversationId || (r.contactId ? contactToConvMap.get(r.contactId) || null : null);
+
+    return {
+      id: r.id,
+      name: r.title || "Sem título",
+      type: r.type || "task",
+      status: r.status === "completed" ? "done" : "pending",
+      dueDate: r.dueDate ? r.dueDate.toISOString() : null,
+      description: r.description || null,
+      createdAt: r.createdAt ? r.createdAt.toISOString() : null,
+      deal: {
+        id: r.dealId,
+        name: r.dealTitle,
+        value: r.dealValue,
+        pipelineId: r.pipelineId,
+        stageId: r.stageId,
+        stageName: r.stageName,
+      },
+      client: {
+        name: clientName,
+        phone: clientPhone,
+      },
+      chatContactId: r.contactId || null,
+      chatConversationId: resolvedConvId,
+      source: "kanban" as const,
+      operatorId: r.assignedOperatorId || r.creatorOperatorId || null,
+      operatorName: r.assignedOperatorName || r.creatorOperatorName || null,
+    };
+  });
+}
+
 export const Route = createFileRoute("/api/tasks")({
   server: {
     handlers: {
@@ -23,9 +192,8 @@ export const Route = createFileRoute("/api/tasks")({
       /**
        * GET /api/tasks
        * 
-       * Lista tarefas do RD CRM para o operador autenticado
-       * e enriquece com dados de contato do Valem Chat.
-       * Salva e persiste os dados na tabela local 'tasks'.
+       * Lista tarefas e compromissos. Se o RD CRM estiver integrado, busca da API do RD;
+       * caso contrário, reconhece e utiliza diretamente as tarefas e compromissos do nosso Kanban nativo.
        */
       GET: async ({ request }) => {
         try {
@@ -35,9 +203,27 @@ export const Route = createFileRoute("/api/tasks")({
           const tenantId = session.tenantId;
 
           const url = new URL(request.url);
-          // E-mail do operador: se fornecido e o operador for admin pode filtrar outro; senão usa o da sessão
           const queryEmail = url.searchParams.get("email");
-          const email = (session.operator.role === "admin" && queryEmail) ? queryEmail : session.operator.email;
+          const viewAll = url.searchParams.get("all") === "true";
+          const isAdmin = session.operator.role === "admin";
+          const email = (isAdmin && queryEmail) ? queryEmail : session.operator.email;
+
+          // 1. Verifica se a integração com o RD Station CRM está configurada para este tenant
+          const rdConfigured = await isRdCrmConfigured(tenantId);
+
+          if (!rdConfigured) {
+            // RD CRM NÃO integrado: reconhece e usa exclusivamente tarefas e compromissos do nosso Kanban
+            const kanbanTasks = await getNativeKanbanTasks(tenantId, {
+              operatorId: session.operator.id,
+              email,
+              isAdmin,
+              all: viewAll,
+            });
+
+            return new Response(JSON.stringify({ tasks: kanbanTasks, configured: false, source: "kanban" }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
 
         const debug = url.searchParams.get("debug");
         if (debug === "true") {
@@ -331,10 +517,39 @@ export const Route = createFileRoute("/api/tasks")({
             );
           }
 
-          // Mapear status amigável para o formato do RD CRM v2
+          // 1. Verifica se a tarefa pertence ao Kanban nativo (crm_deal_activities)
+          const [kanbanActivity] = await db
+            .select()
+            .from(crmDealActivities)
+            .where(and(eq(crmDealActivities.id, taskId), eq(crmDealActivities.tenantId, tenantId)))
+            .limit(1);
+
+          if (kanbanActivity) {
+            const newStatus = status === "done" || status === "completed" ? "completed" : "pending";
+            await crmService.updateDealActivity(
+              tenantId,
+              kanbanActivity.dealId,
+              kanbanActivity.id,
+              session.operator.id,
+              { status: newStatus }
+            );
+
+            return new Response(JSON.stringify({ success: true, source: "kanban" }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          // 2. Se não for do Kanban nativo, sincroniza com RD CRM (se configurado) e base local
+          const rdConfigured = await isRdCrmConfigured(tenantId);
           const rdStatus = status === "done" ? "done" : "pending";
 
-          await rdRequest(tenantId, "PUT", `/tasks/${taskId}`, { status: rdStatus });
+          if (rdConfigured) {
+            try {
+              await rdRequest(tenantId, "PUT", `/tasks/${taskId}`, { status: rdStatus });
+            } catch (err: any) {
+              console.warn(`[Tasks API] Erro ao sincronizar status no RD CRM:`, err.message);
+            }
+          }
 
           // Atualiza também na base local com isolamento de tenant
           try {
@@ -346,7 +561,7 @@ export const Route = createFileRoute("/api/tasks")({
             console.warn(`[Tasks API] Aviso ao atualizar tarefa local ${taskId}:`, syncErr.message);
           }
 
-          return new Response(JSON.stringify({ success: true }), {
+          return new Response(JSON.stringify({ success: true, source: "rd" }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
