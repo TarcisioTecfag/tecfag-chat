@@ -254,7 +254,7 @@ export function CommercialBiView() {
       ref={panelRef}
       className="h-full min-w-0 flex-1 overflow-y-auto rounded-3xl border border-zinc-800 bg-[#101115] p-4 text-white shadow-soft sm:p-6"
     >
-      <div className="mx-auto max-w-[1700px] space-y-5">
+      <div className="w-full space-y-5">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className={badge}>Tecfag · Commercial War Room</p>

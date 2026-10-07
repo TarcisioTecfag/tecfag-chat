@@ -314,7 +314,7 @@ export function CommercialManagementView() {
 
       {/* Scrollable Content Area */}
       <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
-        <div className="mx-auto max-w-[1400px] space-y-6">
+        <div className="w-full space-y-6">
           {error && (
             <p
               role="alert"
