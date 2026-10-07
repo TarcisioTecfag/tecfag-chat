@@ -13,12 +13,23 @@ export default defineConfig({
     server: { entry: "server" },
   },
   nitro: {
+    // HTML must be revalidated after a deploy; hashed /assets files remain immutable.
+    routeRules: {
+      "/": { headers: { "cache-control": "no-cache" } },
+      "/chat/**": { headers: { "cache-control": "no-cache" } },
+      "/crm/deals/**": { headers: { "cache-control": "no-cache" } },
+      "/call/**": { headers: { "cache-control": "no-cache" } },
+    },
     // Externalizar socket.io e groq-sdk do bundle do servidor
     // Eles usam APIs Node.js nativas e não podem ser bundlados
     externals: {
       external: ["socket.io", "groq-sdk"],
     },
     // Incluir explicitamente os plugins do servidor (ex: WebSocket handler)
-    plugins: ["server/plugins/websocket.ts", "server/plugins/orphan-cleanup.ts", "server/plugins/recovery.ts"],
+    plugins: [
+      "server/plugins/websocket.ts",
+      "server/plugins/orphan-cleanup.ts",
+      "server/plugins/recovery.ts",
+    ],
   } as any,
 });

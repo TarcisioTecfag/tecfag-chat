@@ -16,20 +16,22 @@ import { useGlobalKeyboardNavigation } from "@/hooks/useGlobalKeyboardNavigation
 import { usePermissions } from "@/hooks/usePermissions";
 import { Loader2 } from "lucide-react";
 
-const SettingsView = lazy(() => import("@/components/chat/SettingsView").then((module) => ({ default: module.SettingsView })));
-const ContactsView = lazy(() => import("@/components/chat/ContactsView").then((module) => ({ default: module.ContactsView })));
-const WalletView = lazy(() => import("@/components/chat/WalletView").then((module) => ({ default: module.WalletView })));
-const GroupsView = lazy(() => import("@/components/chat/GroupsView").then((module) => ({ default: module.GroupsView })));
-const ProfileModal = lazy(() => import("@/components/chat/ProfileModal").then((module) => ({ default: module.ProfileModal })));
-const MonitorView = lazy(() => import("@/components/chat/MonitorView").then((module) => ({ default: module.MonitorView })));
-const AnalyticsView = lazy(() => import("@/components/chat/AnalyticsView").then((module) => ({ default: module.AnalyticsView })));
-const TasksView = lazy(() => import("@/components/chat/TasksView").then((module) => ({ default: module.TasksView })));
-const ValentinaView = lazy(() => import("@/components/valentina/ValentinaView").then((module) => ({ default: module.ValentinaView })));
-const LigacoesView = lazy(() => import("@/components/voice/LigacoesView").then((module) => ({ default: module.LigacoesView })));
-const CrmView = lazy(() => import("@/components/crm/CrmView").then((module) => ({ default: module.CrmView })));
-const CommercialHomeView = lazy(() => import("@/components/commercial/CommercialHomeView").then((module) => ({ default: module.CommercialHomeView })));
-const CommercialManagementView = lazy(() => import("@/components/commercial/CommercialManagementView").then((module) => ({ default: module.CommercialManagementView })));
-const CommercialBiView = lazy(() => import("@/components/commercial/CommercialBiView").then((module) => ({ default: module.CommercialBiView })));
+import { ProfileModal } from "@/components/chat/ProfileModal";
+import { lazyWithRetry } from "@/lib/lazy-retry";
+
+const SettingsView = lazyWithRetry(() => import("@/components/chat/SettingsView"), "SettingsView");
+const ContactsView = lazyWithRetry(() => import("@/components/chat/ContactsView"), "ContactsView");
+const WalletView = lazyWithRetry(() => import("@/components/chat/WalletView"), "WalletView");
+const GroupsView = lazyWithRetry(() => import("@/components/chat/GroupsView"), "GroupsView");
+const MonitorView = lazyWithRetry(() => import("@/components/chat/MonitorView"), "MonitorView");
+const AnalyticsView = lazyWithRetry(() => import("@/components/chat/AnalyticsView"), "AnalyticsView");
+const TasksView = lazyWithRetry(() => import("@/components/chat/TasksView"), "TasksView");
+const ValentinaView = lazyWithRetry(() => import("@/components/valentina/ValentinaView"), "ValentinaView");
+const LigacoesView = lazyWithRetry(() => import("@/components/voice/LigacoesView"), "LigacoesView");
+const CrmView = lazyWithRetry(() => import("@/components/crm/CrmView"), "CrmView");
+const CommercialHomeView = lazyWithRetry(() => import("@/components/commercial/CommercialHomeView"), "CommercialHomeView");
+const CommercialManagementView = lazyWithRetry(() => import("@/components/commercial/CommercialManagementView"), "CommercialManagementView");
+const CommercialBiView = lazyWithRetry(() => import("@/components/commercial/CommercialBiView"), "CommercialBiView");
 
 import { ModuleSkeleton } from "@/components/ui/ModuleSkeleton";
 

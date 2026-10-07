@@ -20,16 +20,30 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useTheme } from "../hooks/useTheme";
 
 import { getAiPersona } from "@/lib/ai-persona";
+import {
+  installAssetRecovery,
+  isMissingAssetError,
+  reloadForMissingAsset,
+} from "@/lib/asset-recovery";
 
-const CrmChatWidget = lazy(() => import("@/components/crm/CrmChatWidget").then((module) => ({ default: module.CrmChatWidget })));
+installAssetRecovery();
+
+const CrmChatWidget = lazy(() =>
+  import("@/components/crm/CrmChatWidget").then((module) => ({ default: module.CrmChatWidget })),
+);
 
 function MaybeCrmChatWidget() {
   const { activeView, isAuthenticated } = useChat();
   const location = useLocation();
   const isMobile = useIsMobile();
-  const isChatView = location.pathname === "/chat" || (location.pathname === "/" && activeView === "chat");
+  const isChatView =
+    location.pathname === "/chat" || (location.pathname === "/" && activeView === "chat");
   if (!isAuthenticated || isMobile || isChatView) return null;
-  return <Suspense fallback={null}><CrmChatWidget /></Suspense>;
+  return (
+    <Suspense fallback={null}>
+      <CrmChatWidget />
+    </Suspense>
+  );
 }
 
 function NotFoundComponent() {
@@ -57,9 +71,13 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  const missingAsset = isMissingAssetError(error);
   useEffect(() => {
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
+  useEffect(() => {
+    if (missingAsset) reloadForMissingAsset();
+  }, [missingAsset]);
 
   let tenant = "valem";
   if (typeof window !== "undefined") {
@@ -97,7 +115,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             Ops, acho que algo deu errado!
           </h1>
           <p className="text-xs text-muted-foreground leading-relaxed px-2 font-medium">
-            Poderia avisar o Tarcisio por favor?
+            {missingAsset
+              ? "Uma atualização interrompeu o carregamento. Recarregue para abrir a versão atual."
+              : "Poderia avisar o Tarcisio por favor?"}
           </p>
         </div>
 
@@ -105,8 +125,12 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <div className="flex flex-col gap-3 pt-2">
           <button
             onClick={() => {
-              router.invalidate();
-              reset();
+              if (missingAsset) {
+                window.location.reload();
+              } else {
+                router.invalidate();
+                reset();
+              }
             }}
             className="w-full py-3.5 px-4 rounded-2xl bg-primary hover:bg-primary-hover text-primary-foreground font-black text-xs transition flex items-center justify-center gap-2 shadow-soft cursor-pointer"
           >
@@ -119,9 +143,16 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             rel="noopener noreferrer"
             className="w-full py-3.5 px-4 rounded-2xl bg-primary-soft hover:bg-primary-soft/80 text-primary font-black text-xs border border-primary/30 transition flex items-center justify-center gap-2.5 cursor-pointer decoration-none"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" className="text-primary" viewBox="0 0 16 16">
-              <path d="M9.186 4.797a2.42 2.42 0 1 0-2.86-2.448h1.178c.929 0 1.682.753 1.682 1.682zm-4.295 7.738h2.613c.929 0 1.682-.753 1.682-1.682V5.58h2.783a.7.7 0 0 1 .682.716v4.294a4.197 4.197 0 0 1-4.093 4.293c-1.618-.04-3-.99-3.667-2.35Zm10.737-9.372a1.674 1.674 0 1 1-3.349 0 1.674 1.674 0 0 1 3.349 0m-2.238 9.488-.12-.002a5.2 5.2 0 0 0 .381-2.07V6.306a1.7 1.7 0 0 0-.15-.725h1.792c.39 0 .707.317.707.707v3.765a2.6 2.6 0 0 1-2.598 2.598z"/>
-              <path d="M.682 3.349h6.822c.377 0 .682.305.682.682v6.822a.68.68 0 0 1-.682.682H.682A.68.68 0 0 1 0 10.853V4.03c0-.377.305-.682.682-.682Zm5.206 2.596v-.72h-3.59v.72h1.357V9.66h.87V5.945z"/>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              fill="currentColor"
+              className="text-primary"
+              viewBox="0 0 16 16"
+            >
+              <path d="M9.186 4.797a2.42 2.42 0 1 0-2.86-2.448h1.178c.929 0 1.682.753 1.682 1.682zm-4.295 7.738h2.613c.929 0 1.682-.753 1.682-1.682V5.58h2.783a.7.7 0 0 1 .682.716v4.294a4.197 4.197 0 0 1-4.093 4.293c-1.618-.04-3-.99-3.667-2.35Zm10.737-9.372a1.674 1.674 0 1 1-3.349 0 1.674 1.674 0 0 1 3.349 0m-2.238 9.488-.12-.002a5.2 5.2 0 0 0 .381-2.07V6.306a1.7 1.7 0 0 0-.15-.725h1.792c.39 0 .707.317.707.707v3.765a2.6 2.6 0 0 1-2.598 2.598z" />
+              <path d="M.682 3.349h6.822c.377 0 .682.305.682.682v6.822a.68.68 0 0 1-.682.682H.682A.68.68 0 0 1 0 10.853V4.03c0-.377.305-.682.682-.682Zm5.206 2.596v-.72h-3.59v.72h1.357V9.66h.87V5.945z" />
             </svg>
             <span>Falar com Tarcisio (Teams)</span>
           </a>
@@ -151,21 +182,36 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     return {
       meta: [
         { charSet: "utf-8" },
-        { name: "viewport", content: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" },
+        {
+          name: "viewport",
+          content:
+            "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover",
+        },
         { name: "google", content: "notranslate" },
         { name: "theme-color", content: themeColor },
         { title },
-        { name: "description", content: "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial." },
+        {
+          name: "description",
+          content:
+            "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial.",
+        },
         { name: "author", content: "Tecfag Group" },
 
         // Open Graph (WhatsApp, Facebook, LinkedIn, Discord, Telegram)
         { property: "og:title", content: title },
-        { property: "og:description", content: "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial." },
+        {
+          property: "og:description",
+          content:
+            "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial.",
+        },
         { property: "og:type", content: "website" },
         { property: "og:url", content: "https://tecfagchat.up.railway.app" },
         { property: "og:site_name", content: title },
         { property: "og:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
-        { property: "og:image:secure_url", content: "https://tecfagchat.up.railway.app/og-image.png" },
+        {
+          property: "og:image:secure_url",
+          content: "https://tecfagchat.up.railway.app/og-image.png",
+        },
         { property: "og:image:type", content: "image/png" },
         { property: "og:image:width", content: "1200" },
         { property: "og:image:height", content: "630" },
@@ -174,7 +220,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         // Twitter Cards
         { name: "twitter:card", content: "summary_large_image" },
         { name: "twitter:title", content: title },
-        { name: "twitter:description", content: "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial." },
+        {
+          name: "twitter:description",
+          content:
+            "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial.",
+        },
         { name: "twitter:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
 
         // Mobile & PWA App (Safari iOS e Chrome Android)
