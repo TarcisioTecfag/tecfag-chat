@@ -1147,6 +1147,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
 
+  const focusInput = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    });
+  }, []);
+
   // ── Voice recorder logic ────────────────────────────────────────────────────
   const fmtSec = (s: number) =>
     `${Math.floor(s / 60)
@@ -1275,6 +1283,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     }
   }, [text]);
 
+  // Foco automático imediato ao abrir ou trocar de conversa
+  useEffect(() => {
+    if (activeChat && (activeChat.queue === "meus" || activeChat.id === "valentina")) {
+      focusInput();
+      const timer = setTimeout(focusInput, 80);
+      return () => clearTimeout(timer);
+    }
+  }, [activeChat?.id, activeChat?.queue, focusInput]);
+
   if (!activeChat) {
     return (
       <section className="flex h-full min-w-0 flex-1 flex-col items-center justify-center rounded-3xl bg-chat-panel border border-border shadow-soft text-muted-foreground select-none">
@@ -1302,6 +1319,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     if (activeProvider === "meta" && activeChat?.channel === "whatsapp" && msgMode !== "internal" && metaWindow && !metaWindow.open) {
       toast.error("A janela de 24 horas terminou. Use um template aprovado pela Meta.");
       loadMetaTemplates();
+      focusInput();
       return;
     }
     const quoted = replyingTo
@@ -1331,20 +1349,43 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       setAttachments([]);
       setReplyingTo(null);
       discardRecording();
+      focusInput();
       return;
     }
-    if (!text.trim() && attachments.length === 0) return;
-    if (!await sendMessage(
-      text,
-      msgMode === "internal",
-      attachments.length > 0 ? attachments : undefined,
-      quoted,
-    )) return;
+    if (!text.trim() && attachments.length === 0) {
+      focusInput();
+      return;
+    }
+
+    const textToSend = text;
+    const attachmentsToSend = attachments.length > 0 ? [...attachments] : undefined;
+    const isInternal = msgMode === "internal";
+    const quotedToSend = quoted;
+
+    // Limpa imediatamente de forma otimista para liberar o campo para digitação contínua
     setText("");
     setAttachments([]);
     setReplyingTo(null);
     setShowQuickMenu(false);
     setShowEmojiPicker(false);
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+    }
+    focusInput();
+
+    const ok = await sendMessage(
+      textToSend,
+      isInternal,
+      attachmentsToSend,
+      quotedToSend,
+    );
+
+    if (!ok) {
+      // Se o envio falhou (ex: bloqueio operacional ou erro de rede), restaura o texto
+      setText(textToSend);
+      if (attachmentsToSend) setAttachments(attachmentsToSend);
+      focusInput();
+    }
   };
 
   const handleSend = async () => {
@@ -1356,6 +1397,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     } finally {
       sendInFlightRef.current = false;
       setIsSending(false);
+      focusInput();
+      setTimeout(focusInput, 50);
     }
   };
 
@@ -2850,9 +2893,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           {/* 4-Mode Selector (Mensagem vs Valentina vs Nota vs Válvulas) */}
           <div className="flex items-center gap-3 pl-2 mb-1.5 text-[11px] font-bold select-none">
             <button
+              type="button"
               onClick={() => {
                 setMsgMode("client");
                 setIsCatalogOpen(false);
+                focusInput();
               }}
               className={`pb-1 border-b-2 px-1 transition cursor-pointer ${
                 !isCatalogOpen && msgMode === "client"
@@ -2863,6 +2908,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               Enviar Mensagem
             </button>
             <button
+              type="button"
               onClick={() => setShowValentinaModal(true)}
               className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1 text-primary hover:opacity-85"
             >
@@ -2871,9 +2917,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </button>
             {canSendInternalNotes && (
               <button
+                type="button"
                 onClick={() => {
                   setMsgMode("internal");
                   setIsCatalogOpen(false);
+                  focusInput();
                 }}
                 className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
                   !isCatalogOpen && msgMode === "internal"
@@ -3181,6 +3229,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
             {/* Send — always visible */}
             <motion.button
+              type="button"
+              onMouseDown={(e) => {
+                // Impede que o clique do mouse tire o foco do campo de texto
+                e.preventDefault();
+              }}
               onClick={handleSend}
               disabled={isSending}
               whileHover={{ scale: 1.06 }}

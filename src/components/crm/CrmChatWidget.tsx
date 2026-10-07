@@ -946,15 +946,24 @@ export function CrmChatWidget() {
     const text = draft.trim();
     if (!text || sending || metaRestricted || !selected || selected.id !== selectedChatId) return;
     setSending(true);
+    setDraft("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+    textareaRef.current?.focus();
     try {
-      if (await sendMessage(text)) {
-        setDraft("");
-        if (textareaRef.current) {
-          textareaRef.current.style.height = "auto";
-        }
+      const ok = await sendMessage(text);
+      if (!ok) {
+        setDraft(text);
       }
     } finally {
       setSending(false);
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
     }
   };
 
@@ -1284,7 +1293,7 @@ export function CrmChatWidget() {
                           value={draft}
                           onChange={handleTextareaInput}
                           onKeyDown={handleComposerKeyDown}
-                          disabled={metaRestricted || sending}
+                          disabled={metaRestricted}
                           rows={1}
                           placeholder={
                             selected?.id === "valentina"
@@ -1296,6 +1305,9 @@ export function CrmChatWidget() {
                         />
                         <button
                           type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                          }}
                           onClick={() => void handleSend()}
                           disabled={!draft.trim() || sending || metaRestricted}
                           aria-label="Enviar mensagem"
