@@ -3,7 +3,11 @@ import { calculateBusinessPacing, type CommercialCalendarDay } from "./metrics";
 export type CommercialDivision = "personnalite" | "maquinas" | null;
 export type DirectiveState = "completed" | "pending_today" | "overdue" | "future" | "other";
 
-export function directiveState(status: string, assignedDate: string, today: string): DirectiveState {
+export function directiveState(
+  status: string,
+  assignedDate: string,
+  today: string,
+): DirectiveState {
   if (status === "completed" || status === "done") return "completed";
   if (status !== "pending") return "other";
   if (assignedDate < today) return "overdue";
@@ -50,13 +54,16 @@ export function buildGoalCurve(
 ) {
   const [year, monthNumber] = month.split("-").map(Number);
   const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-  const overrides = new Map(calendarDays.filter((day) => day.affectsGoal).map((day) => [day.date, day.type]));
+  const overrides = new Map(
+    calendarDays.filter((day) => day.affectsGoal).map((day) => [day.date, day.type]),
+  );
   const businessDates: string[] = [];
   for (let day = 1; day <= lastDay; day += 1) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     const weekday = new Date(Date.UTC(year, monthNumber - 1, day)).getUTCDay();
     const override = overrides.get(date);
-    if (override === "extra_work" || (weekday !== 0 && weekday !== 6 && !override)) businessDates.push(date);
+    if (override === "extra_work" || (weekday !== 0 && weekday !== 6 && !override))
+      businessDates.push(date);
   }
   const businessSet = new Set(businessDates);
   const baseDaily = businessDates.length ? targetValue / businessDates.length : 0;
@@ -64,21 +71,23 @@ export function buildGoalCurve(
   let realized = 0;
   let weekValue = 0;
   let weekCount = 0;
+  const todayDate = new Date(`${today}T12:00:00Z`);
+  const weekStartDate = new Date(todayDate);
+  weekStartDate.setUTCDate(todayDate.getUTCDate() - ((todayDate.getUTCDay() + 6) % 7));
+  const weekStart = weekStartDate.toISOString().slice(0, 10);
+  const weekEndDate = new Date(weekStartDate);
+  weekEndDate.setUTCDate(weekStartDate.getUTCDate() + 6);
+  const weekEnd = weekEndDate.toISOString().slice(0, 10);
+  const weekTargetValue =
+    businessDates.filter((date) => date >= weekStart && date <= weekEnd).length * baseDaily;
   const points = Array.from({ length: lastDay }, (_, index) => {
     const date = `${month}-${String(index + 1).padStart(2, "0")}`;
     const sold = dailyWon.get(date) || { count: 0, value: 0 };
     if (businessSet.has(date)) expected += baseDaily;
     if (date <= today) realized += sold.value;
-    if (date <= today && date >= today.slice(0, 8) + "01") {
-      const dateObj = new Date(`${date}T12:00:00Z`);
-      const todayObj = new Date(`${today}T12:00:00Z`);
-      const daysFromMonday = (todayObj.getUTCDay() + 6) % 7;
-      const weekStart = new Date(todayObj);
-      weekStart.setUTCDate(todayObj.getUTCDate() - daysFromMonday);
-      if (dateObj >= weekStart) {
-        weekValue += sold.value;
-        weekCount += sold.count;
-      }
+    if (date >= weekStart && date <= today) {
+      weekValue += sold.value;
+      weekCount += sold.count;
     }
     return {
       date,
@@ -90,5 +99,13 @@ export function buildGoalCurve(
     };
   });
   const pacing = calculateBusinessPacing(month, today, targetValue, realized, calendarDays);
-  return { points, pacing, todayWon: dailyWon.get(today) || { count: 0, value: 0 }, weekWon: { count: weekCount, value: weekValue } };
+  return {
+    points,
+    pacing,
+    todayTargetValue: businessSet.has(today) ? baseDaily : 0,
+    todayWon: dailyWon.get(today) || { count: 0, value: 0 },
+    weekWon: { count: weekCount, value: weekValue },
+    weekTargetValue,
+    weekGapValue: Math.max(0, weekTargetValue - weekValue),
+  };
 }

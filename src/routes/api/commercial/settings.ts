@@ -37,6 +37,7 @@ export const Route = createFileRoute("/api/commercial/settings")({
               excludedStageIds: [],
               slaLimitMinutes: 15,
               slaBuckets: [5, 15, 30],
+              lossReasonCategories: [],
               tvSettings: { rotationSeconds: 30, activeModules: [0, 1, 2, 3, 4, 5] },
             },
             stages,
@@ -68,6 +69,52 @@ export const Route = createFileRoute("/api/commercial/settings")({
               ]
             : [];
           const slaLimitMinutes = Number(body.slaLimitMinutes);
+          const slaBuckets = body.slaBuckets === undefined ? null : body.slaBuckets;
+          const lossReasonCategories =
+            body.lossReasonCategories === undefined ? null : body.lossReasonCategories;
+          const validLossCategories =
+            lossReasonCategories === null ||
+            (Array.isArray(lossReasonCategories) &&
+              lossReasonCategories.length <= 30 &&
+              lossReasonCategories.every(
+                (category) =>
+                  category &&
+                  typeof category.name === "string" &&
+                  category.name.trim().length >= 2 &&
+                  category.name.trim().length <= 100 &&
+                  Array.isArray(category.reasons) &&
+                  category.reasons.length <= 100 &&
+                  category.reasons.every(
+                    (reason: unknown) =>
+                      typeof reason === "string" &&
+                      reason.trim().length >= 2 &&
+                      reason.trim().length <= 160,
+                  ),
+              ) &&
+              new Set(
+                lossReasonCategories.map((category) =>
+                  category.name.trim().toLocaleLowerCase("pt-BR"),
+                ),
+              ).size === lossReasonCategories.length &&
+              new Set(
+                lossReasonCategories.flatMap((category) =>
+                  category.reasons.map((reason: string) =>
+                    reason.trim().toLocaleLowerCase("pt-BR"),
+                  ),
+                ),
+              ).size ===
+                lossReasonCategories.reduce((sum, category) => sum + category.reasons.length, 0));
+          const validBuckets =
+            slaBuckets === null ||
+            (Array.isArray(slaBuckets) &&
+              slaBuckets.length === 3 &&
+              slaBuckets.every(
+                (value, index) =>
+                  Number.isInteger(value) &&
+                  value >= 1 &&
+                  value <= 1440 &&
+                  (index === 0 || value > slaBuckets[index - 1]),
+              ));
           const rotationSeconds = Number(body.tvSettings?.rotationSeconds);
           const activeModules: number[] = Array.isArray(body.tvSettings?.activeModules)
             ? body.tvSettings.activeModules
@@ -94,6 +141,8 @@ export const Route = createFileRoute("/api/commercial/settings")({
             !Number.isInteger(slaLimitMinutes) ||
             slaLimitMinutes < 1 ||
             slaLimitMinutes > 1440 ||
+            !validBuckets ||
+            !validLossCategories ||
             !Number.isInteger(rotationSeconds) ||
             rotationSeconds < 10 ||
             rotationSeconds > 300 ||
@@ -123,6 +172,8 @@ export const Route = createFileRoute("/api/commercial/settings")({
               maturityRules: rules,
               excludedStageIds,
               slaLimitMinutes,
+              slaBuckets: slaBuckets || [5, 15, 30],
+              lossReasonCategories: lossReasonCategories || [],
               tvSettings: { rotationSeconds, activeModules },
               updatedByOperatorId: session.operator.id,
             })
@@ -132,6 +183,8 @@ export const Route = createFileRoute("/api/commercial/settings")({
                 maturityRules: rules,
                 excludedStageIds,
                 slaLimitMinutes,
+                ...(slaBuckets ? { slaBuckets } : {}),
+                ...(lossReasonCategories ? { lossReasonCategories } : {}),
                 tvSettings: { rotationSeconds, activeModules },
                 updatedByOperatorId: session.operator.id,
                 updatedAt: new Date(),

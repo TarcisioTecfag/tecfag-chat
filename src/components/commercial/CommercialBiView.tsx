@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { Expand, Loader2, Pause, Play, RefreshCw } from "lucide-react";
+import { CommercialForecastDrilldown } from "./CommercialForecastDrilldown";
+import {
+  CommercialCohortsPanel,
+  CommercialResponsibilitiesPanel,
+} from "./CommercialAnalysisPanels";
 
 type Tier = {
   tier: number;
@@ -86,6 +91,8 @@ const modules = [
   "Metas e ritmo",
   "Perdas",
   "TMA e SLA",
+  "Responsabilidades",
+  "Safras",
 ];
 const money = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -164,15 +171,16 @@ export function CommercialBiView() {
   const activeModules = useMemo(() => {
     const configured = data?.settings.tvSettings.activeModules;
     return Array.isArray(configured) && configured.length
-      ? configured.filter((id) => Number.isInteger(id) && id >= 0 && id < modules.length)
+      ? configured.filter((id) => Number.isInteger(id) && id >= 0 && id < 6)
       : [0, 1, 2, 3, 4, 5];
   }, [data]);
   useEffect(() => {
-    if (activeModules.length && !activeModules.includes(module)) setModule(activeModules[0]);
+    if (module < 6 && activeModules.length && !activeModules.includes(module))
+      setModule(activeModules[0]);
   }, [activeModules, module]);
 
   useTabNavigation({
-    tabs: activeModules,
+    tabs: [...new Set([...activeModules, 6, 7])],
     activeTab: module,
     onChange: setModule,
   });
@@ -292,7 +300,7 @@ export function CommercialBiView() {
         <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Módulos do War Room">
           {modules.map(
             (name, index) =>
-              activeModules.includes(index) && (
+              (activeModules.includes(index) || index >= 6) && (
                 <button
                   key={name}
                   onClick={() => {
@@ -322,7 +330,7 @@ export function CommercialBiView() {
             {pointResult}
           </p>
         )}
-        {(module === 1 || module === 2) && selectedDeals.length > 0 && (
+        {module === 1 && selectedDeals.length > 0 && (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 p-3 text-sm">
             <span>
               {selectedDeals.length} negócio(s) de {selectedDeals[0].operatorName} selecionado(s).
@@ -450,57 +458,11 @@ export function CommercialBiView() {
               )}
               {module === 2 && (
                 <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                    {data.maturity.tiers.map((tier) => (
-                      <Metric
-                        key={tier.tier}
-                        label={`Faixa ${tier.tier} · ${tier.days} dias`}
-                        value={money.format(tier.expectedValue)}
-                        hint={`${tier.pendingCount} por maturar · previsão com conversão`}
-                      />
-                    ))}
-                  </div>
-                  <div className={surface}>
-                    <p className={badge}>Responsabilidades previstas</p>
-                    <h2 className="mt-1 text-xl font-bold">Próximos movimentos</h2>
-                    <div className="mt-4 space-y-2">
-                      {data.maturity.cohorts
-                        .filter((item) => item.daysRemaining > 0)
-                        .slice(0, 30)
-                        .map((item) => (
-                          <div
-                            key={item.dealId}
-                            className="flex w-full flex-wrap justify-between gap-2 rounded-xl border border-white/10 p-3 text-left hover:border-red-500/50"
-                          >
-                            <span className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                aria-label={`Pontuar responsabilidade de ${item.title}`}
-                                checked={selectedDealIds.includes(item.dealId)}
-                                onChange={() => toggleDeal(item)}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => openDeal(item.dealId)}
-                                className="text-left hover:underline"
-                              >
-                                <strong>{item.title}</strong>
-                              </button>
-                              <small className="ml-2 text-zinc-400">
-                                {item.operatorName} · em {item.daysRemaining} dia(s)
-                              </small>
-                            </span>
-                            <span className="font-bold">
-                              {money.format(item.expectedValue)}{" "}
-                              <small className="font-normal text-zinc-400">previstos</small>
-                            </span>
-                          </div>
-                        ))}
-                      {!data.maturity.cohorts.some((item) => item.daysRemaining > 0) && (
-                        <Empty text="Nenhuma responsabilidade futura nesta divisão." />
-                      )}
-                    </div>
-                  </div>
+                  <CommercialForecastDrilldown
+                    division={division}
+                    onOpenDeal={openDeal}
+                    onPointed={() => void load()}
+                  />
                 </div>
               )}
               {module === 3 && (
@@ -637,6 +599,10 @@ export function CommercialBiView() {
                   </div>
                 </div>
               )}
+              {module === 6 && (
+                <CommercialResponsibilitiesPanel division={division} onOpenDeal={openDeal} />
+              )}
+              {module === 7 && <CommercialCohortsPanel division={division} onOpenDeal={openDeal} />}
             </>
           )
         )}

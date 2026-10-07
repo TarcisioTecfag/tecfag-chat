@@ -44,6 +44,9 @@ export function CommercialEvidenceDialog({
   const [emailContent, setEmailContent] = useState("");
   const [nextAction, setNextAction] = useState<"" | "won" | "lost" | "continue">("");
   const [nextActionActivityId, setNextActionActivityId] = useState("");
+  const [nextTaskTitle, setNextTaskTitle] = useState("");
+  const [nextTaskDescription, setNextTaskDescription] = useState("");
+  const [nextTaskDueAt, setNextTaskDueAt] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -90,7 +93,16 @@ export function CommercialEvidenceDialog({
             source,
             summary,
             nextAction,
-            nextActionActivityId,
+            nextActionActivityId:
+              nextActionActivityId === "__new__" ? undefined : nextActionActivityId,
+            nextActionTask:
+              nextAction === "continue" && nextActionActivityId === "__new__"
+                ? {
+                    title: nextTaskTitle,
+                    description: nextTaskDescription,
+                    dueAt: new Date(nextTaskDueAt).toISOString(),
+                  }
+                : undefined,
             emailContent:
               source === "manual_report" && channel === "email" ? emailContent : undefined,
             callId: source === "internal_record" && channel === "call" ? recordId : undefined,
@@ -290,6 +302,7 @@ export function CommercialEvidenceDialog({
                     className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
                   >
                     <option value="">Selecionar tarefa</option>
+                    <option value="__new__">Criar nova tarefa agora</option>
                     {data?.tasks.map((task) => (
                       <option key={task.id} value={task.id}>
                         {task.title} · {new Date(task.dueDate).toLocaleString("pt-BR")}
@@ -297,6 +310,40 @@ export function CommercialEvidenceDialog({
                     ))}
                   </select>
                 </label>
+              )}
+              {nextAction === "continue" && nextActionActivityId === "__new__" && (
+                <div className="mt-3 space-y-2">
+                  <label className="block text-xs font-bold text-foreground">
+                    Título da próxima tarefa
+                    <input
+                      required
+                      minLength={3}
+                      maxLength={160}
+                      value={nextTaskTitle}
+                      onChange={(event) => setNextTaskTitle(event.target.value)}
+                      className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block text-xs font-bold text-foreground">
+                    Prazo futuro
+                    <input
+                      required
+                      type="datetime-local"
+                      value={nextTaskDueAt}
+                      onChange={(event) => setNextTaskDueAt(event.target.value)}
+                      className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block text-xs font-bold text-foreground">
+                    Detalhes (opcional)
+                    <textarea
+                      maxLength={2000}
+                      value={nextTaskDescription}
+                      onChange={(event) => setNextTaskDescription(event.target.value)}
+                      className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
               )}
               {nextAction && (
                 <button
@@ -344,7 +391,12 @@ export function CommercialEvidenceDialog({
                 disabled={
                   saving ||
                   !nextAction ||
-                  (nextAction === "continue" && !nextActionActivityId) ||
+                  (nextAction === "continue" &&
+                    (!nextActionActivityId ||
+                      (nextActionActivityId === "__new__" &&
+                        (nextTaskTitle.trim().length < 3 ||
+                          !nextTaskDueAt ||
+                          new Date(nextTaskDueAt) <= new Date())))) ||
                   (source === "internal_record" &&
                     (channel === "whatsapp" ? messageIds.length === 0 : !recordId))
                 }

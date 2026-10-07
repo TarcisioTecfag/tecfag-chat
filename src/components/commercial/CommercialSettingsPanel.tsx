@@ -5,6 +5,8 @@ type Settings = {
   maturityRules: MaturityRule[];
   excludedStageIds: string[];
   slaLimitMinutes: number;
+  slaBuckets: number[];
+  lossReasonCategories: Array<{ name: string; reasons: string[] }>;
   tvSettings: { rotationSeconds: number; activeModules: number[] };
 };
 type Stage = { id: string; name: string; pipelineId: string };
@@ -44,6 +46,9 @@ export function CommercialSettingsPanel() {
                 : DEFAULT_MATURITY_RULES,
             excludedStageIds: body.settings.excludedStageIds || [],
             slaLimitMinutes: body.settings.slaLimitMinutes || 15,
+            slaBuckets:
+              body.settings.slaBuckets?.length === 3 ? body.settings.slaBuckets : [5, 15, 30],
+            lossReasonCategories: body.settings.lossReasonCategories || [],
             tvSettings: {
               rotationSeconds: body.settings.tvSettings?.rotationSeconds || 30,
               activeModules: body.settings.tvSettings?.activeModules || [0, 1, 2, 3, 4, 5],
@@ -73,7 +78,13 @@ export function CommercialSettingsPanel() {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          ...settings,
+          lossReasonCategories: settings.lossReasonCategories.map((category) => ({
+            name: category.name.trim(),
+            reasons: category.reasons.map((reason) => reason.trim()).filter(Boolean),
+          })),
+        }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Falha ao salvar configurações.");
@@ -208,6 +219,96 @@ export function CommercialSettingsPanel() {
         </div>
       </section>
       <section className="rounded-2xl border border-border bg-card p-5">
+        <h2 className="text-sm font-extrabold text-foreground">Categorias de perdas</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Associe os motivos cadastrados no CRM às categorias do BI. Motivos sem associação aparecem
+          em “Sem categoria”. Um motivo pode pertencer a uma categoria.
+        </p>
+        <div className="mt-4 space-y-3">
+          {settings.lossReasonCategories.map((category, index) => (
+            <div key={index} className="rounded-xl border border-border p-3">
+              <div className="flex gap-2">
+                <input
+                  aria-label={`Nome da categoria ${index + 1}`}
+                  value={category.name}
+                  onChange={(event) =>
+                    setSettings(
+                      (current) =>
+                        current && {
+                          ...current,
+                          lossReasonCategories: current.lossReasonCategories.map(
+                            (item, position) =>
+                              position === index ? { ...item, name: event.target.value } : item,
+                          ),
+                        },
+                    )
+                  }
+                  placeholder="Nome da categoria"
+                  className={field}
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSettings(
+                      (current) =>
+                        current && {
+                          ...current,
+                          lossReasonCategories: current.lossReasonCategories.filter(
+                            (_, position) => position !== index,
+                          ),
+                        },
+                    )
+                  }
+                  className="rounded border border-border px-3 text-xs"
+                >
+                  Excluir
+                </button>
+              </div>
+              <label className="mt-2 block text-xs text-muted-foreground">
+                Motivos do CRM, um por linha
+                <textarea
+                  value={category.reasons.join("\n")}
+                  onChange={(event) =>
+                    setSettings(
+                      (current) =>
+                        current && {
+                          ...current,
+                          lossReasonCategories: current.lossReasonCategories.map(
+                            (item, position) =>
+                              position === index
+                                ? { ...item, reasons: event.target.value.split("\n") }
+                                : item,
+                          ),
+                        },
+                    )
+                  }
+                  rows={3}
+                  className={`${field} mt-1`}
+                />
+              </label>
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            setSettings(
+              (current) =>
+                current && {
+                  ...current,
+                  lossReasonCategories: [
+                    ...current.lossReasonCategories,
+                    { name: "", reasons: [] },
+                  ],
+                },
+            )
+          }
+          className="mt-3 rounded-lg border border-border px-3 py-2 text-xs font-bold"
+        >
+          Adicionar categoria
+        </button>
+      </section>
+      <section className="rounded-2xl border border-border bg-card p-5">
         <h2 className="text-sm font-extrabold text-foreground">SLA e TV</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="text-xs text-muted-foreground">
@@ -250,6 +351,37 @@ export function CommercialSettingsPanel() {
               className={`${field} mt-1`}
             />
           </label>
+        </div>
+        <p className="mt-4 text-xs font-bold text-foreground">Limites das quatro faixas de TMA</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Informe três limites crescentes em minutos; a quarta faixa contém respostas acima do
+          último limite.
+        </p>
+        <div className="mt-2 grid gap-3 sm:grid-cols-3">
+          {settings.slaBuckets.map((value, index) => (
+            <label key={index} className="text-xs text-muted-foreground">
+              Limite {index + 1} (minutos)
+              <input
+                required
+                type="number"
+                min="1"
+                max="1440"
+                value={value}
+                onChange={(event) =>
+                  setSettings(
+                    (current) =>
+                      current && {
+                        ...current,
+                        slaBuckets: current.slaBuckets.map((item, position) =>
+                          position === index ? Number(event.target.value) : item,
+                        ),
+                      },
+                  )
+                }
+                className={`${field} mt-1`}
+              />
+            </label>
+          ))}
         </div>
         <p className="mt-4 text-xs font-bold text-foreground">Módulos ativos e ordem de rotação</p>
         <div className="mt-2 space-y-2">

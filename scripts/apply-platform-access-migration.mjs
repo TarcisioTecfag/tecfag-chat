@@ -112,6 +112,14 @@ const migrations = [
     name: "0029_commercial_directive_snapshot",
     url: new URL("../src/db/migrations/0029_commercial_directive_snapshot.sql", import.meta.url),
   },
+  {
+    name: "0030_commercial_loss_taxonomy",
+    url: new URL("../src/db/migrations/0030_commercial_loss_taxonomy.sql", import.meta.url),
+  },
+  {
+    name: "0031_commercial_consultant_rd_link",
+    url: new URL("../src/db/migrations/0031_commercial_consultant_rd_link.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

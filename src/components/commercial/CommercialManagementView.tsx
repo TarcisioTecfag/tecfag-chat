@@ -15,6 +15,10 @@ import { saoPauloDay } from "@/lib/commercial/metrics";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CommercialSettingsPanel } from "./CommercialSettingsPanel";
+import { CommercialOperationalPanel } from "./CommercialAnalysisPanels";
+import { CommercialGoalsView } from "./CommercialGoalsView";
+import { CommercialConsultantsView, type ConsultantRow } from "./CommercialConsultantsView";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { useNavigate } from "@tanstack/react-router";
 
 const COMMERCIAL_TABS = [
@@ -23,19 +27,13 @@ const COMMERCIAL_TABS = [
   { id: "calendar", label: "Calendário", icon: CalendarDays },
   { id: "directives", label: "Diretrizes", icon: ClipboardCheck },
   { id: "evidence", label: "Evidências", icon: FileCheck },
+  { id: "operation", label: "Operação", icon: BarChart2 },
   { id: "settings", label: "Configurações", icon: Settings2 },
 ] as const;
 
 type CommercialTab = (typeof COMMERCIAL_TABS)[number]["id"];
 
-type Consultant = {
-  operatorId: string;
-  name: string;
-  email: string;
-  avatar: string | null;
-  division: string | null;
-  activeOnTv: boolean | null;
-};
+type Consultant = ConsultantRow;
 type Goal = {
   id: string;
   operatorId: string;
@@ -133,11 +131,6 @@ export function CommercialManagementView() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [goalForm, setGoalForm] = useState({
-    operatorId: "",
-    targetValue: "",
-    conversionRate: "10",
-  });
   const [directiveForm, setDirectiveForm] = useState({
     dealId: "",
     assignedToOperatorId: "",
@@ -183,7 +176,6 @@ export function CommercialManagementView() {
     void load();
   }, [load]);
 
-  const goalMap = useMemo(() => new Map(goals.map((goal) => [goal.operatorId, goal])), [goals]);
   const consultantMap = useMemo(
     () => new Map(consultants.map((consultant) => [consultant.operatorId, consultant.name])),
     [consultants],
@@ -203,45 +195,6 @@ export function CommercialManagementView() {
     ? selectedCalendarDate
     : `${month}-01`;
   const selectedClosing = calendarClosingMap.get(calendarSelectedDate);
-
-  async function saveProfile(consultant: Consultant) {
-    if (!consultant.division) {
-      setError("Escolha Personnalité ou Máquinas antes de salvar.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await postJson("/api/commercial/consultants", {
-        operatorId: consultant.operatorId,
-        division: consultant.division,
-        activeOnTv: consultant.activeOnTv ?? true,
-      });
-      setNotice(`Consultor ${consultant.name} atualizado.`);
-      await load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Falha ao salvar consultor.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveGoal(event: React.FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await postJson("/api/commercial/goals", { month, ...goalForm });
-      setNotice("Meta comercial salva.");
-      await load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Falha ao salvar meta.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function saveDirective(event: React.FormEvent) {
     event.preventDefault();
@@ -312,22 +265,26 @@ export function CommercialManagementView() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setActiveView("commercialBi")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:brightness-110 transition shadow-soft cursor-pointer"
-          >
-            <BarChart2 className="h-3.5 w-3.5" />
-            <span>Abrir War Room</span>
-          </button>
-          <button
-            onClick={() => void load()}
-            disabled={loading}
-            title="Atualizar agora"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
-            <span>Atualizar</span>
-          </button>
+          <SystemTooltip content="Abrir cockpit executivo do War Room">
+            <button
+              onClick={() => setActiveView("commercialBi")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:brightness-110 transition shadow-soft cursor-pointer"
+            >
+              <BarChart2 className="h-3.5 w-3.5" />
+              <span>Abrir War Room</span>
+            </button>
+          </SystemTooltip>
+
+          <SystemTooltip content="Atualizar dados agora">
+            <button
+              onClick={() => void load()}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
+              <span>Atualizar</span>
+            </button>
+          </SystemTooltip>
         </div>
       </div>
 
@@ -337,18 +294,19 @@ export function CommercialManagementView() {
           const Icon = t.icon;
           const isActive = tab === t.id;
           return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                isActive
-                  ? "bg-primary text-primary-foreground shadow-soft"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {t.label}
-            </button>
+            <SystemTooltip key={t.id} content={`Acessar aba ${t.label}`}>
+              <button
+                onClick={() => setTab(t.id)}
+                className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-soft"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {t.label}
+              </button>
+            </SystemTooltip>
           );
         })}
       </div>
@@ -356,652 +314,493 @@ export function CommercialManagementView() {
       {/* Scrollable Content Area */}
       <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
         <div className="mx-auto max-w-[1400px] space-y-6">
-        {error && (
-          <p
-            role="alert"
-            className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
-          >
-            {error}
-          </p>
-        )}
-        {notice && (
-          <p
-            role="status"
-            className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
-          >
-            {notice}
-          </p>
-        )}
-        {loading ? (
-          <div className="flex min-h-[250px] items-center justify-center text-primary">
-            <Loader2 className="h-7 w-7 animate-spin" />
-          </div>
-        ) : (
-          <>
-            {tab === "consultants" && (
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Associe cada operador a uma das duas divisões comerciais. Apenas consultores
-                  marcados aparecem na TV.
-                </p>
-                {consultants.map((consultant) => (
-                  <div
-                    key={consultant.operatorId}
-                    className="grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-[minmax(190px,1fr)_minmax(160px,220px)_120px_90px] sm:items-center"
+          {error && (
+            <p
+              role="alert"
+              className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
+            >
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p
+              role="status"
+              className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+            >
+              {notice}
+            </p>
+          )}
+          {loading ? (
+            <div className="flex min-h-[250px] items-center justify-center text-primary">
+              <Loader2 className="h-7 w-7 animate-spin" />
+            </div>
+          ) : (
+            <>
+              {tab === "consultants" && (
+                <CommercialConsultantsView
+                  consultants={consultants}
+                  loading={loading}
+                  onRefresh={load}
+                />
+              )}
+
+              {tab === "goals" && <CommercialGoalsView initialMonth={month} />}
+
+              {tab === "calendar" && (
+                <div className="space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Feriados, pontes, suspensões e expediente extra ajustam os dias úteis usados no
+                    ritmo das metas.
+                  </p>
+                  <form
+                    onSubmit={(event) => void saveCalendarDay(event)}
+                    className="grid gap-3 rounded-2xl border border-border bg-card p-5 sm:grid-cols-[150px_170px_minmax(180px,1fr)_150px_100px] sm:items-end"
                   >
-                    <div>
-                      <strong className="text-sm text-foreground">{consultant.name}</strong>
-                      <p className="text-xs text-muted-foreground">{consultant.email}</p>
-                    </div>
-                    <select
-                      aria-label={`Divisão de ${consultant.name}`}
-                      value={consultant.division || ""}
-                      onChange={(event) =>
-                        setConsultants((rows) =>
-                          rows.map((row) =>
-                            row.operatorId === consultant.operatorId
-                              ? { ...row, division: event.target.value }
-                              : row,
-                          ),
-                        )
-                      }
-                      className={fieldClass}
-                    >
-                      <option value="">Selecionar divisão</option>
-                      <option value="personnalite">Personnalité</option>
-                      <option value="maquinas">Máquinas</option>
-                    </select>
-                    <label className="flex items-center gap-2 text-xs text-foreground">
+                    <label className={labelClass}>
+                      Data
+                      <input
+                        required
+                        type="date"
+                        value={calendarForm.date}
+                        onChange={(event) =>
+                          setCalendarForm((current) => ({ ...current, date: event.target.value }))
+                        }
+                        className={`${fieldClass} mt-1`}
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      Tipo
+                      <select
+                        value={calendarForm.type}
+                        onChange={(event) =>
+                          setCalendarForm((current) => ({ ...current, type: event.target.value }))
+                        }
+                        className={`${fieldClass} mt-1`}
+                      >
+                        <option value="holiday">Feriado</option>
+                        <option value="bridge">Ponte</option>
+                        <option value="suspension">Suspensão</option>
+                        <option value="extra_work">Expediente extra</option>
+                      </select>
+                    </label>
+                    <label className={labelClass}>
+                      Descrição
+                      <input
+                        required
+                        maxLength={200}
+                        value={calendarForm.description}
+                        onChange={(event) =>
+                          setCalendarForm((current) => ({
+                            ...current,
+                            description: event.target.value,
+                          }))
+                        }
+                        className={`${fieldClass} mt-1`}
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 pb-2 text-xs text-foreground">
                       <input
                         type="checkbox"
-                        checked={consultant.activeOnTv ?? true}
+                        checked={calendarForm.affectsGoal}
                         onChange={(event) =>
-                          setConsultants((rows) =>
-                            rows.map((row) =>
-                              row.operatorId === consultant.operatorId
-                                ? { ...row, activeOnTv: event.target.checked }
-                                : row,
-                            ),
-                          )
+                          setCalendarForm((current) => ({
+                            ...current,
+                            affectsGoal: event.target.checked,
+                          }))
                         }
                       />
-                      Na TV
+                      Afeta a meta
                     </label>
                     <button
-                      onClick={() => void saveProfile(consultant)}
+                      type="submit"
                       disabled={saving}
-                      className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                      className="rounded-xl bg-primary px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50"
                     >
                       Salvar
                     </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {tab === "goals" && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <CalendarDays className="h-4 w-4 text-primary" />
-                  <label className={labelClass}>
-                    Mês comercial{" "}
-                    <input
-                      type="month"
-                      value={month}
-                      onChange={(event) => setMonth(event.target.value)}
-                      className={`${fieldClass} mt-1 max-w-[200px]`}
-                    />
-                  </label>
-                </div>
-                <form
-                  onSubmit={(event) => void saveGoal(event)}
-                  className="grid gap-3 rounded-2xl border border-border bg-card p-5 sm:grid-cols-[minmax(180px,1fr)_180px_140px_110px] sm:items-end"
-                >
-                  <label className={labelClass}>
-                    Consultor
-                    <select
-                      required
-                      value={goalForm.operatorId}
-                      onChange={(event) => {
-                        const operatorId = event.target.value;
-                        const current = goalMap.get(operatorId);
-                        setGoalForm({
-                          operatorId,
-                          targetValue: current?.targetValue || "",
-                          conversionRate: current?.conversionRate || "10",
-                        });
-                      }}
-                      className={`${fieldClass} mt-1`}
-                    >
-                      <option value="">Selecionar</option>
-                      {consultants
-                        .filter((item) => item.division)
-                        .map((item) => (
-                          <option key={item.operatorId} value={item.operatorId}>
-                            {item.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <label className={labelClass}>
-                    Meta em R$
-                    <input
-                      required
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={goalForm.targetValue}
-                      onChange={(event) =>
-                        setGoalForm((current) => ({ ...current, targetValue: event.target.value }))
-                      }
-                      className={`${fieldClass} mt-1`}
-                    />
-                  </label>
-                  <label className={labelClass}>
-                    Conversão %
-                    <input
-                      required
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={goalForm.conversionRate}
-                      onChange={(event) =>
-                        setGoalForm((current) => ({
-                          ...current,
-                          conversionRate: event.target.value,
-                        }))
-                      }
-                      className={`${fieldClass} mt-1`}
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="rounded-xl bg-primary px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50"
-                  >
-                    Salvar meta
-                  </button>
-                </form>
-                <div className="rounded-2xl border border-border bg-card p-5">
-                  <h2 className="mb-3 text-sm font-extrabold text-foreground">Metas cadastradas</h2>
-                  {goals.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhuma meta definida para este mês.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {goals.map((goal) => (
-                        <div
-                          key={goal.id}
-                          className="flex flex-wrap justify-between gap-2 border-b border-border py-2 text-sm last:border-0"
-                        >
-                          <span className="font-semibold text-foreground">{goal.operatorName}</span>
-                          <span className="text-muted-foreground">
-                            {currency.format(Number(goal.targetValue))} · {goal.conversionRate}%
-                            conversão
-                          </span>
+                  </form>
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-primary">
+                          Fechamentos do mês
+                        </p>
+                        <h2 className="mt-1 text-lg font-extrabold text-foreground">
+                          Calendário comercial
+                        </h2>
+                      </div>
+                      <strong className="text-sm text-foreground">
+                        {currency.format(closings.reduce((total, item) => total + item.value, 0))}{" "}
+                        faturado
+                      </strong>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[630px]">
+                        <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase text-muted-foreground">
+                          {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => (
+                            <span key={day} className="pb-2">
+                              {day}
+                            </span>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {tab === "calendar" && (
-              <div className="space-y-4">
-                <p className="text-xs text-muted-foreground">
-                  Feriados, pontes, suspensões e expediente extra ajustam os dias úteis usados no
-                  ritmo das metas.
-                </p>
-                <form
-                  onSubmit={(event) => void saveCalendarDay(event)}
-                  className="grid gap-3 rounded-2xl border border-border bg-card p-5 sm:grid-cols-[150px_170px_minmax(180px,1fr)_150px_100px] sm:items-end"
-                >
-                  <label className={labelClass}>
-                    Data
-                    <input
-                      required
-                      type="date"
-                      value={calendarForm.date}
-                      onChange={(event) =>
-                        setCalendarForm((current) => ({ ...current, date: event.target.value }))
-                      }
-                      className={`${fieldClass} mt-1`}
-                    />
-                  </label>
-                  <label className={labelClass}>
-                    Tipo
-                    <select
-                      value={calendarForm.type}
-                      onChange={(event) =>
-                        setCalendarForm((current) => ({ ...current, type: event.target.value }))
-                      }
-                      className={`${fieldClass} mt-1`}
-                    >
-                      <option value="holiday">Feriado</option>
-                      <option value="bridge">Ponte</option>
-                      <option value="suspension">Suspensão</option>
-                      <option value="extra_work">Expediente extra</option>
-                    </select>
-                  </label>
-                  <label className={labelClass}>
-                    Descrição
-                    <input
-                      required
-                      maxLength={200}
-                      value={calendarForm.description}
-                      onChange={(event) =>
-                        setCalendarForm((current) => ({
-                          ...current,
-                          description: event.target.value,
-                        }))
-                      }
-                      className={`${fieldClass} mt-1`}
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 pb-2 text-xs text-foreground">
-                    <input
-                      type="checkbox"
-                      checked={calendarForm.affectsGoal}
-                      onChange={(event) =>
-                        setCalendarForm((current) => ({
-                          ...current,
-                          affectsGoal: event.target.checked,
-                        }))
-                      }
-                    />
-                    Afeta a meta
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="rounded-xl bg-primary px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50"
-                  >
-                    Salvar
-                  </button>
-                </form>
-                <div className="rounded-2xl border border-border bg-card p-5">
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-widest text-primary">
-                        Fechamentos do mês
-                      </p>
-                      <h2 className="mt-1 text-lg font-extrabold text-foreground">
-                        Calendário comercial
-                      </h2>
-                    </div>
-                    <strong className="text-sm text-foreground">
-                      {currency.format(closings.reduce((total, item) => total + item.value, 0))}{" "}
-                      faturado
-                    </strong>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <div className="min-w-[630px]">
-                      <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase text-muted-foreground">
-                        {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => (
-                          <span key={day} className="pb-2">
-                            {day}
-                          </span>
-                        ))}
+                        <div className="grid grid-cols-7 gap-1">
+                          {Array.from({ length: calendarOffset }, (_, index) => (
+                            <span key={`empty-${index}`} />
+                          ))}
+                          {Array.from({ length: calendarLastDay }, (_, index) => {
+                            const date = `${month}-${String(index + 1).padStart(2, "0")}`;
+                            const closing = calendarClosingMap.get(date);
+                            const override = calendarOverrideMap.get(date);
+                            return (
+                              <button
+                                key={date}
+                                onClick={() => setSelectedCalendarDate(date)}
+                                className={`min-h-20 rounded-lg border p-2 text-left ${calendarSelectedDate === date ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}
+                              >
+                                <strong className="text-xs text-foreground">{index + 1}</strong>
+                                {closing && (
+                                  <span className="mt-1 block text-[10px] font-bold text-primary">
+                                    {closing.count} ganho{closing.count === 1 ? "" : "s"}
+                                    <br />
+                                    {currency.format(closing.value)}
+                                  </span>
+                                )}
+                                {override && (
+                                  <SystemTooltip content={override.description}>
+                                    <span className="mt-1 block truncate text-[9px] text-muted-foreground">
+                                      {override.description}
+                                    </span>
+                                  </SystemTooltip>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="grid grid-cols-7 gap-1">
-                        {Array.from({ length: calendarOffset }, (_, index) => (
-                          <span key={`empty-${index}`} />
-                        ))}
-                        {Array.from({ length: calendarLastDay }, (_, index) => {
-                          const date = `${month}-${String(index + 1).padStart(2, "0")}`;
-                          const closing = calendarClosingMap.get(date);
-                          const override = calendarOverrideMap.get(date);
-                          return (
+                    </div>
+                    <div className="mt-4 rounded-xl bg-muted/40 p-3">
+                      <h3 className="text-xs font-bold text-foreground">
+                        {calendarSelectedDate} · {selectedClosing?.count || 0} fechamento
+                        {selectedClosing?.count === 1 ? "" : "s"}
+                      </h3>
+                      {selectedClosing?.deals.length ? (
+                        <div className="mt-2 space-y-1">
+                          {selectedClosing.deals.map((deal) => (
                             <button
-                              key={date}
-                              onClick={() => setSelectedCalendarDate(date)}
-                              className={`min-h-20 rounded-lg border p-2 text-left ${calendarSelectedDate === date ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}
+                              key={deal.id}
+                              onClick={() =>
+                                void navigate({
+                                  to: "/crm/deals/$dealId",
+                                  params: { dealId: deal.id },
+                                  search: { from: "crm" },
+                                })
+                              }
+                              className="flex w-full flex-wrap justify-between gap-2 rounded-lg border border-border bg-card p-2 text-left text-xs text-foreground hover:border-primary/40"
                             >
-                              <strong className="text-xs text-foreground">{index + 1}</strong>
-                              {closing && (
-                                <span className="mt-1 block text-[10px] font-bold text-primary">
-                                  {closing.count} ganho{closing.count === 1 ? "" : "s"}
-                                  <br />
-                                  {currency.format(closing.value)}
-                                </span>
-                              )}
-                              {override && (
-                                <span
-                                  className="mt-1 block truncate text-[9px] text-muted-foreground"
-                                  title={override.description}
-                                >
-                                  {override.description}
-                                </span>
-                              )}
+                              <span>
+                                {deal.title} · {deal.operatorName}
+                              </span>
+                              <strong>{currency.format(deal.value)}</strong>
                             </button>
-                          );
-                        })}
-                      </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Nenhuma negociação ganha neste dia.
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <div className="mt-4 rounded-xl bg-muted/40 p-3">
-                    <h3 className="text-xs font-bold text-foreground">
-                      {calendarSelectedDate} · {selectedClosing?.count || 0} fechamento
-                      {selectedClosing?.count === 1 ? "" : "s"}
-                    </h3>
-                    {selectedClosing?.deals.length ? (
-                      <div className="mt-2 space-y-1">
-                        {selectedClosing.deals.map((deal) => (
-                          <button
-                            key={deal.id}
-                            onClick={() =>
-                              void navigate({
-                                to: "/crm/deals/$dealId",
-                                params: { dealId: deal.id },
-                                search: { from: "crm" },
-                              })
-                            }
-                            className="flex w-full flex-wrap justify-between gap-2 rounded-lg border border-border bg-card p-2 text-left text-xs text-foreground hover:border-primary/40"
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="mb-3 flex items-center gap-3">
+                      <h2 className="text-sm font-extrabold text-foreground">
+                        Ajustes de expediente
+                      </h2>
+                      <input
+                        aria-label="Mês do calendário"
+                        type="month"
+                        value={month}
+                        onChange={(event) => setMonth(event.target.value)}
+                        className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
+                      />
+                    </div>
+                    {calendarDays.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        Nenhum ajuste cadastrado neste mês.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {calendarDays.map((day) => (
+                          <div
+                            key={day.id}
+                            className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-2 text-sm last:border-0"
                           >
                             <span>
-                              {deal.title} · {deal.operatorName}
+                              <strong className="text-foreground">{day.date}</strong> ·{" "}
+                              {day.description}
+                              <small className="ml-2 text-muted-foreground">
+                                {day.type === "extra_work"
+                                  ? "Expediente extra"
+                                  : day.type === "holiday"
+                                    ? "Feriado"
+                                    : day.type === "bridge"
+                                      ? "Ponte"
+                                      : "Suspensão"}
+                                {day.affectsGoal ? " · afeta meta" : ""}
+                              </small>
                             </span>
-                            <strong>{currency.format(deal.value)}</strong>
-                          </button>
+                            <button
+                              disabled={saving}
+                              onClick={() => void removeCalendarDay(day.date)}
+                              className="text-xs font-bold text-primary disabled:opacity-50"
+                            >
+                              Remover
+                            </button>
+                          </div>
                         ))}
                       </div>
-                    ) : (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Nenhuma negociação ganha neste dia.
-                      </p>
                     )}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-border bg-card p-5">
-                  <div className="mb-3 flex items-center gap-3">
-                    <h2 className="text-sm font-extrabold text-foreground">
-                      Ajustes de expediente
-                    </h2>
-                    <input
-                      aria-label="Mês do calendário"
-                      type="month"
-                      value={month}
-                      onChange={(event) => setMonth(event.target.value)}
-                      className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                    />
-                  </div>
-                  {calendarDays.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhum ajuste cadastrado neste mês.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {calendarDays.map((day) => (
-                        <div
-                          key={day.id}
-                          className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-2 text-sm last:border-0"
-                        >
-                          <span>
-                            <strong className="text-foreground">{day.date}</strong> ·{" "}
-                            {day.description}
-                            <small className="ml-2 text-muted-foreground">
-                              {day.type === "extra_work"
-                                ? "Expediente extra"
-                                : day.type === "holiday"
-                                  ? "Feriado"
-                                  : day.type === "bridge"
-                                    ? "Ponte"
-                                    : "Suspensão"}
-                              {day.affectsGoal ? " · afeta meta" : ""}
-                            </small>
-                          </span>
-                          <button
-                            disabled={saving}
-                            onClick={() => void removeCalendarDay(day.date)}
-                            className="text-xs font-bold text-primary disabled:opacity-50"
-                          >
-                            Remover
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+              )}
 
-            {tab === "directives" && (
-              <div className="space-y-4">
-                <form
-                  onSubmit={(event) => void saveDirective(event)}
-                  className="grid gap-3 rounded-2xl border border-border bg-card p-5 sm:grid-cols-2"
-                >
-                  <label className={labelClass}>
-                    Negociação aberta
-                    <select
-                      required
-                      value={directiveForm.dealId}
-                      onChange={(event) => {
-                        const dealId = event.target.value;
-                        const deal = deals.find((item) => item.id === dealId);
-                        setDirectiveForm((current) => ({
-                          ...current,
-                          dealId,
-                          assignedToOperatorId: deal?.operatorId || "",
-                        }));
-                      }}
-                      className={`${fieldClass} mt-1`}
-                    >
-                      <option value="">Selecionar negociação</option>
-                      {deals.map((deal) => (
-                        <option key={deal.id} value={deal.id}>
-                          {deal.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className={labelClass}>
-                    Consultor responsável
-                    <select
-                      required
-                      value={directiveForm.assignedToOperatorId}
-                      onChange={(event) =>
-                        setDirectiveForm((current) => ({
-                          ...current,
-                          assignedToOperatorId: event.target.value,
-                        }))
-                      }
-                      className={`${fieldClass} mt-1`}
-                    >
-                      <option value="">Selecionar consultor</option>
-                      {consultants
-                        .filter(
-                          (item) =>
-                            item.division &&
-                            item.operatorId ===
-                              deals.find((deal) => deal.id === directiveForm.dealId)?.operatorId,
-                        )
-                        .map((item) => (
-                          <option key={item.operatorId} value={item.operatorId}>
-                            {item.name}
+              {tab === "directives" && (
+                <div className="space-y-4">
+                  <form
+                    onSubmit={(event) => void saveDirective(event)}
+                    className="grid gap-3 rounded-2xl border border-border bg-card p-5 sm:grid-cols-2"
+                  >
+                    <label className={labelClass}>
+                      Negociação aberta
+                      <select
+                        required
+                        value={directiveForm.dealId}
+                        onChange={(event) => {
+                          const dealId = event.target.value;
+                          const deal = deals.find((item) => item.id === dealId);
+                          setDirectiveForm((current) => ({
+                            ...current,
+                            dealId,
+                            assignedToOperatorId: deal?.operatorId || "",
+                          }));
+                        }}
+                        className={`${fieldClass} mt-1`}
+                      >
+                        <option value="">Selecionar negociação</option>
+                        {deals.map((deal) => (
+                          <option key={deal.id} value={deal.id}>
+                            {deal.title}
                           </option>
                         ))}
-                    </select>
-                  </label>
-                  <label className={labelClass}>
-                    Data
-                    <input
-                      required
-                      type="date"
-                      value={directiveForm.assignedDate}
-                      onChange={(event) =>
-                        setDirectiveForm((current) => ({
-                          ...current,
-                          assignedDate: event.target.value,
-                        }))
-                      }
-                      className={`${fieldClass} mt-1`}
-                    />
-                  </label>
-                  <label className={labelClass}>
-                    Prioridade
-                    <select
-                      value={directiveForm.priority}
-                      onChange={(event) =>
-                        setDirectiveForm((current) => ({
-                          ...current,
-                          priority: event.target.value,
-                        }))
-                      }
-                      className={`${fieldClass} mt-1`}
+                      </select>
+                    </label>
+                    <label className={labelClass}>
+                      Consultor responsável
+                      <select
+                        required
+                        value={directiveForm.assignedToOperatorId}
+                        onChange={(event) =>
+                          setDirectiveForm((current) => ({
+                            ...current,
+                            assignedToOperatorId: event.target.value,
+                          }))
+                        }
+                        className={`${fieldClass} mt-1`}
+                      >
+                        <option value="">Selecionar consultor</option>
+                        {consultants
+                          .filter(
+                            (item) =>
+                              item.division &&
+                              item.operatorId ===
+                                deals.find((deal) => deal.id === directiveForm.dealId)?.operatorId,
+                          )
+                          .map((item) => (
+                            <option key={item.operatorId} value={item.operatorId}>
+                              {item.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className={labelClass}>
+                      Data
+                      <input
+                        required
+                        type="date"
+                        value={directiveForm.assignedDate}
+                        onChange={(event) =>
+                          setDirectiveForm((current) => ({
+                            ...current,
+                            assignedDate: event.target.value,
+                          }))
+                        }
+                        className={`${fieldClass} mt-1`}
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      Prioridade
+                      <select
+                        value={directiveForm.priority}
+                        onChange={(event) =>
+                          setDirectiveForm((current) => ({
+                            ...current,
+                            priority: event.target.value,
+                          }))
+                        }
+                        className={`${fieldClass} mt-1`}
+                      >
+                        <option value="normal">Normal</option>
+                        <option value="high">Alta</option>
+                        <option value="critical">Crítica</option>
+                      </select>
+                    </label>
+                    <label className={`${labelClass} sm:col-span-2`}>
+                      Instrução
+                      <textarea
+                        required
+                        maxLength={2000}
+                        rows={3}
+                        value={directiveForm.instruction}
+                        onChange={(event) =>
+                          setDirectiveForm((current) => ({
+                            ...current,
+                            instruction: event.target.value,
+                          }))
+                        }
+                        className={`${fieldClass} mt-1 resize-y`}
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2 sm:justify-self-end"
                     >
-                      <option value="normal">Normal</option>
-                      <option value="high">Alta</option>
-                      <option value="critical">Crítica</option>
-                    </select>
-                  </label>
-                  <label className={`${labelClass} sm:col-span-2`}>
-                    Instrução
-                    <textarea
-                      required
-                      maxLength={2000}
-                      rows={3}
-                      value={directiveForm.instruction}
-                      onChange={(event) =>
-                        setDirectiveForm((current) => ({
-                          ...current,
-                          instruction: event.target.value,
-                        }))
-                      }
-                      className={`${fieldClass} mt-1 resize-y`}
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2 sm:justify-self-end"
-                  >
-                    Atribuir diretriz
-                  </button>
-                </form>
+                      Atribuir diretriz
+                    </button>
+                  </form>
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <h2 className="mb-3 text-sm font-extrabold text-foreground">
+                      Diretrizes recentes
+                    </h2>
+                    {directives.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Nenhuma diretriz criada.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {directives.map((item) => (
+                          <div key={item.id} className="border-b border-border py-3 last:border-0">
+                            <div className="flex flex-wrap justify-between gap-2">
+                              <strong className="text-sm text-foreground">{item.dealTitle}</strong>
+                              <span className="text-xs text-muted-foreground">
+                                {item.assignedDate} · {item.status}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {consultantMap.get(item.assignedToOperatorId || "") ||
+                                "Sem responsável"}{" "}
+                              · {item.instruction}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {tab === "evidence" && (
                 <div className="rounded-2xl border border-border bg-card p-5">
-                  <h2 className="mb-3 text-sm font-extrabold text-foreground">
-                    Diretrizes recentes
+                  <h2 className="mb-2 text-sm font-extrabold text-foreground">
+                    Dossiê de execução
                   </h2>
-                  {directives.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nenhuma diretriz criada.</p>
+                  <p className="mb-4 text-xs text-muted-foreground">
+                    A origem identifica registros comprovados no sistema e relatos declarados pelo
+                    consultor.
+                  </p>
+                  {evidence.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Ainda não há evidências registradas.
+                    </p>
                   ) : (
-                    <div className="space-y-2">
-                      {directives.map((item) => (
-                        <div key={item.id} className="border-b border-border py-3 last:border-0">
-                          <div className="flex flex-wrap justify-between gap-2">
-                            <strong className="text-sm text-foreground">{item.dealTitle}</strong>
-                            <span className="text-xs text-muted-foreground">
-                              {item.assignedDate} · {item.status}
+                    <div className="space-y-3">
+                      {evidence.map((item) => (
+                        <article key={item.id} className="rounded-xl border border-border p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <strong className="text-sm text-foreground">{item.dealTitle}</strong>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {item.operatorName || "Operador"} ·{" "}
+                                {new Date(item.createdAt).toLocaleString("pt-BR", {
+                                  timeZone: "America/Sao_Paulo",
+                                })}
+                              </p>
+                            </div>
+                            <span
+                              className={`rounded-full px-2 py-1 text-[10px] font-bold ${item.source === "manual_report" ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"}`}
+                            >
+                              {item.source === "manual_report"
+                                ? "Relato manual"
+                                : item.metadata?.recordOrigin === "crm_manual"
+                                  ? "Registro manual do CRM"
+                                  : "Registro interno"}{" "}
+                              ·{" "}
+                              {item.channel === "call"
+                                ? "Ligação"
+                                : item.channel === "email"
+                                  ? "E-mail"
+                                  : "WhatsApp"}
                             </span>
                           </div>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {consultantMap.get(item.assignedToOperatorId || "") ||
-                              "Sem responsável"}{" "}
-                            · {item.instruction}
+                          <p className="mt-3 text-xs text-muted-foreground">
+                            Diretriz: {item.instruction}
                           </p>
-                        </div>
+                          <p className="mt-2 text-sm text-foreground">{item.summary}</p>
+                          <p className="mt-2 text-xs font-semibold text-primary">
+                            Próximo passo:{" "}
+                            {item.metadata?.nextAction === "won"
+                              ? "Negociação ganha"
+                              : item.metadata?.nextAction === "lost"
+                                ? "Negociação perdida"
+                                : "Tarefa futura"}
+                          </p>
+                          {item.emailSubject && (
+                            <p className="mt-2 text-xs font-semibold text-foreground">
+                              Assunto: {item.emailSubject}
+                            </p>
+                          )}
+                          {(item.emailContent || item.internalEmailContent) && (
+                            <p className="mt-2 whitespace-pre-wrap rounded-lg bg-muted p-3 text-xs text-foreground">
+                              {item.emailContent || item.internalEmailContent}
+                            </p>
+                          )}
+                          {item.callSummary && (
+                            <p className="mt-2 rounded-lg bg-muted p-3 text-xs text-foreground">
+                              Resumo da ligação: {item.callSummary}
+                            </p>
+                          )}
+                          {item.messages.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {item.messages.map((message, index) => (
+                                <p
+                                  key={`${item.id}-${index}`}
+                                  className="rounded-lg bg-muted p-2 text-xs text-foreground"
+                                >
+                                  <strong>{message.senderName}: </strong>
+                                  {message.content}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </article>
                       ))}
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {tab === "evidence" && (
-              <div className="rounded-2xl border border-border bg-card p-5">
-                <h2 className="mb-2 text-sm font-extrabold text-foreground">Dossiê de execução</h2>
-                <p className="mb-4 text-xs text-muted-foreground">
-                  A origem identifica registros comprovados no sistema e relatos declarados pelo
-                  consultor.
-                </p>
-                {evidence.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Ainda não há evidências registradas.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {evidence.map((item) => (
-                      <article key={item.id} className="rounded-xl border border-border p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <strong className="text-sm text-foreground">{item.dealTitle}</strong>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {item.operatorName || "Operador"} ·{" "}
-                              {new Date(item.createdAt).toLocaleString("pt-BR", {
-                                timeZone: "America/Sao_Paulo",
-                              })}
-                            </p>
-                          </div>
-                          <span
-                            className={`rounded-full px-2 py-1 text-[10px] font-bold ${item.source === "manual_report" ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"}`}
-                          >
-                            {item.source === "manual_report"
-                              ? "Relato manual"
-                              : item.metadata?.recordOrigin === "crm_manual"
-                                ? "Registro manual do CRM"
-                                : "Registro interno"}{" "}
-                            ·{" "}
-                            {item.channel === "call"
-                              ? "Ligação"
-                              : item.channel === "email"
-                                ? "E-mail"
-                                : "WhatsApp"}
-                          </span>
-                        </div>
-                        <p className="mt-3 text-xs text-muted-foreground">
-                          Diretriz: {item.instruction}
-                        </p>
-                        <p className="mt-2 text-sm text-foreground">{item.summary}</p>
-                        <p className="mt-2 text-xs font-semibold text-primary">
-                          Próximo passo:{" "}
-                          {item.metadata?.nextAction === "won"
-                            ? "Negociação ganha"
-                            : item.metadata?.nextAction === "lost"
-                              ? "Negociação perdida"
-                              : "Tarefa futura"}
-                        </p>
-                        {item.emailSubject && (
-                          <p className="mt-2 text-xs font-semibold text-foreground">
-                            Assunto: {item.emailSubject}
-                          </p>
-                        )}
-                        {(item.emailContent || item.internalEmailContent) && (
-                          <p className="mt-2 whitespace-pre-wrap rounded-lg bg-muted p-3 text-xs text-foreground">
-                            {item.emailContent || item.internalEmailContent}
-                          </p>
-                        )}
-                        {item.callSummary && (
-                          <p className="mt-2 rounded-lg bg-muted p-3 text-xs text-foreground">
-                            Resumo da ligação: {item.callSummary}
-                          </p>
-                        )}
-                        {item.messages.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            {item.messages.map((message, index) => (
-                              <p
-                                key={`${item.id}-${index}`}
-                                className="rounded-lg bg-muted p-2 text-xs text-foreground"
-                              >
-                                <strong>{message.senderName}: </strong>
-                                {message.content}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {tab === "settings" && <CommercialSettingsPanel />}
-          </>
-        )}
+              {tab === "settings" && <CommercialSettingsPanel />}
+              {tab === "operation" && <CommercialOperationalPanel />}
+            </>
+          )}
         </div>
       </div>
     </div>

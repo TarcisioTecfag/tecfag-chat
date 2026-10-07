@@ -9,6 +9,7 @@ import {
   crmDealActivities,
   crmDealContacts,
   crmDealEmails,
+  crmDealEvents,
   crmDeals,
   messages,
   voiceCalls,
@@ -179,6 +180,18 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
           const nextAction = body.nextAction;
           const nextActionActivityId =
             typeof body.nextActionActivityId === "string" ? body.nextActionActivityId.trim() : "";
+          const nextActionTask =
+            body.nextActionTask && typeof body.nextActionTask === "object"
+              ? (body.nextActionTask as Record<string, unknown>)
+              : null;
+          const nextTaskTitle =
+            typeof nextActionTask?.title === "string" ? nextActionTask.title.trim() : "";
+          const nextTaskDescription =
+            typeof nextActionTask?.description === "string"
+              ? nextActionTask.description.trim()
+              : "";
+          const nextTaskDueAt =
+            typeof nextActionTask?.dueAt === "string" ? new Date(nextActionTask.dueAt) : null;
           const callId = typeof body.callId === "string" ? body.callId.trim() : "";
           const emailId = typeof body.emailId === "string" ? body.emailId.trim() : "";
           const messageIds: string[] = Array.isArray(body.messageIds)
@@ -199,7 +212,16 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
             emailContent.length > 20000 ||
             messageIds.length > 20 ||
             !["won", "lost", "continue"].includes(nextAction) ||
-            (nextAction === "continue" && !nextActionActivityId) ||
+            (nextAction === "continue" && !nextActionActivityId && !nextActionTask) ||
+            (nextAction === "continue" && nextActionActivityId && nextActionTask) ||
+            (nextAction !== "continue" && (nextActionActivityId || nextActionTask)) ||
+            (nextActionTask &&
+              (nextTaskTitle.length < 3 ||
+                nextTaskTitle.length > 160 ||
+                nextTaskDescription.length > 2000 ||
+                !nextTaskDueAt ||
+                !Number.isFinite(nextTaskDueAt.getTime()) ||
+                nextTaskDueAt <= new Date())) ||
             (source === "internal_record" &&
               ((channel === "call" && !callId) ||
                 (channel === "email" && !emailId) ||
@@ -256,27 +278,26 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
             if (nextAction === "continue") {
               if (deal.status !== "open")
                 return { status: 409, error: "Continuidade exige uma negociação aberta." };
-              const [task] = await tx
-                .select({ id: crmDealActivities.id })
-                .from(crmDealActivities)
-                .where(
-                  and(
-                    eq(crmDealActivities.tenantId, tenantId),
-                    eq(crmDealActivities.dealId, directive.dealId),
-                    eq(crmDealActivities.id, nextActionActivityId),
-                    eq(crmDealActivities.status, "pending"),
-                    gte(crmDealActivities.dueDate, new Date()),
-                    gte(crmDealActivities.createdAt, directive.createdAt),
-                    ne(crmDealActivities.type, "note"),
-                  ),
-                )
-                .for("update")
-                .limit(1);
-              if (!task)
-                return {
-                  status: 409,
-                  error: "Crie uma tarefa futura nesta negociação antes de concluir.",
-                };
+              if (nextActionActivityId) {
+                const [task] = await tx
+                  .select({ id: crmDealActivities.id })
+                  .from(crmDealActivities)
+                  .where(
+                    and(
+                      eq(crmDealActivities.tenantId, tenantId),
+                      eq(crmDealActivities.dealId, directive.dealId),
+                      eq(crmDealActivities.id, nextActionActivityId),
+                      eq(crmDealActivities.status, "pending"),
+                      gte(crmDealActivities.dueDate, new Date()),
+                      gte(crmDealActivities.createdAt, directive.createdAt),
+                      ne(crmDealActivities.type, "note"),
+                    ),
+                  )
+                  .for("update")
+                  .limit(1);
+                if (!task)
+                  return { status: 409, error: "Tarefa futura não encontrada nesta negociação." };
+              }
             }
 
             let recordOrigin: string | null = null;
@@ -355,6 +376,39 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
               recordOrigin = "conversation_messages";
             }
 
+            let resolvedNextActionActivityId = nextActionActivityId;
+            if (nextAction === "continue" && nextActionTask && nextTaskDueAt) {
+              const taskId = crypto.randomUUID();
+              const taskCreatedAt = new Date();
+              if (nextTaskDueAt <= taskCreatedAt) {
+                return { status: 400, error: "A próxima tarefa precisa vencer no futuro." };
+              }
+              await tx.insert(crmDealActivities).values({
+                id: taskId,
+                tenantId,
+                dealId: directive.dealId,
+                type: "task",
+                title: nextTaskTitle,
+                description: nextTaskDescription || null,
+                status: "pending",
+                dueDate: nextTaskDueAt,
+                operatorId: session.operator.id,
+                assignedToOperatorId: directive.assignedToOperatorId,
+                createdAt: taskCreatedAt,
+                updatedAt: taskCreatedAt,
+              });
+              await tx.insert(crmDealEvents).values({
+                id: crypto.randomUUID(),
+                tenantId,
+                dealId: directive.dealId,
+                eventType: "activity_created",
+                operatorId: session.operator.id,
+                metadata: { activityId: taskId, directiveId: directive.id, type: "task" },
+                createdAt: taskCreatedAt,
+              });
+              resolvedNextActionActivityId = taskId;
+            }
+
             const [evidence] = await tx
               .insert(commercialEvidence)
               .values({
@@ -373,7 +427,8 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
                 metadata: {
                   recordOrigin,
                   nextAction,
-                  nextActionActivityId: nextAction === "continue" ? nextActionActivityId : null,
+                  nextActionActivityId:
+                    nextAction === "continue" ? resolvedNextActionActivityId : null,
                 },
               })
               .returning();

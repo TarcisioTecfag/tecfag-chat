@@ -892,6 +892,7 @@ export const commercialConsultantProfiles = pgTable("commercial_consultant_profi
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "cascade" }).notNull(),
   division: text("division"), // 'personnalite' | 'maquinas'; configurado pela gestão
   activeOnTv: boolean("active_on_tv").default(true).notNull(),
+  rdUserId: text("rd_user_id"), // Identificador de usuário correspondente no RD Station CRM
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
@@ -994,6 +995,7 @@ export const commercialSettings = pgTable("commercial_settings", {
   excludedStageIds: jsonb("excluded_stage_ids").$type<string[]>().default([]).notNull(),
   slaLimitMinutes: integer("sla_limit_minutes").default(15).notNull(),
   slaBuckets: jsonb("sla_buckets").$type<number[]>().default([5, 15, 30]).notNull(),
+  lossReasonCategories: jsonb("loss_reason_categories").$type<Array<{ name: string; reasons: string[] }>>().default([]).notNull(),
   tvSettings: jsonb("tv_settings").$type<Record<string, unknown>>().default({}).notNull(),
   updatedByOperatorId: text("updated_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

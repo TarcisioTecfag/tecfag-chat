@@ -103,6 +103,7 @@ import { Route as ApiCommercialDirectivesRouteImport } from './routes/api/commer
 import { Route as ApiCommercialConsultantsRouteImport } from './routes/api/commercial/consultants'
 import { Route as ApiCommercialCalendarRouteImport } from './routes/api/commercial/calendar'
 import { Route as ApiCommercialBiRouteImport } from './routes/api/commercial/bi'
+import { Route as ApiCommercialAnalysisRouteImport } from './routes/api/commercial/analysis'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiChatsTagTaskRouteImport } from './routes/api/chats/tag-task'
 import { Route as ApiChatsResolveRouteImport } from './routes/api/chats/resolve'
@@ -639,6 +640,11 @@ const ApiCommercialBiRoute = ApiCommercialBiRouteImport.update({
   path: '/api/commercial/bi',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCommercialAnalysisRoute = ApiCommercialAnalysisRouteImport.update({
+  id: '/api/commercial/analysis',
+  path: '/api/commercial/analysis',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiChatsUpdateQueueRoute = ApiChatsUpdateQueueRouteImport.update({
   id: '/update-queue',
   path: '/update-queue',
@@ -1002,6 +1008,7 @@ export interface FileRoutesByFullPath {
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
+  '/api/commercial/analysis': typeof ApiCommercialAnalysisRoute
   '/api/commercial/bi': typeof ApiCommercialBiRoute
   '/api/commercial/calendar': typeof ApiCommercialCalendarRoute
   '/api/commercial/consultants': typeof ApiCommercialConsultantsRoute
@@ -1155,6 +1162,7 @@ export interface FileRoutesByTo {
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
+  '/api/commercial/analysis': typeof ApiCommercialAnalysisRoute
   '/api/commercial/bi': typeof ApiCommercialBiRoute
   '/api/commercial/calendar': typeof ApiCommercialCalendarRoute
   '/api/commercial/consultants': typeof ApiCommercialConsultantsRoute
@@ -1309,6 +1317,7 @@ export interface FileRoutesById {
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
+  '/api/commercial/analysis': typeof ApiCommercialAnalysisRoute
   '/api/commercial/bi': typeof ApiCommercialBiRoute
   '/api/commercial/calendar': typeof ApiCommercialCalendarRoute
   '/api/commercial/consultants': typeof ApiCommercialConsultantsRoute
@@ -1464,6 +1473,7 @@ export interface FileRouteTypes {
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
+    | '/api/commercial/analysis'
     | '/api/commercial/bi'
     | '/api/commercial/calendar'
     | '/api/commercial/consultants'
@@ -1617,6 +1627,7 @@ export interface FileRouteTypes {
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
+    | '/api/commercial/analysis'
     | '/api/commercial/bi'
     | '/api/commercial/calendar'
     | '/api/commercial/consultants'
@@ -1770,6 +1781,7 @@ export interface FileRouteTypes {
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
+    | '/api/commercial/analysis'
     | '/api/commercial/bi'
     | '/api/commercial/calendar'
     | '/api/commercial/consultants'
@@ -1920,6 +1932,7 @@ export interface RootRouteChildren {
   ApiBaileysSendMediaRoute: typeof ApiBaileysSendMediaRoute
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
+  ApiCommercialAnalysisRoute: typeof ApiCommercialAnalysisRoute
   ApiCommercialBiRoute: typeof ApiCommercialBiRoute
   ApiCommercialCalendarRoute: typeof ApiCommercialCalendarRoute
   ApiCommercialConsultantsRoute: typeof ApiCommercialConsultantsRoute
@@ -2643,6 +2656,13 @@ declare module '@tanstack/react-router' {
       path: '/api/commercial/bi'
       fullPath: '/api/commercial/bi'
       preLoaderRoute: typeof ApiCommercialBiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/analysis': {
+      id: '/api/commercial/analysis'
+      path: '/api/commercial/analysis'
+      fullPath: '/api/commercial/analysis'
+      preLoaderRoute: typeof ApiCommercialAnalysisRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chats/update-queue': {
@@ -3396,6 +3416,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSendMediaRoute: ApiBaileysSendMediaRoute,
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
+  ApiCommercialAnalysisRoute: ApiCommercialAnalysisRoute,
   ApiCommercialBiRoute: ApiCommercialBiRoute,
   ApiCommercialCalendarRoute: ApiCommercialCalendarRoute,
   ApiCommercialConsultantsRoute: ApiCommercialConsultantsRoute,
