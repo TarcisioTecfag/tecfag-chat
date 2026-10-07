@@ -22,10 +22,13 @@ export const Route = createFileRoute("/api/commercial/home")({
           });
         } catch (error) {
           console.error("[commercial/home] Falha ao carregar dados:", error);
-          return new Response(JSON.stringify({ error: "Não foi possível carregar o início comercial." }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "Não foi possível carregar o início comercial." }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
         }
       },
     },

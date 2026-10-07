@@ -1571,7 +1571,6 @@ export function GroupsView() {
                         {[
                           { key: "chat",      label: "Conversas / Atendimento", desc: "Acesso à fila e tela de mensagens" },
                           ...(tenant === "tecfag" ? [{ key: "commercialHome", label: "Início Comercial", desc: "Cockpit pessoal do consultor" }] : []),
-                          ...(tenant === "tecfag" ? [{ key: "commercialManagement", label: "Gestão Comercial", desc: "Metas, equipe e diretrizes do War Room" }] : []),
                           { key: "crm",       label: "Negociações", desc: "Acesso ao CRM próprio" },
                           { key: "tasks",     label: "Tarefas & Compromissos", desc: "Acesso ao kanban de tarefas do operador" },
                           { key: "contacts",  label: "Base de Contatos", desc: "Acesso à lista e fichas de clientes" },

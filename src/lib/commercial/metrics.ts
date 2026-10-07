@@ -29,7 +29,9 @@ export function calculateBusinessPacing(
   }
   const [year, monthNumber] = month.split("-").map(Number);
   const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-  const overrides = new Map(calendarDays.filter((day) => day.affectsGoal).map((day) => [day.date, day.type]));
+  const overrides = new Map(
+    calendarDays.filter((day) => day.affectsGoal).map((day) => [day.date, day.type]),
+  );
   let businessDays = 0;
   let elapsedDays = 0;
 
@@ -37,7 +39,8 @@ export function calculateBusinessPacing(
     const date = `${month}-${String(day).padStart(2, "0")}`;
     const weekday = new Date(Date.UTC(year, monthNumber - 1, day)).getUTCDay();
     const override = overrides.get(date);
-    const isBusinessDay = override === "extra_work" || (weekday !== 0 && weekday !== 6 && !override);
+    const isBusinessDay =
+      override === "extra_work" || (weekday !== 0 && weekday !== 6 && !override);
     if (!isBusinessDay) continue;
     businessDays += 1;
     if (date < today) elapsedDays += 1;
@@ -64,7 +67,12 @@ export const DEFAULT_MATURITY_RULES: MaturityRule[] = [
   { days: 90, maxValue: null },
 ];
 
-export function classifyMaturity(value: number, createdAt: Date, now: Date, rules: MaturityRule[] = DEFAULT_MATURITY_RULES) {
+export function classifyMaturity(
+  value: number,
+  createdAt: Date,
+  now: Date,
+  rules: MaturityRule[] = DEFAULT_MATURITY_RULES,
+) {
   if (!Number.isFinite(value) || value <= 0 || !Number.isFinite(createdAt.getTime())) return null;
   const tierIndex = rules.findIndex((rule) => rule.maxValue === null || value <= rule.maxValue);
   if (tierIndex < 0) return null;

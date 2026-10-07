@@ -11,7 +11,10 @@ export const Route = createFileRoute("/api/commercial/bi")({
         const { session } = auth;
         const tenantId = session.tenantId;
         if (session.operator.role !== "admin") {
-          return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
+          return Response.json(
+            { error: "Permissão insuficiente.", code: "FORBIDDEN" },
+            { status: 403 },
+          );
         }
         const divisionParam = new URL(request.url).searchParams.get("division");
         if (divisionParam && divisionParam !== "personnalite" && divisionParam !== "maquinas") {

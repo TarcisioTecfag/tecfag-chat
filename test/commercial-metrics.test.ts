@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calculateBusinessPacing, classifyMaturity, saoPauloDay } from "../src/lib/commercial/metrics";
+import {
+  calculateBusinessPacing,
+  classifyMaturity,
+  saoPauloDay,
+} from "../src/lib/commercial/metrics";
 
 test("dia comercial usa São Paulo na virada UTC", () => {
   assert.equal(saoPauloDay(new Date("2026-10-08T01:30:00Z")), "2026-10-07");
