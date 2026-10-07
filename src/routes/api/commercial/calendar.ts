@@ -4,6 +4,7 @@ import { db } from "../../../db";
 import {
   commercialCalendarDays,
   commercialConsultantProfiles,
+  commercialGoals,
   crmDeals,
   operators,
 } from "../../../db/schema";
@@ -33,7 +34,7 @@ export const Route = createFileRoute("/api/commercial/calendar")({
         const [year, monthNumber] = month.split("-").map(Number);
         const nextMonth = `${monthNumber === 12 ? year + 1 : year}-${String(monthNumber === 12 ? 1 : monthNumber + 1).padStart(2, "0")}-01`;
         try {
-          const [days, wonDeals] = await Promise.all([
+          const [days, wonDeals, goalRows, operatorRows] = await Promise.all([
             db
               .select()
               .from(commercialCalendarDays)
@@ -51,17 +52,22 @@ export const Route = createFileRoute("/api/commercial/calendar")({
                 title: crmDeals.title,
                 value: crmDeals.value,
                 closedAt: crmDeals.closedAt,
+                operatorId: crmDeals.operatorId,
                 operatorName: operators.name,
+                operatorAvatar: operators.avatar,
+                division: commercialConsultantProfiles.division,
+                rdDealId: crmDeals.rdDealId,
+                rdDealUrl: crmDeals.rdDealUrl,
               })
               .from(crmDeals)
-              .innerJoin(
+              .leftJoin(
                 commercialConsultantProfiles,
                 and(
                   eq(commercialConsultantProfiles.operatorId, crmDeals.operatorId),
                   eq(commercialConsultantProfiles.tenantId, tenantId),
                 ),
               )
-              .innerJoin(
+              .leftJoin(
                 operators,
                 and(eq(operators.id, crmDeals.operatorId), eq(operators.tenantId, tenantId)),
               )
@@ -73,11 +79,51 @@ export const Route = createFileRoute("/api/commercial/calendar")({
                   lt(crmDeals.closedAt, new Date(`${nextMonth}T03:00:00Z`)),
                 ),
               ),
+            db
+              .select()
+              .from(commercialGoals)
+              .where(
+                and(
+                  eq(commercialGoals.tenantId, tenantId),
+                  eq(commercialGoals.month, month),
+                ),
+              ),
+            db
+              .select({
+                operatorId: operators.id,
+                name: operators.name,
+                email: operators.email,
+                avatar: operators.avatar,
+                division: commercialConsultantProfiles.division,
+                activeOnTv: commercialConsultantProfiles.activeOnTv,
+              })
+              .from(operators)
+              .leftJoin(
+                commercialConsultantProfiles,
+                and(
+                  eq(commercialConsultantProfiles.operatorId, operators.id),
+                  eq(commercialConsultantProfiles.tenantId, tenantId),
+                ),
+              )
+              .where(eq(operators.tenantId, tenantId))
+              .orderBy(operators.name),
           ]);
+
           const closingMap = new Map<
             string,
-            Array<{ id: string; title: string; value: number; operatorName: string }>
+            Array<{
+              id: string;
+              title: string;
+              value: number;
+              operatorId: string | null;
+              operatorName: string;
+              operatorAvatar: string | null;
+              division: string | null;
+              rdDealId: string | null;
+              rdDealUrl: string | null;
+            }>
           >();
+
           for (const deal of wonDeals) {
             if (!deal.closedAt) continue;
             const date = saoPauloDay(deal.closedAt);
@@ -88,17 +134,87 @@ export const Route = createFileRoute("/api/commercial/calendar")({
                 id: deal.id,
                 title: deal.title,
                 value: Number(deal.value || 0),
-                operatorName: deal.operatorName,
+                operatorId: deal.operatorId,
+                operatorName: deal.operatorName || "Consultor",
+                operatorAvatar: deal.operatorAvatar || null,
+                division: deal.division || null,
+                rdDealId: deal.rdDealId || null,
+                rdDealUrl: deal.rdDealUrl || null,
               },
             ]);
           }
+
           const closings = [...closingMap].map(([date, deals]) => ({
             date,
             count: deals.length,
             value: deals.reduce((total, deal) => total + deal.value, 0),
             deals,
           }));
-          return json({ month, days, closings });
+
+          const today = saoPauloDay();
+          const overrides = new Map(
+            days.filter((d) => d.affectsGoal).map((d) => [d.date, d.type]),
+          );
+          const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+          let businessDays = 0;
+          let elapsedDays = 0;
+          const isCurrentMonth = month === today.slice(0, 7);
+          const isPastMonth = month < today.slice(0, 7);
+
+          for (let day = 1; day <= lastDay; day += 1) {
+            const dateStr = `${month}-${String(day).padStart(2, "0")}`;
+            const weekday = new Date(Date.UTC(year, monthNumber - 1, day)).getUTCDay();
+            const override = overrides.get(dateStr);
+            const isBusinessDay =
+              override === "extra_work" || (weekday !== 0 && weekday !== 6 && !override);
+            if (!isBusinessDay) continue;
+            businessDays += 1;
+            if (isPastMonth) {
+              elapsedDays += 1;
+            } else if (isCurrentMonth && dateStr <= today) {
+              elapsedDays += 1;
+            }
+          }
+          const remainingDays = Math.max(0, businessDays - elapsedDays);
+
+          const totalTarget = goalRows.reduce((acc, g) => acc + Number(g.targetValue || 0), 0);
+          const totalRealized = wonDeals.reduce((acc, d) => acc + Number(d.value || 0), 0);
+          const gap = Math.max(0, totalTarget - totalRealized);
+          const attainment = totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0;
+          const dailyRequired = remainingDays > 0 ? gap / remainingDays : 0;
+          const linearDailyTarget = businessDays > 0 ? totalTarget / businessDays : 0;
+          const runRate = elapsedDays > 0 ? (totalRealized / elapsedDays) * businessDays : 0;
+
+          let bestDay = { day: 0, date: "", value: 0, count: 0 };
+          for (const [date, dealList] of closingMap.entries()) {
+            const sum = dealList.reduce((acc, d) => acc + d.value, 0);
+            if (sum > bestDay.value) {
+              const dayNum = Number(date.split("-")[2]);
+              bestDay = { day: dayNum, date, value: sum, count: dealList.length };
+            }
+          }
+
+          return json({
+            month,
+            today,
+            days,
+            closings,
+            goals: goalRows,
+            consultants: operatorRows,
+            summary: {
+              totalTarget,
+              totalRealized,
+              gap,
+              attainment,
+              businessDays,
+              elapsedDays,
+              remainingDays,
+              dailyRequired,
+              linearDailyTarget,
+              runRate,
+              bestDay,
+            },
+          });
         } catch (error) {
           console.error("[commercial/calendar] GET:", error);
           return json({ error: "Falha ao listar o calendário comercial." }, 500);

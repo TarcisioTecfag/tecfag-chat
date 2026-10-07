@@ -38,7 +38,12 @@ export const Route = createFileRoute("/api/commercial/settings")({
               slaLimitMinutes: 15,
               slaBuckets: [5, 15, 30],
               lossReasonCategories: [],
-              tvSettings: { rotationSeconds: 30, activeModules: [0, 1, 2, 3, 4, 5] },
+              tvSettings: {
+                rotationSeconds: 24,
+                activeModules: [0, 1, 2, 3, 4, 5],
+                showSidebar: false,
+                liveNotice: "",
+              },
             },
             stages,
           });
@@ -115,10 +120,15 @@ export const Route = createFileRoute("/api/commercial/settings")({
                   value <= 1440 &&
                   (index === 0 || value > slaBuckets[index - 1]),
               ));
-          const rotationSeconds = Number(body.tvSettings?.rotationSeconds);
+          const rotationSeconds = Number(body.tvSettings?.rotationSeconds ?? 24);
           const activeModules: number[] = Array.isArray(body.tvSettings?.activeModules)
             ? body.tvSettings.activeModules
-            : [];
+            : [0, 1, 2, 3, 4, 5];
+          const showSidebar = Boolean(body.tvSettings?.showSidebar);
+          const liveNotice =
+            typeof body.tvSettings?.liveNotice === "string"
+              ? body.tvSettings.liveNotice.trim().slice(0, 500)
+              : "";
           const validRules =
             rules !== null &&
             rules.length === 5 &&
@@ -174,7 +184,7 @@ export const Route = createFileRoute("/api/commercial/settings")({
               slaLimitMinutes,
               slaBuckets: slaBuckets || [5, 15, 30],
               lossReasonCategories: lossReasonCategories || [],
-              tvSettings: { rotationSeconds, activeModules },
+              tvSettings: { rotationSeconds, activeModules, showSidebar, liveNotice },
               updatedByOperatorId: session.operator.id,
             })
             .onConflictDoUpdate({
@@ -185,7 +195,7 @@ export const Route = createFileRoute("/api/commercial/settings")({
                 slaLimitMinutes,
                 ...(slaBuckets ? { slaBuckets } : {}),
                 ...(lossReasonCategories ? { lossReasonCategories } : {}),
-                tvSettings: { rotationSeconds, activeModules },
+                tvSettings: { rotationSeconds, activeModules, showSidebar, liveNotice },
                 updatedByOperatorId: session.operator.id,
                 updatedAt: new Date(),
               },

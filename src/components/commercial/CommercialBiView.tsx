@@ -7,6 +7,7 @@ import {
   CommercialCohortsPanel,
   CommercialResponsibilitiesPanel,
 } from "./CommercialAnalysisPanels";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 type Tier = {
   tier: number;
@@ -48,7 +49,12 @@ type BiData = {
   division: string | null;
   settings: {
     slaLimitMinutes: number;
-    tvSettings: { rotationSeconds?: number; activeModules?: number[] };
+    tvSettings: {
+      rotationSeconds?: number;
+      activeModules?: number[];
+      showSidebar?: boolean;
+      liveNotice?: string;
+    };
   };
   summary: {
     openCount: number;
@@ -273,28 +279,31 @@ export function CommercialBiView() {
               <option value="personnalite">Personnalité</option>
               <option value="maquinas">Máquinas</option>
             </select>
-            <button
-              onClick={() => void load()}
-              disabled={loading}
-              title="Atualizar"
-              className="rounded-lg border border-white/15 p-2 hover:bg-white/10"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            </button>
-            <button
-              onClick={() => setRotating((current) => !current)}
-              title={rotating ? "Pausar rotação" : "Iniciar rotação"}
-              className="rounded-lg border border-white/15 p-2 hover:bg-white/10"
-            >
-              {rotating ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            </button>
-            <button
-              onClick={() => void panelRef.current?.requestFullscreen()}
-              title="Tela cheia"
-              className="rounded-lg border border-white/15 p-2 hover:bg-white/10"
-            >
-              <Expand className="h-4 w-4" />
-            </button>
+            <SystemTooltip content="Atualizar dados do BI TV agora">
+              <button
+                onClick={() => void load()}
+                disabled={loading}
+                className="rounded-lg border border-white/15 p-2 hover:bg-white/10 cursor-pointer"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              </button>
+            </SystemTooltip>
+            <SystemTooltip content={rotating ? "Pausar rotação automática da TV" : "Iniciar rotação automática da TV"}>
+              <button
+                onClick={() => setRotating((current) => !current)}
+                className="rounded-lg border border-white/15 p-2 hover:bg-white/10 cursor-pointer"
+              >
+                {rotating ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              </button>
+            </SystemTooltip>
+            <SystemTooltip content="Exibir BI TV em modo tela cheia">
+              <button
+                onClick={() => void panelRef.current?.requestFullscreen()}
+                className="rounded-lg border border-white/15 p-2 hover:bg-white/10 cursor-pointer"
+              >
+                <Expand className="h-4 w-4" />
+              </button>
+            </SystemTooltip>
           </div>
         </header>
         <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Módulos do War Room">
@@ -605,6 +614,16 @@ export function CommercialBiView() {
               {module === 7 && <CommercialCohortsPanel division={division} onOpenDeal={openDeal} />}
             </>
           )
+        )}
+
+        {/* Rodapé com Aviso ao Vivo no BI TV */}
+        {data?.settings?.tvSettings?.liveNotice && (
+          <div className="mt-4 flex items-center justify-center gap-3 rounded-2xl border border-red-500/40 bg-red-500/15 px-6 py-3.5 text-center shadow-lg animate-pulse">
+            <span className="text-lg">📢</span>
+            <span className="text-sm font-extrabold tracking-wide text-white">
+              {data.settings.tvSettings.liveNotice}
+            </span>
+          </div>
         )}
       </div>
     </section>

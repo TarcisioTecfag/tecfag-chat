@@ -60,10 +60,10 @@ export function calculateBusinessPacing(
 export type MaturityRule = { days: number; maxValue: number | null };
 
 export const DEFAULT_MATURITY_RULES: MaturityRule[] = [
-  { days: 7, maxValue: 15_000 },
-  { days: 15, maxValue: 35_000 },
-  { days: 30, maxValue: 60_000 },
-  { days: 60, maxValue: 100_000 },
+  { days: 3, maxValue: 8_500 },
+  { days: 15, maxValue: 50_000 },
+  { days: 30, maxValue: 200_000 },
+  { days: 60, maxValue: 600_000 },
   { days: 90, maxValue: null },
 ];
 
