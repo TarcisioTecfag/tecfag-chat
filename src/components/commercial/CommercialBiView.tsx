@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { Expand, Loader2, Pause, Play, RefreshCw } from "lucide-react";
 
 type Tier = {
@@ -169,6 +170,12 @@ export function CommercialBiView() {
   useEffect(() => {
     if (activeModules.length && !activeModules.includes(module)) setModule(activeModules[0]);
   }, [activeModules, module]);
+
+  useTabNavigation({
+    tabs: activeModules,
+    activeTab: module,
+    onChange: setModule,
+  });
   useEffect(() => {
     if (!rotating || !activeModules.length) return;
     const interval = window.setInterval(

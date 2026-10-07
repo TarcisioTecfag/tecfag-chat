@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import {
   BarChart2, Clock, Users, ArrowUpRight, ArrowDownRight,
   MessageSquare, RefreshCw, Percent, FileText, CheckCircle2,
@@ -696,7 +697,14 @@ export function AnalyticsView() {
   ];
 
   const allowedTabs = allTabs.filter(t => canAccessAnalyticsTab(t.id));
+  const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
   const [activeTab, setActiveTab] = useState<AnalyticsTab>(() => allowedTabs[0]?.id || "overview");
+
+  useTabNavigation({
+    tabs: allowedTabIds,
+    activeTab,
+    onChange: setActiveTab,
+  });
 
   useEffect(() => {
     if (!allowedTabs.some(t => t.id === activeTab)) {

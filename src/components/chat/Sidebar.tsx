@@ -19,6 +19,7 @@ import {
   PhoneCall,
   Columns3,
   BriefcaseBusiness,
+  Keyboard,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -255,7 +256,19 @@ export function Sidebar() {
       </div>
 
       {/* Bottom Profile / User Avatar */}
-      <div className="flex flex-col items-center gap-4">
+      <div className="flex flex-col items-center gap-3">
+        {/* Dica de Atalhos de Teclado */}
+        <div
+          className="relative grid h-8 w-8 place-items-center rounded-xl text-muted-foreground/60 hover:text-primary hover:bg-primary-soft/40 transition-colors group cursor-help"
+          title="Navegação por Teclado: Setas ↑/↓ para módulos · Setas ←/→ para abas"
+          aria-label="Navegação por Teclado: Setas ↑/↓ para módulos · Setas ←/→ para abas"
+        >
+          <Keyboard className="h-4 w-4" />
+          <span className="absolute left-14 bottom-0 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-[11px] font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+            Setas ↑ / ↓ : Módulos <br /> Setas ← / → : Abas
+          </span>
+        </div>
+
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}

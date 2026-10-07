@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CrmToolbar, PipelineOption, CrmStatusFilter } from "./CrmToolbar";
 import { PipelineBoard } from "./PipelineBoard";
 import { DealList } from "./DealList";
@@ -59,6 +60,27 @@ export function CrmView() {
   // Filtros Globais Compartilhados entre Kanban e Lista
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [statusFilter, setStatusFilter] = useState<CrmStatusFilter>("open");
+
+  // Alternância ágil por setas (Left / Right): entre funis (quando houver múltiplos) ou entre Quadro / Lista
+  const crmTabs: readonly string[] = useMemo(() => {
+    if (pipelines.length > 1) {
+      return pipelines.map((p) => p.id);
+    }
+    return ["kanban", "list"] as const;
+  }, [pipelines]);
+
+  useTabNavigation({
+    tabs: crmTabs,
+    activeTab: pipelines.length > 1 ? selectedPipelineId : viewMode,
+    onChange: (val) => {
+      if (pipelines.length > 1) {
+        setSelectedPipelineId(val as string);
+        setListOffset(0);
+      } else {
+        setViewMode(val as "kanban" | "list");
+      }
+    },
+  });
   const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<string>("updated_desc");
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFiltersState>({});

@@ -1,6 +1,7 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useRef, useEffect } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -51,6 +52,12 @@ export function WalletView() {
   const aiPersona = getAiPersona(tenant || "valem");
 
   const [activeTab, setActiveTab] = useState<"wallet" | "templates">("wallet");
+
+  useTabNavigation({
+    tabs: ["wallet", "templates"] as const,
+    activeTab,
+    onChange: setActiveTab,
+  });
 
   // KPI de inatividade — busca do servidor (apenas para a aba carteira)
   const [inactivityKpi, setInactivityKpi] = useState<{ over50Count: number; over60Count: number } | null>(null);

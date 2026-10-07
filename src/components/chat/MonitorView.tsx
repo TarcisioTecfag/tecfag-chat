@@ -6,8 +6,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import {
   Eye, AlertTriangle, Clock, Users, TrendingUp, TrendingDown,
   RefreshCw, ChevronRight, Minus, CheckCircle, XCircle,
@@ -3544,7 +3545,14 @@ export function MonitorView() {
   ];
 
   const allowedTabs = allTabs.filter(t => canAccessMonitorTab(t.id));
+  const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
   const [activeTab, setActiveTab] = useState<MonitorTab>(() => allowedTabs[0]?.id || "live");
+
+  useTabNavigation({
+    tabs: allowedTabIds,
+    activeTab,
+    onChange: setActiveTab,
+  });
 
   useEffect(() => {
     if (!allowedTabs.some(t => t.id === activeTab)) {

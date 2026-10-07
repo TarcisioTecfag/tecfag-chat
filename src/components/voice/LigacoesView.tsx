@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { PhoneCall, CalendarDays, History, Users, Megaphone, Target } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DashboardTab } from "./DashboardTab";
@@ -25,7 +26,14 @@ export function LigacoesView() {
   ];
 
   const allowedTabs = allTabs.filter(t => canAccessLigacoesTab(t.id));
+  const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
   const [activeTab, setActiveTab] = useState<VoiceTab>(() => allowedTabs[0]?.id || "dashboard");
+
+  useTabNavigation({
+    tabs: allowedTabIds,
+    activeTab,
+    onChange: setActiveTab,
+  });
 
   useEffect(() => {
     if (!allowedTabs.some(t => t.id === activeTab)) {

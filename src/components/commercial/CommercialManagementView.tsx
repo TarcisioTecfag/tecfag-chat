@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { saoPauloDay } from "@/lib/commercial/metrics";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CommercialSettingsPanel } from "./CommercialSettingsPanel";
 import { useNavigate } from "@tanstack/react-router";
 
@@ -101,6 +102,12 @@ export function CommercialManagementView() {
   const [tab, setTab] = useState<
     "consultants" | "goals" | "calendar" | "directives" | "evidence" | "settings"
   >("consultants");
+
+  useTabNavigation({
+    tabs: ["consultants", "goals", "calendar", "directives", "evidence", "settings"] as const,
+    activeTab: tab,
+    onChange: setTab,
+  });
   const [month, setMonth] = useState(() => saoPauloDay().slice(0, 7));
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);

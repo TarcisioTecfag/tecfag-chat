@@ -12,6 +12,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileLayout } from "@/components/mobile/MobileLayout";
 import { PushNotificationPrompt } from "@/components/chat/PushNotificationPrompt";
 import { getChatLinkKey } from "@/lib/chat-link";
+import { useGlobalKeyboardNavigation } from "@/hooks/useGlobalKeyboardNavigation";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Loader2 } from "lucide-react";
 
 const SettingsView = lazy(() => import("@/components/chat/SettingsView").then((module) => ({ default: module.SettingsView })));
@@ -43,11 +45,21 @@ export const Route = createFileRoute("/")({
 });
 
 export function Index() {
-  const { tenant, activeView, rightSidebarOpen, selectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations } = useChat();
+  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations } = useChat();
+  const { canAccessView } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const isMounted = useSyncExternalStore(subscribeHydration, getClientMounted, getServerMounted);
+
+  useGlobalKeyboardNavigation({
+    tenant,
+    sessionRole,
+    activeView,
+    setActiveView,
+    canAccessView,
+    enabled: isAuthenticated && !isMobile,
+  });
 
   useEffect(() => {
     if (location.pathname !== "/" || !isAuthenticated || activeView !== "chat" || !activeChat || activeChat.id === "valentina") return;

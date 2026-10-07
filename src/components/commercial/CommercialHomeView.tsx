@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CommercialEvidenceDialog } from "./CommercialEvidenceDialog";
 import {
   ArrowUpRight,
@@ -249,8 +250,18 @@ export function CommercialHomeView() {
 
   const openCrm = () => {
     setActiveView("crm");
-    navigate({ to: "/crm" });
   };
+
+  const directiveTabs: Filter[] = useMemo(
+    () => ["Todas", "Atrasadas", "Alta", "Hoje", "Concluídas"],
+    [],
+  );
+
+  useTabNavigation({
+    tabs: directiveTabs,
+    activeTab: filter,
+    onChange: setFilter,
+  });
 
   // Dados calculados para exibição
   const now = useMemo(() => new Date(), []);

@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { 
   Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save, Mail, 
   FileText, Link, ExternalLink, CheckCircle2, Loader2, PhoneCall, Clock, 
@@ -436,6 +437,13 @@ export function SettingsView() {
   ];
 
   const allowedTabs = allTabs.filter(t => canAccessSettingsTab(t.id));
+  const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
+
+  useTabNavigation({
+    tabs: allowedTabIds,
+    activeTab,
+    onChange: setActiveTab,
+  });
 
   useEffect(() => {
     if (!allowedTabs.some(t => t.id === activeTab)) {

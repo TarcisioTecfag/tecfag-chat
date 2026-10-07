@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCw,
@@ -223,6 +224,12 @@ export function TasksView() {
 
   // Modo de visualização: Mês | Semana | Dia
   const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month");
+
+  useTabNavigation({
+    tabs: ["month", "week", "day"] as const,
+    activeTab: viewMode,
+    onChange: setViewMode,
+  });
 
   // Filtros internos do painel diário
   const [selectedDaySearch, setSelectedDaySearch] = useState("");

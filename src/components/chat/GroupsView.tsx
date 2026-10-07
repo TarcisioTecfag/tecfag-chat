@@ -7,9 +7,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { MultiTenantAccessPanel } from "./MultiTenantAccessPanel";
 import { MetaTemplatesManager } from "./MetaTemplatesManager";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -906,6 +907,13 @@ export function GroupsView() {
     { id: "wallets" as const,   label: "Carteiras Globais",     icon: Wallet },
     ...(canManageGlobalTemplates ? [{ id: "templates" as const, label: "Templates Globais", icon: LayoutTemplate }] : []),
   ];
+
+  const groupTabIds = useMemo(() => tabs.map((t) => t.id), [tabs]);
+  useTabNavigation({
+    tabs: groupTabIds,
+    activeTab,
+    onChange: setActiveTab,
+  });
 
   return (
     <div className="flex flex-col h-full bg-card rounded-3xl border border-border shadow-soft overflow-hidden select-none">

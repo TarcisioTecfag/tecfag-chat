@@ -3,7 +3,8 @@
 // Segue exatamente o padrão do MonitorView.tsx (shell, tabs, content)
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { Bot, MessageCircle, UserPlus, Eye, ShoppingBag, Database, Shuffle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaTab } from "./valentina-mock-data";
@@ -35,7 +36,14 @@ export function ValentinaView() {
   const persona = getAiPersona(tenant || "valem");
   const { canAccessValentinaTab } = usePermissions();
   const allowedTabs = allTabs.filter(tab => canAccessValentinaTab(tab.id));
+  const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
   const [activeTab, setActiveTab] = useState<ValentinaTab>(() => allowedTabs[0]?.id || "chat");
+
+  useTabNavigation({
+    tabs: allowedTabIds,
+    activeTab,
+    onChange: setActiveTab,
+  });
 
   useEffect(() => {
     if (!allowedTabs.some(t => t.id === activeTab)) {

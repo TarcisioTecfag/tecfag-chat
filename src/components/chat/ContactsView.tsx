@@ -1,6 +1,7 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskPhone } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -114,6 +115,17 @@ export function ContactsView() {
 
   const [search, setSearch] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
+
+  const channelTabs: (Channel | "all")[] = useMemo(
+    () => ["all", "whatsapp", "instagram", "messenger"],
+    [],
+  );
+
+  useTabNavigation({
+    tabs: channelTabs,
+    activeTab: channelFilter,
+    onChange: setChannelFilter,
+  });
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactListItem | null>(null);
   const [contactRows, setContactRows] = useState<ContactListItem[]>([]);

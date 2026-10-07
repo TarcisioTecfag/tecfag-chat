@@ -1,5 +1,6 @@
 import React from "react";
 import { useChat } from "@/hooks/useChatState";
+import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
 import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile } from "lucide-react";
 import { Channel, QueueType } from "@/lib/mockData";
@@ -157,6 +158,17 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     { id: "automacao", label: "Bot" },
     { id: "finalizados", label: "Fim" },
   ];
+
+  const queueTabIds: QueueType[] = React.useMemo(() => queues.map((q) => q.id as QueueType), []);
+  useTabNavigation({
+    tabs: queueTabIds,
+    activeTab: activeQueue,
+    onChange: (q) => {
+      setActiveQueue(q);
+      setSelectedChatId(null);
+      if (!embedded) setActiveView("chat");
+    },
+  });
 
   // Filter conversations based on UI selections
   const filteredConvs = React.useMemo(() => conversations.filter((c) => c.id !== "valentina").filter((c) => {
