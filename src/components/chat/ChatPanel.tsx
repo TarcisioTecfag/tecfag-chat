@@ -1586,17 +1586,27 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
         {/* Handover Operations Actions */}
         <div className="flex items-center gap-2 relative">
-          {!rightSidebarOpen && activeChat.id !== "valentina" && (
+          {activeChat.id !== "valentina" && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => setRightSidebarOpen(true)}
-                  className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                  onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+                  className={`grid h-9 w-9 place-items-center rounded-xl border transition cursor-pointer ${
+                    rightSidebarOpen
+                      ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
                 >
-                  <ChevronLeft className="h-4.5 w-4.5" strokeWidth={2.5} />
+                  {rightSidebarOpen ? (
+                    <ChevronRight className="h-4.5 w-4.5" strokeWidth={2.5} />
+                  ) : (
+                    <ChevronLeft className="h-4.5 w-4.5" strokeWidth={2.5} />
+                  )}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Mostrar Painel de Informações</TooltipContent>
+              <TooltipContent side="bottom">
+                {rightSidebarOpen ? "Ocultar Painel de Informações" : "Mostrar Painel de Informações"}
+              </TooltipContent>
             </Tooltip>
           )}
           {activeChat.queue === "meus" ? (

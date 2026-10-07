@@ -296,24 +296,24 @@ export function CommercialGoalsView({
       {/* ─── Top Header Section ─── */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <span className="text-[10px] font-black uppercase tracking-widest text-primary block">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-[.18em] text-primary block">
             PLANEJAMENTO
           </span>
-          <h1 className="text-2xl font-extrabold tracking-tight text-foreground mt-0.5">
+          <h1 className="font-mono text-xl sm:text-2xl font-bold tracking-[-.04em] text-foreground dark:text-zinc-50 mt-0.5">
             Metas Comerciais
           </h1>
-          <p className="text-xs text-muted-foreground mt-1">
-            Defina e edite metas mensais por consultor. Clique no valor para editar.
+          <p className="text-xs text-muted-foreground dark:text-zinc-400 mt-1">
+            Defina e edite metas mensais por consultor. Clique no valor para editar inline.
           </p>
         </div>
 
         {/* Month Selector / Navigator Controls */}
-        <div className="flex items-center gap-1.5 self-start sm:self-auto">
+        <div className="flex items-center gap-1.5 self-start sm:self-auto font-mono">
           {/* Previous Month */}
           <SystemTooltip content="Mês anterior">
             <button
               onClick={() => handleMonthStep(-1)}
-              className="p-2.5 rounded-xl border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-soft cursor-pointer flex items-center justify-center"
+              className="p-2 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950/70 hover:bg-muted dark:hover:bg-zinc-900 text-muted-foreground hover:text-foreground transition shadow-sm cursor-pointer flex items-center justify-center"
               aria-label="Mês anterior"
             >
               <ChevronUp className="h-4 w-4" />
@@ -324,29 +324,29 @@ export function CommercialGoalsView({
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <SystemTooltip content="Clique para selecionar outro mês">
               <PopoverTrigger asChild>
-                <button className="px-4 py-2 rounded-xl border border-border bg-card hover:bg-muted text-xs font-bold text-foreground transition shadow-soft flex items-center gap-2 cursor-pointer">
+                <button className="px-3.5 py-2 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950/70 hover:bg-muted dark:hover:bg-zinc-900 text-xs font-mono font-bold text-foreground transition shadow-sm flex items-center gap-2 cursor-pointer">
                   <span>{formatMonthLabel(month)}</span>
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </PopoverTrigger>
             </SystemTooltip>
 
-            <PopoverContent align="end" className="w-64 p-3 bg-card border-border shadow-xl rounded-2xl">
+            <PopoverContent align="end" className="w-64 p-3 bg-card dark:bg-zinc-950 border border-border/80 dark:border-zinc-800 shadow-xl rounded-[4px] font-mono">
               {/* Year Navigation */}
               <div className="flex items-center justify-between mb-3 px-1">
                 <SystemTooltip content="Ano anterior">
                   <button
                     onClick={() => setPickerYear((y) => y - 1)}
-                    className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                    className="p-1 rounded-[2px] hover:bg-muted dark:hover:bg-zinc-800 text-muted-foreground hover:text-foreground transition cursor-pointer"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
                 </SystemTooltip>
-                <span className="text-xs font-black text-foreground font-mono">{pickerYear}</span>
+                <span className="text-xs font-bold text-foreground dark:text-zinc-100 font-mono">{pickerYear}</span>
                 <SystemTooltip content="Próximo ano">
                   <button
                     onClick={() => setPickerYear((y) => y + 1)}
-                    className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                    className="p-1 rounded-[2px] hover:bg-muted dark:hover:bg-zinc-800 text-muted-foreground hover:text-foreground transition cursor-pointer"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </button>
@@ -362,10 +362,10 @@ export function CommercialGoalsView({
                     <button
                       key={mName}
                       onClick={() => handleSelectMonth(idx)}
-                      className={`py-1.5 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                      className={`py-1.5 text-xs font-mono font-bold rounded-[2px] transition cursor-pointer ${
                         isSelected
-                          ? "bg-primary text-primary-foreground font-bold shadow-soft"
-                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "hover:bg-muted dark:hover:bg-zinc-800 text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       {mName}
@@ -375,10 +375,10 @@ export function CommercialGoalsView({
               </div>
 
               {/* Quick Today Button */}
-              <div className="mt-3 pt-2 border-t border-border flex justify-end">
+              <div className="mt-3 pt-2 border-t border-border/80 dark:border-zinc-800 flex justify-end">
                 <button
                   onClick={handleGoCurrentMonth}
-                  className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                  className="text-[10px] font-mono font-bold uppercase tracking-wider text-primary hover:underline cursor-pointer"
                 >
                   Mês atual
                 </button>
@@ -390,7 +390,7 @@ export function CommercialGoalsView({
           <SystemTooltip content="Próximo mês">
             <button
               onClick={() => handleMonthStep(1)}
-              className="p-2.5 rounded-xl border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition shadow-soft cursor-pointer flex items-center justify-center"
+              className="p-2 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950/70 hover:bg-muted dark:hover:bg-zinc-900 text-muted-foreground hover:text-foreground transition shadow-sm cursor-pointer flex items-center justify-center"
               aria-label="Próximo mês"
             >
               <ChevronDown className="h-4 w-4" />
@@ -401,7 +401,7 @@ export function CommercialGoalsView({
 
       {/* Error Alert */}
       {error && (
-        <div className="flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs font-semibold text-red-600 dark:text-red-400">
+        <div className="flex items-center gap-2 rounded-[4px] border border-red-500/30 bg-red-500/10 dark:bg-red-950/40 p-3.5 text-xs font-mono font-semibold text-red-600 dark:text-red-400">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
@@ -410,92 +410,100 @@ export function CommercialGoalsView({
       {/* ─── 4 Metric Cards (Cockpit Metas) ─── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Meta total do mês */}
-        <div className="rounded-2xl border border-border bg-card p-5 relative overflow-hidden transition-all duration-200 hover:border-border/80 shadow-soft before:absolute before:top-0 before:left-0 before:right-0 before:h-[2px] before:bg-primary">
+        <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 relative overflow-hidden transition-all duration-200 hover:border-border/80 dark:hover:border-zinc-700 shadow-sm before:absolute before:top-0 before:left-0 before:right-0 before:h-[2px] before:bg-primary">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground">Meta total do mês</span>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+              Meta total do mês
+            </span>
             <SystemTooltip content="Soma de todas as metas estipuladas para os consultores no mês">
-              <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+              <div className="w-7 h-7 rounded-[2px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                 <Target className="h-3.5 w-3.5" />
               </div>
             </SystemTooltip>
           </div>
-          <div className="text-2xl font-black text-foreground tracking-tight font-mono mt-3">
+          <div className="text-2xl font-bold text-foreground dark:text-zinc-50 tracking-tight font-mono mt-3">
             {formatCurrency(totals.targetValue)}
           </div>
-          <div className="text-[11px] text-muted-foreground mt-2">
+          <div className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400 mt-2">
             {totals.consultantsWithGoal} consultores com meta
           </div>
         </div>
 
         {/* Card 2: Realizado */}
-        <div className="rounded-2xl border border-border bg-card p-5 relative overflow-hidden transition-all duration-200 hover:border-border/80 shadow-soft">
+        <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 relative overflow-hidden transition-all duration-200 hover:border-border/80 dark:hover:border-zinc-700 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground">Realizado</span>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+              Realizado
+            </span>
             <SystemTooltip content="Volume financeiro total faturado em negociações ganhas no mês">
-              <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+              <div className="w-7 h-7 rounded-[2px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                 <CircleDollarSign className="h-3.5 w-3.5" />
               </div>
             </SystemTooltip>
           </div>
-          <div className="text-2xl font-black text-foreground tracking-tight font-mono mt-3">
+          <div className="text-2xl font-bold text-foreground dark:text-zinc-50 tracking-tight font-mono mt-3">
             {formatCurrency(totals.realizedValue)}
           </div>
-          <div className="w-full bg-muted/60 h-1 rounded-full overflow-hidden mt-3">
+          <div className="w-full bg-muted/40 dark:bg-zinc-800 h-1.5 rounded-[2px] overflow-hidden mt-3">
             <div
-              className="bg-primary h-full transition-all duration-500 rounded-full"
+              className="bg-primary h-full transition-all duration-500 rounded-[2px]"
               style={{ width: `${Math.min(100, totals.attainment)}%` }}
             />
           </div>
-          <div className="text-[11px] text-muted-foreground mt-1.5">
+          <div className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400 mt-1.5">
             {totals.attainment.toFixed(1).replace(".", ",")}% da meta
           </div>
         </div>
 
         {/* Card 3: Dias úteis */}
-        <div className="rounded-2xl border border-border bg-card p-5 relative overflow-hidden transition-all duration-200 hover:border-border/80 shadow-soft">
+        <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 relative overflow-hidden transition-all duration-200 hover:border-border/80 dark:hover:border-zinc-700 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground">Dias úteis</span>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+              Dias úteis
+            </span>
             <SystemTooltip content="Dias úteis comerciais considerando feriados e expediente de sábado">
-              <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+              <div className="w-7 h-7 rounded-[2px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                 <CalendarDays className="h-3.5 w-3.5" />
               </div>
             </SystemTooltip>
           </div>
-          <div className="text-2xl font-black text-foreground tracking-tight font-mono mt-3">
+          <div className="text-2xl font-bold text-foreground dark:text-zinc-50 tracking-tight font-mono mt-3">
             {elapsedDays}/{businessDays}
           </div>
-          <div className="text-[11px] text-muted-foreground mt-2">
+          <div className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400 mt-2">
             {remainingDays} restantes
           </div>
         </div>
 
         {/* Card 4: Meta diária necessária */}
-        <div className="rounded-2xl border border-border bg-card p-5 relative overflow-hidden transition-all duration-200 hover:border-border/80 shadow-soft">
+        <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 relative overflow-hidden transition-all duration-200 hover:border-border/80 dark:hover:border-zinc-700 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground">Meta diária necessária</span>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+              Meta diária necessária
+            </span>
             <SystemTooltip content="Ritmo diário de vendas necessário nos dias úteis restantes para atingir a meta">
-              <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+              <div className="w-7 h-7 rounded-[2px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                 <Gauge className="h-3.5 w-3.5" />
               </div>
             </SystemTooltip>
           </div>
-          <div className="text-2xl font-black text-foreground tracking-tight font-mono mt-3">
+          <div className="text-2xl font-bold text-foreground dark:text-zinc-50 tracking-tight font-mono mt-3">
             {formatCurrency(totals.dailyRequired)}
           </div>
-          <div className="text-[11px] text-muted-foreground mt-2">
+          <div className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400 mt-2">
             para atingir a meta
           </div>
         </div>
       </div>
 
       {/* ─── Main Table Container: Metas por Consultor ─── */}
-      <div className="rounded-2xl border border-border bg-card p-6 shadow-soft space-y-4">
+      <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-6 shadow-sm space-y-4">
         {/* Table Title & Instructions */}
         <div>
-          <h2 className="text-sm font-bold text-foreground">
+          <h2 className="text-sm font-mono font-bold text-foreground dark:text-zinc-100">
             Metas por Consultor — {formatMonthLong(month)}
           </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground dark:text-zinc-400 mt-0.5">
             Clique no valor da meta para editar inline. Pressione Enter para salvar.
           </p>
         </div>
@@ -506,9 +514,9 @@ export function CommercialGoalsView({
           </div>
         ) : (
           <div className="overflow-x-auto scrollbar-thin">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse font-sans">
               <thead>
-                <tr className="border-b border-border/60 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-border/80 dark:border-zinc-800 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                   <th className="py-3 px-3 min-w-[200px]">Consultor</th>
                   <th className="py-3 px-3 min-w-[130px]">Equipe</th>
                   <th className="py-3 px-3 min-w-[150px]">Meta Mensal</th>
@@ -519,10 +527,10 @@ export function CommercialGoalsView({
                   <th className="py-3 px-3 min-w-[130px] text-right">GAP</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/40 text-xs">
+              <tbody className="divide-y divide-border/40 dark:divide-zinc-800/60 text-xs">
                 {consultants.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-muted-foreground text-xs">
+                    <td colSpan={8} className="py-8 text-center text-muted-foreground dark:text-zinc-400 text-xs font-mono">
                       Nenhum consultor cadastrado no sistema.
                     </td>
                   </tr>
@@ -538,7 +546,7 @@ export function CommercialGoalsView({
                     return (
                       <tr
                         key={consultant.operatorId}
-                        className="hover:bg-muted/30 transition-colors group"
+                        className="hover:bg-muted/20 dark:hover:bg-zinc-900/50 transition-colors group"
                       >
                         {/* Consultor (Avatar + Nome) */}
                         <td className="py-3 px-3">
@@ -547,21 +555,21 @@ export function CommercialGoalsView({
                               <img
                                 src={consultant.avatar}
                                 alt={consultant.name}
-                                className="w-7 h-7 rounded-full object-cover shrink-0 border border-border"
+                                className="w-7 h-7 rounded-[2px] object-cover shrink-0 border border-border/80 dark:border-zinc-800"
                               />
                             ) : (
-                              <div className="w-7 h-7 rounded-full bg-primary/10 text-primary font-bold text-[11px] flex items-center justify-center shrink-0 border border-primary/20">
+                              <div className="w-7 h-7 rounded-[2px] bg-primary/10 text-primary font-mono font-bold text-[11px] flex items-center justify-center shrink-0 border border-primary/20">
                                 {getInitials(consultant.name)}
                               </div>
                             )}
-                            <span className="font-semibold text-foreground truncate max-w-[200px]">
+                            <span className="font-semibold text-foreground dark:text-zinc-100 truncate max-w-[200px]">
                               {consultant.name}
                             </span>
                           </div>
                         </td>
 
                         {/* Equipe */}
-                        <td className="py-3 px-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        <td className="py-3 px-3 text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground dark:text-zinc-400">
                           {consultant.division || "—"}
                         </td>
 
@@ -583,7 +591,7 @@ export function CommercialGoalsView({
                               onBlur={() => {
                                 void saveInlineEdit(consultant.operatorId, "targetValue");
                               }}
-                              className="w-32 rounded-lg border border-primary bg-background px-2.5 py-1 text-xs font-mono font-bold text-foreground outline-none ring-1 ring-primary"
+                              className="w-32 rounded-[2px] border border-primary bg-background dark:bg-zinc-900 px-2.5 py-1 text-xs font-mono font-bold text-foreground outline-none ring-1 ring-primary"
                             />
                           ) : (
                             <SystemTooltip content="Clique para editar a meta mensal">
@@ -595,7 +603,7 @@ export function CommercialGoalsView({
                                     consultant.targetValue
                                   )
                                 }
-                                className="inline-flex items-center gap-1.5 py-1 px-1.5 rounded-lg text-xs font-mono font-medium text-foreground hover:text-primary hover:bg-muted/60 transition cursor-pointer"
+                                className="inline-flex items-center gap-1.5 py-1 px-1.5 rounded-[2px] text-xs font-mono font-bold text-foreground hover:text-primary hover:bg-muted/40 dark:hover:bg-zinc-800 transition cursor-pointer"
                               >
                                 <span>{formatCurrency(consultant.targetValue, true)}</span>
                                 <Pencil className="h-3 w-3 text-muted-foreground/40 group-hover:text-primary transition" />
@@ -625,7 +633,7 @@ export function CommercialGoalsView({
                               onBlur={() => {
                                 void saveInlineEdit(consultant.operatorId, "conversionRate");
                               }}
-                              className="w-20 rounded-lg border border-primary bg-background px-2.5 py-1 text-xs font-mono font-bold text-foreground outline-none ring-1 ring-primary"
+                              className="w-20 rounded-[2px] border border-primary bg-background dark:bg-zinc-900 px-2.5 py-1 text-xs font-mono font-bold text-foreground outline-none ring-1 ring-primary"
                             />
                           ) : (
                             <SystemTooltip content="Clique para editar a taxa de conversão">
@@ -637,7 +645,7 @@ export function CommercialGoalsView({
                                     consultant.conversionRate
                                   )
                                 }
-                                className="inline-flex items-center gap-1.5 py-1 px-1.5 rounded-lg text-xs font-mono font-medium text-foreground hover:text-primary hover:bg-muted/60 transition cursor-pointer"
+                                className="inline-flex items-center gap-1.5 py-1 px-1.5 rounded-[2px] text-xs font-mono font-bold text-foreground hover:text-primary hover:bg-muted/40 dark:hover:bg-zinc-800 transition cursor-pointer"
                               >
                                 <span>{consultant.conversionRate}%</span>
                                 <Pencil className="h-3 w-3 text-muted-foreground/40 group-hover:text-primary transition" />
@@ -647,14 +655,14 @@ export function CommercialGoalsView({
                         </td>
 
                         {/* Meta Diária */}
-                        <td className="py-3 px-3 font-mono text-muted-foreground">
+                        <td className="py-3 px-3 font-mono text-muted-foreground dark:text-zinc-400">
                           <SystemTooltip content="Meta diária proporcional (Meta Mensal / Dias Úteis)">
                             <span>{formatCurrency(consultant.dailyTarget)}</span>
                           </SystemTooltip>
                         </td>
 
                         {/* Realizado */}
-                        <td className="py-3 px-3 font-mono font-semibold text-foreground">
+                        <td className="py-3 px-3 font-mono font-semibold text-foreground dark:text-zinc-100">
                           <SystemTooltip content="Volume de faturamento de negociações ganhas no mês">
                             <span>{formatCurrency(consultant.realizedValue)}</span>
                           </SystemTooltip>
@@ -664,15 +672,15 @@ export function CommercialGoalsView({
                         <td className="py-3 px-3">
                           <SystemTooltip content="Percentual de atingimento da meta mensal">
                             <div className="flex items-center gap-2">
-                              <div className="w-14 bg-muted/60 h-1.5 rounded-full overflow-hidden shrink-0">
+                              <div className="w-14 bg-muted/40 dark:bg-zinc-800 h-1.5 rounded-[2px] overflow-hidden shrink-0">
                                 <div
-                                  className="bg-primary h-full rounded-full transition-all duration-300"
+                                  className="bg-primary h-full rounded-[2px] transition-all duration-300"
                                   style={{
                                     width: `${Math.min(100, consultant.attainment)}%`,
                                   }}
                                 />
                               </div>
-                              <span className="font-mono text-[11px] text-muted-foreground w-12 text-right">
+                              <span className="font-mono text-[11px] text-muted-foreground dark:text-zinc-400 w-12 text-right">
                                 {consultant.attainment.toFixed(1)}%
                               </span>
                             </div>
@@ -680,7 +688,7 @@ export function CommercialGoalsView({
                         </td>
 
                         {/* GAP */}
-                        <td className="py-3 px-3 font-mono font-semibold text-primary text-right">
+                        <td className="py-3 px-3 font-mono font-bold text-primary text-right">
                           <SystemTooltip content="Diferença pendente para atingir a meta">
                             <span>{formatCurrency(consultant.gap)}</span>
                           </SystemTooltip>
@@ -694,37 +702,37 @@ export function CommercialGoalsView({
               {/* ─── Footer: TOTAL GERAL ─── */}
               {consultants.length > 0 && (
                 <tfoot>
-                  <tr className="border-t-2 border-border/80 text-xs font-black">
-                    <td className="py-4 px-3 uppercase tracking-wide text-foreground">
+                  <tr className="border-t-2 border-border/80 dark:border-zinc-800 text-xs font-mono font-bold">
+                    <td className="py-4 px-3 uppercase tracking-wider text-foreground dark:text-zinc-100">
                       TOTAL GERAL
                     </td>
                     <td className="py-4 px-3" />
-                    <td className="py-4 px-3 font-mono text-foreground">
+                    <td className="py-4 px-3 font-mono text-foreground dark:text-zinc-100">
                       {formatCurrency(totals.targetValue)}
                     </td>
-                    <td className="py-4 px-3 font-mono text-muted-foreground font-semibold">
+                    <td className="py-4 px-3 font-mono text-muted-foreground dark:text-zinc-400 font-semibold">
                       {totals.avgConversionRate.toFixed(1)}% méd.
                     </td>
-                    <td className="py-4 px-3 font-mono text-muted-foreground font-semibold">
+                    <td className="py-4 px-3 font-mono text-muted-foreground dark:text-zinc-400 font-semibold">
                       {formatCurrency(totals.totalDailyTarget)}
                     </td>
-                    <td className="py-4 px-3 font-mono text-foreground">
+                    <td className="py-4 px-3 font-mono text-foreground dark:text-zinc-100">
                       {formatCurrency(totals.realizedValue)}
                     </td>
                     <td className="py-4 px-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-14 bg-muted/60 h-1.5 rounded-full overflow-hidden shrink-0">
+                        <div className="w-14 bg-muted/40 dark:bg-zinc-800 h-1.5 rounded-[2px] overflow-hidden shrink-0">
                           <div
-                            className="bg-primary h-full rounded-full transition-all duration-300"
+                            className="bg-primary h-full rounded-[2px] transition-all duration-300"
                             style={{ width: `${Math.min(100, totals.attainment)}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[11px] text-foreground font-black w-12 text-right">
+                        <span className="font-mono text-[11px] text-foreground dark:text-zinc-100 font-bold w-12 text-right">
                           {totals.attainment.toFixed(1)}%
                         </span>
                       </div>
                     </td>
-                    <td className="py-4 px-3 font-mono font-black text-primary text-right">
+                    <td className="py-4 px-3 font-mono font-bold text-primary text-right">
                       {formatCurrency(totals.gap)}
                     </td>
                   </tr>

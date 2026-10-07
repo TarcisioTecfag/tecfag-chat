@@ -117,17 +117,25 @@ export function Index() {
         <div className="flex flex-1 gap-5 h-full w-full overflow-hidden">
           <ChatList />
           <ChatPanel />
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {rightSidebarOpen && selectedChatId !== "valentina" && (
               <motion.div
-                key="shared-files"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                className="h-full w-[360px] shrink-0 overflow-hidden"
+                key="shared-files-wrapper"
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: "auto", opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                className="h-full shrink-0 overflow-hidden"
               >
-                <SharedFiles />
+                <motion.div
+                  initial={{ x: 28, opacity: 0.6 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 28, opacity: 0 }}
+                  transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+                  className="h-full w-[400px] xl:w-[430px] 2xl:w-[460px] shrink-0"
+                >
+                  <SharedFiles />
+                </motion.div>
               </motion.div>
             )}
           </AnimatePresence>

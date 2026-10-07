@@ -24,6 +24,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 import { getAiPersona } from "@/lib/ai-persona";
+import { ProfilePopover } from "@/components/chat/ProfileModal";
 
 export function Sidebar() {
   const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, sessionRole, setIsProfileModalOpen, currentGroup } = useChat();
@@ -269,30 +270,29 @@ export function Sidebar() {
           </span>
         </div>
 
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => setIsProfileModalOpen(true)}
-          className="relative block h-10 w-10 rounded-full cursor-pointer group"
-          aria-label="Editar Meu Perfil"
-        >
-          <img
-            src={operatorProfile.avatar}
-            alt={operatorProfile.name}
-            className="h-10 w-10 rounded-full object-cover border border-border"
-          />
-          <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-card ${
-            operatorProfile.status === "disponivel"
-              ? "bg-primary"
-              : operatorProfile.status === "pausa"
-              ? "bg-amber-500"
-              : "bg-gray-400"
-          }`} />
-          {/* Floating tooltip — posicionado acima */}
-          <span className="absolute left-14 bottom-0 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
-            Editar Meu Perfil
-          </span>
-        </motion.button>
+        <ProfilePopover side="right" align="end" sideOffset={14}>
+          <button
+            className="relative block h-10 w-10 rounded-full cursor-pointer group transition-transform hover:scale-105 active:scale-95"
+            aria-label="Editar Meu Perfil"
+          >
+            <img
+              src={operatorProfile.avatar}
+              alt={operatorProfile.name}
+              className="h-10 w-10 rounded-full object-cover border border-border"
+            />
+            <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-card ${
+              operatorProfile.status === "disponivel"
+                ? "bg-primary"
+                : operatorProfile.status === "pausa"
+                ? "bg-amber-500"
+                : "bg-gray-400"
+            }`} />
+            {/* Floating tooltip */}
+            <span className="absolute left-14 bottom-0 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+              Editar Meu Perfil
+            </span>
+          </button>
+        </ProfilePopover>
       </div>
     </aside>
   );

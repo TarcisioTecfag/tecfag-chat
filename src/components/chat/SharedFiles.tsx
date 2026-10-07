@@ -485,7 +485,7 @@ export function SharedFiles() {
 
   if (!activeChat) {
     return (
-      <aside className="flex h-full w-[280px] shrink-0 flex-col rounded-3xl bg-card px-5 py-6 shadow-soft border border-border text-center justify-center text-muted-foreground select-none">
+      <aside className="flex h-full w-full flex-col rounded-3xl bg-card px-5 py-6 shadow-soft border border-border text-center justify-center text-muted-foreground select-none">
         <User className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
         <p className="text-xs">Selecione uma conversa para ver os detalhes do cliente.</p>
       </aside>
@@ -740,7 +740,7 @@ export function SharedFiles() {
   };
 
   return (
-    <aside className="flex h-full w-[280px] shrink-0 flex-col rounded-3xl bg-card px-4 py-5 shadow-soft border border-border select-none">
+    <aside className="flex h-full w-full flex-col rounded-3xl bg-card px-4.5 py-5 shadow-soft border border-border select-none overflow-hidden">
       {/* Sidebar Header with Minimize Button */}
       <div className="flex items-center justify-between mb-3 px-1">
         <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
@@ -940,7 +940,7 @@ export function SharedFiles() {
               {linkedDeals.length === 1 ? (
                 <div className="rounded-lg bg-primary/10 border border-primary/20 px-2.5 py-1.5 flex items-center justify-between text-[11px]">
                   <span className="text-muted-foreground font-medium">Negociação:</span>
-                  <span className="font-bold text-primary truncate max-w-[130px]" title={linkedDeals[0].title}>
+                  <span className="font-bold text-primary truncate max-w-[220px]" title={linkedDeals[0].title}>
                     {linkedDeals[0].title}
                   </span>
                 </div>

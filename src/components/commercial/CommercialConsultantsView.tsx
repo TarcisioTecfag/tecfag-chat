@@ -887,22 +887,22 @@ export function CommercialConsultantsView({
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <Users className="h-5 w-5 text-primary" />
-              <span>Novo Consultor Comercial</span>
+              <span className="font-mono">Novo Consultor Comercial</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
+            <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
               Vincule um operador existente da Tecfag a uma equipe ou crie um novo consultor.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             {/* Seletor de Modo: Operador Existente vs Novo Cadastro */}
-            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-muted/40 border border-border">
+            <div className="grid grid-cols-2 gap-1 p-1 rounded-[4px] bg-muted/20 dark:bg-zinc-900/80 border border-border/80 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => setNewConsultantType("existing")}
-                className={`py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                className={`py-1.5 text-xs font-mono font-bold rounded-[2px] transition cursor-pointer ${
                   newConsultantType === "existing"
-                    ? "bg-card text-foreground shadow-xs"
+                    ? "bg-card dark:bg-zinc-800 text-foreground shadow-xs border border-border/60 dark:border-zinc-700"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -911,9 +911,9 @@ export function CommercialConsultantsView({
               <button
                 type="button"
                 onClick={() => setNewConsultantType("new")}
-                className={`py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                className={`py-1.5 text-xs font-mono font-bold rounded-[2px] transition cursor-pointer ${
                   newConsultantType === "new"
-                    ? "bg-card text-foreground shadow-xs"
+                    ? "bg-card dark:bg-zinc-800 text-foreground shadow-xs border border-border/60 dark:border-zinc-700"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -923,14 +923,14 @@ export function CommercialConsultantsView({
 
             {newConsultantType === "existing" ? (
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                   Selecione o Operador
                 </label>
                 <div className="relative">
                   <select
                     value={selectedOperatorId}
                     onChange={(e) => setSelectedOperatorId(e.target.value)}
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs sm:text-sm text-foreground outline-none focus:border-primary cursor-pointer"
+                    className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary cursor-pointer"
                   >
                     <option value="">Selecione um operador...</option>
                     {consultants.map((op) => (
@@ -945,7 +945,7 @@ export function CommercialConsultantsView({
             ) : (
               <>
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                     Nome Completo
                   </label>
                   <input
@@ -953,11 +953,11 @@ export function CommercialConsultantsView({
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     placeholder="Ex: Beatriz Ribeiro"
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs sm:text-sm text-foreground outline-none focus:border-primary"
+                    className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                     E-mail Corporativo
                   </label>
                   <input
@@ -965,7 +965,7 @@ export function CommercialConsultantsView({
                     value={newEmail}
                     onChange={(e) => setNewEmail(e.target.value)}
                     placeholder="Ex: vendas7@tecfag.com.br"
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs sm:text-sm text-foreground outline-none focus:border-primary"
+                    className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
                   />
                 </div>
               </>
@@ -973,17 +973,17 @@ export function CommercialConsultantsView({
 
             {/* Seleção de Equipe */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                 Equipe Comercial
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setNewDivision("maquinas")}
-                  className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center justify-center gap-2 p-2.5 rounded-[4px] border text-xs font-mono font-bold transition cursor-pointer ${
                     newDivision === "maquinas"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-card text-muted-foreground hover:bg-muted"
+                      ? "border-primary bg-primary/10 text-primary dark:bg-primary/20"
+                      : "border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900/60 text-muted-foreground hover:bg-muted dark:hover:bg-zinc-800"
                   }`}
                 >
                   <Settings className="h-4 w-4" />
@@ -992,10 +992,10 @@ export function CommercialConsultantsView({
                 <button
                   type="button"
                   onClick={() => setNewDivision("personnalite")}
-                  className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center justify-center gap-2 p-2.5 rounded-[4px] border text-xs font-mono font-bold transition cursor-pointer ${
                     newDivision === "personnalite"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-card text-muted-foreground hover:bg-muted"
+                      ? "border-primary bg-primary/10 text-primary dark:bg-primary/20"
+                      : "border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900/60 text-muted-foreground hover:bg-muted dark:hover:bg-zinc-800"
                   }`}
                 >
                   <Gem className="h-4 w-4" />
@@ -1005,20 +1005,20 @@ export function CommercialConsultantsView({
             </div>
 
             {/* Visibilidade no BI TV */}
-            <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+            <div className="flex items-center justify-between p-3 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-muted/20 dark:bg-zinc-900/40">
               <div>
-                <div className="text-xs font-bold text-foreground">Visível no BI TV</div>
-                <div className="text-[11px] text-muted-foreground">
+                <div className="text-xs font-mono font-bold text-foreground dark:text-zinc-100">Visível no BI TV</div>
+                <div className="text-[11px] text-muted-foreground dark:text-zinc-400">
                   Exibir os resultados e métricas no painel de TV
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setNewActiveOnTv((prev) => !prev)}
-                className={`rounded-full px-3 py-1 text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                className={`rounded-[2px] px-2.5 py-1 text-xs font-mono font-bold transition flex items-center gap-1 cursor-pointer border ${
                   newActiveOnTv
-                    ? "bg-emerald-500 text-white"
-                    : "bg-muted text-muted-foreground"
+                    ? "bg-emerald-500 border-emerald-600 text-white"
+                    : "bg-muted dark:bg-zinc-800 border-border dark:border-zinc-700 text-muted-foreground"
                 }`}
               >
                 {newActiveOnTv ? (
@@ -1035,7 +1035,7 @@ export function CommercialConsultantsView({
 
             {/* Vínculo RD Station CRM */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 flex items-center justify-between">
                 <span>Vínculo RD Station CRM (Opcional)</span>
                 <span className="text-[10px] text-muted-foreground/80 lowercase">
                   user_id do crm
@@ -1046,7 +1046,7 @@ export function CommercialConsultantsView({
                 value={newRdUserId}
                 onChange={(e) => setNewRdUserId(e.target.value)}
                 placeholder="Ex: 67b482ec047d9c001e3b5e4a"
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs sm:text-sm text-foreground font-mono outline-none focus:border-primary"
+                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
               />
             </div>
           </div>
@@ -1055,7 +1055,7 @@ export function CommercialConsultantsView({
             <button
               type="button"
               onClick={() => setIsNewModalOpen(false)}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:bg-muted transition cursor-pointer"
+              className="px-4 py-2 rounded-[4px] text-xs font-mono font-bold text-muted-foreground hover:bg-muted dark:hover:bg-zinc-900 transition cursor-pointer"
             >
               Cancelar
             </button>
@@ -1063,7 +1063,7 @@ export function CommercialConsultantsView({
               type="button"
               disabled={isSubmitting}
               onClick={() => void handleSaveNewConsultant()}
-              className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-soft hover:brightness-110 disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
+              className="px-4 py-2 rounded-[4px] bg-primary text-primary-foreground text-xs font-mono font-bold shadow-sm hover:brightness-110 disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <span>Salvar consultor</span>
@@ -1077,32 +1077,32 @@ export function CommercialConsultantsView({
         open={Boolean(editingConsultant)}
         onOpenChange={(open) => !open && setEditingConsultant(null)}
       >
-        <DialogContent className="sm:max-w-md rounded-2xl bg-card border-border">
+        <DialogContent className="sm:max-w-md rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950 p-6 shadow-xl font-sans">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <Pencil className="h-5 w-5 text-primary" />
-              <span>Editar Consultor Comercial</span>
+              <span className="font-mono">Editar Consultor Comercial</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
+            <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
               Atualize a equipe, visibilidade no BI TV e vínculo RD de{" "}
-              <strong className="text-foreground">{editingConsultant?.name}</strong>.
+              <strong className="text-foreground dark:text-zinc-100">{editingConsultant?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             {/* Seleção de Equipe */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                 Equipe Comercial
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setEditDivision("maquinas")}
-                  className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center justify-center gap-2 p-2.5 rounded-[4px] border text-xs font-mono font-bold transition cursor-pointer ${
                     editDivision === "maquinas"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-card text-muted-foreground hover:bg-muted"
+                      ? "border-primary bg-primary/10 text-primary dark:bg-primary/20"
+                      : "border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900/60 text-muted-foreground hover:bg-muted dark:hover:bg-zinc-800"
                   }`}
                 >
                   <Settings className="h-4 w-4" />
@@ -1111,10 +1111,10 @@ export function CommercialConsultantsView({
                 <button
                   type="button"
                   onClick={() => setEditDivision("personnalite")}
-                  className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center justify-center gap-2 p-2.5 rounded-[4px] border text-xs font-mono font-bold transition cursor-pointer ${
                     editDivision === "personnalite"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-card text-muted-foreground hover:bg-muted"
+                      ? "border-primary bg-primary/10 text-primary dark:bg-primary/20"
+                      : "border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900/60 text-muted-foreground hover:bg-muted dark:hover:bg-zinc-800"
                   }`}
                 >
                   <Gem className="h-4 w-4" />
@@ -1124,20 +1124,20 @@ export function CommercialConsultantsView({
             </div>
 
             {/* Visibilidade no BI TV */}
-            <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+            <div className="flex items-center justify-between p-3 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-muted/20 dark:bg-zinc-900/40">
               <div>
-                <div className="text-xs font-bold text-foreground">Visível no BI TV</div>
-                <div className="text-[11px] text-muted-foreground">
+                <div className="text-xs font-mono font-bold text-foreground dark:text-zinc-100">Visível no BI TV</div>
+                <div className="text-[11px] text-muted-foreground dark:text-zinc-400">
                   Exibir os resultados e métricas no painel de TV
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setEditActiveOnTv((prev) => !prev)}
-                className={`rounded-full px-3 py-1 text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                className={`rounded-[2px] px-2.5 py-1 text-xs font-mono font-bold transition flex items-center gap-1 cursor-pointer border ${
                   editActiveOnTv
-                    ? "bg-emerald-500 text-white"
-                    : "bg-muted text-muted-foreground"
+                    ? "bg-emerald-500 border-emerald-600 text-white"
+                    : "bg-muted dark:bg-zinc-800 border-border dark:border-zinc-700 text-muted-foreground"
                 }`}
               >
                 {editActiveOnTv ? (
@@ -1154,7 +1154,7 @@ export function CommercialConsultantsView({
 
             {/* Vínculo RD Station CRM */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 flex items-center justify-between">
                 <span>Vínculo RD Station CRM</span>
                 <span className="text-[10px] text-muted-foreground/80 lowercase">
                   user_id do crm
@@ -1165,7 +1165,7 @@ export function CommercialConsultantsView({
                 value={editRdUserId}
                 onChange={(e) => setEditRdUserId(e.target.value)}
                 placeholder="Ex: 67b482ec047d9c001e3b5e4a"
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs sm:text-sm text-foreground font-mono outline-none focus:border-primary"
+                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
               />
             </div>
           </div>
@@ -1174,7 +1174,7 @@ export function CommercialConsultantsView({
             <button
               type="button"
               onClick={() => setEditingConsultant(null)}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:bg-muted transition cursor-pointer"
+              className="px-4 py-2 rounded-[4px] text-xs font-mono font-bold text-muted-foreground hover:bg-muted dark:hover:bg-zinc-900 transition cursor-pointer"
             >
               Cancelar
             </button>
@@ -1182,7 +1182,7 @@ export function CommercialConsultantsView({
               type="button"
               disabled={isSubmitting}
               onClick={() => void handleSaveEdit()}
-              className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-soft hover:brightness-110 disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
+              className="px-4 py-2 rounded-[4px] bg-primary text-primary-foreground text-xs font-mono font-bold shadow-sm hover:brightness-110 disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <span>Salvar alterações</span>
@@ -1196,22 +1196,22 @@ export function CommercialConsultantsView({
         open={Boolean(linkingConsultant)}
         onOpenChange={(open) => !open && setLinkingConsultant(null)}
       >
-        <DialogContent className="sm:max-w-md rounded-2xl bg-card border-border">
+        <DialogContent className="sm:max-w-md rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950 p-6 shadow-xl font-sans">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <Link2 className="h-5 w-5 text-primary" />
-              <span>Vínculo com RD Station CRM</span>
+              <span className="font-mono">Vínculo com RD Station CRM</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
+            <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
               Defina o identificador do consultor no RD Station para sincronização de
               negociações e histórico de vendas de{" "}
-              <strong className="text-foreground">{linkingConsultant?.name}</strong>.
+              <strong className="text-foreground dark:text-zinc-100">{linkingConsultant?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                 ID de Usuário no RD Station (user_id)
               </label>
               <input
@@ -1219,10 +1219,10 @@ export function CommercialConsultantsView({
                 value={directRdUserId}
                 onChange={(e) => setDirectRdUserId(e.target.value)}
                 placeholder="Ex: 67b482ec047d9c001e3b5e4a"
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs sm:text-sm text-foreground font-mono outline-none focus:border-primary"
+                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
               />
             </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <p className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400 leading-relaxed">
               Dica: O ID de usuário é o hash hexadecimal (ObjectId de 24 caracteres)
               encontrado na URL do RD Station CRM ou no cadastro de usuários.
             </p>
@@ -1232,7 +1232,7 @@ export function CommercialConsultantsView({
             <button
               type="button"
               onClick={() => setLinkingConsultant(null)}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:bg-muted transition cursor-pointer"
+              className="px-4 py-2 rounded-[4px] text-xs font-mono font-bold text-muted-foreground hover:bg-muted dark:hover:bg-zinc-900 transition cursor-pointer"
             >
               Cancelar
             </button>
@@ -1240,7 +1240,7 @@ export function CommercialConsultantsView({
               type="button"
               disabled={isSubmitting}
               onClick={() => void handleSaveDirectRd()}
-              className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-soft hover:brightness-110 disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
+              className="px-4 py-2 rounded-[4px] bg-primary text-primary-foreground text-xs font-mono font-bold shadow-sm hover:brightness-110 disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <span>Salvar vínculo</span>
@@ -1254,21 +1254,21 @@ export function CommercialConsultantsView({
         open={Boolean(deletingConsultant)}
         onOpenChange={(open) => !open && setDeletingConsultant(null)}
       >
-        <DialogContent className="sm:max-w-md rounded-2xl bg-card border-border">
+        <DialogContent className="sm:max-w-md rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950 p-6 shadow-xl font-sans">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-red-500" />
-              <span>Remover da Equipe Comercial</span>
+              <span className="font-mono">Remover da Equipe Comercial</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
+            <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
               Tem certeza de que deseja remover{" "}
-              <strong className="text-foreground">{deletingConsultant?.name}</strong> da equipe
+              <strong className="text-foreground dark:text-zinc-100">{deletingConsultant?.name}</strong> da equipe
               comercial?
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-2">
-            <p className="text-xs text-muted-foreground leading-relaxed">
+            <p className="text-xs text-muted-foreground dark:text-zinc-400 leading-relaxed">
               O operador continuará existindo no sistema e mantendo seu histórico de conversas e
               negociações, mas não terá equipe comercial atribuída e não será exibido no BI TV.
             </p>
@@ -1278,7 +1278,7 @@ export function CommercialConsultantsView({
             <button
               type="button"
               onClick={() => setDeletingConsultant(null)}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:bg-muted transition cursor-pointer"
+              className="px-4 py-2 rounded-[4px] text-xs font-mono font-bold text-muted-foreground hover:bg-muted dark:hover:bg-zinc-900 transition cursor-pointer"
             >
               Cancelar
             </button>
@@ -1286,7 +1286,7 @@ export function CommercialConsultantsView({
               type="button"
               disabled={isSubmitting}
               onClick={() => void handleConfirmDelete()}
-              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-soft disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
+              className="px-4 py-2 rounded-[4px] bg-red-600 hover:bg-red-700 text-white text-xs font-mono font-bold shadow-sm disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <span>Remover da equipe</span>

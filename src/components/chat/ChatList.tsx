@@ -7,6 +7,7 @@ import { Channel, QueueType } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusWizardModal } from "./StatusWizardModal";
+import { ProfilePopover } from "./ProfileModal";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -213,24 +214,25 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
       {/* Vendedor Info */}
       <div className="flex flex-col items-center relative">
-        <button
-          onClick={() => setIsProfileModalOpen(true)}
-          className="relative block cursor-pointer transition hover:scale-105"
-          title="Editar Meu Perfil"
-        >
-          <img
-            src={operatorProfile.avatar}
-            alt="Atendente"
-            className="h-[80px] w-[80px] rounded-full object-cover ring-2 ring-primary/20"
-          />
-          <span className={`absolute bottom-0 right-1.5 h-3.5 w-3.5 rounded-full border-2 border-card ${
-            operatorProfile.status === "disponivel"
-              ? "bg-primary"
-              : operatorProfile.status === "pausa"
-              ? "bg-amber-500"
-              : "bg-gray-400"
-          }`} />
-        </button>
+        <ProfilePopover side="right" align="start" sideOffset={14}>
+          <button
+            className="relative block cursor-pointer transition hover:scale-105"
+            aria-label="Editar Meu Perfil"
+          >
+            <img
+              src={operatorProfile.avatar}
+              alt="Atendente"
+              className="h-[80px] w-[80px] rounded-full object-cover ring-2 ring-primary/20"
+            />
+            <span className={`absolute bottom-0 right-1.5 h-3.5 w-3.5 rounded-full border-2 border-card ${
+              operatorProfile.status === "disponivel"
+                ? "bg-primary"
+                : operatorProfile.status === "pausa"
+                ? "bg-amber-500"
+                : "bg-gray-400"
+            }`} />
+          </button>
+        </ProfilePopover>
         <h3 className="mt-2 text-[15px] font-bold text-foreground">{operatorProfile.name}</h3>
         
         {/* Clickable Status Badge */}
