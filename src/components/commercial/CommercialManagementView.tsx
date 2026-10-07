@@ -47,7 +47,12 @@ type CalendarDay = {
   description: string;
   affectsGoal: boolean;
 };
-type Closing = { date: string; count: number; value: number; deals: Array<{ id: string; title: string; value: number; operatorName: string }> };
+type Closing = {
+  date: string;
+  count: number;
+  value: number;
+  deals: Array<{ id: string; title: string; value: number; operatorName: string }>;
+};
 type Evidence = {
   id: string;
   dealId: string;
@@ -164,12 +169,20 @@ export function CommercialManagementView() {
     () => new Map(consultants.map((consultant) => [consultant.operatorId, consultant.name])),
     [consultants],
   );
-  const calendarClosingMap = useMemo(() => new Map(closings.map((item) => [item.date, item])), [closings]);
-  const calendarOverrideMap = useMemo(() => new Map(calendarDays.map((item) => [item.date, item])), [calendarDays]);
+  const calendarClosingMap = useMemo(
+    () => new Map(closings.map((item) => [item.date, item])),
+    [closings],
+  );
+  const calendarOverrideMap = useMemo(
+    () => new Map(calendarDays.map((item) => [item.date, item])),
+    [calendarDays],
+  );
   const [calendarYear, calendarMonth] = month.split("-").map(Number);
   const calendarLastDay = new Date(Date.UTC(calendarYear, calendarMonth, 0)).getUTCDate();
   const calendarOffset = new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)).getUTCDay();
-  const calendarSelectedDate = selectedCalendarDate.startsWith(month) ? selectedCalendarDate : `${month}-01`;
+  const calendarSelectedDate = selectedCalendarDate.startsWith(month)
+    ? selectedCalendarDate
+    : `${month}-01`;
   const selectedClosing = calendarClosingMap.get(calendarSelectedDate);
 
   async function saveProfile(consultant: Consultant) {
@@ -588,20 +601,102 @@ export function CommercialManagementView() {
                 </form>
                 <div className="rounded-2xl border border-border bg-card p-5">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div><p className="text-[11px] font-bold uppercase tracking-widest text-primary">Fechamentos do mês</p><h2 className="mt-1 text-lg font-extrabold text-foreground">Calendário comercial</h2></div>
-                    <strong className="text-sm text-foreground">{currency.format(closings.reduce((total, item) => total + item.value, 0))} faturado</strong>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-primary">
+                        Fechamentos do mês
+                      </p>
+                      <h2 className="mt-1 text-lg font-extrabold text-foreground">
+                        Calendário comercial
+                      </h2>
+                    </div>
+                    <strong className="text-sm text-foreground">
+                      {currency.format(closings.reduce((total, item) => total + item.value, 0))}{" "}
+                      faturado
+                    </strong>
                   </div>
-                  <div className="overflow-x-auto"><div className="min-w-[630px]"><div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase text-muted-foreground">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => <span key={day} className="pb-2">{day}</span>)}</div><div className="grid grid-cols-7 gap-1">{Array.from({ length: calendarOffset }, (_, index) => <span key={`empty-${index}`} />)}{Array.from({ length: calendarLastDay }, (_, index) => {
-                    const date = `${month}-${String(index + 1).padStart(2, "0")}`;
-                    const closing = calendarClosingMap.get(date);
-                    const override = calendarOverrideMap.get(date);
-                    return <button key={date} onClick={() => setSelectedCalendarDate(date)} className={`min-h-20 rounded-lg border p-2 text-left ${calendarSelectedDate === date ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}><strong className="text-xs text-foreground">{index + 1}</strong>{closing && <span className="mt-1 block text-[10px] font-bold text-primary">{closing.count} ganho{closing.count === 1 ? "" : "s"}<br />{currency.format(closing.value)}</span>}{override && <span className="mt-1 block truncate text-[9px] text-muted-foreground" title={override.description}>{override.description}</span>}</button>;
-                  })}</div></div></div>
-                  <div className="mt-4 rounded-xl bg-muted/40 p-3"><h3 className="text-xs font-bold text-foreground">{calendarSelectedDate} · {selectedClosing?.count || 0} fechamento{selectedClosing?.count === 1 ? "" : "s"}</h3>{selectedClosing?.deals.length ? <div className="mt-2 space-y-1">{selectedClosing.deals.map((deal) => <button key={deal.id} onClick={() => void navigate({ to: "/crm/deals/$dealId", params: { dealId: deal.id }, search: { from: "crm" } })} className="flex w-full flex-wrap justify-between gap-2 rounded-lg border border-border bg-card p-2 text-left text-xs text-foreground hover:border-primary/40"><span>{deal.title} · {deal.operatorName}</span><strong>{currency.format(deal.value)}</strong></button>)}</div> : <p className="mt-1 text-xs text-muted-foreground">Nenhuma negociação ganha neste dia.</p>}</div>
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[630px]">
+                      <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase text-muted-foreground">
+                        {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => (
+                          <span key={day} className="pb-2">
+                            {day}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-1">
+                        {Array.from({ length: calendarOffset }, (_, index) => (
+                          <span key={`empty-${index}`} />
+                        ))}
+                        {Array.from({ length: calendarLastDay }, (_, index) => {
+                          const date = `${month}-${String(index + 1).padStart(2, "0")}`;
+                          const closing = calendarClosingMap.get(date);
+                          const override = calendarOverrideMap.get(date);
+                          return (
+                            <button
+                              key={date}
+                              onClick={() => setSelectedCalendarDate(date)}
+                              className={`min-h-20 rounded-lg border p-2 text-left ${calendarSelectedDate === date ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}
+                            >
+                              <strong className="text-xs text-foreground">{index + 1}</strong>
+                              {closing && (
+                                <span className="mt-1 block text-[10px] font-bold text-primary">
+                                  {closing.count} ganho{closing.count === 1 ? "" : "s"}
+                                  <br />
+                                  {currency.format(closing.value)}
+                                </span>
+                              )}
+                              {override && (
+                                <span
+                                  className="mt-1 block truncate text-[9px] text-muted-foreground"
+                                  title={override.description}
+                                >
+                                  {override.description}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-xl bg-muted/40 p-3">
+                    <h3 className="text-xs font-bold text-foreground">
+                      {calendarSelectedDate} · {selectedClosing?.count || 0} fechamento
+                      {selectedClosing?.count === 1 ? "" : "s"}
+                    </h3>
+                    {selectedClosing?.deals.length ? (
+                      <div className="mt-2 space-y-1">
+                        {selectedClosing.deals.map((deal) => (
+                          <button
+                            key={deal.id}
+                            onClick={() =>
+                              void navigate({
+                                to: "/crm/deals/$dealId",
+                                params: { dealId: deal.id },
+                                search: { from: "crm" },
+                              })
+                            }
+                            className="flex w-full flex-wrap justify-between gap-2 rounded-lg border border-border bg-card p-2 text-left text-xs text-foreground hover:border-primary/40"
+                          >
+                            <span>
+                              {deal.title} · {deal.operatorName}
+                            </span>
+                            <strong>{currency.format(deal.value)}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Nenhuma negociação ganha neste dia.
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="rounded-2xl border border-border bg-card p-5">
                   <div className="mb-3 flex items-center gap-3">
-                    <h2 className="text-sm font-extrabold text-foreground">Ajustes de expediente</h2>
+                    <h2 className="text-sm font-extrabold text-foreground">
+                      Ajustes de expediente
+                    </h2>
                     <input
                       aria-label="Mês do calendário"
                       type="month"
