@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 const money = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -340,8 +341,10 @@ export function CommercialCohortsPanel({
                   </td>
                   <td className="p-2.5 font-semibold">{money.format(row.totalValue)}</td>
                   {row.tiers.map((tier) => (
-                    <td key={tier.tier} className="p-2.5" title={money.format(tier.value)}>
-                      {tier.count}
+                    <td key={tier.tier} className="p-2.5">
+                      <SystemTooltip content={`Faixa ${tier.tier}: ${money.format(tier.value)}`}>
+                        <span className="cursor-help">{tier.count}</span>
+                      </SystemTooltip>
                     </td>
                   ))}
                 </tr>

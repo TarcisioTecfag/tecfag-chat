@@ -1168,12 +1168,12 @@ export function CommercialSettingsPanel() {
             <div className="mt-5 space-y-2">
               <div className="h-2.5 w-full overflow-hidden rounded-[2px] bg-muted/60 dark:bg-zinc-900 p-0.5 flex gap-1 border border-border/80 dark:border-zinc-800">
                 {activeModulesSorted.map((mod) => (
-                  <div
-                    key={mod.id}
-                    title={mod.shortName}
-                    style={{ backgroundColor: mod.color }}
-                    className="h-full flex-1 rounded-[1px] transition-all duration-300"
-                  />
+                  <SystemTooltip key={mod.id} content={mod.shortName}>
+                    <div
+                      style={{ backgroundColor: mod.color }}
+                      className="h-full flex-1 rounded-[1px] transition-all duration-300"
+                    />
+                  </SystemTooltip>
                 ))}
               </div>
 
