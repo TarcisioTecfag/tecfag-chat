@@ -396,6 +396,7 @@ export function CommercialEvidenceDialog({
                       (nextActionActivityId === "__new__" &&
                         (nextTaskTitle.trim().length < 3 ||
                           !nextTaskDueAt ||
+                          !Number.isFinite(new Date(nextTaskDueAt).getTime()) ||
                           new Date(nextTaskDueAt) <= new Date())))) ||
                   (source === "internal_record" &&
                     (channel === "whatsapp" ? messageIds.length === 0 : !recordId))

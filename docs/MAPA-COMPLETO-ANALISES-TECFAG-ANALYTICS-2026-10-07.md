@@ -4,6 +4,8 @@
 
 **Estado:** especificação de migração, não declaração de paridade. O BI atual do Chat é um primeiro corte; os detalhamentos e vários gráficos abaixo ainda não existem. As fórmulas e os estados precisam ser reconciliados com dados de teste do CRM próprio.
 
+**Atualização da implementação:** o estado das tabelas abaixo descreve o inventário antes da ampliação do backend. Consulte [Implementação das análises comerciais](IMPLEMENTACAO-ANALISES-TECFAG-CHAT-2026-10-07.md) para os contratos já aplicados, testes e limites que permanecem.
+
 ## 1. Mapa de navegação e encaixe
 
 | Superfície do Analytics | Conteúdo real | Lugar no Tecfag Chat | Estado atual |
