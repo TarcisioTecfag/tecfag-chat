@@ -14,7 +14,12 @@ import {
   Send,
   Lock,
   UserPlus,
+  UserCheck,
   CheckCircle,
+  CheckCircle2,
+  RotateCcw,
+  Bot,
+  Loader2,
   Zap,
   Clock,
   ArrowRightLeft,
@@ -45,6 +50,13 @@ import {
   Package,
   Bookmark,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
 import { ProductCatalogPicker } from "./ProductCatalogPicker";
 import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
@@ -657,6 +669,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setShowTransferDropdown(false);
     setSelectedTransferSectorId(null);
   };
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferModalSearch, setTransferModalSearch] = useState("");
+  const [transferModalSubmitting, setTransferModalSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const sendInFlightRef = useRef(false);
@@ -1975,30 +1990,39 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               ? "mt-3"
               : "";
 
-            // ── Separador de Data (estilo WhatsApp) — calculado ANTES de qualquer if ──
-            const todayBR = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-            const yesterdayBR = new Date(Date.now() - 86400000).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-
-            const formatDateLabel = (dateStr: string) => {
-              if (!dateStr) return null;
-              if (dateStr === todayBR) return "Hoje";
-              if (dateStr === yesterdayBR) return "Ontem";
-              const [d, mo, y] = dateStr.split("/");
-              const months = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-              const monthName = months[parseInt(mo, 10) - 1] || mo;
-              return `${parseInt(d, 10)} de ${monthName} de ${y}`;
+            // ── Separador de Data por Período / Dia (Ex: 07/10/2026, 08/10/2026) ──
+            const getMessageDateStr = (msg: (typeof displayed)[0] | null | undefined): string | null => {
+              if (!msg) return null;
+              if (msg.date && /^\d{2}\/\d{2}\/\d{4}$/.test(msg.date)) return msg.date;
+              if (msg.sentAtISO) {
+                try {
+                  return new Date(msg.sentAtISO).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+                } catch {
+                  // ignore
+                }
+              }
+              if ((msg as any).sentAt) {
+                try {
+                  return new Date((msg as any).sentAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+                } catch {
+                  // ignore
+                }
+              }
+              return msg.date || null;
             };
 
-            const showDateSeparator = (m as any).date && (!prev || (prev as any).date !== (m as any).date);
-            const dateLabel = showDateSeparator ? formatDateLabel((m as any).date as string) : null;
+            const prevDate = prev ? getMessageDateStr(prev) : null;
+            const currDate = getMessageDateStr(m);
+            const showDateSeparator = Boolean(currDate && (!prevDate || currDate !== prevDate));
+            const dateLabel = showDateSeparator ? currDate : null;
 
             // ── Mensagens de sistema ──────────────────────────────────────
             if (isSystem) {
               return (
                 <React.Fragment key={m.id}>
                   {dateLabel && (
-                    <div className="flex justify-center my-3">
-                      <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground border border-border select-none">
+                    <div className="flex justify-center my-3 select-none">
+                      <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
                         {dateLabel}
                       </span>
                     </div>
@@ -2017,8 +2041,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               return (
                 <React.Fragment key={m.id}>
                   {dateLabel && (
-                    <div className="flex justify-center my-3">
-                      <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground border border-border select-none">
+                    <div className="flex justify-center my-3 select-none">
+                      <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
                         {dateLabel}
                       </span>
                     </div>
@@ -2091,8 +2115,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               return (
                 <React.Fragment key={m.id}>
                   {dateLabel && (
-                    <div className="flex justify-center my-3">
-                      <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground border border-border select-none">
+                    <div className="flex justify-center my-3 select-none">
+                      <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
                         {dateLabel}
                       </span>
                     </div>
@@ -2229,8 +2253,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             return (
               <React.Fragment key={m.id}>
                 {dateLabel && (
-                  <div className="flex justify-center my-3">
-                    <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground border border-border select-none">
+                  <div className="flex justify-center my-3 select-none">
+                    <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
                       {dateLabel}
                     </span>
                   </div>
@@ -2646,97 +2670,126 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         >
           {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
           {!isOwner && activeChat.operatorId ? (
-            <div
-              className={`flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 text-center ${
-                tenant === "valem"
-                  ? "bg-emerald-50 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
-                  : "bg-red-50 border-red-300 dark:bg-red-950/30 dark:border-red-700"
-              }`}
-            >
-              <div
-                className={`h-12 w-12 rounded-full flex items-center justify-center ${
-                  tenant === "valem"
-                    ? "bg-emerald-100 dark:bg-emerald-900"
-                    : "bg-red-100 dark:bg-red-900"
-                }`}
-              >
-                <Lock
-                  className={`h-6 w-6 ${
-                    tenant === "valem"
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  }`}
-                />
+            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
+              <div className="flex items-start gap-3.5">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Lock className="h-4.5 w-4.5" />
+                </div>
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-foreground">
+                      Atendimento com {ownerOperator?.name ?? "outro operador"}
+                    </h4>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Este atendimento está sob responsabilidade de {ownerOperator?.name ?? "outro operador"}. Somente o operador responsável pode responder mensagens nesta conversa.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {canOverride && (
+                      <button
+                        type="button"
+                        onClick={() => captureChat(activeChat.id)}
+                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                      >
+                        <UserCheck className="h-3.5 w-3.5 text-primary" />
+                        <span>Assumir Atendimento</span>
+                      </button>
+                    )}
+                    {canTransfer && (
+                      <button
+                        type="button"
+                        onClick={() => setShowTransferModal(true)}
+                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                      >
+                        <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
+                        <span>Transferir Atendimento</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div>
-                <p
-                  className={`text-sm font-bold ${
-                    tenant === "valem"
-                      ? "text-emerald-800 dark:text-emerald-300"
-                      : "text-red-800 dark:text-red-300"
-                  }`}
-                >
-                  Atendimento com{" "}
-                  <span className="font-extrabold">{ownerOperator?.name ?? "outro operador"}</span>
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Somente o operador responsável pode enviar mensagens aqui.
-                </p>
-              </div>
-              {canOverride && (
-                <button
-                  onClick={() => captureChat(activeChat.id)}
-                  className={`mt-1 h-9 rounded-xl text-white text-xs font-bold px-6 transition cursor-pointer ${
-                    tenant === "valem"
-                      ? "bg-emerald-600 hover:bg-emerald-700"
-                      : "bg-red-600 hover:bg-red-700"
-                  }`}
-                >
-                  Assumir Atendimento
-                </button>
-              )}
             </div>
           ) : !activeChat.operatorId && activeChat.queue !== "automacao" ? (
             /* ── BLOQUEIO: fila de espera ── */
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-primary/20 bg-primary-soft/30 dark:bg-primary/10 text-center">
-              <div className="h-12 w-12 rounded-full flex items-center justify-center bg-primary-soft">
-                <Clock className="h-6 w-6 text-primary" />
+            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
+              <div className="flex items-start gap-3.5">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Clock className="h-4.5 w-4.5" />
+                </div>
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-foreground">
+                      Cliente aguardando na fila de espera
+                    </h4>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Este atendimento está na fila aguardando atribuição. Capture o atendimento para começar a responder o cliente ou direcione-o para outro operador.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {canCapture && (
+                      <button
+                        type="button"
+                        onClick={() => captureChat(activeChat.id)}
+                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                      >
+                        <UserCheck className="h-3.5 w-3.5 text-primary" />
+                        <span>Capturar Atendimento</span>
+                      </button>
+                    )}
+                    {canTransfer && (
+                      <button
+                        type="button"
+                        onClick={() => setShowTransferModal(true)}
+                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                      >
+                        <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
+                        <span>Direcionar Atendimento</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-bold text-foreground">Fila de Espera</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Capture este atendimento para começar a responder o cliente.
-                </p>
-              </div>
-              {canCapture && (
-                <button
-                  onClick={() => captureChat(activeChat.id)}
-                  className="mt-1 h-9 rounded-xl bg-primary hover:opacity-95 text-white text-xs font-bold px-6 transition cursor-pointer shadow-soft"
-                >
-                  Capturar Atendimento
-                </button>
-              )}
             </div>
           ) : activeChat.queue === "automacao" ? (
             /* ── BLOQUEIO: automação ── */
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-8 border-2 border-primary/20 bg-primary-soft/30 dark:bg-primary/10 text-center">
-              <div className="h-12 w-12 rounded-full overflow-hidden border-2 border-primary/30 bg-primary-soft flex items-center justify-center shadow-soft">
-                <span aria-label={aiPersona.name} className="text-2xl">{aiPersona.avatar}</span>
+            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
+              <div className="flex items-start gap-3.5">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Bot className="h-4.5 w-4.5" />
+                </div>
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-foreground">
+                      Com {aiPersona.name} (I.A)
+                    </h4>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      {aiPersona.name} está conduzindo o atendimento inicial deste cliente. Você pode assumir a qualquer momento para continuar o atendimento de forma humana.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {canCapture && (
+                      <button
+                        type="button"
+                        onClick={() => captureChat(activeChat.id)}
+                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                      >
+                        <UserCheck className="h-3.5 w-3.5 text-primary" />
+                        <span>Assumir Atendimento</span>
+                      </button>
+                    )}
+                    {canTransfer && (
+                      <button
+                        type="button"
+                        onClick={() => setShowTransferModal(true)}
+                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                      >
+                        <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
+                        <span>Transferir Atendimento</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-bold text-foreground">Com {aiPersona.name} (I.A)</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {aiPersona.name} está conduzindo este atendimento. Capture para assumir o controle.
-                </p>
-              </div>
-              {canCapture && (
-                <button
-                  onClick={() => captureChat(activeChat.id)}
-                  className="mt-1 h-9 rounded-xl bg-primary hover:opacity-95 text-white text-xs font-bold px-6 transition cursor-pointer shadow-soft"
-                >
-                  Assumir Atendimento
-                </button>
-              )}
             </div>
           ) : activeProvider === "meta" && activeChat.channel === "whatsapp" && metaWindow?.open !== true ? (
             <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-sm">
@@ -3145,19 +3198,44 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           )}
         </div>
       ) : (
-        <div className="px-5 pb-5 text-center flex flex-col items-center justify-center gap-3 py-6 border-t border-line bg-muted/20 rounded-b-3xl">
-          <p className="text-xs text-muted-foreground italic">
-            Este atendimento foi encerrado. Reative-o para iniciar uma nova conversa com o cliente.
-          </p>
-          <motion.button
-            onClick={() => captureChat(activeChat.id)}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-soft transition hover:opacity-90 active:scale-98 cursor-pointer"
-          >
-            <CheckCircle className="h-4 w-4" />
-            Reativar Atendimento
-          </motion.button>
+        <div className="px-5 pb-5">
+          <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
+            <div className="flex items-start gap-3.5">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <CheckCircle2 className="h-4.5 w-4.5" />
+              </div>
+              <div className="flex-1 space-y-3">
+                <div>
+                  <h4 className="text-sm font-bold text-foreground">
+                    Atendimento Finalizado
+                  </h4>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Este atendimento foi encerrado. Você pode reiniciar uma nova conversa com o cliente ou transferir este contato para outro operador ou setor.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => captureChat(activeChat.id)}
+                    className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 text-primary" />
+                    <span>Reativar Atendimento</span>
+                  </button>
+                  {canTransfer && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTransferModal(true)}
+                      className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                    >
+                      <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
+                      <span>Transferir Atendimento</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -3312,6 +3390,155 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         isOpen={show24hInfoModal}
         onClose={() => setShow24hInfoModal(false)}
       />
+
+      {/* Modal Unificado de Transferência de Atendimento */}
+      <Dialog
+        open={showTransferModal}
+        onOpenChange={(isOpen) => {
+          setShowTransferModal(isOpen);
+          if (!isOpen) setTransferModalSearch("");
+        }}
+      >
+        <DialogContent className="max-w-md p-5 bg-card text-foreground border border-border shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm font-bold">
+              <ArrowRightLeft className="h-4 w-4 text-primary" />
+              Transferir Atendimento
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Selecione o operador ou setor para transferir a conversa com <strong className="text-foreground">{activeChat?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-2 space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                value={transferModalSearch}
+                onChange={(e) => setTransferModalSearch(e.target.value)}
+                placeholder="Buscar por operador ou setor..."
+                className="h-8.5 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/20"
+              />
+            </div>
+
+            <div className="max-h-64 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+              {/* Seção Operadores */}
+              <div>
+                <div className="px-1 py-1 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
+                  Operadores
+                </div>
+                <div className="space-y-1">
+                  {operators
+                    .filter((op) => op.id !== currentOperatorId)
+                    .filter((op) => !transferModalSearch || op.name.toLowerCase().includes(transferModalSearch.toLowerCase()))
+                    .map((op) => (
+                      <button
+                        key={op.id}
+                        type="button"
+                        onClick={async () => {
+                          if (transferModalSubmitting || !activeChat) return;
+                          setTransferModalSubmitting(true);
+                          try {
+                            const ok = await transferChat(activeChat.id, null, op.id);
+                            if (ok) {
+                              setShowTransferModal(false);
+                              setTransferModalSearch("");
+                              toast.success(`Atendimento transferido para ${op.name}`);
+                            }
+                          } finally {
+                            setTransferModalSubmitting(false);
+                          }
+                        }}
+                        disabled={transferModalSubmitting}
+                        className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-muted/80 transition cursor-pointer disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img
+                            src={op.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${op.name}`}
+                            alt={op.name}
+                            className="h-7 w-7 rounded-full object-cover border border-border"
+                          />
+                          <div className="min-w-0">
+                            <div className="truncate text-xs font-semibold text-foreground">{op.name}</div>
+                            <div className="truncate text-[10px] text-muted-foreground">
+                              {(op as any).role === "admin" ? "Administrador" : "Operador"}
+                            </div>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-primary flex items-center gap-1">
+                          {transferModalSubmitting ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <>Transferir &rarr;</>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  {operators.filter((op) => op.id !== currentOperatorId).filter((op) => !transferModalSearch || op.name.toLowerCase().includes(transferModalSearch.toLowerCase())).length === 0 && (
+                    <div className="py-2 text-center text-xs text-muted-foreground italic">
+                      Nenhum operador encontrado
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Seção Setores */}
+              {sectors.length > 0 && (
+                <div className="pt-2 border-t border-border/60">
+                  <div className="px-1 py-1 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
+                    Setores (Fila Geral)
+                  </div>
+                  <div className="space-y-1">
+                    {sectors
+                      .filter((sec) => !transferModalSearch || sec.name.toLowerCase().includes(transferModalSearch.toLowerCase()))
+                      .map((sec) => (
+                        <button
+                          key={sec.id}
+                          type="button"
+                          onClick={async () => {
+                            if (transferModalSubmitting || !activeChat) return;
+                            setTransferModalSubmitting(true);
+                            try {
+                              const ok = await transferChat(activeChat.id, sec.name, null);
+                              if (ok) {
+                                setShowTransferModal(false);
+                                setTransferModalSearch("");
+                                toast.success(`Atendimento transferido para a fila de ${sec.name}`);
+                              }
+                            } finally {
+                              setTransferModalSubmitting(false);
+                            }
+                          }}
+                          disabled={transferModalSubmitting}
+                          className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-muted/80 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="h-7 w-7 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-bold shrink-0">
+                              {sec.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate text-xs font-semibold text-foreground">{sec.name}</div>
+                              <div className="truncate text-[10px] text-muted-foreground">
+                                {sec.operatorIds.length} atendente(s)
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-primary flex items-center gap-1">
+                            {transferModalSubmitting ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <>Fila geral &rarr;</>
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.section>
   );
 }

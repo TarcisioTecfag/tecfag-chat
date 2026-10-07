@@ -1,4 +1,5 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, SystemTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -6,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { fetchCnpjInfo, CnpjFullDetails } from "@/lib/valentina/cnpj-service";
 import { useChat } from "@/hooks/useChatState";
@@ -39,6 +40,7 @@ import {
   Files,
   Folder,
   Link2,
+  ChevronLeft,
   ChevronRight,
   Pencil,
   CheckCircle2,
@@ -190,6 +192,152 @@ export function SharedFiles() {
   const taskTime = taskDueTime;
   const [taskCreating, setTaskCreating] = useState(false);
   const [taskTypeOpen, setTaskTypeOpen] = useState(false);
+
+  // Estados e controle do Calendário e Horário Customizados (Design System sem corte de ano)
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [isTimeOpen, setIsTimeOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState<number>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.getMonth();
+  });
+  const [calendarYear, setCalendarYear] = useState<number>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.getFullYear();
+  });
+
+  useEffect(() => {
+    if (taskDueDate) {
+      const [y, m] = taskDueDate.split("-");
+      if (y && m) {
+        setCalendarYear(parseInt(y, 10));
+        setCalendarMonth(parseInt(m, 10) - 1);
+      }
+    }
+  }, [taskDueDate]);
+
+  const formattedDateBR = useMemo(() => {
+    if (!taskDueDate) return "Selecione data";
+    const [y, m, d] = taskDueDate.split("-");
+    if (y && m && d) return `${d}/${m}/${y}`;
+    return taskDueDate;
+  }, [taskDueDate]);
+
+  const [currentHour, currentMin] = (taskDueTime || "09:00").split(":");
+  const selectedHour = currentHour || "09";
+  const selectedMin = currentMin || "00";
+
+  const prevMonth = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (calendarMonth === 0) {
+      setCalendarMonth(11);
+      setCalendarYear((y) => y - 1);
+    } else {
+      setCalendarMonth((m) => m - 1);
+    }
+  };
+
+  const nextMonth = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (calendarMonth === 11) {
+      setCalendarMonth(0);
+      setCalendarYear((y) => y + 1);
+    } else {
+      setCalendarMonth((m) => m + 1);
+    }
+  };
+
+  const handleSelectDay = (day: number, monthOffset: number = 0) => {
+    let targetMonth = calendarMonth + monthOffset;
+    let targetYear = calendarYear;
+
+    if (targetMonth < 0) {
+      targetMonth = 11;
+      targetYear -= 1;
+    } else if (targetMonth > 11) {
+      targetMonth = 0;
+      targetYear += 1;
+    }
+
+    const yStr = String(targetYear);
+    const mStr = String(targetMonth + 1).padStart(2, "0");
+    const dStr = String(day).padStart(2, "0");
+    setTaskDueDate(`${yStr}-${mStr}-${dStr}`);
+    setIsCalendarOpen(false);
+  };
+
+  const MONTH_NAMES_PT = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ];
+  const WEEKDAY_NAMES_PT = ["D", "S", "T", "Q", "Q", "S", "S"];
+  const HOURS_LIST = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+  const MINUTES_LIST = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"];
+
+  const renderCalendarDays = () => {
+    const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay();
+    const daysInCurrentMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+    const daysInPrevMonth = new Date(calendarYear, calendarMonth, 0).getDate();
+
+    const cells: React.ReactNode[] = [];
+
+    // Dias do mês anterior
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const dayNum = daysInPrevMonth - i;
+      cells.push(
+        <button
+          key={`prev-${dayNum}`}
+          type="button"
+          onClick={() => handleSelectDay(dayNum, -1)}
+          className="h-7 w-7 text-[11px] text-muted-foreground/35 hover:bg-muted/40 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+        >
+          {dayNum}
+        </button>
+      );
+    }
+
+    // Dias do mês atual
+    for (let day = 1; day <= daysInCurrentMonth; day++) {
+      const dayYMD = `${calendarYear}-${String(calendarMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const isSelected = taskDueDate === dayYMD;
+      const formattedDayTooltip = `${String(day).padStart(2, "0")}/${String(calendarMonth + 1).padStart(2, "0")}/${calendarYear}`;
+
+      cells.push(
+        <SystemTooltip key={`cur-${day}`} content={formattedDayTooltip}>
+          <button
+            type="button"
+            onClick={() => handleSelectDay(day, 0)}
+            className={`h-7 w-7 text-xs font-semibold rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+              isSelected
+                ? "bg-primary text-primary-foreground font-bold shadow-xs hover:bg-primary/90"
+                : "text-foreground hover:bg-muted hover:text-primary"
+            }`}
+          >
+            {day}
+          </button>
+        </SystemTooltip>
+      );
+    }
+
+    // Dias do próximo mês
+    const totalFilled = cells.length;
+    const remaining = (7 - (totalFilled % 7)) % 7;
+    for (let day = 1; day <= remaining; day++) {
+      cells.push(
+        <button
+          key={`next-${day}`}
+          type="button"
+          onClick={() => handleSelectDay(day, 1)}
+          className="h-7 w-7 text-[11px] text-muted-foreground/35 hover:bg-muted/40 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+        >
+          {day}
+        </button>
+      );
+    }
+
+    return cells;
+  };
 
   // Negócios vinculados à conversa ativa (Fase 3: Multi-card)
   const [linkedDeals, setLinkedDeals] = useState<any[]>([]);
@@ -919,49 +1067,158 @@ export function SharedFiles() {
                   })}
                 </div>
 
-                {/* Inputs de Data e Hora Nativos & Elegantes */}
+                {/* Inputs de Data e Hora com Popovers Customizados & Tooltips */}
                 <div className="grid grid-cols-2 gap-1.5">
-                  {/* Seletor de Data */}
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="relative flex items-center">
-                          <CalendarDays className="absolute left-2.5 h-3.5 w-3.5 text-primary pointer-events-none" />
-                          <input
-                            type="date"
-                            value={taskDueDate}
-                            onChange={(e) => setTaskDueDate(e.target.value)}
-                            required
-                            className="w-full h-8 pl-8 pr-1.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary transition-all cursor-pointer"
-                          />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
-                        Data de vencimento
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  {/* Seletor Customizado de Data */}
+                  <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                    <SystemTooltip content="Selecione a data de vencimento da tarefa no calendário">
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="w-full h-8 px-2.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary flex items-center justify-between transition-all cursor-pointer group"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <CalendarDays className="h-3.5 w-3.5 text-primary shrink-0 group-hover:scale-105 transition-transform" />
+                            <span className="truncate tracking-tight font-semibold">{formattedDateBR}</span>
+                          </div>
+                          <ChevronDown className="h-3 w-3 text-muted-foreground opacity-60 shrink-0" />
+                        </button>
+                      </PopoverTrigger>
+                    </SystemTooltip>
+                    <PopoverContent className="w-[260px] p-2.5 rounded-2xl border border-border shadow-xl bg-card z-50" align="start">
+                      {/* Header do Mês e Navegação */}
+                      <div className="flex items-center justify-between mb-2 px-1">
+                        <button
+                          type="button"
+                          onClick={prevMonth}
+                          className="h-6 w-6 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="text-xs font-bold text-foreground">
+                          {MONTH_NAMES_PT[calendarMonth]} de {calendarYear}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={nextMonth}
+                          className="h-6 w-6 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
 
-                  {/* Seletor de Hora */}
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="relative flex items-center">
-                          <Clock className="absolute left-2.5 h-3.5 w-3.5 text-primary pointer-events-none" />
-                          <input
-                            type="time"
-                            value={taskDueTime}
-                            onChange={(e) => setTaskDueTime(e.target.value)}
-                            required
-                            className="w-full h-8 pl-8 pr-1.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/30 focus:outline-none focus:ring-1 focus:ring-primary transition-all cursor-pointer"
-                          />
+                      {/* Linha dos dias da semana */}
+                      <div className="grid grid-cols-7 gap-1 mb-1 text-center">
+                        {WEEKDAY_NAMES_PT.map((w, idx) => (
+                          <span key={idx} className="text-[10px] font-bold text-muted-foreground">
+                            {w}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Grade dos dias do mês */}
+                      <div className="grid grid-cols-7 gap-1 text-center">
+                        {renderCalendarDays()}
+                      </div>
+
+                      {/* Ações Rápidas no Rodapé do Calendário */}
+                      <div className="flex items-center justify-between pt-2 mt-2 border-t border-border/50 text-[10px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTaskDueDate(getRelativeDateYMD(0));
+                            setIsCalendarOpen(false);
+                          }}
+                          className="font-semibold text-primary hover:underline cursor-pointer"
+                        >
+                          Hoje
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTaskDueDate(getRelativeDateYMD(1));
+                            setIsCalendarOpen(false);
+                          }}
+                          className="font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          Amanhã
+                        </button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Seletor Customizado de Hora */}
+                  <Popover open={isTimeOpen} onOpenChange={setIsTimeOpen}>
+                    <SystemTooltip content="Selecione o horário de vencimento da tarefa">
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="w-full h-8 px-2.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary flex items-center justify-between transition-all cursor-pointer group"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Clock className="h-3.5 w-3.5 text-primary shrink-0 group-hover:scale-105 transition-transform" />
+                            <span className="font-semibold">{taskDueTime || "09:00"}</span>
+                          </div>
+                          <ChevronDown className="h-3 w-3 text-muted-foreground opacity-60 shrink-0" />
+                        </button>
+                      </PopoverTrigger>
+                    </SystemTooltip>
+                    <PopoverContent className="w-[180px] p-2 rounded-xl shadow-xl border border-border bg-card z-50" align="start">
+                      <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
+                            Hora
+                          </div>
+                          <div className="h-40 overflow-y-auto space-y-0.5 scrollbar-thin pr-0.5">
+                            {HOURS_LIST.map((h) => {
+                              const isSelected = selectedHour === h;
+                              return (
+                                <button
+                                  type="button"
+                                  key={h}
+                                  onClick={() => setTaskDueTime(`${h}:${selectedMin}`)}
+                                  className={`w-full py-0.5 rounded text-xs transition-colors cursor-pointer ${
+                                    isSelected
+                                      ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                                      : "text-foreground hover:bg-muted font-medium"
+                                  }`}
+                                >
+                                  {h}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="bg-primary text-white text-[10px] font-semibold">
-                        Horário de vencimento
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                        <div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
+                            Minuto
+                          </div>
+                          <div className="h-40 overflow-y-auto space-y-0.5 scrollbar-thin pr-0.5">
+                            {MINUTES_LIST.map((m) => {
+                              const isSelected = selectedMin === m;
+                              return (
+                                <button
+                                  type="button"
+                                  key={m}
+                                  onClick={() => {
+                                    setTaskDueTime(`${selectedHour}:${m}`);
+                                    setIsTimeOpen(false);
+                                  }}
+                                  className={`w-full py-0.5 rounded text-xs transition-colors cursor-pointer ${
+                                    isSelected
+                                      ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                                      : "text-foreground hover:bg-muted font-medium"
+                                  }`}
+                                >
+                                  {m}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 {/* Atalhos Rápidos de Horário */}
