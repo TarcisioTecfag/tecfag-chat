@@ -100,185 +100,69 @@ export function Index() {
     );
   }
 
+  const renderActiveView = () => {
+    if (activeView === "commercialHome" && tenant === "tecfag") {
+      return <CommercialHomeView />;
+    }
+    if (activeView === "commercialManagement" && tenant === "tecfag") {
+      return <CommercialManagementView />;
+    }
+    if (activeView === "commercialBi" && tenant === "tecfag") {
+      return <CommercialBiView />;
+    }
+    if (activeView === "chat") {
+      return (
+        <div className="flex flex-1 gap-5 h-full w-full overflow-hidden">
+          <ChatList />
+          <ChatPanel />
+          <AnimatePresence>
+            {rightSidebarOpen && selectedChatId !== "valentina" && (
+              <motion.div
+                key="shared-files"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                className="h-full w-[360px] shrink-0 overflow-hidden"
+              >
+                <SharedFiles />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      );
+    }
+    if (activeView === "crm") return <CrmView />;
+    if (activeView === "contacts") return <ContactsView />;
+    if (activeView === "wallet") return <WalletView />;
+    if (activeView === "groups") return <GroupsView />;
+    if (activeView === "monitor") return <MonitorView />;
+    if (activeView === "analytics") return <AnalyticsView />;
+    if (activeView === "tasks") return <TasksView />;
+    if (activeView === "valentina") return <ValentinaView />;
+    if (activeView === "ligacoes") return <LigacoesView />;
+    return <SettingsView />;
+  };
+
   return (
     <div className="min-h-screen bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
       <div className={`flex h-screen w-full gap-5 ${activeView === "crm" ? "pl-5 pt-5 pb-0 pr-0" : "p-5"} overflow-hidden`}>
         <Sidebar />
         <div className="flex flex-1 h-full overflow-hidden relative">
-          <Suspense fallback={<ViewFallback activeView={activeView} />}>
-          <AnimatePresence mode="popLayout" initial={false}>
-            {activeView === "commercialHome" && tenant === "tecfag" ? (
-              <motion.div
-                key="commercialHome"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full w-full overflow-hidden"
-              >
-                <CommercialHomeView />
-              </motion.div>
-            ) : activeView === "commercialManagement" && tenant === "tecfag" ? (
-              <motion.div
-                key="commercialManagement"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full w-full overflow-hidden"
-              >
-                <CommercialManagementView />
-              </motion.div>
-            ) : activeView === "commercialBi" && tenant === "tecfag" ? (
-              <motion.div
-                key="commercialBi"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full w-full overflow-hidden"
-              >
-                <CommercialBiView />
-              </motion.div>
-            ) : activeView === "chat" ? (
-              <motion.div
-                key="chat"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex flex-1 gap-5 h-full w-full overflow-hidden"
-              >
-                <ChatList />
-                <ChatPanel />
-                <AnimatePresence>
-                  {rightSidebarOpen && selectedChatId !== "valentina" && (
-                    <motion.div
-                      key="shared-files"
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20 }}
-                      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                      className="h-full w-[360px] shrink-0 overflow-hidden"
-                    >
-                      <SharedFiles />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            ) : activeView === "crm" ? (
-              <motion.div
-                key="crm"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full w-full overflow-hidden"
-              >
-                <CrmView />
-              </motion.div>
-            ) : activeView === "contacts" ? (
-              <motion.div
-                key="contacts"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <ContactsView />
-              </motion.div>
-            ) : activeView === "wallet" ? (
-              <motion.div
-                key="wallet"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <WalletView />
-              </motion.div>
-            ) : activeView === "groups" ? (
-              <motion.div
-                key="groups"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <GroupsView />
-              </motion.div>
-            ) : activeView === "monitor" ? (
-              <motion.div
-                key="monitor"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <MonitorView />
-              </motion.div>
-            ) : activeView === "analytics" ? (
-              <motion.div
-                key="analytics"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <AnalyticsView />
-              </motion.div>
-            ) : activeView === "tasks" ? (
-              <motion.div
-                key="tasks"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <TasksView />
-              </motion.div>
-            ) : activeView === "valentina" ? (
-              <motion.div
-                key="valentina"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <ValentinaView />
-              </motion.div>
-            ) : activeView === "ligacoes" ? (
-              <motion.div
-                key="ligacoes"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <LigacoesView />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="settings"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                className="flex-1 h-full overflow-hidden"
-              >
-                <SettingsView />
-              </motion.div>
-            )}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={`${activeView}-${tenant}`}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.1, ease: [0.16, 1, 0.3, 1] }}
+              className="flex-1 h-full w-full overflow-hidden"
+            >
+              <Suspense fallback={<ViewFallback activeView={activeView} />}>
+                {renderActiveView()}
+              </Suspense>
+            </motion.div>
           </AnimatePresence>
-          </Suspense>
         </div>
       </div>
       <Suspense fallback={null}><AnimatePresence>
