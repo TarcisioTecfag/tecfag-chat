@@ -674,8 +674,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [transferModalSubmitting, setTransferModalSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
-  const sendInFlightRef = useRef(false);
-  const [isSending, setIsSending] = useState(false);
+  type OutgoingQueueItem = {
+    text: string;
+    isInternal: boolean;
+    attachments?: File[];
+    quoted?: { id: string; sender: string; content: string } | null;
+    audioBlob?: Blob | null;
+  };
+  const sendQueueRef = useRef<OutgoingQueueItem[]>([]);
+  const isQueueProcessingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const [msgSearch, setMsgSearch] = useState("");
   const [showMsgSearch, setShowMsgSearch] = useState(false);
@@ -1203,10 +1210,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setRecordingState("idle");
   };
 
-  // Auto scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeChat?.messages]);
+
 
   // ── Drag & Drop ────────────────────────────────────────────────────────────
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1269,10 +1273,19 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     return `${(bytes / 1048576).toFixed(1)} MB`;
   };
 
-  // Auto scroll to bottom when messages change
+  // Auto scroll suave ao rodapé quando novas mensagens são adicionadas ou ao trocar de conversa
+  const prevMsgCountRef = useRef(0);
+  const prevChatIdRef = useRef<string | null>(null);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeChat?.messages]);
+    const currentCount = activeChat?.messages?.length || 0;
+    const currentChatId = activeChat?.id || null;
+    const isNewChat = currentChatId !== prevChatIdRef.current;
+    if (isNewChat || currentCount > prevMsgCountRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? "auto" : "smooth" });
+    }
+    prevMsgCountRef.current = currentCount;
+    prevChatIdRef.current = currentChatId;
+  }, [activeChat?.id, activeChat?.messages?.length]);
 
   // Auto-redimensionar o campo de texto conforme o conteúdo
   useEffect(() => {
@@ -1315,13 +1328,63 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     logSystemEvent(activeChat.id, `Clique no botão de ligação para o cliente por ${operatorName}`);
   };
 
-  const performSend = async () => {
+  const processSendQueue = async () => {
+    if (isQueueProcessingRef.current) return;
+    isQueueProcessingRef.current = true;
+
+    while (sendQueueRef.current.length > 0) {
+      const task = sendQueueRef.current.shift();
+      if (!task) continue;
+
+      try {
+        if (task.audioBlob) {
+          const ext = task.audioBlob.type.includes("ogg")
+            ? "ogg"
+            : task.audioBlob.type.includes("mp4")
+              ? "mp4"
+              : "webm";
+          const mimeType = task.audioBlob.type || "audio/webm";
+          const audioFile = new Blob([task.audioBlob], { type: mimeType }) as any;
+          audioFile.name = `audio-${Date.now()}.${ext}`;
+          audioFile.lastModified = Date.now();
+          const extras = task.attachments?.length
+            ? [...task.attachments, audioFile as File]
+            : [audioFile as File];
+          await sendMessage(task.text, false, extras, task.quoted);
+        } else {
+          await sendMessage(task.text, task.isInternal, task.attachments, task.quoted);
+        }
+      } catch (err: any) {
+        console.error("[ChatPanel] Erro ao enviar mensagem da fila:", err);
+      }
+    }
+
+    isQueueProcessingRef.current = false;
+  };
+
+  const handleSend = () => {
     if (activeProvider === "meta" && activeChat?.channel === "whatsapp" && msgMode !== "internal" && metaWindow && !metaWindow.open) {
       toast.error("A janela de 24 horas terminou. Use um template aprovado pela Meta.");
       loadMetaTemplates();
       focusInput();
       return;
     }
+
+    // Se estiver gravando áudio, para a gravação
+    if (recordingState === "recording") {
+      stopRecording();
+      return;
+    }
+
+    const currentText = text;
+    const currentAttachments = attachments.length > 0 ? [...attachments] : undefined;
+    const currentAudioBlob = recordingState === "preview" && audioBlob ? audioBlob : null;
+
+    if (!currentText.trim() && !currentAttachments?.length && !currentAudioBlob) {
+      focusInput();
+      return;
+    }
+
     const quoted = replyingTo
       ? {
           id: replyingTo.id,
@@ -1330,76 +1393,33 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         }
       : null;
 
-    // Se houver áudio em preview, envia o áudio
-    if (recordingState === "preview" && audioBlob) {
-      const ext = audioBlob.type.includes("ogg")
-        ? "ogg"
-        : audioBlob.type.includes("mp4")
-          ? "mp4"
-          : "webm";
-      const mimeType = audioBlob.type || "audio/webm";
-      // Cria um File real para que o FormData envie o filename corretamente
-      const audioFile = new Blob([audioBlob], { type: mimeType }) as any;
-      audioFile.name = `audio-${Date.now()}.${ext}`;
-      audioFile.lastModified = Date.now();
-      const extras =
-        attachments.length > 0 ? [...attachments, audioFile as File] : [audioFile as File];
-      if (!await sendMessage(text, false, extras, quoted)) return;
-      setText("");
-      setAttachments([]);
-      setReplyingTo(null);
-      discardRecording();
-      focusInput();
-      return;
-    }
-    if (!text.trim() && attachments.length === 0) {
-      focusInput();
-      return;
-    }
-
-    const textToSend = text;
-    const attachmentsToSend = attachments.length > 0 ? [...attachments] : undefined;
     const isInternal = msgMode === "internal";
-    const quotedToSend = quoted;
 
-    // Limpa imediatamente de forma otimista para liberar o campo para digitação contínua
+    // 1. Limpeza otimista IMEDIATA do campo de texto (latência zero para o operador poder digitar a próxima)
     setText("");
     setAttachments([]);
     setReplyingTo(null);
     setShowQuickMenu(false);
     setShowEmojiPicker(false);
+    if (recordingState === "preview") {
+      discardRecording();
+    }
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
+
+    // 2. Foco IMEDIATO mantido no campo de texto para continuar digitando mensagens em sequência sem interrupção
     focusInput();
 
-    const ok = await sendMessage(
-      textToSend,
+    // 3. Enfileira o item na fila sequencial e processa em background sem congelar o botão ou a digitação
+    sendQueueRef.current.push({
+      text: currentText,
       isInternal,
-      attachmentsToSend,
-      quotedToSend,
-    );
-
-    if (!ok) {
-      // Se o envio falhou (ex: bloqueio operacional ou erro de rede), restaura o texto
-      setText(textToSend);
-      if (attachmentsToSend) setAttachments(attachmentsToSend);
-      focusInput();
-    }
-  };
-
-  const handleSend = async () => {
-    if (sendInFlightRef.current) return;
-    sendInFlightRef.current = true;
-    setIsSending(true);
-    try {
-      await performSend();
-    } finally {
-      sendInFlightRef.current = false;
-      setIsSending(false);
-      focusInput();
-      setTimeout(focusInput, 50);
-    }
+      attachments: currentAttachments,
+      quoted,
+      audioBlob: currentAudioBlob,
+    });
+    void processSendQueue();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2062,7 +2082,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             // ── Mensagens de sistema ──────────────────────────────────────
             if (isSystem) {
               return (
-                <React.Fragment key={m.id}>
+                <React.Fragment key={m.clientMessageId || m.id}>
                   {dateLabel && (
                     <div className="flex justify-center my-3 select-none">
                       <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
@@ -2082,7 +2102,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             // ── Notas internas ────────────────────────────────────────────
             if (m.isInternalNote) {
               return (
-                <React.Fragment key={m.id}>
+                <React.Fragment key={m.clientMessageId || m.id}>
                   {dateLabel && (
                     <div className="flex justify-center my-3 select-none">
                       <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
@@ -2156,7 +2176,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             if (isMe) {
               const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
               return (
-                <React.Fragment key={m.id}>
+                <React.Fragment key={m.clientMessageId || m.id}>
                   {dateLabel && (
                     <div className="flex justify-center my-3 select-none">
                       <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
@@ -2166,10 +2186,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   )}
                 <motion.div
                   id={`msg-dom-${m.id}`}
-                  layout
-                  initial={{ opacity: 0, x: 18, scale: 0.96 }}
+                  initial={{ opacity: 0, x: 18, scale: 0.98 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
-                  transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                  transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
                   className={`flex flex-col items-end group relative w-full ${gap}`}
                 >
                   <div className="flex items-center gap-2 max-w-[80%] justify-end relative">
@@ -2294,7 +2313,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             // ── Recebidas ─────────────────────────────────────────────────
             const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
             return (
-              <React.Fragment key={m.id}>
+              <React.Fragment key={m.clientMessageId || m.id}>
                 {dateLabel && (
                   <div className="flex justify-center my-3 select-none">
                     <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
@@ -2304,10 +2323,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 )}
               <motion.div
                 id={`msg-dom-${m.id}`}
-                layout
-                initial={{ opacity: 0, x: -18, scale: 0.96 }}
+                initial={{ opacity: 0, x: -18, scale: 0.98 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
-                transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
                 className={`flex items-end gap-2 group relative w-full ${gap}`}
               >
                 {/* Avatar — só na última mensagem do grupo */}
@@ -2881,17 +2899,45 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </div>
           ) : (
             /* ── COMPOSER NORMAL: sou o dono ── */
-            <>
-          {/* Drag overlay */}
-          {isDragging && (
-            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-3xl bg-primary/10 border-2 border-dashed border-primary pointer-events-none">
-              <Paperclip className="h-10 w-10 text-primary mb-2 animate-bounce" />
-              <p className="text-sm font-bold text-primary">Solte os arquivos aqui</p>
-            </div>
-          )}
+            <div className="relative rounded-3xl border border-white/60 dark:border-white/10 bg-white/70 dark:bg-card/65 backdrop-blur-xl shadow-lg p-3 md:p-3.5 transition-all duration-200">
+              {/* Drag overlay */}
+              {isDragging && (
+                <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-3xl bg-primary/10 border-2 border-dashed border-primary pointer-events-none backdrop-blur-xs">
+                  <Paperclip className="h-10 w-10 text-primary mb-2 animate-bounce" />
+                  <p className="text-sm font-bold text-primary">Solte os arquivos aqui</p>
+                </div>
+              )}
 
-          {/* 4-Mode Selector (Mensagem vs Valentina vs Nota vs Válvulas) */}
-          <div className="flex items-center gap-3 pl-2 mb-1.5 text-[11px] font-bold select-none">
+              {/* ── 1. Aviso de Janela Meta 24h (Posicionado no topo para perfeita simetria) ── */}
+              {activeProvider === "meta" && activeChat.channel === "whatsapp" && msgMode !== "internal" && (
+                <div className="mb-2.5 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-3.5 py-2 text-xs backdrop-blur-xs shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span>
+                        {metaWindow === null
+                          ? "Consultando janela de atendimento da Meta..."
+                          : metaWindow.open
+                          ? `Janela Meta ativa até ${new Date(metaWindow.expiresAt!).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. Mensagens livres permitidas.`
+                          : "Janela de 24 horas encerrada. Para continuar, envie um template aprovado."}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await loadMetaTemplates();
+                        setShowMetaTemplateModal(true);
+                      }}
+                      className="font-semibold text-primary hover:underline cursor-pointer text-xs"
+                    >
+                      Templates Meta
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo) ── */}
+              <div className="flex items-center gap-3 pl-1 mb-2 text-[11px] font-bold select-none">
             <button
               type="button"
               onClick={() => {
@@ -3040,39 +3086,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </div>
           )}
 
-          {activeProvider === "meta" && activeChat.channel === "whatsapp" && msgMode !== "internal" && (
-            <div className="mb-2 rounded-xl border border-border bg-muted/40 px-3.5 py-2 text-xs">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-muted-foreground">
-                  {metaWindow === null
-                    ? "Consultando janela de atendimento da Meta..."
-                    : metaWindow.open
-                    ? `Janela Meta ativa até ${new Date(metaWindow.expiresAt!).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. Mensagens livres permitidas.`
-                    : "Janela de 24 horas encerrada. Para continuar, envie um template aprovado."}
-                </span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await loadMetaTemplates();
-                    setShowMetaTemplateModal(true);
-                  }}
-                  className="font-semibold text-primary hover:underline cursor-pointer"
-                >
-                  Templates Meta
-                </button>
-              </div>
-            </div>
-          )}
-
+          {/* Input container com acabamento glassmorphic translúcido */}
           <div
-            className={`relative flex items-end gap-3 rounded-2xl px-4 py-3 shadow-soft border transition-all duration-200 ${
+            className={`relative flex items-end gap-3 rounded-2xl px-4 py-3 border transition-all duration-200 ${
               recordingState === "recording"
-                ? "border-primary/40 bg-primary/5"
+                ? "border-primary/40 bg-primary/5 backdrop-blur-md"
                 : msgMode === "internal"
-                  ? "bg-amber-500/10 border-amber-500/30 dark:bg-amber-950/30 dark:border-amber-500/40"
+                  ? "bg-amber-500/15 border-amber-500/35 dark:bg-amber-950/40 dark:border-amber-500/40 backdrop-blur-md"
                   : isDragging
-                    ? "border-primary bg-primary/5"
-                    : "bg-card border-border"
+                    ? "border-primary bg-primary/10 backdrop-blur-md"
+                    : "bg-white/80 dark:bg-muted/40 border-border/70 backdrop-blur-md focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 shadow-xs"
             }`}
           >
             {/* Hidden file input */}
@@ -3227,7 +3250,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               </>
             )}
 
-            {/* Send — always visible */}
+            {/* Send — always visible & immediately responsive */}
             <motion.button
               type="button"
               onMouseDown={(e) => {
@@ -3235,10 +3258,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 e.preventDefault();
               }}
               onClick={handleSend}
-              disabled={isSending}
               whileHover={{ scale: 1.06 }}
               whileTap={{ scale: 0.94 }}
-              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-60 ${
+              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 shadow-soft shrink-0 ${
                 msgMode === "internal" ? "bg-amber-500" : "bg-primary"
               }`}
             >
@@ -3247,7 +3269,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           </div>
             </>
           )}
-          </>
+          </div>
           )}
         </div>
       ) : (

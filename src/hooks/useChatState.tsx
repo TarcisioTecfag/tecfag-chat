@@ -1549,14 +1549,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ? `pending-${clientMessageId}` : null;
     if (optimisticMessageId) {
       const pendingTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const nowIso = new Date().toISOString();
       setConversations((previous) => previous.map((chat) => chat.id === selectedChatId ? {
         ...chat,
         lastMessageTime: pendingTime,
         messages: [...chat.messages, {
           id: optimisticMessageId,
+          clientMessageId,
           author: "Você",
           text,
           time: pendingTime,
+          sentAtISO: nowIso,
           side: "out" as const,
           status: "sending",
           provider: activeProvider,
@@ -1707,9 +1710,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (text.trim() || metaTemplate) {
       messagesToAdd.push({
         id: sentTextMessageId || `msg-${Date.now()}`,
+        clientMessageId,
         author: isInternalNote ? operatorProfile.name : "Você",
         text: metaTemplate ? sentRenderedText || `[Template Meta: ${metaTemplate.name}]` : text,
         time: now,
+        sentAtISO: new Date().toISOString(),
         side: "out",
         isInternalNote,
         quotedMessageId: quotedMessage?.id || null,
@@ -1734,10 +1739,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         messagesToAdd.push({
           id: sentAttachmentMessageIds[i] || `msg-media-${Date.now()}-${i}`,
+          clientMessageId: `${clientMessageId}-att-${i}`,
           author: "Você",
           // Formato especial para preview local: [LOCAL_MEDIA:type:url:filename]
           text: `[LOCAL_MEDIA:${mediaType}:${objectUrl}:${fileName}]`,
           time: now,
+          sentAtISO: new Date().toISOString(),
           side: "out",
           isInternalNote: false,
           status: sentAttachmentStatuses[i] || undefined,
@@ -1749,6 +1756,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id === selectedChatId) {
+          // Atualiza in-place para manter a mesma chave e evitar unmount/re-animação do balão
+          let optimisticUpdated = false;
+          const updatedMessages = c.messages.map((m) => {
+            if (optimisticMessageId && (m.id === optimisticMessageId || m.clientMessageId === clientMessageId)) {
+              optimisticUpdated = true;
+              return {
+                ...m,
+                id: sentTextMessageId || m.id,
+                clientMessageId,
+                status: sentTextStatus || "sent",
+                provider: sentProvider,
+              };
+            }
+            return m;
+          });
+
+          if (optimisticUpdated) {
+            const extraMessages = messagesToAdd.filter(
+              (msg) => msg.id !== sentTextMessageId && !updatedMessages.some((m) => m.id === msg.id)
+            );
+            return {
+              ...c,
+              lastMessageTime: now,
+              messages: extraMessages.length > 0 ? [...updatedMessages, ...extraMessages] : updatedMessages,
+            };
+          }
+
           const existingMessages = optimisticMessageId
             ? c.messages.filter((message) => message.id !== optimisticMessageId)
             : c.messages;
@@ -2722,9 +2756,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const timeStr = new Date(message.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
           const incomingMsg: Message = {
             id: message.id,
+            clientMessageId: message.clientMessageId || undefined,
             author: message.senderName,
             text: message.content ?? "",
             time: timeStr,
+            sentAtISO: message.sentAt ? new Date(message.sentAt).toISOString() : new Date().toISOString(),
             side: message.senderType === "client" ? "in" : "out",
             isInternalNote: !!message.isInternalNote,
             senderType: message.senderType,
@@ -2758,13 +2794,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   }).catch((e) => console.error("Erro ao marcar como lido via SSE:", e));
                 }
 
+                const matchIdx = c.messages.findIndex(
+                  (m) => m.id === incomingMsg.id || (incomingMsg.clientMessageId && m.clientMessageId === incomingMsg.clientMessageId)
+                );
+                const updatedList = matchIdx !== -1
+                  ? c.messages.map((m, i) => (i === matchIdx ? { ...m, ...incomingMsg, id: incomingMsg.id } : m))
+                  : [...c.messages, incomingMsg];
+
                 return {
                   ...c,
                   lastMessageTime: timeStr,
                   unreadCount: newUnread,
-                  messages: c.messages.some((m) => m.id === incomingMsg.id)
-                    ? c.messages
-                    : [...c.messages, incomingMsg],
+                  messages: updatedList,
                   phone: message.phone || c.phone,
                   avatar: message.avatar || c.avatar,
                   queue: message.queue || c.queue,

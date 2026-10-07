@@ -3,6 +3,7 @@ export type QueueType = "meus" | "todos" | "fila" | "automacao" | "finalizados";
 
 export type Message = {
   id: string;
+  clientMessageId?: string;
   author: string;
   text: string;
   time: string;
