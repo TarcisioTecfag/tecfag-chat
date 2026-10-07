@@ -193,6 +193,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
   const cohorts: Array<{
     dealId: string;
     title: string;
+    operatorId: string;
     operatorName: string;
     stageName: string;
     value: number;
@@ -219,6 +220,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
     cohorts.push({
       dealId: deal.id,
       title: deal.title,
+      operatorId: deal.operatorId!,
       operatorName: operatorMap.get(deal.operatorId!)?.name || "Consultor",
       stageName: stageMap.get(deal.stageId)?.name || "Etapa",
       value,

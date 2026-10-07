@@ -1,9 +1,10 @@
-import { and, count, eq, gte, lt, sql } from "drizzle-orm";
+import { and, count, eq, gte, lt, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   commercialCalendarDays,
   commercialConsultantProfiles,
   commercialDirectives,
+  commercialEvidence,
   commercialGoals,
   crmDealActivities,
   crmDeals,
@@ -18,7 +19,7 @@ export async function getCommercialHome(tenantId: string, operatorId: string, no
   const [year, monthNumber] = month.split("-").map(Number);
   const nextMonthStart = `${monthNumber === 12 ? year + 1 : year}-${String(monthNumber === 12 ? 1 : monthNumber + 1).padStart(2, "0")}-01`;
 
-  const [profile, goal, calendarRows, wonRows, openRows, activities, directives] =
+  const [profile, goal, calendarRows, wonRows, wonDeals, openRows, activities, directives] =
     await Promise.all([
       db
         .select({ division: commercialConsultantProfiles.division })
@@ -48,6 +49,7 @@ export async function getCommercialHome(tenantId: string, operatorId: string, no
         .select({
           date: commercialCalendarDays.date,
           type: commercialCalendarDays.type,
+          description: commercialCalendarDays.description,
           affectsGoal: commercialCalendarDays.affectsGoal,
         })
         .from(commercialCalendarDays)
@@ -57,7 +59,8 @@ export async function getCommercialHome(tenantId: string, operatorId: string, no
             gte(commercialCalendarDays.date, monthStart),
             lt(commercialCalendarDays.date, nextMonthStart),
           ),
-        ),
+        )
+        .orderBy(commercialCalendarDays.date),
       db
         .select({ count: count(), value: sql<string>`COALESCE(SUM(${crmDeals.value}), 0)` })
         .from(crmDeals)
@@ -70,6 +73,24 @@ export async function getCommercialHome(tenantId: string, operatorId: string, no
             sql`((${crmDeals.closedAt} AT TIME ZONE 'UTC') AT TIME ZONE 'America/Sao_Paulo')::date < ${nextMonthStart}::date`,
           ),
         ),
+      db
+        .select({
+          id: crmDeals.id,
+          title: crmDeals.title,
+          value: crmDeals.value,
+          closedAt: crmDeals.closedAt,
+        })
+        .from(crmDeals)
+        .where(
+          and(
+            eq(crmDeals.tenantId, tenantId),
+            eq(crmDeals.operatorId, operatorId),
+            eq(crmDeals.status, "won"),
+            sql`((${crmDeals.closedAt} AT TIME ZONE 'UTC') AT TIME ZONE 'America/Sao_Paulo')::date >= ${monthStart}::date`,
+            sql`((${crmDeals.closedAt} AT TIME ZONE 'UTC') AT TIME ZONE 'America/Sao_Paulo')::date < ${nextMonthStart}::date`,
+          ),
+        )
+        .orderBy(crmDeals.closedAt),
       db
         .select({ count: count(), value: sql<string>`COALESCE(SUM(${crmDeals.value}), 0)` })
         .from(crmDeals)
@@ -114,21 +135,37 @@ export async function getCommercialHome(tenantId: string, operatorId: string, no
           assignedDate: commercialDirectives.assignedDate,
           dueAt: commercialDirectives.dueAt,
           status: commercialDirectives.status,
+          completedAt: commercialDirectives.completedAt,
+          completionNote: commercialDirectives.completionNote,
+          evidenceChannel: commercialEvidence.channel,
         })
         .from(commercialDirectives)
         .innerJoin(
           crmDeals,
           and(eq(crmDeals.id, commercialDirectives.dealId), eq(crmDeals.tenantId, tenantId)),
         )
+        .leftJoin(
+          commercialEvidence,
+          and(
+            eq(commercialEvidence.directiveId, commercialDirectives.id),
+            eq(commercialEvidence.tenantId, tenantId),
+          ),
+        )
         .where(
           and(
             eq(commercialDirectives.tenantId, tenantId),
             eq(commercialDirectives.assignedToOperatorId, operatorId),
-            eq(commercialDirectives.status, "pending"),
+            or(
+              eq(commercialDirectives.status, "pending"),
+              and(
+                eq(commercialDirectives.status, "completed"),
+                sql`((${commercialDirectives.completedAt} AT TIME ZONE 'UTC') AT TIME ZONE 'America/Sao_Paulo')::date = ${today}::date`,
+              ),
+            ),
           ),
         )
         .orderBy(commercialDirectives.assignedDate)
-        .limit(50),
+        .limit(60),
     ]);
 
   const targetValue = Number(goal[0]?.targetValue ?? 0);
@@ -167,13 +204,29 @@ export async function getCommercialHome(tenantId: string, operatorId: string, no
     deals: {
       openCount: Number(openRows[0]?.count ?? 0),
       openValue: Number(openRows[0]?.value ?? 0),
-      wonThisMonthCount: Number(wonRows[0]?.count ?? 0),
+      wonThisMonthCount: wonDeals.length,
     },
+    wonDeals: wonDeals.map((d) => ({
+      id: d.id,
+      title: d.title,
+      value: Number(d.value ?? 0),
+      closedAt: d.closedAt ? d.closedAt.toISOString() : null,
+    })),
+    calendarDays: calendarRows.map((c) => ({
+      date: c.date,
+      type: c.type,
+      description: c.description,
+      affectsGoal: c.affectsGoal,
+    })),
     activities,
     directives: directives.map((directive) => ({
       ...directive,
       dealValue: Number(directive.dealValue ?? 0),
-      overdue: directive.assignedDate < today,
+      dueAt: directive.dueAt ? directive.dueAt.toISOString() : null,
+      completedAt: directive.completedAt ? directive.completedAt.toISOString() : null,
+      evidenceChannel: directive.evidenceChannel ?? null,
+      overdue: directive.status === "pending" && directive.assignedDate < today,
     })),
   };
 }
+

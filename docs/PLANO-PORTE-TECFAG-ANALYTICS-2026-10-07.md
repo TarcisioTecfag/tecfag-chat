@@ -17,6 +17,8 @@ Este levantamento foi feito por leitura do código. Não houve conexão aos banc
 
 ## Inventário da origem
 
+O inventário detalhado de **cada análise, gráfico, filtro e detalhamento** está em [MAPA-COMPLETO-ANALISES-TECFAG-ANALYTICS-2026-10-07.md](MAPA-COMPLETO-ANALISES-TECFAG-ANALYTICS-2026-10-07.md). Ele também registra a localização exata da pontuação do gestor no modal de Previsão e as diferenças entre gráficos reais e exemplos gerados pelo legado.
+
 ### Superfícies e funções
 
 | Área | Funções encontradas | Código principal |
@@ -148,9 +150,9 @@ O primeiro corte funcional já está no código **deste repositório**. O reposi
 |---|---|---|
 | Base | Migração aditiva `0027`, tabelas segregadas por tenant, permissões de tela, fórmulas de ritmo e maturidade | Aplicar migração primeiro em banco de teste e verificar duas sessões de tenants; depois planejar janela de produção |
 | Início | Cockpit pessoal desktop/móvel, meta, Faturado como negócios ganhos, ritmo, agenda CRM, diretrizes e acesso ao negócio | Notificações, concluídas no histórico pessoal, atalhos de conversa e refinamento visual lado a lado |
-| Gestão | Cadastro de divisão Personnalité/Máquinas, metas, calendário comercial, atribuição de diretrizes, dossiê básico de evidências e parâmetros do War Room | Reprogramar/cancelar diretrizes, exportação PDF e auditoria administrativa detalhada |
+| Gestão | Cadastro de divisão Personnalité/Máquinas, metas, calendário comercial, atribuição individual e pontuação em lote das responsabilidades a partir do BI; a pontuação grava diretriz e nota no CRM local em uma transação, sem duplicar negócio/dia; dossiê básico de evidências e parâmetros do War Room | Reprogramar/cancelar diretrizes, exportação PDF e auditoria administrativa detalhada |
 | Evidências | Conclusão transacional com vínculo validado por tenant a ligação, e-mail ou mensagens internas; relato manual autenticado para ligação/e-mail identificado como tal; escolha obrigatória do próximo passo, validando ganho/perda com motivo ou tarefa futura já registrada no CRM | Anexos e transcrição detalhada; criação/alteração do próximo passo dentro do mesmo fluxo de tela, sem exigir ida prévia ao CRM |
-| BI/TV | Seis módulos: pipeline, maturidade atual, previsão, metas, perdas, TMA/SLA; equipe, rotação, pausa, tela cheia e atualização; configuração de régua, etapas excluídas e tempo | Drill-down completo por consultor/coorte, avisos ao vivo, exportação, comparação visual final, teste de volume e política de snapshot/histórico |
+| BI/TV | Seis módulos: pipeline, maturidade atual, previsão, metas, perdas, TMA/SLA; equipe, rotação, pausa, tela cheia e atualização; seleção de negociações de um consultor para pontuação pelo gestor; configuração de régua, etapas excluídas e tempo | Drill-down completo por consultor/coorte, indicadores de pontuação/conclusão no BI, avisos ao vivo, exportação, comparação visual final, teste de volume e política de snapshot/histórico |
 | TMA | Evento criado quando atendimento é atribuído a operador cadastrado como consultor; primeira mensagem externa aceita encerra o tempo | Cobrir todas as vias de envio de mídia/canais, reconciliação após falha e validação operacional da definição de transferência |
 
 **Critérios de ativação ainda não cumpridos:** não houve execução da migração nem teste funcional com banco isolado; a criação do próximo passo na própria tela e a paridade visual/operacional ainda faltam. O BI usa o estado atual do CRM e `closedAt` dos negócios; coortes históricas de fase/valor/dono exigem projeção de eventos completa antes de serem apresentadas como série histórica. A tela de BI fica restrita ao administrador nesta versão inicial. Nenhum dado legado foi importado.

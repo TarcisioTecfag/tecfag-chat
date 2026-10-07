@@ -15,6 +15,7 @@ type Tier = {
 type Cohort = {
   dealId: string;
   title: string;
+  operatorId: string;
   operatorName: string;
   stageName: string;
   value: number;
@@ -122,6 +123,9 @@ export function CommercialBiView() {
   const [data, setData] = useState<BiData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
+  const [pointing, setPointing] = useState(false);
+  const [pointResult, setPointResult] = useState<string | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -182,6 +186,47 @@ export function CommercialBiView() {
     navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
   const maxPipeline = Math.max(1, ...(data?.pipeline.map((item) => item.value) || []));
   const tvGoals = data?.goals.filter((goal) => goal.activeOnTv) || [];
+  const selectedDeals =
+    data?.maturity.cohorts.filter((item) => selectedDealIds.includes(item.dealId)) || [];
+  const selectedOperatorId = selectedDeals[0]?.operatorId;
+  const toggleDeal = (item: Cohort) => {
+    setPointResult(null);
+    setSelectedDealIds((current) => {
+      if (current.includes(item.dealId)) return current.filter((id) => id !== item.dealId);
+      const first = data?.maturity.cohorts.find((deal) => deal.dealId === current[0]);
+      return first && first.operatorId !== item.operatorId
+        ? [item.dealId]
+        : [...current, item.dealId];
+    });
+  };
+  const pointResponsibilities = async () => {
+    if (!selectedOperatorId || !selectedDeals.length) return;
+    setPointing(true);
+    setError(null);
+    setPointResult(null);
+    try {
+      const response = await fetch("/api/commercial/directives/point", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operatorId: selectedOperatorId,
+          dealIds: selectedDeals.map((deal) => deal.dealId),
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Falha ao pontuar responsabilidades.");
+      setPointResult(
+        `${body.createdCount} responsabilidade(s) pontuada(s); ${body.alreadyAssignedCount} já registrada(s) hoje.`,
+      );
+      setSelectedDealIds([]);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Falha ao pontuar responsabilidades.");
+    } finally {
+      setPointing(false);
+    }
+  };
 
   return (
     <section
@@ -262,6 +307,36 @@ export function CommercialBiView() {
             {error}
           </p>
         )}
+        {pointResult && (
+          <p
+            role="status"
+            className="rounded-xl border border-emerald-700 bg-emerald-950/30 p-3 text-sm text-emerald-200"
+          >
+            {pointResult}
+          </p>
+        )}
+        {(module === 1 || module === 2) && selectedDeals.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 p-3 text-sm">
+            <span>
+              {selectedDeals.length} negócio(s) de {selectedDeals[0].operatorName} selecionado(s).
+            </span>
+            <button
+              type="button"
+              onClick={() => void pointResponsibilities()}
+              disabled={pointing}
+              className="rounded-lg bg-red-600 px-3 py-2 font-semibold disabled:opacity-50"
+            >
+              {pointing ? "Registrando..." : "Pontuar responsabilidades"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDealIds([])}
+              className="text-zinc-400 underline"
+            >
+              Limpar seleção
+            </button>
+          </div>
+        )}
         {loading && !data ? (
           <div className="flex h-72 items-center justify-center text-red-400">
             <Loader2 className="h-8 w-8 animate-spin" />
@@ -334,19 +409,30 @@ export function CommercialBiView() {
                         .filter((item) => item.daysRemaining <= 0)
                         .slice(0, 30)
                         .map((item) => (
-                          <button
+                          <div
                             key={item.dealId}
-                            onClick={() => openDeal(item.dealId)}
                             className="flex w-full flex-wrap justify-between gap-2 rounded-xl border border-white/10 p-3 text-left hover:border-red-500/50"
                           >
-                            <span>
-                              <strong>{item.title}</strong>
+                            <span className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                aria-label={`Pontuar responsabilidade de ${item.title}`}
+                                checked={selectedDealIds.includes(item.dealId)}
+                                onChange={() => toggleDeal(item)}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => openDeal(item.dealId)}
+                                className="text-left hover:underline"
+                              >
+                                <strong>{item.title}</strong>
+                              </button>
                               <small className="ml-2 text-zinc-400">
                                 {item.operatorName} · {item.stageName} · {item.ageDays} dias
                               </small>
                             </span>
                             <span className="font-bold">{money.format(item.value)}</span>
-                          </button>
+                          </div>
                         ))}
                       {!data.maturity.cohorts.some((item) => item.daysRemaining <= 0) && (
                         <Empty text="Nenhuma responsabilidade madura agora." />
@@ -375,13 +461,24 @@ export function CommercialBiView() {
                         .filter((item) => item.daysRemaining > 0)
                         .slice(0, 30)
                         .map((item) => (
-                          <button
+                          <div
                             key={item.dealId}
-                            onClick={() => openDeal(item.dealId)}
                             className="flex w-full flex-wrap justify-between gap-2 rounded-xl border border-white/10 p-3 text-left hover:border-red-500/50"
                           >
-                            <span>
-                              <strong>{item.title}</strong>
+                            <span className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                aria-label={`Pontuar responsabilidade de ${item.title}`}
+                                checked={selectedDealIds.includes(item.dealId)}
+                                onChange={() => toggleDeal(item)}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => openDeal(item.dealId)}
+                                className="text-left hover:underline"
+                              >
+                                <strong>{item.title}</strong>
+                              </button>
                               <small className="ml-2 text-zinc-400">
                                 {item.operatorName} · em {item.daysRemaining} dia(s)
                               </small>
@@ -390,7 +487,7 @@ export function CommercialBiView() {
                               {money.format(item.expectedValue)}{" "}
                               <small className="font-normal text-zinc-400">previstos</small>
                             </span>
-                          </button>
+                          </div>
                         ))}
                       {!data.maturity.cohorts.some((item) => item.daysRemaining > 0) && (
                         <Empty text="Nenhuma responsabilidade futura nesta divisão." />
