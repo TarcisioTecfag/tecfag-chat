@@ -46,14 +46,14 @@ export function calculateBusinessPacing(
     if (date < today) elapsedDays += 1;
   }
 
-  const remainingDays = Math.max(1, businessDays - elapsedDays);
+  const remainingDays = Math.max(0, businessDays - elapsedDays);
   return {
     businessDays,
     elapsedDays,
     remainingDays,
     expectedPercent: businessDays > 0 ? (elapsedDays / businessDays) * 100 : 0,
     coveragePercent: targetValue > 0 ? (realizedValue / targetValue) * 100 : 0,
-    dailyRequired: Math.max(0, targetValue - realizedValue) / remainingDays,
+    dailyRequired: remainingDays > 0 ? Math.max(0, targetValue - realizedValue) / remainingDays : 0,
   };
 }
 

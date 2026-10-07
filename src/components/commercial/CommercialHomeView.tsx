@@ -126,6 +126,14 @@ export function CommercialHomeView() {
   const openDeal = (dealId: string) =>
     navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
   const firstName = data?.consultant.name.trim().split(/\s+/)[0] || "consultor";
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      hour: "2-digit",
+      hour12: false,
+    }).format(new Date()),
+  );
+  const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
   const division =
     data?.consultant.division === "personnalite"
       ? "Personnalité"
@@ -143,7 +151,7 @@ export function CommercialHomeView() {
               Tecfag · Início Comercial
             </p>
             <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
-              Bom dia, {firstName}
+              {greeting}, {firstName}
               <span className="text-primary">.</span>
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">

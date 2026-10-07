@@ -33,3 +33,15 @@ test("maturidade escolhe faixa pelo valor e considera idade da negociação", ()
   });
   assert.equal(classifyMaturity(0, now, now), null);
 });
+
+test("ritmo não divide por zero quando não há dias comerciais", () => {
+  const days = Array.from({ length: 28 }, (_, index) => ({
+    date: `2026-02-${String(index + 1).padStart(2, "0")}`,
+    type: "holiday" as const,
+    affectsGoal: true,
+  }));
+  const result = calculateBusinessPacing("2026-02", "2026-02-14", 50_000, 0, days);
+  assert.equal(result.businessDays, 0);
+  assert.equal(result.remainingDays, 0);
+  assert.equal(result.dailyRequired, 0);
+});

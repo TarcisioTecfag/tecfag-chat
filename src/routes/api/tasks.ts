@@ -52,8 +52,8 @@ async function getNativeKanbanTasks(
     sql`${crmDealActivities.type} NOT IN ('note', 'system_event')`,
   ];
 
-  // Se não for admin e não for pedido 'all', filtra por tarefas sob responsabilidade do operador
-  if (!options.all && !options.isAdmin && options.operatorId) {
+  // Se não for solicitado 'all' explicitamente por um administrador, filtra estritamente por tarefas do operador logado
+  if (!(options.all && options.isAdmin) && options.operatorId) {
     conditions.push(
       or(
         eq(crmDealActivities.assignedToOperatorId, options.operatorId),

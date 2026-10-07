@@ -266,7 +266,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return "chat";
   });
 
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
+
+  // Menu lateral direito de informações do cliente vem fechado por padrão em todas as conversas
+  useEffect(() => {
+    setRightSidebarOpen(false);
+  }, [selectedChatId]);
 
   // Status de presença (digitando / gravando áudio) do cliente por conversa
   const [clientTypingStatus, setClientTypingStatus] = useState<Record<string, { status: "composing" | "recording"; timestamp: number } | null>>({});
