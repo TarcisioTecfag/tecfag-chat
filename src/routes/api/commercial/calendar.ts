@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { and, eq, gte, lt } from "drizzle-orm";
 import { db } from "../../../db";
-import { commercialCalendarDays } from "../../../db/schema";
+import { commercialCalendarDays, commercialConsultantProfiles, crmDeals, operators } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { saoPauloDay } from "../../../lib/commercial/metrics";
 
@@ -28,18 +28,26 @@ export const Route = createFileRoute("/api/commercial/calendar")({
         const [year, monthNumber] = month.split("-").map(Number);
         const nextMonth = `${monthNumber === 12 ? year + 1 : year}-${String(monthNumber === 12 ? 1 : monthNumber + 1).padStart(2, "0")}-01`;
         try {
-          const days = await db
-            .select()
-            .from(commercialCalendarDays)
-            .where(
-              and(
-                eq(commercialCalendarDays.tenantId, tenantId),
-                gte(commercialCalendarDays.date, `${month}-01`),
-                lt(commercialCalendarDays.date, nextMonth),
-              ),
-            )
-            .orderBy(commercialCalendarDays.date);
-          return json({ month, days });
+          const [days, wonDeals] = await Promise.all([
+            db.select().from(commercialCalendarDays)
+              .where(and(eq(commercialCalendarDays.tenantId, tenantId), gte(commercialCalendarDays.date, `${month}-01`), lt(commercialCalendarDays.date, nextMonth)))
+              .orderBy(commercialCalendarDays.date),
+            db.select({ id: crmDeals.id, title: crmDeals.title, value: crmDeals.value, closedAt: crmDeals.closedAt, operatorName: operators.name })
+              .from(crmDeals)
+              .innerJoin(commercialConsultantProfiles, and(eq(commercialConsultantProfiles.operatorId, crmDeals.operatorId), eq(commercialConsultantProfiles.tenantId, tenantId)))
+              .innerJoin(operators, and(eq(operators.id, crmDeals.operatorId), eq(operators.tenantId, tenantId)))
+              .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.status, "won"),
+                gte(crmDeals.closedAt, new Date(`${month}-01T00:00:00Z`)), lt(crmDeals.closedAt, new Date(`${nextMonth}T03:00:00Z`)))),
+          ]);
+          const closingMap = new Map<string, Array<{ id: string; title: string; value: number; operatorName: string }>>();
+          for (const deal of wonDeals) {
+            if (!deal.closedAt) continue;
+            const date = saoPauloDay(deal.closedAt);
+            if (date.slice(0, 7) !== month) continue;
+            closingMap.set(date, [...(closingMap.get(date) || []), { id: deal.id, title: deal.title, value: Number(deal.value || 0), operatorName: deal.operatorName }]);
+          }
+          const closings = [...closingMap].map(([date, deals]) => ({ date, count: deals.length, value: deals.reduce((total, deal) => total + deal.value, 0), deals }));
+          return json({ month, days, closings });
         } catch (error) {
           console.error("[commercial/calendar] GET:", error);
           return json({ error: "Falha ao listar o calendário comercial." }, 500);
