@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
+  House,
   Users,
   Settings,
   Clock,
@@ -17,18 +18,22 @@ import {
   Bot,
   PhoneCall,
   Columns3,
+  BriefcaseBusiness,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { getAiPersona } from "@/lib/ai-persona";
 
 export function Sidebar() {
-  const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, setIsProfileModalOpen, currentGroup } = useChat();
+  const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, sessionRole, setIsProfileModalOpen, currentGroup } = useChat();
   const { canAccessView } = usePermissions();
   const [showDropdown, setShowDropdown] = useState(false);
   const persona = getAiPersona(tenant || "valem");
 
   const navItems = [
+    ...(tenant === "tecfag" ? [{ id: "commercialHome", icon: House, label: "Início" }] : []),
+    ...(tenant === "tecfag" && sessionRole === "admin" ? [{ id: "commercialManagement", icon: BriefcaseBusiness, label: "Gestão Comercial" }] : []),
+    ...(tenant === "tecfag" && sessionRole === "admin" ? [{ id: "commercialBi", icon: BarChart2, label: "War Room BI" }] : []),
     { id: "chat", icon: Users, label: "Chat" },
     { id: "crm", icon: Columns3, label: "Negociações" },
     { id: "tasks", icon: ClipboardCheck, label: "Tarefas" },
@@ -47,13 +52,17 @@ export function Sidebar() {
 
   // Redirecionamento automático caso a view atual não seja permitida
   useEffect(() => {
+    if ((activeView === "commercialHome" || activeView === "commercialManagement" || activeView === "commercialBi") && tenant !== "tecfag") {
+      setActiveView("chat");
+      return;
+    }
     if (!canAccessView(activeView)) {
       const firstAllowed = [...navItems, ...decorativeItems][0]?.id;
       if (firstAllowed) {
         setActiveView(firstAllowed as any);
       }
     }
-  }, [activeView, currentGroup]);
+  }, [activeView, currentGroup, tenant]);
 
 
   return (

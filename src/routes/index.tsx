@@ -25,6 +25,9 @@ const TasksView = lazy(() => import("@/components/chat/TasksView").then((module)
 const ValentinaView = lazy(() => import("@/components/valentina/ValentinaView").then((module) => ({ default: module.ValentinaView })));
 const LigacoesView = lazy(() => import("@/components/voice/LigacoesView").then((module) => ({ default: module.LigacoesView })));
 const CrmView = lazy(() => import("@/components/crm/CrmView").then((module) => ({ default: module.CrmView })));
+const CommercialHomeView = lazy(() => import("@/components/commercial/CommercialHomeView").then((module) => ({ default: module.CommercialHomeView })));
+const CommercialManagementView = lazy(() => import("@/components/commercial/CommercialManagementView").then((module) => ({ default: module.CommercialManagementView })));
+const CommercialBiView = lazy(() => import("@/components/commercial/CommercialBiView").then((module) => ({ default: module.CommercialBiView })));
 
 function ViewFallback() {
   return <div className="flex h-full flex-1 items-center justify-center text-primary"><Loader2 className="h-6 w-6 animate-spin" /></div>;
@@ -89,7 +92,26 @@ export function Index() {
         <div className="flex flex-1 h-full overflow-hidden relative">
           <Suspense fallback={<ViewFallback />}>
           <AnimatePresence mode="wait">
-            {activeView === "chat" ? (
+            {activeView === "commercialHome" && tenant === "tecfag" ? (
+              <motion.div
+                key="commercialHome"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="flex-1 h-full w-full overflow-hidden"
+              >
+                <CommercialHomeView />
+              </motion.div>
+            ) : activeView === "commercialManagement" && tenant === "tecfag" ? (
+              <motion.div key="commercialManagement" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="flex-1 h-full w-full overflow-hidden">
+                <CommercialManagementView />
+              </motion.div>
+            ) : activeView === "commercialBi" && tenant === "tecfag" ? (
+              <motion.div key="commercialBi" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }} className="flex-1 h-full w-full overflow-hidden">
+                <CommercialBiView />
+              </motion.div>
+            ) : activeView === "chat" ? (
               <motion.div
                 key="chat"
                 initial={{ opacity: 0, x: 20 }}

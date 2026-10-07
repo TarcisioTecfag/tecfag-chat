@@ -28,6 +28,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { toast } from "sonner";
+import { maskPhone } from "@/lib/utils";
 
 interface ContactSearchResult {
   id: string;
@@ -451,9 +452,9 @@ export function DealAddContactDrawer({
                 </Label>
                 <Input
                   type="text"
-                  placeholder="Ex: 5514999998888 ou (14) 99999-8888..."
+                  placeholder="Ex: (14) 99999-8888..."
                   value={createPhone}
-                  onChange={(e) => setCreatePhone(e.target.value)}
+                  onChange={(e) => setCreatePhone(maskPhone(e.target.value))}
                   className="h-8 text-xs rounded-sm border-border bg-card"
                 />
               </div>

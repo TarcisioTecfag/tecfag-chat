@@ -2,7 +2,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
-import { formatPhoneNumber, formatCPF, formatCNPJ } from "@/lib/utils";
+import { formatPhoneNumber, formatCPF, formatCNPJ, maskPhone } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -357,7 +357,7 @@ export function ContactsView() {
     setCreatingCompany(false);
     setEditForm({
       name: c.name,
-      phone: c.phone || "",
+      phone: c.phone ? maskPhone(c.phone) : "",
       whatsappUsername: c.whatsappUsername || "",
       email: c.email || "",
       tagsInput: c.tags.join(", "),
@@ -866,7 +866,7 @@ export function ContactsView() {
                   type="text"
                   placeholder="Ex: (81) 99876-5432"
                   value={addForm.phone}
-                  onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })}
+                  onChange={(e) => setAddForm({ ...addForm, phone: maskPhone(e.target.value) })}
                   className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
                 />
               </div>
@@ -967,7 +967,7 @@ export function ContactsView() {
                         type="text"
                         placeholder="(00) 0000-0000"
                         value={companyForm.phone}
-                        onChange={(e) => setCompanyForm((prev) => ({ ...prev, phone: e.target.value }))}
+                        onChange={(e) => setCompanyForm((prev) => ({ ...prev, phone: maskPhone(e.target.value) }))}
                         className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                       />
                     </div>
@@ -1138,7 +1138,7 @@ export function ContactsView() {
                   <input
                     type="text"
                     value={editForm.phone}
-                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                    onChange={(e) => setEditForm({ ...editForm, phone: maskPhone(e.target.value) })}
                     className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
                   />
                 </div>
@@ -1253,7 +1253,7 @@ export function ContactsView() {
                           type="text"
                           placeholder="(00) 0000-0000"
                           value={companyForm.phone}
-                          onChange={(e) => setCompanyForm((prev) => ({ ...prev, phone: e.target.value }))}
+                          onChange={(e) => setCompanyForm((prev) => ({ ...prev, phone: maskPhone(e.target.value) }))}
                           className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                         />
                       </div>

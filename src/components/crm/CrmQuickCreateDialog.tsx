@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
+import { maskPhone } from "@/lib/utils";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { CatalogSelect } from "./CatalogSelect";
 import {
@@ -282,7 +283,8 @@ export function CrmQuickCreateDialog({
                   <Input
                     id="crm-quick-phone"
                     value={phone}
-                    onChange={(event) => setPhone(event.target.value)}
+                    placeholder="(14) 99999-8888"
+                    onChange={(event) => setPhone(maskPhone(event.target.value))}
                   />
                 </div>
                 <div className="space-y-1.5">

@@ -3751,7 +3751,7 @@ export class CrmService {
     return await db.transaction(async (tx) => {
       // 1. Valida existência de ambas as entidades no tenant
       const [conv] = await tx
-        .select({ id: conversations.id })
+        .select({ id: conversations.id, contactId: conversations.contactId })
         .from(conversations)
         .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
         .limit(1);
@@ -3766,7 +3766,63 @@ export class CrmService {
 
       if (!deal) throw new CrmCrossTenantError(`Negociação (${dealId}) não encontrada no tenant ${tenantId}.`);
 
-      // 2. Verifica se já está vinculado
+      const now = new Date();
+
+      // 2. Garante que o contato desta conversa seja vinculado aos participantes da negociação
+      if (conv.contactId) {
+        const [existingDealContact] = await tx
+          .select({ id: crmDealContacts.id })
+          .from(crmDealContacts)
+          .where(
+            and(
+              eq(crmDealContacts.tenantId, tenantId),
+              eq(crmDealContacts.dealId, dealId),
+              eq(crmDealContacts.contactId, conv.contactId)
+            )
+          )
+          .limit(1);
+
+        if (!existingDealContact) {
+          const [hasPrimary] = await tx
+            .select({ id: crmDealContacts.id })
+            .from(crmDealContacts)
+            .where(
+              and(
+                eq(crmDealContacts.tenantId, tenantId),
+                eq(crmDealContacts.dealId, dealId),
+                eq(crmDealContacts.isPrimary, true)
+              )
+            )
+            .limit(1);
+
+          await tx.insert(crmDealContacts).values({
+            id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            tenantId,
+            dealId,
+            contactId: conv.contactId,
+            role: "buyer",
+            isPrimary: !hasPrimary,
+            createdAt: now,
+          });
+
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "participant_added",
+            operatorId,
+            {
+              contactId: conv.contactId,
+              role: "buyer",
+              isPrimary: !hasPrimary,
+              source: "conversation_link",
+              conversationId,
+            },
+            tx
+          );
+        }
+      }
+
+      // 3. Verifica se a conversa já está vinculada
       const [existing] = await tx
         .select()
         .from(crmConversationDeals)
@@ -3810,7 +3866,6 @@ export class CrmService {
       }
 
       const id = `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const now = new Date();
       const [created] = await tx
         .insert(crmConversationDeals)
         .values({

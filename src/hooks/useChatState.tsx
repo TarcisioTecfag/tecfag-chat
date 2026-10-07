@@ -87,8 +87,8 @@ type ChatContextType = {
   setSearchQuery: (query: string) => void;
   channelFilter: Channel | "all";
   setChannelFilter: (filter: Channel | "all") => void;
-  activeView: "chat" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes";
-  setActiveView: (view: "chat" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes") => void;
+  activeView: "chat" | "commercialHome" | "commercialManagement" | "commercialBi" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes";
+  setActiveView: (view: "chat" | "commercialHome" | "commercialManagement" | "commercialBi" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes") => void;
   rightSidebarOpen: boolean;
   setRightSidebarOpen: (open: boolean) => void;
   
@@ -256,7 +256,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
-  const [activeView, setActiveView] = useState<"chat" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">(() => {
+  const [activeView, setActiveView] = useState<"chat" | "commercialHome" | "commercialManagement" | "commercialBi" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">(() => {
     if (typeof window !== "undefined") {
       const savedView = localStorage.getItem("chat_active_view");
       if (savedView) return savedView as any;
@@ -771,12 +771,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     try {
-      const url = new URL(`${BACKEND_URL}/api/operators`);
-      url.searchParams.set("id", id);
+      const params = new URLSearchParams({ id });
       if (transferToOperatorId && transferToOperatorId !== "unassign") {
-        url.searchParams.set("transferToOperatorId", transferToOperatorId);
+        params.set("transferToOperatorId", transferToOperatorId);
       }
-      const res = await fetch(url.toString(), {
+      const res = await fetch(`${BACKEND_URL}/api/operators?${params.toString()}`, {
         method: "DELETE",
         credentials: "include",
       });

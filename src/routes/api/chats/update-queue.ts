@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { conversations, contacts, messages, operators, sectors } from "../../../db/schema";
+import { conversations, contacts, messages, operators, sectors, commercialConsultantProfiles, commercialTransferResponseEvents } from "../../../db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { auditService } from "../../../lib/audit-service";
@@ -229,6 +229,32 @@ export const Route = createFileRoute("/api/chats/update-queue")({
                   sentAt: new Date(),
                   updatedAt: new Date(),
                 });
+              }
+
+              // A atribuição a um consultor comercial inicia o TMA. A troca de
+              // responsável cancela o evento ainda sem resposta, no mesmo commit.
+              if (conv.operatorId !== targetOpId || conv.queueState !== queueState) {
+                await tx.update(commercialTransferResponseEvents)
+                  .set({ status: "cancelled" })
+                  .where(and(
+                    eq(commercialTransferResponseEvents.tenantId, session.tenantId),
+                    eq(commercialTransferResponseEvents.conversationId, conversationId),
+                    eq(commercialTransferResponseEvents.status, "pending"),
+                  ));
+                if (queueState === "meus" && targetOpId) {
+                  const [commercialProfile] = await tx.select({ id: commercialConsultantProfiles.id })
+                    .from(commercialConsultantProfiles)
+                    .where(and(
+                      eq(commercialConsultantProfiles.tenantId, session.tenantId),
+                      eq(commercialConsultantProfiles.operatorId, targetOpId),
+                    )).limit(1);
+                  if (commercialProfile) {
+                    await tx.insert(commercialTransferResponseEvents).values({
+                      id: crypto.randomUUID(), tenantId: session.tenantId,
+                      conversationId, operatorId: targetOpId, transferredAt: new Date(),
+                    });
+                  }
+                }
               }
 
               return convResult;

@@ -11,6 +11,7 @@ import { eq, and, desc, sql, or, like } from "drizzle-orm";
 import { UniversalInboundMessage } from "./types";
 import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
+import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import crypto from "node:crypto";
 
 export class InboundProcessor {
@@ -142,15 +143,19 @@ export class InboundProcessor {
       let contact = userId ? (await db.select().from(contacts)
         .where(and(eq(contacts.tenantId, tenantId), eq(contacts.whatsappUserId, userId))).limit(1))[0] : undefined;
 
-      if (!contact && cleanPhone) {
-        [contact] = await db.select().from(contacts)
-          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.phone, cleanPhone))).limit(1);
-      }
+      const canonicalPhone = normalizeCanonicalPhone(cleanPhone);
+      const phoneTerms = buildPhoneSearchTerms(canonicalPhone || cleanPhone);
 
-      if (!contact && cleanPhone.length >= 8) {
-        [contact] = await db.select().from(contacts)
-          .where(and(eq(contacts.tenantId, tenantId), sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${cleanPhone}`))
+      if (!contact && phoneTerms.length > 0) {
+        const matching = await db.select().from(contacts)
+          .where(and(
+            eq(contacts.tenantId, tenantId),
+            or(...phoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
+          ))
           .limit(1);
+        if (matching.length > 0) {
+          contact = matching[0];
+        }
       }
 
       if (contact && userId && contact.whatsappUserId && contact.whatsappUserId !== userId) {
@@ -159,7 +164,7 @@ export class InboundProcessor {
 
       if (!contact) {
         const contactId = `cont-${crypto.randomUUID()}`;
-        const newContactName = senderName?.trim() || (whatsappUsername ? `@${whatsappUsername}` : cleanPhone || "Contato WhatsApp");
+        const newContactName = senderName?.trim() || (whatsappUsername ? `@${whatsappUsername}` : canonicalPhone || cleanPhone || "Contato WhatsApp");
 
         const [createdContact] = await db
           .insert(contacts)
@@ -167,7 +172,7 @@ export class InboundProcessor {
             id: contactId,
             tenantId,
             name: newContactName,
-            phone: cleanPhone || null,
+            phone: canonicalPhone || cleanPhone || null,
             whatsappUserId: userId || null,
             whatsappUsername: whatsappUsername || null,
             mainChannel: "whatsapp",
@@ -180,15 +185,16 @@ export class InboundProcessor {
       } else {
         const identityUpdates: Partial<typeof contacts.$inferInsert> = {};
         if (userId && !contact.whatsappUserId) identityUpdates.whatsappUserId = userId;
-        if (cleanPhone && !contact.phone) {
+        // Auto-cura: se o contato estava sem phone ou com phone não canônico (ex: sem 55), atualiza para o canonicalPhone
+        if (canonicalPhone && (!contact.phone || contact.phone !== canonicalPhone)) {
           const [phoneOwner] = await db.select({ id: contacts.id }).from(contacts)
-            .where(and(eq(contacts.tenantId, tenantId), eq(contacts.phone, cleanPhone))).limit(1);
-          if (!phoneOwner || phoneOwner.id === contact.id) identityUpdates.phone = cleanPhone;
+            .where(and(eq(contacts.tenantId, tenantId), eq(contacts.phone, canonicalPhone))).limit(1);
+          if (!phoneOwner || phoneOwner.id === contact.id) identityUpdates.phone = canonicalPhone;
         }
         if (userId && whatsappUsername !== undefined && contact.whatsappUsername !== whatsappUsername) {
           identityUpdates.whatsappUsername = whatsappUsername;
         }
-        if (senderName && (contact.name === contact.phone || contact.name === "Contato WhatsApp")) {
+        if (senderName && (contact.name === contact.phone || contact.name === "Contato WhatsApp" || (contact.phone && contact.name === `+${contact.phone}`))) {
           identityUpdates.name = senderName.trim();
         } else if (whatsappUsername !== undefined && contact.whatsappUsername && contact.name === `@${contact.whatsappUsername}`) {
           identityUpdates.name = whatsappUsername ? `@${whatsappUsername}` : contact.phone || "Contato WhatsApp";
@@ -260,16 +266,16 @@ export class InboundProcessor {
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId}))`);
           if (normalizedContactPhone.length >= 8) {
             await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedContactPhone}))`);
+            const convPhoneTerms = buildPhoneSearchTerms(normalizedContactPhone);
             const matchingHistories = await tx.select({ conversation: conversations })
               .from(conversations)
               .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
               .where(and(
                 eq(conversations.tenantId, tenantId),
-                sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${normalizedContactPhone}`,
-              )).limit(2);
-            if (matchingHistories.length > 1) {
-              throw new Error("Telefone vinculado a mais de um histórico; reconciliação necessária");
-            }
+                or(...convPhoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
+              ))
+              .orderBy(desc(conversations.lastMessageTime))
+              .limit(1);
             if (matchingHistories.length) return matchingHistories[0].conversation;
           }
           const [existing] = await tx.select().from(conversations)

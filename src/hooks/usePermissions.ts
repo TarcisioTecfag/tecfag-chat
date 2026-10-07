@@ -46,6 +46,9 @@ export function usePermissions() {
         views: {
           ...norm.views,
           chat: true,
+          commercialHome: true,
+          commercialManagement: true,
+          commercialBi: true,
           crm: true,
           tasks: true,
           contacts: true,

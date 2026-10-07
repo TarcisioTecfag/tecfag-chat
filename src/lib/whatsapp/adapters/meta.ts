@@ -163,7 +163,10 @@ export class MetaAdapter implements WhatsAppAdapter {
       }
 
       // O BSUID tem prioridade: um telefone antigo pode deixar de ser um destino válido.
-      const cleanTo = message.recipientPhone.replace(/\D/g, "");
+      let cleanTo = message.recipientPhone.replace(/\D/g, "");
+      if (cleanTo.length === 10 || cleanTo.length === 11) {
+        cleanTo = `55${cleanTo}`;
+      }
       const userId = message.recipientUserId?.trim();
       if (!userId && !cleanTo) {
         return { externalId: "", status: "failed", error: "Contato sem BSUID ou telefone para envio" };

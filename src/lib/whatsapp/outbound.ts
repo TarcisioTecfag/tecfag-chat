@@ -11,6 +11,7 @@ import { baileysAdapter } from "./adapters/baileys";
 import { getMetaServiceWindow } from "./meta-policy";
 import { replayPendingMetaStatuses } from "./meta-status";
 import { resetMetaTypingThrottle } from "./meta-presence";
+import { recordCommercialFirstResponse } from "../commercial/tma";
 
 export class OutboundQueue {
   private static instance: OutboundQueue;
@@ -45,6 +46,13 @@ export class OutboundQueue {
 
       if (existing) {
         if (existing.status === "accepted" || existing.status === "sending") {
+          if (existing.status === "accepted" && !isInternalNote && payload.operatorId) {
+            try {
+              await recordCommercialFirstResponse(tenantId, conversationId, payload.operatorId, existing.id);
+            } catch (tmaError) {
+              console.error("[OutboundQueue] Falha ao reconciliar TMA comercial:", tmaError);
+            }
+          }
           console.log(`[OutboundQueue] Idempotência acionada para key '${idempotencyKey}'. Mensagem id '${existing.id}' já processada.`);
           return {
             success: existing.status === "accepted",
@@ -236,6 +244,14 @@ function isIdempotencyConflict(err: any): boolean {
           .update(conversations)
           .set({ lastMessageTime: new Date(), updatedAt: new Date(), unreadCount: 0 })
           .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+
+        if (payload.operatorId) {
+          try {
+            await recordCommercialFirstResponse(tenantId, conversationId, payload.operatorId, messageId);
+          } catch (tmaError) {
+            console.error("[OutboundQueue] Falha ao registrar TMA comercial:", tmaError);
+          }
+        }
 
         return {
           success: true,

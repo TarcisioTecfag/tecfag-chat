@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { contacts } from "../../../db/schema";
-import { and, eq, ilike, ne, sql } from "drizzle-orm";
+import { and, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
+import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../../../lib/utils";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -61,7 +62,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           }
           if ("phone" in body) {
             if (body.phone != null && typeof body.phone !== "string") return Response.json({ error: "Telefone inválido." }, { status: 400 });
-            updates.phone = body.phone ? body.phone.replace(/\D/g, "") || null : null;
+            updates.phone = body.phone ? normalizeCanonicalPhone(body.phone) || null : null;
             if (updates.phone && (updates.phone.length < 8 || updates.phone.length > 40)) return Response.json({ error: "Telefone inválido." }, { status: 400 });
           }
           if ("whatsappUsername" in body) {
@@ -96,8 +97,9 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           }
 
           if (updates.phone || (!updates.phone && updates.email)) {
-            const identity = updates.phone
-              ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${updates.phone}`
+            const phoneTerms = updates.phone ? buildPhoneSearchTerms(updates.phone) : [];
+            const identity = phoneTerms.length > 0
+              ? or(...phoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
               : ilike(contacts.email, updates.email);
             const [duplicate] = await db.select({ id: contacts.id, name: contacts.name }).from(contacts)
               .where(and(eq(contacts.tenantId, session.tenantId), ne(contacts.id, contactId), identity)).limit(1);

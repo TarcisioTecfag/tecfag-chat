@@ -4,6 +4,7 @@ import { channelConfigs, contacts, conversations, crmAccounts, crmContactAccount
 import { eq, and, count, desc, ilike, or, sql } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
 import { requireSession } from "../../lib/auth-session.js";
+import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../../lib/utils.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -104,7 +105,7 @@ export const Route = createFileRoute("/api/contacts")({
             );
           }
 
-          const normalizedPhone = typeof phone === "string" ? phone.replace(/\D/g, "") : "";
+          const normalizedPhone = normalizeCanonicalPhone(typeof phone === "string" ? phone : "");
           const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
           if ((phone && (typeof phone !== "string" || phone.length > 40)) ||
               (normalizedPhone && normalizedPhone.length < 8) ||
@@ -138,8 +139,9 @@ export const Route = createFileRoute("/api/contacts")({
             if (normalizedPhone || normalizedEmail) {
               await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedPhone || normalizedEmail}))`);
             }
-            const identity = normalizedPhone.length >= 8
-              ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${normalizedPhone}`
+            const phoneTerms = buildPhoneSearchTerms(normalizedPhone);
+            const identity = phoneTerms.length > 0
+              ? or(...phoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
               : normalizedEmail ? ilike(contacts.email, normalizedEmail) : undefined;
             if (identity) {
               const [existing] = await tx.select({ id: contacts.id, name: contacts.name })

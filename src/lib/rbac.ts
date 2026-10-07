@@ -7,6 +7,9 @@ export type ChannelId = "whatsapp" | "instagram" | "messenger" | "livechat";
 
 export type ViewId =
   | "chat"
+  | "commercialHome"
+  | "commercialManagement"
+  | "commercialBi"
   | "crm"
   | "tasks"
   | "contacts"
@@ -28,6 +31,9 @@ export type LigacoesTabId = "dashboard" | "agenda" | "historico" | "clientes" | 
 
 export interface ViewPermissions {
   chat: boolean;
+  commercialHome: boolean;
+  commercialManagement: boolean;
+  commercialBi: boolean;
   crm: boolean;
   tasks: boolean;
   contacts: boolean;
@@ -149,6 +155,9 @@ export interface GroupPermissions {
 export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
   views: {
     chat: true,
+    commercialHome: true,
+    commercialManagement: true,
+    commercialBi: true,
     crm: true,
     tasks: true,
     contacts: true,
@@ -259,6 +268,9 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: true,
+        commercialHome: true,
+        commercialManagement: false,
+        commercialBi: false,
         crm: true,
         tasks: true,
         contacts: true,
@@ -314,6 +326,9 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: true,
+        commercialHome: true,
+        commercialManagement: false,
+        commercialBi: false,
         crm: true,
         tasks: true,
         contacts: true,
@@ -416,6 +431,9 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: true,
+        commercialHome: true,
+        commercialManagement: false,
+        commercialBi: false,
         crm: true,
         tasks: true,
         contacts: true,
@@ -518,6 +536,9 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: true,
+        commercialHome: false,
+        commercialManagement: false,
+        commercialBi: false,
         crm: false,
         tasks: true,
         contacts: true,
@@ -620,6 +641,9 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
       ...DEFAULT_ADMIN_PERMISSIONS,
       views: {
         chat: false,
+        commercialHome: false,
+        commercialManagement: false,
+        commercialBi: false,
         crm: false,
         tasks: true,
         contacts: true,
@@ -750,6 +774,9 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
   return {
     views: {
       chat: existingPerms.views?.chat ?? baseFallback.views.chat,
+      commercialHome: existingPerms.views?.commercialHome ?? baseFallback.views.commercialHome,
+      commercialManagement: existingPerms.views?.commercialManagement ?? baseFallback.views.commercialManagement,
+      commercialBi: existingPerms.views?.commercialBi ?? baseFallback.views.commercialBi,
       crm: existingPerms.views?.crm ?? (isLegacyAdmin || Boolean(baseFallback.views.crm)),
       tasks: existingPerms.views?.tasks ?? baseFallback.views.tasks,
       contacts: existingPerms.views?.contacts ?? baseFallback.views.contacts,

@@ -1570,6 +1570,9 @@ export function GroupsView() {
                       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         {[
                           { key: "chat",      label: "Conversas / Atendimento", desc: "Acesso à fila e tela de mensagens" },
+                          ...(tenant === "tecfag" ? [{ key: "commercialHome", label: "Início Comercial", desc: "Cockpit pessoal do consultor" }] : []),
+                          ...(tenant === "tecfag" ? [{ key: "commercialManagement", label: "Gestão Comercial", desc: "Metas, equipe e diretrizes do War Room" }] : []),
+                          { key: "crm",       label: "Negociações", desc: "Acesso ao CRM próprio" },
                           { key: "tasks",     label: "Tarefas & Compromissos", desc: "Acesso ao kanban de tarefas do operador" },
                           { key: "contacts",  label: "Base de Contatos", desc: "Acesso à lista e fichas de clientes" },
                           { key: "wallets",   label: "Carteiras Globais", desc: "Acesso à gestão de carteiras comerciais" },

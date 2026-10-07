@@ -57,6 +57,7 @@ export const Route = createFileRoute("/api/baileys/send")({
             text: text.trim(),
             senderName: session.operator.name,
             senderId: session.operator.id,
+            operatorId: session.operator.id,
             quotedMessageId: quotedMessageId || undefined,
             idempotencyKey: clientMessageId || body.idempotencyKey || undefined,
           });

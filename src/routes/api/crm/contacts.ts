@@ -5,6 +5,7 @@ import { contacts } from "../../../db/schema";
 import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
+import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../../../lib/utils";
 
 export const Route = createFileRoute("/api/crm/contacts")({
   server: {
@@ -70,7 +71,7 @@ export const Route = createFileRoute("/api/crm/contacts")({
         }
         const input = body as Record<string, unknown>;
         const name = typeof input.name === "string" ? input.name.trim() : "";
-        const phone = typeof input.phone === "string" ? input.phone.replace(/\D/g, "") : "";
+        const phone = normalizeCanonicalPhone(typeof input.phone === "string" ? input.phone : "");
         const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
         if (!name || name.length > 200) {
           return Response.json(
@@ -93,8 +94,9 @@ export const Route = createFileRoute("/api/crm/contacts")({
             if (phone || email) {
               await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${phone || email}))`);
             }
-            const identity = phone.length >= 8
-              ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${phone}`
+            const phoneTerms = buildPhoneSearchTerms(phone);
+            const identity = phoneTerms.length > 0
+              ? or(...phoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
               : email ? ilike(contacts.email, email) : undefined;
             if (identity) {
               const [existing] = await tx.select({ id: contacts.id, name: contacts.name })

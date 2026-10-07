@@ -11,9 +11,13 @@ import { Loader2 } from "lucide-react";
 
 const ContactsView = lazy(() => import("@/components/chat/ContactsView").then((module) => ({ default: module.ContactsView })));
 const WalletView = lazy(() => import("@/components/chat/WalletView").then((module) => ({ default: module.WalletView })));
+const CommercialHomeView = lazy(() => import("@/components/commercial/CommercialHomeView").then((module) => ({ default: module.CommercialHomeView })));
+const CommercialManagementView = lazy(() => import("@/components/commercial/CommercialManagementView").then((module) => ({ default: module.CommercialManagementView })));
+const CommercialBiView = lazy(() => import("@/components/commercial/CommercialBiView").then((module) => ({ default: module.CommercialBiView })));
 
 export const MobileLayout: React.FC = () => {
   const {
+    tenant,
     activeView,
     selectedChatId,
     setSelectedChatId,
@@ -68,7 +72,13 @@ export const MobileLayout: React.FC = () => {
             className="h-full w-full"
           >
             <Suspense fallback={<div className="flex h-full items-center justify-center text-primary"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-            {activeView === "valentina" ? (
+            {activeView === "commercialHome" && tenant === "tecfag" ? (
+              <CommercialHomeView />
+            ) : activeView === "commercialManagement" && tenant === "tecfag" ? (
+              <CommercialManagementView />
+            ) : activeView === "commercialBi" && tenant === "tecfag" ? (
+              <CommercialBiView />
+            ) : activeView === "valentina" ? (
               <ValentinaFeed
                 onOpenChat={(id) => {
                   setSelectedChatId(id);

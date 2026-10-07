@@ -884,6 +884,126 @@ export const agentConfigs = pgTable("agent_configs", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// ─── TECFAG ANALYTICS PORT: domínio comercial independente do RD ────────────
+// Todas as entidades têm tenantId, mesmo quando apontam para IDs globalmente únicos.
+export const commercialConsultantProfiles = pgTable("commercial_consultant_profiles", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "cascade" }).notNull(),
+  division: text("division"), // 'personnalite' | 'maquinas'; configurado pela gestão
+  activeOnTv: boolean("active_on_tv").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantOperatorUnique: uniqueIndex("idx_commercial_profiles_tenant_operator").on(table.tenantId, table.operatorId),
+  tenantDivisionIdx: index("idx_commercial_profiles_tenant_division").on(table.tenantId, table.division),
+}));
+
+export const commercialGoals = pgTable("commercial_goals", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  month: text("month").notNull(), // YYYY-MM em America/Sao_Paulo
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "cascade" }).notNull(),
+  targetValue: numeric("target_value", { precision: 15, scale: 2 }).default("0").notNull(),
+  conversionRate: numeric("conversion_rate", { precision: 5, scale: 2 }).default("10").notNull(),
+  createdByOperatorId: text("created_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantMonthOperatorUnique: uniqueIndex("idx_commercial_goals_tenant_month_operator").on(table.tenantId, table.month, table.operatorId),
+}));
+
+export const commercialCalendarDays = pgTable("commercial_calendar_days", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  date: text("date").notNull(), // YYYY-MM-DD no calendário comercial
+  type: text("type").notNull(), // 'holiday' | 'bridge' | 'extra_work' | 'suspension'
+  scope: text("scope").default("internal").notNull(),
+  description: text("description").notNull(),
+  affectsGoal: boolean("affects_goal").default(true).notNull(),
+  createdByOperatorId: text("created_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDateUnique: uniqueIndex("idx_commercial_calendar_tenant_date").on(table.tenantId, table.date),
+}));
+
+export const commercialDirectives = pgTable("commercial_directives", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  assignedToOperatorId: text("assigned_to_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  assignedByOperatorId: text("assigned_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  assignedDate: text("assigned_date").notNull(), // YYYY-MM-DD em America/Sao_Paulo
+  dueAt: timestamp("due_at"),
+  priority: text("priority").default("normal").notNull(),
+  instruction: text("instruction").notNull(),
+  status: text("status").default("pending").notNull(),
+  completionNote: text("completion_note"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealDateUnique: uniqueIndex("idx_commercial_directives_tenant_deal_date").on(table.tenantId, table.dealId, table.assignedDate),
+  tenantAssigneeDateIdx: index("idx_commercial_directives_tenant_assignee_date").on(table.tenantId, table.assignedToOperatorId, table.assignedDate),
+}));
+
+export const commercialEvidence = pgTable("commercial_evidence", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  directiveId: text("directive_id").references(() => commercialDirectives.id, { onDelete: "restrict" }).notNull(),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  channel: text("channel").notNull(), // 'call' | 'whatsapp' | 'email'
+  source: text("source").notNull(), // 'internal_record' | 'manual_report'
+  status: text("status").default("completed").notNull(),
+  summary: text("summary"),
+  emailContent: text("email_content"),
+  callId: text("call_id"),
+  emailId: text("email_id"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDirectiveIdx: index("idx_commercial_evidence_tenant_directive").on(table.tenantId, table.directiveId),
+  tenantDealIdx: index("idx_commercial_evidence_tenant_deal").on(table.tenantId, table.dealId),
+}));
+
+export const commercialEvidenceMessages = pgTable("commercial_evidence_messages", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  evidenceId: text("evidence_id").references(() => commercialEvidence.id, { onDelete: "cascade" }).notNull(),
+  messageId: text("message_id").references(() => messages.id, { onDelete: "cascade" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantEvidenceMessageUnique: uniqueIndex("idx_commercial_evidence_message_unique").on(table.tenantId, table.evidenceId, table.messageId),
+}));
+
+export const commercialSettings = pgTable("commercial_settings", {
+  tenantId: text("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
+  maturityRules: jsonb("maturity_rules").$type<Array<{ days: number; maxValue: number | null }>>().default([]).notNull(),
+  excludedStageIds: jsonb("excluded_stage_ids").$type<string[]>().default([]).notNull(),
+  slaLimitMinutes: integer("sla_limit_minutes").default(15).notNull(),
+  slaBuckets: jsonb("sla_buckets").$type<number[]>().default([5, 15, 30]).notNull(),
+  tvSettings: jsonb("tv_settings").$type<Record<string, unknown>>().default({}).notNull(),
+  updatedByOperatorId: text("updated_by_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const commercialTransferResponseEvents = pgTable("commercial_transfer_response_events", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  transferredAt: timestamp("transferred_at").notNull(),
+  firstResponseMessageId: text("first_response_message_id").references(() => messages.id, { onDelete: "set null" }),
+  firstRespondedAt: timestamp("first_responded_at"),
+  durationSeconds: integer("duration_seconds"),
+  status: text("status").default("pending").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantOperatorTransferIdx: index("idx_commercial_transfer_tenant_operator_at").on(table.tenantId, table.operatorId, table.transferredAt),
+  tenantConversationPendingIdx: index("idx_commercial_transfer_tenant_conversation_status").on(table.tenantId, table.conversationId, table.status),
+}));
+
 // Catálogos administráveis do CRM. Os registros operacionais mantêm o nome
 // selecionado para preservar o histórico mesmo após o arquivamento da opção.
 export const crmCatalogItems = pgTable("crm_catalog_items", {

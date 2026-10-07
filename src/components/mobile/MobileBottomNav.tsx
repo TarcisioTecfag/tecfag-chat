@@ -1,10 +1,12 @@
 import React from "react";
-import { MessageSquare, Users, Wallet } from "lucide-react";
+import { BriefcaseBusiness, House, MessageSquare, Users, Wallet } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
+import { usePermissions } from "@/hooks/usePermissions";
 import { motion } from "framer-motion";
 
 export const MobileBottomNav: React.FC = () => {
-  const { activeView, setActiveView, setSelectedChatId, operatorProfile } = useChat();
+  const { activeView, setActiveView, setSelectedChatId, operatorProfile, sessionRole, tenant } = useChat();
+  const { canAccessView } = usePermissions();
 
   const handleTabClick = (viewId: string) => {
     setSelectedChatId(null);
@@ -12,7 +14,11 @@ export const MobileBottomNav: React.FC = () => {
   };
 
   const navItems = [
-    {
+    tenant === "tecfag" ? {
+      id: "commercialHome",
+      label: "Início",
+      icon: <House className="w-5 h-5 stroke-[2.2]" />,
+    } : {
       id: "valentina",
       label: "Início",
       icon: (
@@ -45,7 +51,12 @@ export const MobileBottomNav: React.FC = () => {
       label: "Carteira",
       icon: <Wallet className="w-5 h-5 stroke-[2.2]" />,
     },
-  ];
+    ...(tenant === "tecfag" && sessionRole === "admin" ? [{
+      id: "commercialManagement",
+      label: "Gestão",
+      icon: <BriefcaseBusiness className="w-5 h-5 stroke-[2.2]" />,
+    }] : []),
+  ].filter((item) => canAccessView(item.id as any));
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border/80 px-2 py-1.5 flex justify-around items-center shadow-lg select-none">

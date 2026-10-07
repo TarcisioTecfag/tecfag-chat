@@ -95,6 +95,14 @@ import { Route as ApiContactsUpdateWalletRouteImport } from './routes/api/contac
 import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/contacts/check-inactivity'
 import { Route as ApiContactsAccountOptionsRouteImport } from './routes/api/contacts/account-options'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
+import { Route as ApiCommercialSettingsRouteImport } from './routes/api/commercial/settings'
+import { Route as ApiCommercialHomeRouteImport } from './routes/api/commercial/home'
+import { Route as ApiCommercialGoalsRouteImport } from './routes/api/commercial/goals'
+import { Route as ApiCommercialEvidenceRouteImport } from './routes/api/commercial/evidence'
+import { Route as ApiCommercialDirectivesRouteImport } from './routes/api/commercial/directives'
+import { Route as ApiCommercialConsultantsRouteImport } from './routes/api/commercial/consultants'
+import { Route as ApiCommercialCalendarRouteImport } from './routes/api/commercial/calendar'
+import { Route as ApiCommercialBiRouteImport } from './routes/api/commercial/bi'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
 import { Route as ApiChatsTagTaskRouteImport } from './routes/api/chats/tag-task'
 import { Route as ApiChatsResolveRouteImport } from './routes/api/chats/resolve'
@@ -147,6 +155,7 @@ import { Route as ApiCrmDealsDealIdContactsRouteImport } from './routes/api/crm/
 import { Route as ApiCrmDealsDealIdAiPriorityRouteImport } from './routes/api/crm/deals/$dealId/ai-priority'
 import { Route as ApiCrmDealsDealIdActivitiesRouteImport } from './routes/api/crm/deals/$dealId/activities'
 import { Route as ApiCrmAccountsAccountIdConversationsRouteImport } from './routes/api/crm/accounts/$accountId/conversations'
+import { Route as ApiCommercialDirectivesDirectiveIdEvidenceRouteImport } from './routes/api/commercial/directives/$directiveId/evidence'
 import { Route as ApiCrmDealsDealIdFilesFileIdRouteImport } from './routes/api/crm/deals/$dealId/files/$fileId'
 import { Route as ApiCrmDealsDealIdEmailsSendRouteImport } from './routes/api/crm/deals/$dealId/emails/send'
 import { Route as ApiCrmDealsDealIdActivitiesActivityIdRouteImport } from './routes/api/crm/deals/$dealId/activities/$activityId'
@@ -588,6 +597,47 @@ const ApiContactsContactIdRoute = ApiContactsContactIdRouteImport.update({
   path: '/$contactId',
   getParentRoute: () => ApiContactsRoute,
 } as any)
+const ApiCommercialSettingsRoute = ApiCommercialSettingsRouteImport.update({
+  id: '/api/commercial/settings',
+  path: '/api/commercial/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCommercialHomeRoute = ApiCommercialHomeRouteImport.update({
+  id: '/api/commercial/home',
+  path: '/api/commercial/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCommercialGoalsRoute = ApiCommercialGoalsRouteImport.update({
+  id: '/api/commercial/goals',
+  path: '/api/commercial/goals',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCommercialEvidenceRoute = ApiCommercialEvidenceRouteImport.update({
+  id: '/api/commercial/evidence',
+  path: '/api/commercial/evidence',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCommercialDirectivesRoute = ApiCommercialDirectivesRouteImport.update({
+  id: '/api/commercial/directives',
+  path: '/api/commercial/directives',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCommercialConsultantsRoute =
+  ApiCommercialConsultantsRouteImport.update({
+    id: '/api/commercial/consultants',
+    path: '/api/commercial/consultants',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCommercialCalendarRoute = ApiCommercialCalendarRouteImport.update({
+  id: '/api/commercial/calendar',
+  path: '/api/commercial/calendar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCommercialBiRoute = ApiCommercialBiRouteImport.update({
+  id: '/api/commercial/bi',
+  path: '/api/commercial/bi',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiChatsUpdateQueueRoute = ApiChatsUpdateQueueRouteImport.update({
   id: '/update-queue',
   path: '/update-queue',
@@ -873,6 +923,12 @@ const ApiCrmAccountsAccountIdConversationsRoute =
     path: '/conversations',
     getParentRoute: () => ApiCrmAccountsAccountIdRoute,
   } as any)
+const ApiCommercialDirectivesDirectiveIdEvidenceRoute =
+  ApiCommercialDirectivesDirectiveIdEvidenceRouteImport.update({
+    id: '/$directiveId/evidence',
+    path: '/$directiveId/evidence',
+    getParentRoute: () => ApiCommercialDirectivesRoute,
+  } as any)
 const ApiCrmDealsDealIdFilesFileIdRoute =
   ApiCrmDealsDealIdFilesFileIdRouteImport.update({
     id: '/$fileId',
@@ -939,6 +995,14 @@ export interface FileRoutesByFullPath {
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
+  '/api/commercial/bi': typeof ApiCommercialBiRoute
+  '/api/commercial/calendar': typeof ApiCommercialCalendarRoute
+  '/api/commercial/consultants': typeof ApiCommercialConsultantsRoute
+  '/api/commercial/directives': typeof ApiCommercialDirectivesRouteWithChildren
+  '/api/commercial/evidence': typeof ApiCommercialEvidenceRoute
+  '/api/commercial/goals': typeof ApiCommercialGoalsRoute
+  '/api/commercial/home': typeof ApiCommercialHomeRoute
+  '/api/commercial/settings': typeof ApiCommercialSettingsRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
@@ -1017,6 +1081,7 @@ export interface FileRoutesByFullPath {
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/commercial/directives/$directiveId/evidence': typeof ApiCommercialDirectivesDirectiveIdEvidenceRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
   '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
@@ -1082,6 +1147,14 @@ export interface FileRoutesByTo {
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
+  '/api/commercial/bi': typeof ApiCommercialBiRoute
+  '/api/commercial/calendar': typeof ApiCommercialCalendarRoute
+  '/api/commercial/consultants': typeof ApiCommercialConsultantsRoute
+  '/api/commercial/directives': typeof ApiCommercialDirectivesRouteWithChildren
+  '/api/commercial/evidence': typeof ApiCommercialEvidenceRoute
+  '/api/commercial/goals': typeof ApiCommercialGoalsRoute
+  '/api/commercial/home': typeof ApiCommercialHomeRoute
+  '/api/commercial/settings': typeof ApiCommercialSettingsRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
@@ -1160,6 +1233,7 @@ export interface FileRoutesByTo {
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/commercial/directives/$directiveId/evidence': typeof ApiCommercialDirectivesDirectiveIdEvidenceRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
   '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
@@ -1226,6 +1300,14 @@ export interface FileRoutesById {
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
+  '/api/commercial/bi': typeof ApiCommercialBiRoute
+  '/api/commercial/calendar': typeof ApiCommercialCalendarRoute
+  '/api/commercial/consultants': typeof ApiCommercialConsultantsRoute
+  '/api/commercial/directives': typeof ApiCommercialDirectivesRouteWithChildren
+  '/api/commercial/evidence': typeof ApiCommercialEvidenceRoute
+  '/api/commercial/goals': typeof ApiCommercialGoalsRoute
+  '/api/commercial/home': typeof ApiCommercialHomeRoute
+  '/api/commercial/settings': typeof ApiCommercialSettingsRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
   '/api/contacts/check-inactivity': typeof ApiContactsCheckInactivityRoute
@@ -1304,6 +1386,7 @@ export interface FileRoutesById {
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/commercial/directives/$directiveId/evidence': typeof ApiCommercialDirectivesDirectiveIdEvidenceRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
   '/api/crm/deals/$dealId/ai-priority': typeof ApiCrmDealsDealIdAiPriorityRoute
@@ -1371,6 +1454,14 @@ export interface FileRouteTypes {
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
+    | '/api/commercial/bi'
+    | '/api/commercial/calendar'
+    | '/api/commercial/consultants'
+    | '/api/commercial/directives'
+    | '/api/commercial/evidence'
+    | '/api/commercial/goals'
+    | '/api/commercial/home'
+    | '/api/commercial/settings'
     | '/api/contacts/$contactId'
     | '/api/contacts/account-options'
     | '/api/contacts/check-inactivity'
@@ -1449,6 +1540,7 @@ export interface FileRouteTypes {
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
+    | '/api/commercial/directives/$directiveId/evidence'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
     | '/api/crm/deals/$dealId/ai-priority'
@@ -1514,6 +1606,14 @@ export interface FileRouteTypes {
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
+    | '/api/commercial/bi'
+    | '/api/commercial/calendar'
+    | '/api/commercial/consultants'
+    | '/api/commercial/directives'
+    | '/api/commercial/evidence'
+    | '/api/commercial/goals'
+    | '/api/commercial/home'
+    | '/api/commercial/settings'
     | '/api/contacts/$contactId'
     | '/api/contacts/account-options'
     | '/api/contacts/check-inactivity'
@@ -1592,6 +1692,7 @@ export interface FileRouteTypes {
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
+    | '/api/commercial/directives/$directiveId/evidence'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
     | '/api/crm/deals/$dealId/ai-priority'
@@ -1657,6 +1758,14 @@ export interface FileRouteTypes {
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
     | '/api/chats/update-queue'
+    | '/api/commercial/bi'
+    | '/api/commercial/calendar'
+    | '/api/commercial/consultants'
+    | '/api/commercial/directives'
+    | '/api/commercial/evidence'
+    | '/api/commercial/goals'
+    | '/api/commercial/home'
+    | '/api/commercial/settings'
     | '/api/contacts/$contactId'
     | '/api/contacts/account-options'
     | '/api/contacts/check-inactivity'
@@ -1735,6 +1844,7 @@ export interface FileRouteTypes {
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
+    | '/api/commercial/directives/$directiveId/evidence'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
     | '/api/crm/deals/$dealId/ai-priority'
@@ -1797,6 +1907,14 @@ export interface RootRouteChildren {
   ApiBaileysSendMediaRoute: typeof ApiBaileysSendMediaRoute
   ApiBaileysStatusRoute: typeof ApiBaileysStatusRoute
   ApiBaileysSyncAvatarsRoute: typeof ApiBaileysSyncAvatarsRoute
+  ApiCommercialBiRoute: typeof ApiCommercialBiRoute
+  ApiCommercialCalendarRoute: typeof ApiCommercialCalendarRoute
+  ApiCommercialConsultantsRoute: typeof ApiCommercialConsultantsRoute
+  ApiCommercialDirectivesRoute: typeof ApiCommercialDirectivesRouteWithChildren
+  ApiCommercialEvidenceRoute: typeof ApiCommercialEvidenceRoute
+  ApiCommercialGoalsRoute: typeof ApiCommercialGoalsRoute
+  ApiCommercialHomeRoute: typeof ApiCommercialHomeRoute
+  ApiCommercialSettingsRoute: typeof ApiCommercialSettingsRoute
   ApiCrmAccountsRoute: typeof ApiCrmAccountsRouteWithChildren
   ApiCrmActionHistoryRoute: typeof ApiCrmActionHistoryRoute
   ApiCrmCalendarRoute: typeof ApiCrmCalendarRoute
@@ -2458,6 +2576,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiContactsContactIdRouteImport
       parentRoute: typeof ApiContactsRoute
     }
+    '/api/commercial/settings': {
+      id: '/api/commercial/settings'
+      path: '/api/commercial/settings'
+      fullPath: '/api/commercial/settings'
+      preLoaderRoute: typeof ApiCommercialSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/home': {
+      id: '/api/commercial/home'
+      path: '/api/commercial/home'
+      fullPath: '/api/commercial/home'
+      preLoaderRoute: typeof ApiCommercialHomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/goals': {
+      id: '/api/commercial/goals'
+      path: '/api/commercial/goals'
+      fullPath: '/api/commercial/goals'
+      preLoaderRoute: typeof ApiCommercialGoalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/evidence': {
+      id: '/api/commercial/evidence'
+      path: '/api/commercial/evidence'
+      fullPath: '/api/commercial/evidence'
+      preLoaderRoute: typeof ApiCommercialEvidenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/directives': {
+      id: '/api/commercial/directives'
+      path: '/api/commercial/directives'
+      fullPath: '/api/commercial/directives'
+      preLoaderRoute: typeof ApiCommercialDirectivesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/consultants': {
+      id: '/api/commercial/consultants'
+      path: '/api/commercial/consultants'
+      fullPath: '/api/commercial/consultants'
+      preLoaderRoute: typeof ApiCommercialConsultantsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/calendar': {
+      id: '/api/commercial/calendar'
+      path: '/api/commercial/calendar'
+      fullPath: '/api/commercial/calendar'
+      preLoaderRoute: typeof ApiCommercialCalendarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/bi': {
+      id: '/api/commercial/bi'
+      path: '/api/commercial/bi'
+      fullPath: '/api/commercial/bi'
+      preLoaderRoute: typeof ApiCommercialBiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/chats/update-queue': {
       id: '/api/chats/update-queue'
       path: '/update-queue'
@@ -2822,6 +2996,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmAccountsAccountIdConversationsRouteImport
       parentRoute: typeof ApiCrmAccountsAccountIdRoute
     }
+    '/api/commercial/directives/$directiveId/evidence': {
+      id: '/api/commercial/directives/$directiveId/evidence'
+      path: '/$directiveId/evidence'
+      fullPath: '/api/commercial/directives/$directiveId/evidence'
+      preLoaderRoute: typeof ApiCommercialDirectivesDirectiveIdEvidenceRouteImport
+      parentRoute: typeof ApiCommercialDirectivesRoute
+    }
     '/api/crm/deals/$dealId/files/$fileId': {
       id: '/api/crm/deals/$dealId/files/$fileId'
       path: '/$fileId'
@@ -2928,6 +3109,21 @@ const ApiValentinaVoiceRouteChildren: ApiValentinaVoiceRouteChildren = {
 
 const ApiValentinaVoiceRouteWithChildren =
   ApiValentinaVoiceRoute._addFileChildren(ApiValentinaVoiceRouteChildren)
+
+interface ApiCommercialDirectivesRouteChildren {
+  ApiCommercialDirectivesDirectiveIdEvidenceRoute: typeof ApiCommercialDirectivesDirectiveIdEvidenceRoute
+}
+
+const ApiCommercialDirectivesRouteChildren: ApiCommercialDirectivesRouteChildren =
+  {
+    ApiCommercialDirectivesDirectiveIdEvidenceRoute:
+      ApiCommercialDirectivesDirectiveIdEvidenceRoute,
+  }
+
+const ApiCommercialDirectivesRouteWithChildren =
+  ApiCommercialDirectivesRoute._addFileChildren(
+    ApiCommercialDirectivesRouteChildren,
+  )
 
 interface ApiCrmAccountsAccountIdRouteChildren {
   ApiCrmAccountsAccountIdConversationsRoute: typeof ApiCrmAccountsAccountIdConversationsRoute
@@ -3178,6 +3374,14 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBaileysSendMediaRoute: ApiBaileysSendMediaRoute,
   ApiBaileysStatusRoute: ApiBaileysStatusRoute,
   ApiBaileysSyncAvatarsRoute: ApiBaileysSyncAvatarsRoute,
+  ApiCommercialBiRoute: ApiCommercialBiRoute,
+  ApiCommercialCalendarRoute: ApiCommercialCalendarRoute,
+  ApiCommercialConsultantsRoute: ApiCommercialConsultantsRoute,
+  ApiCommercialDirectivesRoute: ApiCommercialDirectivesRouteWithChildren,
+  ApiCommercialEvidenceRoute: ApiCommercialEvidenceRoute,
+  ApiCommercialGoalsRoute: ApiCommercialGoalsRoute,
+  ApiCommercialHomeRoute: ApiCommercialHomeRoute,
+  ApiCommercialSettingsRoute: ApiCommercialSettingsRoute,
   ApiCrmAccountsRoute: ApiCrmAccountsRouteWithChildren,
   ApiCrmActionHistoryRoute: ApiCrmActionHistoryRoute,
   ApiCrmCalendarRoute: ApiCrmCalendarRoute,
