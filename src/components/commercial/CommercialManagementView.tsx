@@ -86,8 +86,8 @@ type Evidence = {
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const fieldClass =
-  "w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary";
-const labelClass = "text-[11px] font-bold uppercase tracking-wider text-muted-foreground";
+  "w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary transition-colors";
+const labelClass = "text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400";
 
 async function getJson(url: string) {
   const response = await fetch(url, { credentials: "same-origin" });
@@ -253,23 +253,27 @@ export function CommercialManagementView() {
   }
 
   return (
-    <div className="flex flex-col h-full min-w-0 flex-1 bg-card rounded-3xl border border-border shadow-soft overflow-hidden">
+    <div className="flex flex-col h-full min-w-0 flex-1 bg-card dark:bg-[#0c0d12] rounded-[4px] border border-border/80 dark:border-zinc-800 shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border/80 dark:border-zinc-800 shrink-0 bg-card/60 dark:bg-zinc-950/40 backdrop-blur-sm">
         <div>
-          <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
-            <BriefcaseBusiness className="h-4.5 w-4.5 text-primary" />
+          <div className="text-[9px] font-bold uppercase tracking-[.22em] text-primary font-mono">
+            WAR ROOM OPERACIONAL
+          </div>
+          <h1 className="font-mono text-xl sm:text-2xl font-bold tracking-[-.04em] text-foreground dark:text-zinc-50 flex items-center gap-2.5 mt-0.5">
+            <BriefcaseBusiness className="h-5 w-5 text-primary" />
             Gestão Comercial
+            <span className="text-primary animate-pulse">.</span>
           </h1>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            Operação do War Room — consultores, metas, calendário e diretrizes
+          <p className="text-xs text-muted-foreground dark:text-zinc-400 mt-0.5">
+            Operação do War Room — consultores, metas, calendário e diretrizes táticas
           </p>
         </div>
         <div className="flex items-center gap-2">
           <SystemTooltip content="Abrir cockpit executivo do War Room">
             <button
               onClick={() => setActiveView("commercialBi")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:brightness-110 transition shadow-soft cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-[4px] bg-primary text-primary-foreground text-xs font-bold hover:brightness-110 transition shadow-sm cursor-pointer"
             >
               <BarChart2 className="h-3.5 w-3.5" />
               <span>Abrir War Room</span>
@@ -280,7 +284,7 @@ export function CommercialManagementView() {
             <button
               onClick={() => void load()}
               disabled={loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950/70 text-xs font-bold font-mono text-muted-foreground hover:text-foreground hover:border-zinc-700 transition cursor-pointer disabled:opacity-50 shadow-sm"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
               <span>Atualizar</span>
@@ -290,7 +294,7 @@ export function CommercialManagementView() {
       </div>
 
       {/* Internal Tab Bar */}
-      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0 overflow-x-auto scrollbar-none">
+      <div className="flex items-center gap-1.5 px-6 py-2.5 border-b border-border/80 dark:border-zinc-800 bg-muted/20 dark:bg-zinc-950/60 shrink-0 overflow-x-auto scrollbar-none font-mono">
         {COMMERCIAL_TABS.map((t) => {
           const Icon = t.icon;
           const isActive = tab === t.id;
@@ -298,10 +302,10 @@ export function CommercialManagementView() {
             <SystemTooltip key={t.id} content={`Acessar aba ${t.label}`}>
               <button
                 onClick={() => setTab(t.id)}
-                className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                className={`relative flex items-center gap-2 px-3 py-1.5 rounded-[4px] text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shadow-sm ${
                   isActive
-                    ? "bg-primary text-primary-foreground shadow-soft"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border/60 bg-card/60 dark:border-zinc-800 dark:bg-zinc-900/60 text-muted-foreground hover:border-zinc-600 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-100"
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -354,7 +358,7 @@ export function CommercialManagementView() {
                 <div className="space-y-4">
                   <form
                     onSubmit={(event) => void saveDirective(event)}
-                    className="grid gap-3 rounded-2xl border border-border bg-card p-5 sm:grid-cols-2"
+                    className="grid gap-3 rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 sm:grid-cols-2 shadow-sm"
                   >
                     <label className={labelClass}>
                       Negociação aberta
@@ -459,28 +463,28 @@ export function CommercialManagementView() {
                     <button
                       type="submit"
                       disabled={saving}
-                      className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2 sm:justify-self-end"
+                      className="rounded-[4px] bg-primary px-4 py-2 text-xs font-mono font-bold text-white hover:opacity-95 disabled:opacity-50 sm:col-span-2 sm:justify-self-end shadow-sm cursor-pointer"
                     >
-                      Atribuir diretriz
+                      {saving ? "Atribuindo..." : "Atribuir diretriz"}
                     </button>
                   </form>
-                  <div className="rounded-2xl border border-border bg-card p-5">
-                    <h2 className="mb-3 text-sm font-extrabold text-foreground">
+                  <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 shadow-sm">
+                    <h2 className="mb-3 font-mono text-base font-bold text-foreground dark:text-zinc-50">
                       Diretrizes recentes
                     </h2>
                     {directives.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Nenhuma diretriz criada.</p>
+                      <p className="text-xs text-muted-foreground dark:text-zinc-400">Nenhuma diretriz criada.</p>
                     ) : (
                       <div className="space-y-2">
                         {directives.map((item) => (
-                          <div key={item.id} className="border-b border-border py-3 last:border-0">
+                          <div key={item.id} className="border-b border-border/80 dark:border-zinc-800/80 py-3 last:border-0">
                             <div className="flex flex-wrap justify-between gap-2">
-                              <strong className="text-sm text-foreground">{item.dealTitle}</strong>
-                              <span className="text-xs text-muted-foreground">
+                              <strong className="text-xs font-bold text-foreground dark:text-zinc-100">{item.dealTitle}</strong>
+                              <span className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
                                 {item.assignedDate} · {item.status}
                               </span>
                             </div>
-                            <p className="mt-1 text-xs text-muted-foreground">
+                            <p className="mt-1 text-xs text-muted-foreground dark:text-zinc-400">
                               {consultantMap.get(item.assignedToOperatorId || "") ||
                                 "Sem responsável"}{" "}
                               · {item.instruction}
@@ -494,26 +498,26 @@ export function CommercialManagementView() {
               )}
 
               {tab === "evidence" && (
-                <div className="rounded-2xl border border-border bg-card p-5">
-                  <h2 className="mb-2 text-sm font-extrabold text-foreground">
+                <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 shadow-sm">
+                  <h2 className="mb-1 font-mono text-base font-bold text-foreground dark:text-zinc-50">
                     Dossiê de execução
                   </h2>
-                  <p className="mb-4 text-xs text-muted-foreground">
+                  <p className="mb-4 text-xs text-muted-foreground dark:text-zinc-400">
                     A origem identifica registros comprovados no sistema e relatos declarados pelo
                     consultor.
                   </p>
                   {evidence.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-xs text-muted-foreground dark:text-zinc-400">
                       Ainda não há evidências registradas.
                     </p>
                   ) : (
                     <div className="space-y-3">
                       {evidence.map((item) => (
-                        <article key={item.id} className="rounded-xl border border-border p-4">
+                        <article key={item.id} className="rounded-[2px] border border-border/80 dark:border-zinc-800 bg-card/60 dark:bg-zinc-900/40 p-4 hover:border-primary/40 transition-colors">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
-                              <strong className="text-sm text-foreground">{item.dealTitle}</strong>
-                              <p className="mt-1 text-xs text-muted-foreground">
+                              <strong className="text-xs font-bold text-foreground dark:text-zinc-100">{item.dealTitle}</strong>
+                              <p className="mt-1 text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
                                 {item.operatorName || "Operador"} ·{" "}
                                 {new Date(item.createdAt).toLocaleString("pt-BR", {
                                   timeZone: "America/Sao_Paulo",
@@ -521,7 +525,7 @@ export function CommercialManagementView() {
                               </p>
                             </div>
                             <span
-                              className={`rounded-full px-2 py-1 text-[10px] font-bold ${item.source === "manual_report" ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"}`}
+                              className={`rounded-[2px] px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider ${item.source === "manual_report" ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"}`}
                             >
                               {item.source === "manual_report"
                                 ? "Relato manual"
@@ -536,11 +540,11 @@ export function CommercialManagementView() {
                                   : "WhatsApp"}
                             </span>
                           </div>
-                          <p className="mt-3 text-xs text-muted-foreground">
-                            Diretriz: {item.instruction}
+                          <p className="mt-2 text-xs text-muted-foreground dark:text-zinc-400">
+                            <span className="font-semibold text-foreground/80 dark:text-zinc-300">Diretriz:</span> {item.instruction}
                           </p>
-                          <p className="mt-2 text-sm text-foreground">{item.summary}</p>
-                          <p className="mt-2 text-xs font-semibold text-primary">
+                          <p className="mt-2 text-xs text-foreground dark:text-zinc-200">{item.summary}</p>
+                          <p className="mt-2 text-[11px] font-mono font-semibold text-primary">
                             Próximo passo:{" "}
                             {item.metadata?.nextAction === "won"
                               ? "Negociação ganha"
@@ -549,17 +553,17 @@ export function CommercialManagementView() {
                                 : "Tarefa futura"}
                           </p>
                           {item.emailSubject && (
-                            <p className="mt-2 text-xs font-semibold text-foreground">
+                            <p className="mt-2 text-xs font-semibold text-foreground dark:text-zinc-200">
                               Assunto: {item.emailSubject}
                             </p>
                           )}
                           {(item.emailContent || item.internalEmailContent) && (
-                            <p className="mt-2 whitespace-pre-wrap rounded-lg bg-muted p-3 text-xs text-foreground">
+                            <p className="mt-2 whitespace-pre-wrap rounded-[2px] bg-muted/40 dark:bg-zinc-950/60 p-3 text-xs text-foreground dark:text-zinc-300 border border-border/40 dark:border-zinc-800/60 font-mono">
                               {item.emailContent || item.internalEmailContent}
                             </p>
                           )}
                           {item.callSummary && (
-                            <p className="mt-2 rounded-lg bg-muted p-3 text-xs text-foreground">
+                            <p className="mt-2 rounded-[2px] bg-muted/40 dark:bg-zinc-950/60 p-3 text-xs text-foreground dark:text-zinc-300 border border-border/40 dark:border-zinc-800/60">
                               Resumo da ligação: {item.callSummary}
                             </p>
                           )}
@@ -568,7 +572,7 @@ export function CommercialManagementView() {
                               {item.messages.map((message, index) => (
                                 <p
                                   key={`${item.id}-${index}`}
-                                  className="rounded-lg bg-muted p-2 text-xs text-foreground"
+                                  className="rounded-[2px] bg-muted/40 dark:bg-zinc-950/60 p-2 text-xs text-foreground dark:text-zinc-300 border border-border/40 dark:border-zinc-800/60"
                                 >
                                   <strong>{message.senderName}: </strong>
                                   {message.content}

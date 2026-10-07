@@ -626,8 +626,10 @@ export function CrmChatWidget() {
   };
 
   const isChatView =
+    activeView === "chat" ||
     location.pathname === "/chat" ||
-    (location.pathname === "/" && activeView === "chat");
+    location.pathname.startsWith("/chat/") ||
+    location.pathname.startsWith("/chat");
 
   const [isSuppressed, setIsSuppressed] = useState(false);
 

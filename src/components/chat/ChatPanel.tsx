@@ -581,6 +581,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const [text, setText] = useState("");
   const [metaWindow, setMetaWindow] = useState<{ open: boolean; expiresAt: string | null } | null>(null);
+  const currentMetaChatIdRef = useRef<string | null>(null);
   const [metaTemplates, setMetaTemplates] = useState<ApprovedMetaTemplate[]>([]);
   const [showMetaTemplateModal, setShowMetaTemplateModal] = useState(false);
   const [show24hInfoModal, setShow24hInfoModal] = useState(false);
@@ -589,20 +590,26 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [reactingMsgId, setReactingMsgId] = useState<string | null>(null);
 
   useEffect(() => {
-    setMetaWindow(null);
     setShowMetaTemplateModal(false);
-    if (activeProvider !== "meta" || activeChat?.channel !== "whatsapp") {
+    if (activeProvider !== "meta" || activeChat?.channel !== "whatsapp" || !activeChat?.id) {
+      setMetaWindow(null);
+      currentMetaChatIdRef.current = null;
       return;
+    }
+    // Apenas redefine o estado ao alternar para uma conversa diferente
+    if (currentMetaChatIdRef.current !== activeChat.id) {
+      currentMetaChatIdRef.current = activeChat.id;
+      setMetaWindow(null);
     }
     let cancelled = false;
     const refresh = () => fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}`, { credentials: "include" })
       .then((response) => response.ok ? response.json() : null)
-      .then((data) => { if (!cancelled) setMetaWindow(data?.window || null); })
-      .catch(() => { if (!cancelled) setMetaWindow(null); });
+      .then((data) => { if (!cancelled && data?.window) setMetaWindow(data.window); })
+      .catch(() => {});
     void refresh();
     const timer = window.setInterval(refresh, 60000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [activeProvider, activeChat?.id, activeChat?.messages.length]);
+  }, [activeProvider, activeChat?.id]);
 
   const loadMetaTemplates = async () => {
     if (!activeChat) return;
@@ -2851,51 +2858,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   </div>
                 </div>
               </div>
-            </div>
-          ) : activeProvider === "meta" && activeChat.channel === "whatsapp" && metaWindow?.open !== true ? (
-            <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-sm">
-              {metaWindow === null ? (
-                <div className="flex items-center gap-2.5 text-xs text-muted-foreground py-1">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  <span>Consultando a janela de atendimento da Meta...</span>
-                </div>
-              ) : (
-                <div className="flex items-start gap-3.5">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <AlertCircle className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-foreground">
-                        Retome a conversa com um template aprovado
-                      </h4>
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        Você pode responder mensagens no WhatsApp até 24 horas após o último contato do cliente. Após esse prazo, use um template aprovado pelo WhatsApp para continuar a conversa.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await loadMetaTemplates();
-                          setShowMetaTemplateModal(true);
-                        }}
-                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
-                      >
-                        <MessageSquare className="h-3.5 w-3.5 text-primary" />
-                        <span>Enviar Template</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShow24hInfoModal(true)}
-                        className="text-xs font-semibold text-primary hover:underline cursor-pointer"
-                      >
-                        Saiba Mais
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           ) : (
             /* ── COMPOSER NORMAL: sou o dono ── */

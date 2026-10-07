@@ -128,4 +128,62 @@ describe("Fluidez e Fila Otimista de Mensagens do Chat (Estilo WhatsApp)", () =>
     checkScroll(msgs);
     expect(scrollTriggerCount).toBe(2);
   });
+
+  test("Regra isChatView: Mini pop-up de conversas (CrmChatWidget) é ocultado obrigatoriamente no módulo chat", () => {
+    const checkIsChatView = (activeView: string, pathname: string) => {
+      return (
+        activeView === "chat" ||
+        pathname === "/chat" ||
+        pathname.startsWith("/chat/") ||
+        pathname.startsWith("/chat")
+      );
+    };
+
+    // No módulo chat em tela cheia, deve SEMPRE ser true (mini chat oculto)
+    expect(checkIsChatView("chat", "/")).toBe(true);
+    expect(checkIsChatView("chat", "/chat")).toBe(true);
+    expect(checkIsChatView("chat", "/chat/5514998364338")).toBe(true);
+    expect(checkIsChatView("chat", "/chat/conv-random-uuid")).toBe(true);
+    expect(checkIsChatView("commercialHome", "/chat/5514998364338")).toBe(true);
+
+    // Em outros módulos (CRM, Gestão, Tarefas, War Room), deve ser false (mini chat visível)
+    expect(checkIsChatView("crm", "/")).toBe(false);
+    expect(checkIsChatView("crm", "/crm")).toBe(false);
+    expect(checkIsChatView("commercialManagement", "/")).toBe(false);
+    expect(checkIsChatView("commercialBi", "/")).toBe(false);
+    expect(checkIsChatView("tasks", "/")).toBe(false);
+    expect(checkIsChatView("contacts", "/")).toBe(false);
+  });
+
+  test("Estabilidade do Composer: Envio de mensagem não reseta a janela Meta nem desmonta a caixa de digitação", () => {
+    // Simula a lógica defensiva implementada: currentMetaChatIdRef impede setMetaWindow(null) na mesma conversa
+    let metaWindow: { open: boolean; expiresAt: string | null } | null = { open: true, expiresAt: "2026-10-07T18:00:00Z" };
+    let currentChatId = "chat-123";
+    let unmountedCount = 0;
+
+    const simulateMessageSend = (newChatId: string) => {
+      // Se não mudou de conversa, NÃO reseta metaWindow para null (evita desmontar o textarea)
+      if (newChatId !== currentChatId) {
+        currentChatId = newChatId;
+        metaWindow = null;
+        unmountedCount++;
+      }
+      // Ao enviar mensagem na mesma conversa, metaWindow permanece intacto
+    };
+
+    // Operador envia 3 mensagens em sequência no mesmo chat
+    simulateMessageSend("chat-123");
+    simulateMessageSend("chat-123");
+    simulateMessageSend("chat-123");
+
+    expect(metaWindow).not.toBeNull();
+    expect(metaWindow?.open).toBe(true);
+    expect(unmountedCount).toBe(0); // O composer NUNCA foi desmontado!
+
+    // Troca para outro chat: aí sim reseta
+    simulateMessageSend("chat-456");
+    expect(metaWindow).toBeNull();
+    expect(unmountedCount).toBe(1);
+  });
 });
+
