@@ -625,9 +625,9 @@ export function CrmChatWidget() {
     }
   };
 
-  const inCrm =
-    location.pathname.startsWith("/crm/deals/") ||
-    (location.pathname === "/" && activeView === "crm");
+  const isChatView =
+    location.pathname === "/chat" ||
+    (location.pathname === "/" && activeView === "chat");
 
   const [isSuppressed, setIsSuppressed] = useState(false);
 
@@ -640,12 +640,28 @@ export function CrmChatWidget() {
     return () => window.removeEventListener("crm:set-chat-widget-suppressed", handleSuppressed);
   }, []);
 
+  // Publicar estado do mini chat para que useChatState saiba se a conversa está visível na tela
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__miniChatState = {
+        open,
+        selectedChatId: view === "thread" ? selectedChatId : null,
+      };
+    }
+  }, [open, view, selectedChatId]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined") {
+        (window as any).__miniChatState = { open: false, selectedChatId: null };
+      }
+    };
+  }, []);
+
   const visible =
     isAuthenticated &&
     !isMobile &&
-    inCrm &&
-    canAccessView("crm") &&
-    canViewCrm &&
+    !isChatView &&
     canAccessView("chat") &&
     !isSuppressed;
 
@@ -653,8 +669,8 @@ export function CrmChatWidget() {
     (conversation) =>
       conversation.id !== "valentina" &&
       !archivedIds.includes(conversation.id) &&
-      conversation.queue === "meus" &&
-      conversation.operatorId === currentOperatorId,
+      ((conversation.queue === "meus" && conversation.operatorId === currentOperatorId) ||
+       (conversation.walletOperatorId === currentOperatorId && conversation.queue !== "finalizados")),
   );
 
   const selected =

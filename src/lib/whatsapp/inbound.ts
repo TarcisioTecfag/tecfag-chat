@@ -12,6 +12,7 @@ import { UniversalInboundMessage } from "./types";
 import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
+import { sendPushToOperator } from "../push-notifications";
 import crypto from "node:crypto";
 
 export class InboundProcessor {
@@ -481,6 +482,19 @@ export class InboundProcessor {
           walletOperatorId: contact.walletOperatorId ?? null,
         },
       });
+
+      // 6.1. Web Push Notification para operador atribuído ou consultor da carteira
+      const targetOperatorId = activeConv.operatorId || contact.walletOperatorId;
+      if (targetOperatorId) {
+        sendPushToOperator(tenantId, targetOperatorId, {
+          title: contact.name || "Nova Mensagem",
+          body: text || (media ? "Arquivo recebido no WhatsApp" : "Mensagem no WhatsApp"),
+          conversationId: activeConv.id,
+          tenantId,
+          icon: tenantId === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg",
+          url: `/?chatId=${activeConv.id}`,
+        }).catch((err) => console.error("[Push] Erro ao enviar notificação no Inbound Meta:", err));
+      }
 
       // 7. Conclusão do registro em pending_inbounds
       await db

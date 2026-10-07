@@ -27,9 +27,8 @@ function MaybeCrmChatWidget() {
   const { activeView, isAuthenticated } = useChat();
   const location = useLocation();
   const isMobile = useIsMobile();
-  const inCrm = location.pathname.startsWith("/crm/deals/") ||
-    (location.pathname === "/" && activeView === "crm");
-  if (!isAuthenticated || isMobile || !inCrm) return null;
+  const isChatView = location.pathname === "/chat" || (location.pathname === "/" && activeView === "chat");
+  if (!isAuthenticated || isMobile || isChatView) return null;
   return <Suspense fallback={null}><CrmChatWidget /></Suspense>;
 }
 

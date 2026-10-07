@@ -11,6 +11,8 @@ import {
 } from "@/lib/mockData";
 import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
 import { getAiPersona } from "@/lib/ai-persona";
+import { playNotificationSound } from "@/lib/sound-notifications";
+import { MessageSquare, MessageCircle, ExternalLink, X } from "lucide-react";
 
 export type MetaConfig = {
   businessAccountId: string;
@@ -321,6 +323,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     tenantRef.current = tenant;
   }, [tenant]);
 
+  const activeViewRef = useRef(activeView);
+  useEffect(() => {
+    activeViewRef.current = activeView;
+  }, [activeView]);
+
+  const isCurrentlyViewingConversation = useCallback((convId: string) => {
+    if (typeof document !== "undefined" && document.hidden) return false;
+    const isChatPanelOpen = activeViewRef.current === "chat" && selectedChatIdRef.current === convId;
+    const miniChat = typeof window !== "undefined" ? (window as any).__miniChatState : null;
+    const isMiniChatThreadOpen = Boolean(miniChat?.open && miniChat?.selectedChatId === convId);
+    return isChatPanelOpen || isMiniChatThreadOpen;
+  }, []);
+
   // Cookies são compartilhados entre abas; todas precisam acompanhar a troca real de sessão.
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -388,6 +403,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setCurrentOperatorId(data.operator.id);
             setSessionPermissions(data.permissions || null);
             setSessionRole(data.operator.role || null);
+            if (activeTenant === "tecfag" && !localStorage.getItem("chat_active_view") &&
+              (data.operator.role === "admin" || data.permissions?.views?.commercialHome === true)) {
+              setActiveView("commercialHome");
+            }
 
             setOperators((prev) => {
               const exists = prev.some((o) => o.id === data.operator.id);
@@ -2548,16 +2567,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ? message.walletOperatorId
           : (existingConv ? existingConv.walletOperatorId : null);
 
-        const isAssignedToMe = !!currentOperatorId && operatorId === currentOperatorId;
-        const isInMyWallet = !!currentOperatorId && walletOperatorId === currentOperatorId;
+        const isAssignedToMe = Boolean(currentOperatorId && operatorId === currentOperatorId);
+        const isInMyWallet = Boolean(currentOperatorId && walletOperatorId === currentOperatorId);
 
-        const isCapturedAndWithMe = isAssignedToMe && queueState === "meus";
-        const isFinalizedInMyWallet = isInMyWallet && queueState === "finalizados";
-
-        const shouldNotify = isCapturedAndWithMe || isFinalizedInMyWallet;
-        const isCurrentOpen = message.conversationId === selectedChatId;
+        // Notificar o operador se o atendimento está com ele ou se é cliente da sua carteira
+        const shouldNotify = isAssignedToMe || isInMyWallet;
+        const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
 
         if (shouldNotify && message.senderType === "client" && !isCurrentOpen) {
+          // 1. Tocar alerta sonoro cristalino sintetizado
+          playNotificationSound();
+
           const clientName = existingConv?.name || message.senderName || "Cliente";
           const clientAvatar = existingConv?.avatar || message.avatar || "";
           const initials = clientName
@@ -2584,65 +2604,111 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const primaryColor = isTecfag ? "#df3d3d" : "#2dc4a0";
           const primarySoftBg = isTecfag ? "#fde8e8" : "#d8f1ea";
 
+          // 2. Disparar notificação nativa do sistema operacional caso a aba esteja em segundo plano
+          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted" && document.hidden) {
+            try {
+              const n = new Notification(clientName, {
+                body: previewText,
+                icon: isTecfag ? "/logo_tecfag.png" : "/logo_valem.jpg",
+                tag: `chat-${message.conversationId}`,
+              });
+              n.onclick = () => {
+                window.focus();
+                setSelectedChatId(message.conversationId);
+                setActiveView("chat");
+                markAsRead(message.conversationId);
+                n.close();
+              };
+            } catch (err) {
+              console.warn("[Notification] Erro ao disparar notificação nativa de SO:", err);
+            }
+          }
+
+          // 3. Renderizar Toast rico com DUPLO BOTÃO: 'Abrir Chat' e 'Abrir Mini Chat'
           toast.custom(
             (t) => (
               <div 
-                className="flex items-center gap-3 w-[340px] bg-card border border-border rounded-2xl p-3 shadow-lg animate-in slide-in-from-bottom-5 duration-200 border-l-4"
+                className="flex flex-col gap-2.5 w-[380px] bg-card/95 backdrop-blur-md border border-border rounded-2xl p-3.5 shadow-2xl animate-in slide-in-from-bottom-5 duration-200 border-l-[5px]"
                 style={{ borderLeftColor: primaryColor }}
               >
-                <div className="relative shrink-0">
-                  {clientAvatar ? (
-                    <img
-                      src={clientAvatar}
-                      alt={clientName}
-                      className="h-10 w-10 rounded-full object-cover border border-border"
-                    />
-                  ) : (
-                    <div 
-                      className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold border"
-                      style={{
-                        backgroundColor: primarySoftBg,
-                        borderColor: `${primaryColor}20`,
-                        color: primaryColor
-                      }}
-                    >
-                      {initials}
+                <div className="flex items-start gap-3">
+                  <div className="relative shrink-0">
+                    {clientAvatar ? (
+                      <img
+                        src={clientAvatar}
+                        alt={clientName}
+                        className="h-10 w-10 rounded-full object-cover border border-border shadow-sm"
+                      />
+                    ) : (
+                      <div 
+                        className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold border shadow-sm"
+                        style={{
+                          backgroundColor: primarySoftBg,
+                          borderColor: `${primaryColor}20`,
+                          color: primaryColor
+                        }}
+                      >
+                        {initials}
+                      </div>
+                    )}
+                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card" />
+                  </div>
+
+                  <div className="flex-1 min-w-0 pr-1">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-bold text-foreground truncate">{clientName}</p>
+                      <span className="text-[10px] text-muted-foreground font-mono shrink-0">Agora</span>
                     </div>
-                  )}
-                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border border-card" />
+                    <p className="text-[11px] text-muted-foreground/90 line-clamp-2 mt-0.5 leading-relaxed">{previewText}</p>
+                  </div>
+
+                  <button
+                    onClick={() => toast.dismiss(t)}
+                    className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-1 -mr-1"
+                    title="Fechar aviso"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
 
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-foreground truncate">{clientName}</p>
-                  <p className="text-[10px] text-muted-foreground truncate mt-0.5">{previewText}</p>
-                </div>
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/40">
+                  <button
+                    onClick={() => {
+                      setSelectedChatId(message.conversationId);
+                      markAsRead(message.conversationId);
+                      window.dispatchEvent(
+                        new CustomEvent("crm:open-mini-chat", {
+                          detail: { conversationId: message.conversationId },
+                        })
+                      );
+                      toast.dismiss(t);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/70 transition shadow-sm cursor-pointer"
+                  >
+                    <MessageCircle className="h-3.5 w-3.5 text-primary" />
+                    Abrir Mini Chat
+                  </button>
 
-                <div className="flex shrink-0 items-center gap-2">
                   <button
                     onClick={() => {
                       setSelectedChatId(message.conversationId);
                       setActiveView("chat");
                       markAsRead(message.conversationId);
+                      if (typeof window !== "undefined" && window.location.pathname.startsWith("/crm/deals/")) {
+                        window.location.href = `/?chatId=${message.conversationId}`;
+                      }
                       toast.dismiss(t);
                     }}
-                    className="px-2.5 py-1.5 rounded-lg text-white text-[10px] font-bold transition duration-155 cursor-pointer shadow-sm hover:opacity-90"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition shadow-sm hover:opacity-90 cursor-pointer"
                     style={{ backgroundColor: primaryColor }}
                   >
-                    Abrir
-                  </button>
-                  <button
-                    onClick={() => toast.dismiss(t)}
-                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Abrir Chat
                   </button>
                 </div>
               </div>
             ),
-            { duration: 6000, position: "bottom-right" }
+            { duration: 8000, position: "bottom-right" }
           );
         }
         
@@ -2673,7 +2739,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   }
                 }
 
-                const isCurrentOpen = message.conversationId === selectedChatId;
+                const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
                 const newUnread = message.senderType === "client"
                   ? (isCurrentOpen ? 0 : c.unreadCount + 1)
                   : c.unreadCount;
@@ -2712,7 +2778,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .substring(0, 2);
             const initialsBg = "";
             
-            const isCurrentOpen = message.conversationId === selectedChatId;
+            const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
             const newUnread = isCurrentOpen ? 0 : 1;
 
             if (isCurrentOpen && message.senderType === "client") {
@@ -2818,7 +2884,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error("Erro ao processar dados recebidos do SSE:", err);
     }
-  }, [activeProvider, markAsRead, setActiveView, setConversations, setSelectedChatId]);
+  }, [activeProvider, isCurrentlyViewingConversation, markAsRead, setActiveView, setConversations, setSelectedChatId]);
 
   // ── Conexão SSE Universal (/api/events) com reconexão exponencial ──────────
   const universalSseRef = useRef<EventSource | null>(null);
@@ -3089,6 +3155,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentOperatorId(confirmedSession.operator.id);
           setSessionRole(confirmedSession.operator.role || null);
           setSessionPermissions(confirmedSession.permissions || null);
+          if (confirmedSession.tenantId === "tecfag" &&
+            (confirmedSession.operator.role === "admin" || confirmedSession.permissions?.views?.commercialHome === true)) {
+            setActiveView("commercialHome");
+          }
           if (confirmedSession.channelConfig?.activeProvider) {
             setActiveProvider(confirmedSession.channelConfig.activeProvider);
             updateDocumentTitle(confirmedSession.tenantId, confirmedSession.channelConfig.activeProvider);
