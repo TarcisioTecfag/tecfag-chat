@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { AccountPicker } from "@/components/crm/AccountPicker";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type ContactListItem = {
   id: string;
@@ -448,7 +449,11 @@ export function ContactsView() {
       {/* Filters Row */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6 bg-card p-4 rounded-2xl border border-border shadow-soft">
         <div className="relative w-full sm:w-80">
-          <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
+          {loadingContacts ? (
+            <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-primary" />
+          ) : (
+            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
+          )}
           <input
             placeholder="Filtrar por nome, CNPJ, tag, telefone..."
             value={search}
@@ -480,8 +485,28 @@ export function ContactsView() {
                 <th className="py-4 px-6 text-right">Acoes</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line">
-              {filteredContacts.length > 0 ? (
+            <tbody className={`divide-y divide-line transition-opacity duration-150 ${loadingContacts && filteredContacts.length > 0 ? "opacity-60 pointer-events-none" : "opacity-100"}`}>
+              {loadingContacts && filteredContacts.length === 0 ? (
+                Array.from({ length: 6 }).map((_, idx) => (
+                  <tr key={`skel-${idx}`} className="animate-in fade-in duration-150">
+                    <td className="py-3.5 px-6">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+                        <div className="space-y-1">
+                          <Skeleton className="h-3.5 w-28 rounded" />
+                          <Skeleton className="h-2.5 w-16 rounded" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4"><Skeleton className="h-5 w-20 rounded-full" /></td>
+                    <td className="py-3.5 px-4"><Skeleton className="h-3.5 w-28 rounded" /></td>
+                    <td className="py-3.5 px-4"><Skeleton className="h-3.5 w-24 rounded" /></td>
+                    <td className="py-3.5 px-4"><Skeleton className="h-4 w-16 rounded" /></td>
+                    <td className="py-3.5 px-4"><Skeleton className="h-4 w-20 rounded" /></td>
+                    <td className="py-3.5 px-6 text-right"><Skeleton className="h-7 w-20 rounded-lg ml-auto" /></td>
+                  </tr>
+                ))
+              ) : filteredContacts.length > 0 ? (
                 filteredContacts.map((c) => (
                   <tr key={c.id} className="hover:bg-muted/10 transition text-xs font-semibold text-foreground/90">
                     <td className="py-3.5 px-6">

@@ -13,6 +13,7 @@ import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
+import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
 import crypto from "node:crypto";
 
 export class InboundProcessor {
@@ -495,6 +496,16 @@ export class InboundProcessor {
           url: `/?chatId=${activeConv.id}`,
         }).catch((err) => console.error("[Push] Erro ao enviar notificação no Inbound Meta:", err));
       }
+
+      // 6.2. Auto-resposta quando operador atribuído estiver em pausa ou desconectado
+      checkAndSendOperatorStatusAutoReply({
+        tenantId,
+        conversationId: activeConv.id,
+        contactId: contact.id,
+        incomingMessageTime: timestamp,
+      }).catch((autoErr) => {
+        console.error("[InboundProcessor] Erro ao verificar auto-resposta de pausa:", autoErr);
+      });
 
       // 7. Conclusão do registro em pending_inbounds
       await db

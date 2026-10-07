@@ -1401,6 +1401,20 @@ export class SessionManager {
         }
       });
 
+      // ── Auto-resposta quando operador atribuído estiver em pausa ou desconectado ──
+      if (finalSenderType === "client") {
+        import("../whatsapp/status-auto-reply").then(({ checkAndSendOperatorStatusAutoReply }) => {
+          checkAndSendOperatorStatusAutoReply({
+            tenantId,
+            conversationId: convId,
+            contactId: contact?.id || conversation?.contactId,
+            incomingMessageTime: new Date(),
+          }).catch((autoErr) => {
+            console.error("[Baileys SessionManager] Erro ao verificar auto-resposta de pausa:", autoErr);
+          });
+        }).catch((impErr) => console.warn("[SessionManager] Import status-auto-reply falhou:", impErr?.message));
+      }
+
       // ── Processar mensagem no SdrDebouncer (Valentina SDR / 15s Debounce & Multimodal) ─────
       // 🛑 TRAVA DE OPERADOR: Valentina só atende clientes não captados por operadores humanos
       const currentFlow = await db.query.agentFlowStates.findFirst({

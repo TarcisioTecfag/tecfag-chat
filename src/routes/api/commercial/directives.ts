@@ -4,11 +4,13 @@ import { db } from "../../../db";
 import {
   commercialConsultantProfiles,
   commercialDirectives,
+  commercialSettings,
   crmDeals,
+  crmStages,
   operators,
 } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
-import { saoPauloDay } from "../../../lib/commercial/metrics";
+import { classifyMaturity, DEFAULT_MATURITY_RULES, saoPauloDay } from "../../../lib/commercial/metrics";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
@@ -89,7 +91,15 @@ export const Route = createFileRoute("/api/commercial/directives")({
           }
           const [[deal], [operator]] = await Promise.all([
             db
-              .select({ id: crmDeals.id, status: crmDeals.status, operatorId: crmDeals.operatorId })
+              .select({
+                id: crmDeals.id,
+                title: crmDeals.title,
+                value: crmDeals.value,
+                stageId: crmDeals.stageId,
+                createdAt: crmDeals.createdAt,
+                status: crmDeals.status,
+                operatorId: crmDeals.operatorId,
+              })
               .from(crmDeals)
               .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, dealId)))
               .limit(1),
@@ -123,6 +133,26 @@ export const Route = createFileRoute("/api/commercial/directives")({
               { error: "Atribua a negociação ao consultor no CRM antes de criar a diretriz." },
               409,
             );
+          const [[settings], [stage]] = await Promise.all([
+            db
+              .select({
+                maturityRules: commercialSettings.maturityRules,
+                excludedStageIds: commercialSettings.excludedStageIds,
+              })
+              .from(commercialSettings)
+              .where(eq(commercialSettings.tenantId, tenantId))
+              .limit(1),
+            db
+              .select({ name: crmStages.name })
+              .from(crmStages)
+              .where(and(eq(crmStages.tenantId, tenantId), eq(crmStages.id, deal.stageId)))
+              .limit(1),
+          ]);
+          const now = new Date();
+          const rules = settings?.maturityRules?.length === 5
+            ? settings.maturityRules
+            : DEFAULT_MATURITY_RULES;
+          const maturity = classifyMaturity(Number(deal.value || 0), deal.createdAt, now, rules);
           const [directive] = await db
             .insert(commercialDirectives)
             .values({
@@ -134,6 +164,17 @@ export const Route = createFileRoute("/api/commercial/directives")({
               assignedDate,
               instruction,
               priority,
+              snapshot: {
+                dealTitle: deal.title,
+                dealValue: Number(deal.value || 0),
+                stageId: deal.stageId,
+                stageName: stage?.name || "Etapa",
+                ageDays: maturity?.ageDays,
+                maturityTier: maturity?.tierIndex,
+                maturityDays: maturity?.tierDays,
+                daysRemaining: maturity?.daysRemaining,
+                division: profile.division,
+              },
             })
             .onConflictDoNothing({
               target: [

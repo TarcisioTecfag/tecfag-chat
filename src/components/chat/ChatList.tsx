@@ -2,9 +2,11 @@ import React from "react";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile } from "lucide-react";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle } from "lucide-react";
 import { Channel, QueueType } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusWizardModal } from "./StatusWizardModal";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -96,6 +98,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   const aiPersona = getAiPersona(tenant);
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
+  const [showStatusWizard, setShowStatusWizard] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ chatId: string; x: number; y: number } | null>(null);
   const pageCursorRef = React.useRef<{ before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null>(null);
   const pageLoadingRef = React.useRef(false);
@@ -282,6 +285,22 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                     <LogOut className="h-3 w-3" />
                     <span>Sair</span>
                   </button>
+                  <div className="my-1 border-t border-border/60" />
+                  <div className="flex items-center justify-center py-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowStatusDropdown(false);
+                        setShowStatusWizard(true);
+                      }}
+                      title="Como funciona a auto-resposta e os status de atendimento?"
+                      aria-label="Como funciona a auto-resposta e os status de atendimento"
+                      className="group flex items-center justify-center h-6 w-6 rounded-full text-muted-foreground/60 hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                    >
+                      <HelpCircle className="h-3.5 w-3.5 transition-transform group-hover:scale-110" />
+                    </button>
+                  </div>
                 </motion.div>
               </>
             )}
@@ -445,7 +464,22 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             </button>
           </motion.div>
 
-          {filteredConvs.length > 0 ? (
+          {!chatListReady ? (
+            <div className="space-y-2 pt-1 animate-in fade-in duration-150">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="flex items-center gap-2.5 rounded-2xl p-2 bg-muted/20 border border-border/40">
+                  <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <Skeleton className="h-3 w-24 rounded" />
+                      <Skeleton className="h-2.5 w-8 rounded" />
+                    </div>
+                    <Skeleton className="h-2.5 w-32 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredConvs.length > 0 ? (
             filteredConvs.map((c) => {
                 const isSelected = c.id === selectedChatId;
                 const lastMsg = c.messages[c.messages.length - 1];
@@ -453,11 +487,11 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                 return (
                   <motion.div
                     key={c.id}
-                    layout
-                    initial={{ opacity: 0, y: 12 }}
+                    layout="position"
+                    initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 28 }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                    transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
                     className="relative"
                     onContextMenu={(e) => {
                       if (c.queue !== "meus") return;
@@ -602,6 +636,12 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
         );
       })()}
     </AnimatePresence>
+
+    {/* Mini Wizard Explicativo de Status e Auto-Resposta */}
+    <StatusWizardModal
+      isOpen={showStatusWizard}
+      onClose={() => setShowStatusWizard(false)}
+    />
     </>
   );
 }

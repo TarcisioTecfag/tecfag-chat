@@ -108,6 +108,10 @@ const migrations = [
     name: "0028_canonical_phone_ddi55_and_auto_link",
     url: new URL("../src/db/migrations/0028_canonical_phone_ddi55_and_auto_link.sql", import.meta.url),
   },
+  {
+    name: "0029_commercial_directive_snapshot",
+    url: new URL("../src/db/migrations/0029_commercial_directive_snapshot.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

@@ -391,3 +391,37 @@
   .crm-stage-track .crm-stage { flex: none; }
   .crm-deal-sidebar { border-right: 0; border-bottom: 1px solid var(--color-border); }
 }
+
+/* ── Padrão de Movimento & Fluidez da Interface (Tokens Globais) ────────── */
+:root {
+  --motion-duration-micro: 120ms;
+  --motion-duration-fast: 150ms;
+  --motion-duration-normal: 200ms;
+  --motion-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.transition-motion-fast {
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-ease-out-expo);
+}
+
+.transition-motion-normal {
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: var(--motion-duration-normal);
+  transition-timing-function: var(--motion-ease-out-expo);
+}
+
+/* Respeito rigoroso a prefers-reduced-motion: anula animações contínuas e transições bruscas */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

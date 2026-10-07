@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CommercialEvidenceDialog } from "./CommercialEvidenceDialog";
+import { CommercialHomeSkeleton } from "./CommercialHomeSkeleton";
 import {
   ArrowUpRight,
   Bell,
@@ -267,7 +268,7 @@ export function CommercialHomeView() {
 
   const openCrm = () => {
     setActiveView("crm");
-    navigate({ to: "/crm" });
+    navigate({ to: "/" });
   };
 
   // Dados calculados para exibição
@@ -607,9 +608,7 @@ export function CommercialHomeView() {
         </motion.header>
 
         {loading && !data ? (
-          <div className="flex min-h-[400px] items-center justify-center text-primary">
-            <Loader2 className="h-8 w-8 animate-spin" aria-label="Carregando cockpit comercial" />
-          </div>
+          <CommercialHomeSkeleton />
         ) : error ? (
           <div
             role="alert"

@@ -14,6 +14,7 @@ import { AdvancedFiltersModal, AdvancedFiltersState } from "./AdvancedFiltersMod
 import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { CrmKanbanSkeleton } from "./CrmKanbanSkeleton";
 
 type CrmViewSnapshot = {
   savedAt: number;
@@ -500,12 +501,7 @@ export function CrmView() {
       {/* Conteúdo Principal */}
       <div className="min-h-0 flex-1 overflow-hidden relative">
         {loading && deals.length === 0 ? (
-          <div className="flex h-full w-full items-center justify-center pr-5">
-            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="text-xs font-semibold">Carregando funil comercial...</p>
-            </div>
-          </div>
+          <CrmKanbanSkeleton />
         ) : !activePipeline ? (
           <div className="flex h-full w-full items-center justify-center p-8 text-center pr-5">
             <div className="max-w-md space-y-3">

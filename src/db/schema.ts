@@ -937,6 +937,17 @@ export const commercialDirectives = pgTable("commercial_directives", {
   dueAt: timestamp("due_at"),
   priority: text("priority").default("normal").notNull(),
   instruction: text("instruction").notNull(),
+  snapshot: jsonb("snapshot").$type<{
+    dealTitle?: string;
+    dealValue?: number;
+    stageId?: string;
+    stageName?: string;
+    ageDays?: number;
+    maturityTier?: number;
+    maturityDays?: number;
+    daysRemaining?: number;
+    division?: string;
+  }>().default({}).notNull(),
   status: text("status").default("pending").notNull(),
   completionNote: text("completion_note"),
   completedAt: timestamp("completed_at"),

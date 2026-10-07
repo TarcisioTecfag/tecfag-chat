@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart2,
+  BriefcaseBusiness,
   CalendarDays,
   ClipboardCheck,
+  FileCheck,
   Loader2,
   RefreshCw,
   Settings2,
@@ -14,6 +16,17 @@ import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CommercialSettingsPanel } from "./CommercialSettingsPanel";
 import { useNavigate } from "@tanstack/react-router";
+
+const COMMERCIAL_TABS = [
+  { id: "consultants", label: "Consultores", icon: Users },
+  { id: "goals", label: "Metas", icon: Target },
+  { id: "calendar", label: "Calendário", icon: CalendarDays },
+  { id: "directives", label: "Diretrizes", icon: ClipboardCheck },
+  { id: "evidence", label: "Evidências", icon: FileCheck },
+  { id: "settings", label: "Configurações", icon: Settings2 },
+] as const;
+
+type CommercialTab = (typeof COMMERCIAL_TABS)[number]["id"];
 
 type Consultant = {
   operatorId: string;
@@ -99,12 +112,11 @@ async function postJson(url: string, body: unknown) {
 export function CommercialManagementView() {
   const { setActiveView } = useChat();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<
-    "consultants" | "goals" | "calendar" | "directives" | "evidence" | "settings"
-  >("consultants");
+  const [tab, setTab] = useState<CommercialTab>("consultants");
+  const tabIds = useMemo(() => COMMERCIAL_TABS.map((t) => t.id), []);
 
   useTabNavigation({
-    tabs: ["consultants", "goals", "calendar", "directives", "evidence", "settings"] as const,
+    tabs: tabIds,
     activeTab: tab,
     onChange: setTab,
   });
@@ -287,59 +299,63 @@ export function CommercialManagementView() {
   }
 
   return (
-    <section className="h-full min-w-0 flex-1 overflow-y-auto rounded-3xl border border-border bg-background p-4 shadow-soft sm:p-7">
-      <div className="mx-auto max-w-[1400px] space-y-5">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-primary">
-              Tecfag · Gestão Comercial
-            </p>
-            <h1 className="mt-1 text-2xl font-extrabold text-foreground">Operação do War Room</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Organize consultores, metas e prioridades comerciais.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setActiveView("commercialBi")}
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white"
-            >
-              <BarChart2 className="h-4 w-4" /> Abrir BI
-            </button>
-            <button
-              onClick={() => void load()}
-              disabled={loading}
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold text-foreground hover:bg-muted disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Atualizar
-            </button>
-          </div>
-        </header>
+    <div className="flex flex-col h-full min-w-0 flex-1 bg-card rounded-3xl border border-border shadow-soft overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+        <div>
+          <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
+            <BriefcaseBusiness className="h-4.5 w-4.5 text-primary" />
+            Gestão Comercial
+          </h1>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Operação do War Room — consultores, metas, calendário e diretrizes
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveView("commercialBi")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:brightness-110 transition shadow-soft cursor-pointer"
+          >
+            <BarChart2 className="h-3.5 w-3.5" />
+            <span>Abrir War Room</span>
+          </button>
+          <button
+            onClick={() => void load()}
+            disabled={loading}
+            title="Atualizar agora"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
+            <span>Atualizar</span>
+          </button>
+        </div>
+      </div>
 
-        <nav
-          className="flex gap-2 overflow-x-auto border-b border-border pb-2"
-          aria-label="Áreas da gestão comercial"
-        >
-          {(
-            [
-              { id: "consultants", label: "Consultores", icon: Users },
-              { id: "goals", label: "Metas", icon: Target },
-              { id: "calendar", label: "Calendário", icon: CalendarDays },
-              { id: "directives", label: "Diretrizes", icon: ClipboardCheck },
-              { id: "evidence", label: "Evidências", icon: ClipboardCheck },
-              { id: "settings", label: "Configurações", icon: Settings2 },
-            ] as const
-          ).map(({ id, label, icon: Icon }) => (
+      {/* Internal Tab Bar */}
+      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0 overflow-x-auto scrollbar-none">
+        {COMMERCIAL_TABS.map((t) => {
+          const Icon = t.icon;
+          const isActive = tab === t.id;
+          return (
             <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold ${tab === id ? "bg-primary text-white" : "bg-card text-muted-foreground hover:bg-muted"}`}
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
             >
-              <Icon className="h-4 w-4" />
-              {label}
+              <Icon className="h-3.5 w-3.5" />
+              {t.label}
             </button>
-          ))}
-        </nav>
+          );
+        })}
+      </div>
+
+      {/* Scrollable Content Area */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
+        <div className="mx-auto max-w-[1400px] space-y-6">
         {error && (
           <p
             role="alert"
@@ -986,7 +1002,8 @@ export function CommercialManagementView() {
             {tab === "settings" && <CommercialSettingsPanel />}
           </>
         )}
+        </div>
       </div>
-    </section>
+    </div>
   );
 }

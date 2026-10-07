@@ -240,6 +240,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             templateLanguage,
             templateComponents,
             operatorId: session.operator.id,
+            senderName: session.operator.name,
             isInternalNote: !!isInternalNote,
           });
 

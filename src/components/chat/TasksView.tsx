@@ -30,6 +30,7 @@ import {
   Check,
 } from "lucide-react";
 import { CreateTaskModal } from "../crm/CreateTaskModal";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -216,7 +217,7 @@ export function TasksView() {
   } = useChat();
 
   const [tasks, setTasks] = useState<TaskData[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
@@ -1041,6 +1042,24 @@ export function TasksView() {
                   }
                   return true;
                 });
+                if (loading && tasks.length === 0) {
+                  return (
+                    <div className="space-y-3 animate-in fade-in duration-150">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="rounded-2xl border border-border bg-card p-4 space-y-2.5 shadow-xs">
+                          <div className="flex items-center gap-3">
+                            <Skeleton className="h-5 w-5 rounded-full shrink-0" />
+                            <div className="flex-1 space-y-1.5">
+                              <Skeleton className="h-3.5 w-4/5 rounded" />
+                              <Skeleton className="h-2.5 w-1/3 rounded" />
+                            </div>
+                          </div>
+                          <Skeleton className="h-8 w-full rounded-xl bg-muted/40" />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
 
                 if (dayFilteredTasks.length === 0) {
                   return (

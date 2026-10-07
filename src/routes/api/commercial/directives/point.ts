@@ -4,13 +4,15 @@ import { db } from "../../../../db";
 import {
   commercialConsultantProfiles,
   commercialDirectives,
+  commercialSettings,
   crmDealActivities,
   crmDealEvents,
   crmDeals,
+  crmStages,
   operators,
 } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
-import { saoPauloDay } from "../../../../lib/commercial/metrics";
+import { classifyMaturity, DEFAULT_MATURITY_RULES, saoPauloDay } from "../../../../lib/commercial/metrics";
 
 const RESPONSIBILITY_NOTE = "GESTOR PONTUOU ATENÇÃO E EXECUÇÃO NESSA NEGOCIAÇÃO";
 const json = (data: unknown, status = 200) => Response.json(data, { status });
@@ -37,7 +39,8 @@ export const Route = createFileRoute("/api/commercial/directives/point")({
         const input = body as Record<string, unknown>;
         const operatorId = typeof input.operatorId === "string" ? input.operatorId.trim() : "";
         const dealIds = Array.isArray(input.dealIds) ? input.dealIds : [];
-        const assignedDate = saoPauloDay();
+        const now = new Date();
+        const assignedDate = saoPauloDay(now);
         if (
           !operatorId ||
           dealIds.length < 1 ||
@@ -51,7 +54,7 @@ export const Route = createFileRoute("/api/commercial/directives/point")({
         try {
           const result = await db.transaction(async (tx) => {
             const [operator] = await tx
-              .select({ id: operators.id })
+              .select({ id: operators.id, division: commercialConsultantProfiles.division })
               .from(operators)
               .innerJoin(
                 commercialConsultantProfiles,
@@ -66,7 +69,15 @@ export const Route = createFileRoute("/api/commercial/directives/point")({
               return { error: "Consultor comercial não encontrado neste tenant.", status: 404 };
 
             const deals = await tx
-              .select({ id: crmDeals.id, status: crmDeals.status, operatorId: crmDeals.operatorId })
+              .select({
+                id: crmDeals.id,
+                title: crmDeals.title,
+                value: crmDeals.value,
+                status: crmDeals.status,
+                operatorId: crmDeals.operatorId,
+                stageId: crmDeals.stageId,
+                createdAt: crmDeals.createdAt,
+              })
               .from(crmDeals)
               .where(
                 and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, dealIds as string[])),
@@ -81,9 +92,32 @@ export const Route = createFileRoute("/api/commercial/directives/point")({
               };
             }
 
+            const [settings, stages] = await Promise.all([
+              tx
+                .select({
+                  maturityRules: commercialSettings.maturityRules,
+                  excludedStageIds: commercialSettings.excludedStageIds,
+                })
+                .from(commercialSettings)
+                .where(eq(commercialSettings.tenantId, tenantId))
+                .limit(1),
+              tx
+                .select({ id: crmStages.id, name: crmStages.name })
+                .from(crmStages)
+                .where(and(eq(crmStages.tenantId, tenantId), inArray(crmStages.id, deals.map((deal) => deal.stageId)))),
+            ]);
+            const excluded = new Set(settings[0]?.excludedStageIds || []);
+            const stageNames = new Map(stages.map((stage) => [stage.id, stage.name]));
+            const rules = settings[0]?.maturityRules?.length === 5
+              ? settings[0].maturityRules
+              : DEFAULT_MATURITY_RULES;
+            if (deals.some((deal) => excluded.has(deal.stageId) || !classifyMaturity(Number(deal.value || 0), deal.createdAt, now, rules))) {
+              return { error: "Selecione apenas negócios com valor positivo nas etapas incluídas no BI.", status: 409 };
+            }
+
             const createdIds: string[] = [];
-            const now = new Date();
             for (const deal of deals) {
+              const maturity = classifyMaturity(Number(deal.value || 0), deal.createdAt, now, rules)!;
               const [directive] = await tx
                 .insert(commercialDirectives)
                 .values({
@@ -95,6 +129,17 @@ export const Route = createFileRoute("/api/commercial/directives/point")({
                   assignedDate,
                   instruction: RESPONSIBILITY_NOTE,
                   priority: "normal",
+                  snapshot: {
+                    dealTitle: deal.title,
+                    dealValue: Number(deal.value || 0),
+                    stageId: deal.stageId,
+                    stageName: stageNames.get(deal.stageId) || "Etapa",
+                    ageDays: maturity.ageDays,
+                    maturityTier: maturity.tierIndex,
+                    maturityDays: maturity.tierDays,
+                    daysRemaining: maturity.daysRemaining,
+                    division: operator.division || undefined,
+                  },
                 })
                 .onConflictDoNothing({
                   target: [
