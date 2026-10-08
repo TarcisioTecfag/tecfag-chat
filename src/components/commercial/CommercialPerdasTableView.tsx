@@ -22,31 +22,26 @@ export interface CommercialPerdasTableViewProps {
   onCategoryClick?: (category: PerdasCategory) => void;
 }
 
-// ─── SVG DONUT CHART VECTORIAL & PURO ───
+// ─── SVG DONUT CHART VECTORIAL & PURO (FIEL À VERSÃO ORIGINAL) ───
 function DonutChart({
   total,
   categories,
-  size = 96,
 }: {
   total: number;
   categories: PerdasCategory[];
-  size?: number;
 }) {
-  const strokeWidth = 10;
-  const radius = 38;
-  const circumference = 2 * Math.PI * radius; // ~238.76
-
-  // Calcula segmentos acumulados
-  let accumulatedOffset = -circumference / 4; // Começa no topo (12 horas)
+  const strokeWidth = 14;
+  const radius = 36;
+  const circumference = 2 * Math.PI * radius; // ~226.195
 
   const slices = useMemo(() => {
-    let currentOffset = -circumference / 4;
+    let currentOffset = 0; // Com rotate-[-90deg], o offset 0 começa exatamente às 12 horas
     return categories.map((cat) => {
       const sliceLength = (cat.percent / 100) * circumference;
       const slice = {
         key: cat.key,
         color: cat.colorHex,
-        dashArray: `${Math.max(1, sliceLength)} ${circumference - Math.max(1, sliceLength)}`,
+        dashArray: `${Math.max(1.2, sliceLength)} ${circumference - Math.max(1.2, sliceLength)}`,
         dashOffset: -currentOffset,
       };
       currentOffset += sliceLength;
@@ -55,15 +50,10 @@ function DonutChart({
   }, [categories, circumference]);
 
   return (
-    <div
-      className="relative flex items-center justify-center select-none"
-      style={{ width: size, height: size }}
-    >
+    <div className="relative flex items-center justify-center select-none w-[110px] h-[110px] sm:w-[124px] sm:h-[124px] xl:w-[136px] xl:h-[136px]">
       <svg
-        width={size}
-        height={size}
         viewBox="0 0 100 100"
-        className="rotate-[-90deg] transform"
+        className="w-full h-full rotate-[-90deg] transform"
       >
         {/* Trilho base escuro */}
         <circle
@@ -90,10 +80,10 @@ function DonutChart({
           />
         ))}
       </svg>
-      {/* Totalizador central em destaque */}
+      {/* Totalizador central em destaque (sem ponto, formato idêntico ao original) */}
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <span className="font-mono text-base sm:text-lg xl:text-xl font-black text-white tracking-tight leading-none">
-          {total >= 1000 ? total.toLocaleString("pt-BR") : total}
+        <span className="font-mono text-2xl sm:text-3xl xl:text-4xl font-black text-white tracking-tight leading-none">
+          {total}
         </span>
       </div>
     </div>
@@ -153,7 +143,7 @@ export function CommercialPerdasTableView({
       {/* ─── CONTAINER PRINCIPAL: COLUNA ESQUERDA (CARDS DONUT) + PAINEL DIREITO (CATEGORIAS) ─── */}
       <div className="flex-1 min-h-0 w-full flex flex-row gap-2.5 sm:gap-3 overflow-hidden">
         {/* ─── COLUNA LATERAL ESQUERDA: 3 CARDS DE HORIZONTE TEMPORAL ─── */}
-        <div className="w-[15%] min-w-[150px] max-w-[190px] flex flex-col justify-between gap-2 shrink-0 h-full">
+        <div className="w-[16%] min-w-[180px] max-w-[220px] flex flex-col justify-between gap-2 sm:gap-2.5 shrink-0 h-full">
           {periodKeys.map((pKey) => {
             const pData = periods[pKey];
             if (!pData) return null;
@@ -164,35 +154,34 @@ export function CommercialPerdasTableView({
                 key={pKey}
                 type="button"
                 onClick={() => handlePeriodChange(pKey)}
-                className={`flex-1 w-full rounded-[4px] bg-[#0c0d12] p-2 sm:p-2.5 flex flex-col items-center justify-center transition-all cursor-pointer text-center relative ${
+                className={`flex-1 w-full rounded-[4px] bg-[#0c0d12] p-2.5 sm:p-3 xl:p-3.5 flex flex-col items-center justify-between transition-all cursor-pointer text-center relative ${
                   isSelected
-                    ? "border border-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.22)] bg-zinc-950"
+                    ? "border border-red-500/80 shadow-[0_0_14px_rgba(239,68,68,0.25)] bg-zinc-950"
                     : "border border-zinc-800/80 hover:border-zinc-700 bg-zinc-950/60"
                 }`}
               >
                 {/* Donut Chart com Total Central */}
-                <div className="my-auto">
+                <div className="my-auto flex items-center justify-center">
                   <DonutChart
                     total={pData.totalCount}
                     categories={pData.categories}
-                    size={74}
                   />
                 </div>
 
                 {/* Textos Informativos Inferiores */}
-                <div className="mt-1 flex flex-col items-center justify-center leading-tight">
-                  <span className="font-mono text-[10px] sm:text-[11px] font-black tracking-wider text-emerald-400 uppercase">
+                <div className="mt-1.5 flex flex-col items-center justify-center leading-tight shrink-0">
+                  <span className="font-mono text-xs sm:text-[13px] font-black tracking-wider text-emerald-400 uppercase">
                     {pData.title}
                   </span>
-                  <span className="font-mono text-[9px] text-zinc-500 mt-0.5">
+                  <span className="font-mono text-[9.5px] sm:text-[10.5px] text-zinc-500 mt-0.5">
                     {pData.subtitlePeriod}
                   </span>
                   <span
-                    className={`font-mono text-[8.5px] sm:text-[9px] mt-0.5 ${
+                    className={`font-mono text-[9px] sm:text-[10px] mt-0.5 font-bold ${
                       pKey === "mes_atual"
-                        ? "text-cyan-400 font-semibold"
+                        ? "text-cyan-400"
                         : pKey === "mes_passado"
-                        ? "text-amber-400 font-semibold"
+                        ? "text-amber-400"
                         : "text-zinc-500"
                     }`}
                   >
