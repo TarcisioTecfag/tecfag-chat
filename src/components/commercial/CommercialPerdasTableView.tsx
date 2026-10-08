@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import {
   Users,
   Zap,
@@ -150,11 +151,14 @@ export function CommercialPerdasTableView({
             const isSelected = activePeriodKey === pKey;
 
             return (
-              <button
+              <motion.button
                 key={pKey}
                 type="button"
+                whileHover={{ scale: 1.018, x: 2 }}
+                whileTap={{ scale: 0.982 }}
+                transition={{ duration: 0.15 }}
                 onClick={() => handlePeriodChange(pKey)}
-                className={`flex-1 w-full rounded-[4px] bg-[#0c0d12] p-2.5 sm:p-3 xl:p-3.5 flex flex-col items-center justify-between transition-all cursor-pointer text-center relative ${
+                className={`flex-1 w-full rounded-[4px] bg-[#0c0d12] p-2.5 sm:p-3 xl:p-3.5 flex flex-col items-center justify-between transition-colors cursor-pointer text-center relative ${
                   isSelected
                     ? "border border-red-500/80 shadow-[0_0_14px_rgba(239,68,68,0.25)] bg-zinc-950"
                     : "border border-zinc-800/80 hover:border-zinc-700 bg-zinc-950/60"
@@ -188,7 +192,7 @@ export function CommercialPerdasTableView({
                     {pData.subtitleMetric}
                   </span>
                 </div>
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -209,8 +213,10 @@ export function CommercialPerdasTableView({
           <div className="flex-1 min-h-0 flex flex-col justify-around gap-2 overflow-hidden">
             {activePeriodData.categories.map((category) => {
               return (
-                <div
+                <motion.div
                   key={category.key}
+                  whileHover={{ scale: 1.004 }}
+                  transition={{ duration: 0.12 }}
                   onClick={() => onCategoryClick?.(category)}
                   className="flex flex-col justify-center rounded-[2px] transition-colors cursor-pointer group"
                 >
@@ -241,10 +247,12 @@ export function CommercialPerdasTableView({
 
                   {/* Barra de Progresso Fina */}
                   <div className="w-full h-1 sm:h-1.5 bg-zinc-900 rounded-full overflow-hidden mb-1.5">
-                    <div
-                      className="h-full rounded-full transition-all duration-300"
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.max(category.percent, 0.4)}%` }}
+                      transition={{ duration: 0.5, ease: "easeOut" }}
+                      className="h-full rounded-full"
                       style={{
-                        width: `${Math.max(category.percent, 0.4)}%`,
                         backgroundColor: category.colorHex,
                       }}
                     />
@@ -253,8 +261,10 @@ export function CommercialPerdasTableView({
                   {/* Tags Subordinadas dos Motivos Específicos com Contadores Táteis */}
                   <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
                     {category.subReasons.map((sub, sIdx) => (
-                      <div
+                      <motion.div
                         key={sIdx}
+                        whileHover={{ scale: 1.03 }}
+                        transition={{ duration: 0.1 }}
                         className="rounded-[2px] bg-zinc-900/90 border border-zinc-800/80 px-1.5 py-0.5 flex items-center gap-1.5 text-[9px] sm:text-[10px] font-mono text-zinc-300 hover:border-zinc-700 transition-colors"
                       >
                         <span className="text-zinc-500">•</span>
@@ -267,10 +277,10 @@ export function CommercialPerdasTableView({
                         >
                           {sub.count}
                         </span>
-                      </div>
+                      </motion.div>
                     ))}
                   </div>
-                </div>
+                </motion.div>
               );
             })}
           </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { Clock, Target, Zap, CheckCircle2 } from "lucide-react";
 import {
   BASELINE_TMA_KPIS,
@@ -65,27 +66,35 @@ export function CommercialTmaTableView({
           {total > 0 ? (
             <>
               {pctUnder5m > 0 && (
-                <div
-                  className="h-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.35)] transition-all"
-                  style={{ width: `${pctUnder5m}%` }}
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pctUnder5m}%` }}
+                  transition={{ duration: 0.55, ease: "easeOut" }}
+                  className="h-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.35)]"
                 />
               )}
               {pct5to15m > 0 && (
-                <div
-                  className="h-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.35)] transition-all"
-                  style={{ width: `${pct5to15m}%` }}
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct5to15m}%` }}
+                  transition={{ duration: 0.55, ease: "easeOut" }}
+                  className="h-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.35)]"
                 />
               )}
               {pct15to30m > 0 && (
-                <div
-                  className="h-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.35)] transition-all"
-                  style={{ width: `${pct15to30m}%` }}
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct15to30m}%` }}
+                  transition={{ duration: 0.55, ease: "easeOut" }}
+                  className="h-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.35)]"
                 />
               )}
               {pctOver30m > 0 && (
-                <div
-                  className="h-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.35)] transition-all"
-                  style={{ width: `${pctOver30m}%` }}
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pctOver30m}%` }}
+                  transition={{ duration: 0.55, ease: "easeOut" }}
+                  className="h-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.35)]"
                 />
               )}
             </>
@@ -97,10 +106,13 @@ export function CommercialTmaTableView({
 
   const renderConsultantRow = (consultant: TmaConsultantRow) => {
     return (
-      <div
+      <motion.div
         key={consultant.consultantId}
+        whileHover={{ scale: 1.003, backgroundColor: "rgba(24, 24, 27, 0.8)" }}
+        whileTap={{ scale: 0.995 }}
+        transition={{ duration: 0.12 }}
         onClick={() => onConsultantClick?.(consultant)}
-        className="flex items-center justify-between gap-3 sm:gap-4 rounded-[4px] border border-zinc-800/80 bg-zinc-950/60 px-3 sm:px-4 py-2 sm:py-2.5 xl:py-3 transition-all cursor-pointer hover:border-zinc-700 hover:bg-zinc-900/60 shadow-sm"
+        className="flex items-center justify-between gap-3 sm:gap-4 rounded-[4px] border border-zinc-800/80 bg-zinc-950/60 px-3 sm:px-4 py-2 sm:py-2.5 xl:py-3 transition-colors cursor-pointer hover:border-zinc-700 shadow-sm"
       >
         {/* Esquerda: Avatar + Nome */}
         <div className="flex items-center gap-2.5 sm:gap-3 w-48 sm:w-56 xl:w-64 shrink-0">
@@ -136,7 +148,7 @@ export function CommercialTmaTableView({
             TOTAL
           </span>
         </div>
-      </div>
+      </motion.div>
     );
   };
 
@@ -145,7 +157,11 @@ export function CommercialTmaTableView({
       {/* ─── 1. TOP KPIS CARDS (FOTO 1) ─── */}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         {/* Card 1: TMA Médio Hoje (Borda e Glow Esmeralda) */}
-        <div className="relative overflow-hidden rounded-[4px] border border-emerald-500/40 bg-[#0d1714] p-3 sm:p-4 shadow-sm before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1.5 before:bg-emerald-500">
+        <motion.div
+          whileHover={{ y: -2, scale: 1.008 }}
+          transition={{ duration: 0.15 }}
+          className="relative overflow-hidden rounded-[4px] border border-emerald-500/40 bg-[#0d1714] p-3 sm:p-4 shadow-sm before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1.5 before:bg-emerald-500"
+        >
           <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
             <Clock className="h-3 w-3 text-zinc-400" />
             <span>TMA MÉDIO HOJE</span>
@@ -161,10 +177,14 @@ export function CommercialTmaTableView({
           <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">
             Dentro da meta de {kpis.targetMinutes} min
           </p>
-        </div>
+        </motion.div>
 
         {/* Card 2: Taxa no SLA */}
-        <div className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 shadow-sm">
+        <motion.div
+          whileHover={{ y: -2, scale: 1.008 }}
+          transition={{ duration: 0.15 }}
+          className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 shadow-sm"
+        >
           <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
             <Target className="h-3 w-3 text-zinc-400" />
             <span>TAXA NO SLA</span>
@@ -177,10 +197,14 @@ export function CommercialTmaTableView({
           <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">
             Respondidos no prazo
           </p>
-        </div>
+        </motion.div>
 
         {/* Card 3: Total Transferências */}
-        <div className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 shadow-sm">
+        <motion.div
+          whileHover={{ y: -2, scale: 1.008 }}
+          transition={{ duration: 0.15 }}
+          className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 shadow-sm"
+        >
           <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
             <Zap className="h-3 w-3 text-zinc-400" />
             <span>TOTAL TRANSFERÊNCIAS</span>
@@ -193,15 +217,17 @@ export function CommercialTmaTableView({
           <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">
             Hoje pelo {aiName}
           </p>
-        </div>
+        </motion.div>
       </div>
 
       {/* ─── 2. ABAS SUPERIORES (FOTO 1 E FOTO 2) ─── */}
       <div className="flex items-center gap-2">
-        <button
+        <motion.button
           type="button"
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.98 }}
           onClick={() => setActiveTab("contato")}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-all cursor-pointer ${
+          className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
             activeTab === "contato"
               ? "border border-[#c53030] bg-zinc-950/90 text-white shadow-sm"
               : "border border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:text-white"
@@ -209,12 +235,14 @@ export function CommercialTmaTableView({
         >
           <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           <span>TEMPO DE PRIMEIRO CONTATO ({kpis.firstContactCount})</span>
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
           type="button"
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.98 }}
           onClick={() => setActiveTab("aguardando")}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-all cursor-pointer ${
+          className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
             activeTab === "aguardando"
               ? "border border-[#c53030] bg-zinc-950/90 text-white shadow-sm"
               : "border border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:text-white"
@@ -222,7 +250,7 @@ export function CommercialTmaTableView({
         >
           <span className="h-2 w-2 rounded-full bg-red-500" />
           <span>AGUARDANDO RESPOSTA ({kpis.waitingResponseCount})</span>
-        </button>
+        </motion.button>
       </div>
 
       {/* ─── 3. CORPO CONFORME ABA SELECIONADA ─── */}

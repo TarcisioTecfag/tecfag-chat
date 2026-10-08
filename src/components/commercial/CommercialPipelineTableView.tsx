@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { motion } from "framer-motion";
 import { Flag, Star } from "lucide-react";
 import {
   formatAbbreviatedCurrency,
@@ -84,14 +85,19 @@ export function CommercialPipelineTableView({
   return (
     <div className="w-full h-full flex flex-col justify-between py-1 select-none">
       {/* ─── TAG DA TELA 1 ─── */}
-      <div className="shrink-0 flex items-center gap-2 px-1 pt-0.5 pb-0.5">
+      <motion.div
+        initial={{ opacity: 0, x: -8 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.25 }}
+        className="shrink-0 flex items-center gap-2 px-1 pt-0.5 pb-0.5"
+      >
         <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-red-950/40 border border-red-500/30 text-red-500 font-mono text-[10px] font-black">
           ⊞
         </span>
         <h2 className="text-[11px] sm:text-xs xl:text-sm font-black uppercase tracking-wider text-[#df3d3d] font-mono leading-normal">
           OPORTUNIDADES & PIPELINE POR FASE (RD CRM)
         </h2>
-      </div>
+      </motion.div>
 
       {/* ─── TABELA 1: TIME PERSONNALITÉ ─── */}
       <div className={density.tableSpace}>

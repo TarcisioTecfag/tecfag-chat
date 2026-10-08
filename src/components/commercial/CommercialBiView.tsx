@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/hooks/useChatState";
 import {
   ChevronLeft,
@@ -530,8 +531,10 @@ export function CommercialBiView() {
           {/* Botões de Ação */}
           <div className="flex items-center gap-1">
             {/* Slide Anterior */}
-            <button
+            <motion.button
               type="button"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
               onClick={() => {
                 setRotating(false);
                 setModule((current) => (current === 0 ? 7 : current - 1));
@@ -540,21 +543,25 @@ export function CommercialBiView() {
               title="Slide Anterior"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
-            </button>
+            </motion.button>
 
             {/* Play / Pause */}
-            <button
+            <motion.button
               type="button"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
               onClick={() => setRotating((current) => !current)}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title={rotating ? "Pausar rotação" : "Iniciar rotação"}
             >
               {rotating ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-            </button>
+            </motion.button>
 
             {/* Próximo Slide */}
-            <button
+            <motion.button
               type="button"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
               onClick={() => {
                 setRotating(false);
                 setModule((current) => (current + 1) % 8);
@@ -563,38 +570,44 @@ export function CommercialBiView() {
               title="Próximo Slide"
             >
               <ChevronRight className="h-3.5 w-3.5" />
-            </button>
+            </motion.button>
 
             {/* Tela Cheia */}
-            <button
+            <motion.button
               type="button"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
               onClick={() => void panelRef.current?.requestFullscreen()}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Tela Cheia"
             >
               <Expand className="h-3.5 w-3.5" />
-            </button>
+            </motion.button>
 
             {/* Abrir Nova Aba */}
-            <button
+            <motion.button
               type="button"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
               onClick={() => window.open(window.location.href, "_blank")}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Abrir em Nova Aba"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-            </button>
+            </motion.button>
 
             {/* Atualizar */}
-            <button
+            <motion.button
               type="button"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
               onClick={() => void load()}
               disabled={loading}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Atualizar dados agora"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            </button>
+            </motion.button>
           </div>
 
           {/* 8 Dots de Navegação Angular (Dashboard TV) */}
@@ -602,14 +615,17 @@ export function CommercialBiView() {
             {[0, 1, 2, 3, 4, 5, 6, 7].map((idx) => {
               const isActive = module === idx;
               return (
-                <button
+                <motion.button
                   key={idx}
                   type="button"
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.9 }}
+                  transition={{ duration: 0.15 }}
                   onClick={() => {
                     setRotating(false);
                     setModule(idx);
                   }}
-                  className={`transition-all cursor-pointer ${
+                  className={`transition-all duration-200 cursor-pointer ${
                     isActive
                       ? "h-1.5 w-5 rounded-[2px] bg-[#df3d3d] shadow-sm"
                       : "h-1.5 w-2 rounded-[2px] bg-zinc-800 hover:bg-zinc-600"
@@ -647,90 +663,97 @@ export function CommercialBiView() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
-            <>
-              {/* ─── SLIDE 0: PIPELINE POR FASE RD CRM (RÉPLICA FIEL) ─── */}
-              {module === 0 && (
-                <CommercialPipelineTableView
-                  personnaliteData={BASELINE_PERSONNALITE}
-                  semiMaquinasData={BASELINE_SEMI_MAQUINAS}
-                  onCellClick={handleCellClick}
-                  onHeaderStageClick={handleHeaderStageClick}
-                />
-              )}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={module}
+                initial={{ opacity: 0, y: 7, scale: 0.996 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -7, scale: 0.996 }}
+                transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+                className="w-full h-full flex flex-col justify-between"
+              >
+                {/* ─── SLIDE 0: PIPELINE POR FASE RD CRM (RÉPLICA FIEL) ─── */}
+                {module === 0 && (
+                  <CommercialPipelineTableView
+                    personnaliteData={BASELINE_PERSONNALITE}
+                    semiMaquinasData={BASELINE_SEMI_MAQUINAS}
+                    onCellClick={handleCellClick}
+                    onHeaderStageClick={handleHeaderStageClick}
+                  />
+                )}
 
-              {/* ─── SLIDE 1: RESPONSABILIDADES POR DEPARA CWR (RÉPLICA FIEL) ─── */}
-              {module === 1 && (
-                <CommercialDeparaTableView
-                  personnaliteData={BASELINE_DEPARA_PERSONNALITE}
-                  semiMaquinasData={BASELINE_DEPARA_SEMI_MAQUINAS}
-                  onCellClick={handleDeparaCellClick}
-                  onTasksClick={handleDeparaTasksClick}
-                  onHeaderTierClick={handleDeparaHeaderTierClick}
-                />
-              )}
+                {/* ─── SLIDE 1: RESPONSABILIDADES POR DEPARA CWR (RÉPLICA FIEL) ─── */}
+                {module === 1 && (
+                  <CommercialDeparaTableView
+                    personnaliteData={BASELINE_DEPARA_PERSONNALITE}
+                    semiMaquinasData={BASELINE_DEPARA_SEMI_MAQUINAS}
+                    onCellClick={handleDeparaCellClick}
+                    onTasksClick={handleDeparaTasksClick}
+                    onHeaderTierClick={handleDeparaHeaderTierClick}
+                  />
+                )}
 
+                {/* ─── SLIDE 2: RESPONSABILIDADES PREVISTAS CWR (RÉPLICA FIEL) ─── */}
+                {module === 2 && (
+                  <CommercialPrevistasTableView
+                    personnaliteData={BASELINE_PREVISTAS_PERSONNALITE}
+                    semiMaquinasData={BASELINE_PREVISTAS_SEMI_MAQUINAS}
+                    onCellClick={handlePrevistasCellClick}
+                    onHeaderTierClick={handlePrevistasHeaderTierClick}
+                  />
+                )}
 
-              {/* ─── SLIDE 2: RESPONSABILIDADES PREVISTAS CWR (RÉPLICA FIEL) ─── */}
-              {module === 2 && (
-                <CommercialPrevistasTableView
-                  personnaliteData={BASELINE_PREVISTAS_PERSONNALITE}
-                  semiMaquinasData={BASELINE_PREVISTAS_SEMI_MAQUINAS}
-                  onCellClick={handlePrevistasCellClick}
-                  onHeaderTierClick={handlePrevistasHeaderTierClick}
-                />
-              )}
+                {/* ─── SLIDE 3: COCKPIT DE METAS & PACING DIÁRIO / SEMANAL (RÉPLICA FIEL) ─── */}
+                {module === 3 && (
+                  <CommercialPacingTableView
+                    personnaliteData={BASELINE_PACING_PERSONNALITE}
+                    semiMaquinasData={BASELINE_PACING_SEMI_MAQUINAS}
+                    viewMode={pacingViewMode}
+                    onToggleViewMode={setPacingViewMode}
+                    onSellerClick={handlePacingSellerClick}
+                    tenantId={tenant}
+                  />
+                )}
 
+                {/* ─── SLIDE 4: PERDAS DO MÊS & MOTIVOS DE PERDA (RÉPLICA FIEL) ─── */}
+                {module === 4 && (
+                  <CommercialPerdasTableView
+                    selectedPeriod={perdasPeriod}
+                    onSelectPeriod={setPerdasPeriod}
+                  />
+                )}
 
-              {/* ─── SLIDE 3: COCKPIT DE METAS & PACING DIÁRIO / SEMANAL (RÉPLICA FIEL) ─── */}
-              {module === 3 && (
-                <CommercialPacingTableView
-                  personnaliteData={BASELINE_PACING_PERSONNALITE}
-                  semiMaquinasData={BASELINE_PACING_SEMI_MAQUINAS}
-                  viewMode={pacingViewMode}
-                  onToggleViewMode={setPacingViewMode}
-                  onSellerClick={handlePacingSellerClick}
-                  tenantId={tenant}
-                />
-              )}
+                {/* ─── SLIDE 5: RANKING GERAL DE RESPOSTA & SLA (RÉPLICA FIEL) ─── */}
+                {module === 5 && <CommercialRankingTableView />}
 
-              {/* ─── SLIDE 4: PERDAS DO MÊS & MOTIVOS DE PERDA (RÉPLICA FIEL) ─── */}
-              {module === 4 && (
-                <CommercialPerdasTableView
-                  selectedPeriod={perdasPeriod}
-                  onSelectPeriod={setPerdasPeriod}
-                />
-              )}
+                {/* ─── SLIDE 6: DIRETRIZES CRM (RÉPLICA FIEL FOTOS 1 E 4) ─── */}
+                {module === 6 && (
+                  <CommercialDiretrizesTableView
+                    kpis={BASELINE_DIRETRIZES_KPIS}
+                    personnaliteData={BASELINE_DIRETRIZES_PERSONNALITE}
+                    semiMaquinasData={BASELINE_DIRETRIZES_MAQUINAS}
+                    onConsultantClick={(consultant) => {
+                      setDiretrizesModalConsultant(consultant);
+                      setDiretrizesDetailOpen(true);
+                    }}
+                    onBreakdownClick={() => setDiretrizesBreakdownOpen(true)}
+                  />
+                )}
 
-              {/* ─── SLIDE 5: RANKING GERAL DE RESPOSTA & SLA (RÉPLICA FIEL) ─── */}
-              {module === 5 && <CommercialRankingTableView />}
-
-              {/* ─── SLIDE 6: DIRETRIZES CRM (RÉPLICA FIEL FOTOS 1 E 4) ─── */}
-              {module === 6 && (
-                <CommercialDiretrizesTableView
-                  kpis={BASELINE_DIRETRIZES_KPIS}
-                  personnaliteData={BASELINE_DIRETRIZES_PERSONNALITE}
-                  semiMaquinasData={BASELINE_DIRETRIZES_MAQUINAS}
-                  onConsultantClick={(consultant) => {
-                    setDiretrizesModalConsultant(consultant);
-                    setDiretrizesDetailOpen(true);
-                  }}
-                  onBreakdownClick={() => setDiretrizesBreakdownOpen(true)}
-                />
-              )}
-
-              {/* ─── SLIDE 7: TMA WHATSAPP (RÉPLICA FIEL FOTOS 1 E 2) ─── */}
-              {module === 7 && (
-                <CommercialTmaTableView
-                  kpis={BASELINE_TMA_KPIS}
-                  personnaliteData={BASELINE_TMA_PERSONNALITE}
-                  semiMaquinasData={BASELINE_TMA_MAQUINAS}
-                  tenantId={tenant}
-                  onOpenChat={(convId) => {
-                    navigate({ to: "/chat" as any, search: { conversationId: convId } as any });
-                  }}
-                />
-              )}
-            </>
+                {/* ─── SLIDE 7: TMA WHATSAPP (RÉPLICA FIEL FOTOS 1 E 2) ─── */}
+                {module === 7 && (
+                  <CommercialTmaTableView
+                    kpis={BASELINE_TMA_KPIS}
+                    personnaliteData={BASELINE_TMA_PERSONNALITE}
+                    semiMaquinasData={BASELINE_TMA_MAQUINAS}
+                    tenantId={tenant}
+                    onOpenChat={(convId) => {
+                      navigate({ to: "/chat" as any, search: { conversationId: convId } as any });
+                    }}
+                  />
+                )}
+              </motion.div>
+            </AnimatePresence>
           )}
 
           {/* Rodapé com Aviso ao Vivo no BI TV */}

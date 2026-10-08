@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import {
   AlertTriangle,
   Calendar,
@@ -214,10 +215,12 @@ export function CommercialPacingTableView({
 
                         {/* Barra de Progresso com marcador de Run Rate */}
                         <div className={`relative w-full ${density.pacingBarH} rounded-full bg-zinc-900 border border-zinc-800/80 overflow-visible`}>
-                          {/* Barra preenchida */}
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-                            style={{ width: `${clampedWidth}%` }}
+                          {/* Barra preenchida animada */}
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${clampedWidth}%` }}
+                            transition={{ duration: 0.55, ease: "easeOut" }}
+                            className={`h-full rounded-full ${barColor}`}
                           />
 
                           {/* Marcador vertical de Run Rate (Dia Atual do Mês) */}
@@ -264,9 +267,11 @@ export function CommercialPacingTableView({
                       onClick={() => onSellerClick(seller)}
                       className={`${density.rowPy} px-2 text-center align-middle bg-emerald-950/10 border-l border-zinc-800 w-[14%] min-w-[130px]`}
                     >
-                      <button
+                      <motion.button
                         type="button"
-                        className="w-full bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-500/60 rounded-[3px] py-1 px-1.5 text-center transition-all cursor-pointer shadow-[0_0_8px_rgba(16,185,129,0.15)] active:scale-[0.98]"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.97 }}
+                        className="w-full bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-500/60 rounded-[3px] py-1 px-1.5 text-center transition-all cursor-pointer shadow-[0_0_8px_rgba(16,185,129,0.15)]"
                       >
                         <div className="text-emerald-300 font-bold text-xs font-mono leading-none">
                           {seller.habeisCount} Hábeis Hoje
@@ -274,7 +279,7 @@ export function CommercialPacingTableView({
                         <div className="text-emerald-400/80 font-mono text-[9px] mt-0.5 leading-none">
                           {formatPacingCurrency(seller.habeisValue)} no De-Para
                         </div>
-                      </button>
+                      </motion.button>
                     </td>
                   </tr>
                 );
@@ -303,7 +308,11 @@ export function CommercialPacingTableView({
         {/* Centro / Direita: 3 Cards de KPI + Toggle */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* KPI 1: Dias Restantes */}
-          <div className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px]">
+          <motion.div
+            whileHover={{ y: -1.5, scale: 1.01 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
+          >
             <Calendar className="h-3 w-3 text-zinc-400" />
             <div>
               <div className="text-[8px] uppercase tracking-wider text-zinc-400 leading-none">Dias Restantes</div>
@@ -311,10 +320,14 @@ export function CommercialPacingTableView({
                 {GLOBAL_PACING_KPIS.businessDaysRemaining} de {GLOBAL_PACING_KPIS.businessDaysTotal} dias úteis
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* KPI 2: Meta Global */}
-          <div className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px]">
+          <motion.div
+            whileHover={{ y: -1.5, scale: 1.01 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
+          >
             <Target className="h-3 w-3 text-red-500" />
             <div>
               <div className="text-[8px] uppercase tracking-wider text-zinc-400 leading-none">
@@ -325,10 +338,14 @@ export function CommercialPacingTableView({
                 <span className="text-emerald-400 font-bold">({GLOBAL_PACING_KPIS.globalPercent}% batida)</span>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* KPI 3: Pacing da Empresa */}
-          <div className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px]">
+          <motion.div
+            whileHover={{ y: -1.5, scale: 1.01 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
+          >
             <Zap className="h-3 w-3 text-emerald-400" />
             <div>
               <div className="text-[8px] uppercase tracking-wider text-zinc-400 leading-none">Pacing da Empresa</div>
@@ -337,14 +354,15 @@ export function CommercialPacingTableView({
                 <span className="text-emerald-400 font-semibold">• Hoje: {formatPacingCurrency(GLOBAL_PACING_KPIS.companyRealizedToday)}</span>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Alternador Diária / Semanal */}
           <div className="flex items-center rounded-[2px] border border-zinc-800 bg-zinc-950 p-0.5 font-mono text-[10px]">
-            <button
+            <motion.button
               type="button"
+              whileTap={{ scale: 0.95 }}
               onClick={() => handleToggle("daily")}
-              className={`flex items-center gap-1 rounded-[2px] px-2 py-1 font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 rounded-[2px] px-2 py-1 font-bold transition-colors cursor-pointer ${
                 viewMode === "daily"
                   ? "bg-[#df3d3d] text-white shadow-sm"
                   : "text-zinc-400 hover:text-white"
@@ -352,11 +370,12 @@ export function CommercialPacingTableView({
             >
               <Gauge className="h-3 w-3" />
               <span>Meta Diária</span>
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               type="button"
+              whileTap={{ scale: 0.95 }}
               onClick={() => handleToggle("weekly")}
-              className={`flex items-center gap-1 rounded-[2px] px-2 py-1 font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 rounded-[2px] px-2 py-1 font-bold transition-colors cursor-pointer ${
                 viewMode === "weekly"
                   ? "bg-[#df3d3d] text-white shadow-sm"
                   : "text-zinc-400 hover:text-white"
@@ -364,7 +383,7 @@ export function CommercialPacingTableView({
             >
               <CalendarDays className="h-3 w-3" />
               <span>Meta Semanal</span>
-            </button>
+            </motion.button>
           </div>
         </div>
       </div>

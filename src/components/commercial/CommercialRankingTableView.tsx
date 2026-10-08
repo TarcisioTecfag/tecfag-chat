@@ -1,4 +1,5 @@
 import React from "react";
+import { motion } from "framer-motion";
 import { Zap, AlertTriangle, Trophy, Medal, Clock, ShieldCheck } from "lucide-react";
 import {
   BASELINE_RANKING_OPERATORS,
@@ -65,13 +66,20 @@ export function CommercialRankingTableView({
     const isFirst = op.position === 1;
 
     return (
-      <div
+      <motion.div
         key={op.operatorId}
+        whileHover={{
+          y: -2,
+          scale: 1.005,
+          borderColor: isFirst ? "rgba(245, 158, 11, 1)" : "rgba(161, 161, 170, 0.4)",
+        }}
+        whileTap={{ scale: 0.992 }}
+        transition={{ duration: 0.15 }}
         onClick={() => onOperatorClick?.(op)}
-        className={`flex-1 w-full rounded-[4px] px-3 py-2 sm:px-3.5 sm:py-2.5 xl:px-4 xl:py-3 flex items-center justify-between transition-all cursor-pointer select-none group ${
+        className={`flex-1 w-full rounded-[4px] px-3 py-2 sm:px-3.5 sm:py-2.5 xl:px-4 xl:py-3 flex items-center justify-between transition-colors cursor-pointer select-none group ${
           isFirst
             ? "border border-amber-500/80 shadow-[0_0_16px_rgba(245,158,11,0.2)] bg-zinc-950/90"
-            : "border border-zinc-800/80 hover:border-zinc-700 bg-zinc-950/70 hover:bg-zinc-900/50"
+            : "border border-zinc-800/80 bg-zinc-950/70 hover:bg-zinc-900/50"
         }`}
       >
         {/* ─── ESQUERDA: AVATAR COM BADGE DE POSIÇÃO + NOME + DIVISÃO ─── */}
@@ -169,7 +177,7 @@ export function CommercialRankingTableView({
             </span>
           </div>
         </div>
-      </div>
+      </motion.div>
     );
   };
 

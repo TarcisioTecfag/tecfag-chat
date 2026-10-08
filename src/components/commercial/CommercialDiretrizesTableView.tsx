@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { Users, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import {
   BASELINE_DIRETRIZES_KPIS,
@@ -63,21 +64,27 @@ export function CommercialDiretrizesTableView({
         </div>
         <div className="h-3 sm:h-3.5 xl:h-4 w-full overflow-hidden rounded-full bg-zinc-800/80 border border-zinc-700/50 flex shadow-inner">
           {pctConc > 0 && (
-            <div
-              className="h-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.35)] transition-all"
-              style={{ width: `${pctConc}%` }}
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${pctConc}%` }}
+              transition={{ duration: 0.55, ease: "easeOut" }}
+              className="h-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.35)]"
             />
           )}
           {pctHoje > 0 && (
-            <div
-              className="h-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.35)] transition-all"
-              style={{ width: `${pctHoje}%` }}
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${pctHoje}%` }}
+              transition={{ duration: 0.55, ease: "easeOut" }}
+              className="h-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.35)]"
             />
           )}
           {pctAtras > 0 && (
-            <div
-              className="h-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.35)] transition-all"
-              style={{ width: `${pctAtras}%` }}
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${pctAtras}%` }}
+              transition={{ duration: 0.55, ease: "easeOut" }}
+              className="h-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.35)]"
             />
           )}
         </div>
@@ -89,13 +96,16 @@ export function CommercialDiretrizesTableView({
     const hasDirectives = consultant.totalDirectives > 0;
 
     return (
-      <div
+      <motion.div
         key={consultant.consultantId}
+        whileHover={{ scale: 1.003, backgroundColor: "rgba(24, 24, 27, 0.8)" }}
+        whileTap={{ scale: 0.995 }}
+        transition={{ duration: 0.12 }}
         onClick={() => onConsultantClick?.(consultant)}
-        className={`flex items-center justify-between gap-3 sm:gap-4 rounded-[4px] border border-zinc-800/80 bg-zinc-950/60 px-3 sm:px-4 py-2 sm:py-2.5 xl:py-3 transition-all cursor-pointer ${
+        className={`flex items-center justify-between gap-3 sm:gap-4 rounded-[4px] border border-zinc-800/80 bg-zinc-950/60 px-3 sm:px-4 py-2 sm:py-2.5 xl:py-3 transition-colors cursor-pointer ${
           hasDirectives
-            ? "hover:border-zinc-700 hover:bg-zinc-900/70 shadow-sm"
-            : "hover:border-zinc-800 hover:bg-zinc-900/30"
+            ? "hover:border-zinc-700 shadow-sm"
+            : "hover:border-zinc-800"
         }`}
       >
         {/* Esquerda: Avatar + Nome + Quantidade de Diretrizes */}
@@ -143,7 +153,7 @@ export function CommercialDiretrizesTableView({
             {consultant.formattedValue}
           </span>
         </div>
-      </div>
+      </motion.div>
     );
   };
 
@@ -152,7 +162,11 @@ export function CommercialDiretrizesTableView({
       {/* ─── 1. TOP KPIS CARDS (FOTO 1) ─── */}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         {/* Card 1: Total Sob Gestão (Borda verde ativa) */}
-        <div className="relative overflow-hidden rounded-[4px] border border-emerald-500/40 bg-[#0d1714] p-3 sm:p-4 shadow-sm before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1.5 before:bg-emerald-500">
+        <motion.div
+          whileHover={{ y: -2, scale: 1.008 }}
+          transition={{ duration: 0.15 }}
+          className="relative overflow-hidden rounded-[4px] border border-emerald-500/40 bg-[#0d1714] p-3 sm:p-4 shadow-sm before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1.5 before:bg-emerald-500"
+        >
           <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
             <span>◎</span>
             <span>TOTAL SOB GESTÃO</span>
@@ -168,11 +182,14 @@ export function CommercialDiretrizesTableView({
           <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">
             {kpis.formattedTotalValue}
           </p>
-        </div>
+        </motion.div>
 
         {/* Card 2: Taxa de Execução (Clicável: abre modal de breakdown) */}
-        <button
+        <motion.button
           type="button"
+          whileHover={{ y: -2, scale: 1.015 }}
+          whileTap={{ scale: 0.985 }}
+          transition={{ duration: 0.15 }}
           onClick={onBreakdownClick}
           className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 text-left shadow-sm transition-all hover:border-zinc-700 hover:bg-zinc-900/40 cursor-pointer"
         >
@@ -188,10 +205,14 @@ export function CommercialDiretrizesTableView({
           <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">
             {kpis.concluidasCount} de {kpis.totalCount} concluídas
           </p>
-        </button>
+        </motion.button>
 
         {/* Card 3: Em Atraso */}
-        <div className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 shadow-sm">
+        <motion.div
+          whileHover={{ y: -2, scale: 1.008 }}
+          transition={{ duration: 0.15 }}
+          className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 shadow-sm"
+        >
           <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
             <AlertCircle className="h-3 w-3" />
             <span>EM ATRASO</span>
@@ -205,15 +226,17 @@ export function CommercialDiretrizesTableView({
             </span>
           </div>
           <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">{kpis.atrasoLabel}</p>
-        </div>
+        </motion.div>
       </div>
 
       {/* ─── 2. ABAS SUPERIORES (FOTO 1 E FOTO 4) ─── */}
       <div className="flex items-center gap-2">
-        <button
+        <motion.button
           type="button"
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.98 }}
           onClick={() => setActiveTab("geral")}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-all cursor-pointer ${
+          className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
             activeTab === "geral"
               ? "border border-[#c53030] bg-zinc-950/90 text-white shadow-sm"
               : "border border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:text-white"
@@ -221,12 +244,14 @@ export function CommercialDiretrizesTableView({
         >
           <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           <span>GERAL DE TODOS ({totalConsultants})</span>
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
           type="button"
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.98 }}
           onClick={() => setActiveTab("atrasados")}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-all cursor-pointer ${
+          className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
             activeTab === "atrasados"
               ? "border border-[#c53030] bg-zinc-950/90 text-white shadow-sm"
               : "border border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:text-white"
@@ -234,7 +259,7 @@ export function CommercialDiretrizesTableView({
         >
           <span className="h-2 w-2 rounded-full bg-red-500" />
           <span>MAIS ATRASADOS ({kpis.atrasoCount})</span>
-        </button>
+        </motion.button>
       </div>
 
       {/* ─── 3. CORPO DA SESSÃO CONFORME ABA SELECIONADA ─── */}

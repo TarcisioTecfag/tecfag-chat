@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { motion } from "framer-motion";
 import { ClipboardList, Star } from "lucide-react";
 import {
   DEPARA_TIERS,
@@ -186,16 +187,22 @@ export function CommercialDeparaTableView({
                         {is90d ? (
                           /* Célula 90D: Barra Verde Maior + Botão de Tarefas */
                           <div className="flex items-center gap-1.5 w-full">
-                            <button
+                            <motion.button
                               type="button"
+                              whileHover={{ scale: 1.025, y: -0.5 }}
+                              whileTap={{ scale: 0.975 }}
+                              transition={{ duration: 0.12 }}
                               onClick={() => onCellClick(seller, "tier_90d")}
-                              className={`flex-1 w-full bg-[#047857] hover:bg-[#059669] text-white ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase transition-transform active:scale-[0.98] cursor-pointer text-center flex items-center justify-center`}
+                              className={`flex-1 w-full bg-[#047857] hover:bg-[#059669] text-white ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase cursor-pointer text-center flex items-center justify-center`}
                             >
                               {tierData.formatted}
-                            </button>
+                            </motion.button>
 
-                            <button
+                            <motion.button
                               type="button"
+                              whileHover={{ scale: 1.08 }}
+                              whileTap={{ scale: 0.92 }}
+                              transition={{ duration: 0.12 }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 if (onTasksClick) {
@@ -209,17 +216,20 @@ export function CommercialDeparaTableView({
                             >
                               <ClipboardList className="h-3 w-3 text-zinc-400" />
                               <span>{seller.tasksCount}</span>
-                            </button>
+                            </motion.button>
                           </div>
                         ) : (
                           /* Células 3D, 15D, 30D, 60D: Barra proporcional ocupando 100% da largura da coluna */
-                          <button
+                          <motion.button
                             type="button"
+                            whileHover={{ scale: 1.025, y: -0.5 }}
+                            whileTap={{ scale: 0.975 }}
+                            transition={{ duration: 0.12 }}
                             onClick={() => onCellClick(seller, tier.key)}
-                            className={`w-full ${tier.colorClass} ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase transition-transform active:scale-[0.98] cursor-pointer text-center flex items-center justify-center`}
+                            className={`w-full ${tier.colorClass} ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase cursor-pointer text-center flex items-center justify-center`}
                           >
                             {tierData.formatted}
-                          </button>
+                          </motion.button>
                         )}
                       </td>
                     );

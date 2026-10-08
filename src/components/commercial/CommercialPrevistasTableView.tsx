@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { motion } from "framer-motion";
 import { Star } from "lucide-react";
 import {
   formatDeparaMeta,
@@ -180,13 +181,16 @@ export function CommercialPrevistasTableView({
                         key={tier.key}
                         className={`${density.tierPy} px-1 text-center align-middle ${tier.colWidth}`}
                       >
-                        <button
+                        <motion.button
                           type="button"
+                          whileHover={{ scale: 1.025, y: -0.5 }}
+                          whileTap={{ scale: 0.975 }}
+                          transition={{ duration: 0.12 }}
                           onClick={() => onCellClick(seller, tier.key)}
-                          className={`w-full ${tier.colorClass} ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase transition-all active:scale-[0.98] cursor-pointer text-center flex items-center justify-center`}
+                          className={`w-full ${tier.colorClass} ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase cursor-pointer text-center flex items-center justify-center`}
                         >
                           {tierData.formatted}
-                        </button>
+                        </motion.button>
                       </td>
                     );
                   })}
