@@ -5,9 +5,11 @@ import {
   formatDealValue,
   PipelineStageKey,
   PIPELINE_STAGES,
+  PipelineStageDef,
 } from "@/lib/commercial/pipeline-data";
 
 interface CommercialDealFilterModalProps {
+  stages?: PipelineStageDef[];
   isOpen: boolean;
   onClose: () => void;
   sellerName?: string;
@@ -15,12 +17,14 @@ interface CommercialDealFilterModalProps {
   division?: "personnalite" | "maquinas";
   initialStageKey?: PipelineStageKey | "all";
   deals: CommercialPipelineDeal[];
+  loading?: boolean;
   sellerAvatar?: string;
   onOpenDeal?: (dealId: string, rdUrl?: string) => void;
   onOpenProfile?: (sellerId?: string) => void;
 }
 
 export function CommercialDealFilterModal({
+  stages = PIPELINE_STAGES,
   isOpen,
   onClose,
   sellerName = "Diana Gimenes",
@@ -28,6 +32,7 @@ export function CommercialDealFilterModal({
   division = "personnalite",
   initialStageKey = "all",
   deals,
+  loading = false,
   sellerAvatar,
   onOpenDeal,
   onOpenProfile,
@@ -40,23 +45,15 @@ export function CommercialDealFilterModal({
   }, [initialStageKey]);
 
   const stageCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      all: deals.length,
-      requalificacao: 0,
-      esfriando: 0,
-      leads_recebidos: 0,
-      abordagem_comercial: 0,
-      qualificado: 0,
-      proposta_enviada: 0,
-      fechamento: 0,
-    };
+    const counts: Record<string, number> = { all: deals.length };
+    for (const stage of stages) counts[stage.key] = 0;
     for (const deal of deals) {
       if (counts[deal.stageKey] !== undefined) {
         counts[deal.stageKey] += 1;
       }
     }
     return counts;
-  }, [deals]);
+  }, [deals, stages]);
 
   const filteredDeals = useMemo(() => {
     return deals.filter((deal) => {
@@ -80,7 +77,7 @@ export function CommercialDealFilterModal({
   const activeStageLabel =
     selectedStage === "all"
       ? "Todas as Fases"
-      : PIPELINE_STAGES.find((s) => s.key === selectedStage)?.label || "Todas as Fases";
+      : stages.find((s) => s.key === selectedStage)?.label || "Todas as Fases";
 
   return (
     <div
@@ -121,7 +118,9 @@ export function CommercialDealFilterModal({
             {/* Informações do Consultor */}
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white font-mono">{sellerName}</h2>
+                <h2 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white font-mono">
+                  {sellerName}
+                </h2>
 
                 {/* Badge Divisão */}
                 <span className="rounded-[2px] border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-red-600 dark:text-red-400 font-mono">
@@ -177,11 +176,13 @@ export function CommercialDealFilterModal({
               }`}
             >
               <span>Todas as Fases</span>
-              <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">{stageCounts.all}</span>
+              <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
+                {stageCounts.all}
+              </span>
             </button>
 
             {/* Fases Individuais */}
-            {PIPELINE_STAGES.map((stage) => {
+            {stages.map((stage) => {
               const count = stageCounts[stage.key] || 0;
               const isSelected = selectedStage === stage.key;
               return (
@@ -198,7 +199,9 @@ export function CommercialDealFilterModal({
                   }`}
                 >
                   <span>{stage.label}</span>
-                  <span className="font-mono text-[10px] text-slate-600 dark:text-zinc-300 font-semibold">{count} negoc.</span>
+                  <span className="font-mono text-[10px] text-slate-600 dark:text-zinc-300 font-semibold">
+                    {count} negoc.
+                  </span>
                 </button>
               );
             })}
@@ -219,7 +222,11 @@ export function CommercialDealFilterModal({
           </div>
 
           <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono">
-            Exibindo <strong className="text-slate-900 dark:text-white font-bold">{filteredDeals.length}</strong> negociações
+            Exibindo{" "}
+            <strong className="text-slate-900 dark:text-white font-bold">
+              {filteredDeals.length}
+            </strong>{" "}
+            negociações
           </div>
         </div>
 
@@ -238,19 +245,32 @@ export function CommercialDealFilterModal({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 text-xs">
-              {filteredDeals.length > 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-sm text-muted-foreground">
+                    Carregando negociações...
+                  </td>
+                </tr>
+              ) : filteredDeals.length > 0 ? (
                 filteredDeals.map((deal) => (
-                  <tr key={deal.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/40 transition-colors">
+                  <tr
+                    key={deal.id}
+                    className="hover:bg-slate-50 dark:hover:bg-zinc-900/40 transition-colors"
+                  >
                     {/* Negociação / Empresa */}
                     <td className="py-2 px-4">
-                      <div className="font-bold text-slate-900 dark:text-white tracking-tight">{deal.title}</div>
+                      <div className="font-bold text-slate-900 dark:text-white tracking-tight">
+                        {deal.title}
+                      </div>
                       <div className="text-[9.5px] font-mono uppercase tracking-wider text-slate-500 dark:text-zinc-400">
                         {deal.funnelName}
                       </div>
                     </td>
 
                     {/* Responsável */}
-                    <td className="py-2 px-3 font-medium text-slate-700 dark:text-zinc-200">{deal.responsibleName}</td>
+                    <td className="py-2 px-3 font-medium text-slate-700 dark:text-zinc-200">
+                      {deal.responsibleName}
+                    </td>
 
                     {/* Valor */}
                     <td className="py-2 px-3 font-mono font-bold text-emerald-700 dark:text-emerald-400">
@@ -266,7 +286,9 @@ export function CommercialDealFilterModal({
                     </td>
 
                     {/* Data de Criação */}
-                    <td className="py-2 px-3 font-mono text-[11px] text-slate-600 dark:text-zinc-300">{deal.createdAt}</td>
+                    <td className="py-2 px-3 font-mono text-[11px] text-slate-600 dark:text-zinc-300">
+                      {deal.createdAt}
+                    </td>
 
                     {/* Etapa no Funil */}
                     <td className="py-2 px-3">
@@ -296,7 +318,10 @@ export function CommercialDealFilterModal({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-xs text-slate-500 dark:text-zinc-400 font-mono">
+                  <td
+                    colSpan={7}
+                    className="py-10 text-center text-xs text-slate-500 dark:text-zinc-400 font-mono"
+                  >
                     Nenhuma negociação encontrada para este filtro.
                   </td>
                 </tr>

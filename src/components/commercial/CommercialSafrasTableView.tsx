@@ -24,9 +24,8 @@ import {
   TVCohortsResponse,
   TVCohortTierConfig,
   formatBrlK,
-  getBaselineSafrasCohortsData,
-  getBaselineUnclassifiedDeals,
 } from "@/lib/commercial/safras-cohorts-data";
+import { useCommercialCohortDeals } from "@/hooks/useCommercialCohortDeals";
 import { CommercialSafrasDrilldownModal } from "./CommercialSafrasDrilldownModal";
 
 export interface TVPointData {
@@ -47,7 +46,7 @@ interface CohortPointDotProps {
   cx?: number;
   cy?: number;
   index?: number;
-  payload?: any;
+  payload?: Record<string, string | number | boolean | undefined>;
   tierIndex: number;
   tierColor: string;
   isDark?: boolean;
@@ -69,13 +68,13 @@ const CohortPointDot = React.memo(function CohortPointDot(props: CohortPointDotP
         x: cx,
         y: cy,
         monthIndex: index,
-        monthName: payload?.monthName || "",
-        fullLabel: payload?.fullLabel || "",
+        monthName: String(payload?.monthName || ""),
+        fullLabel: String(payload?.fullLabel || ""),
         count: Number(payload?.[`tier_${tierIndex}`] ?? 0),
         totalValue: Number(payload?.[`tier_${tierIndex}_val`] ?? 0),
         tierIndex,
-        tierLabel: payload?.[`tier_${tierIndex}_label`] || "",
-        tierRule: payload?.[`tier_${tierIndex}_rule`] || "",
+        tierLabel: String(payload?.[`tier_${tierIndex}_label`] || ""),
+        tierRule: String(payload?.[`tier_${tierIndex}_rule`] || ""),
         color: tierColor,
       });
     }
@@ -458,7 +457,14 @@ function CohortAutonomousTvOverlay({
                   textAlign: "center",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "4px",
+                  }}
+                >
                   <span
                     style={{
                       width: "5px",
@@ -468,25 +474,66 @@ function CohortAutonomousTvOverlay({
                       boxShadow: `0 0 5px ${tier.color}`,
                     }}
                   />
-                  <span style={{ fontSize: "9px", fontWeight: 800, color: tier.color, letterSpacing: "0.04em" }}>
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      fontWeight: 800,
+                      color: tier.color,
+                      letterSpacing: "0.04em",
+                    }}
+                  >
                     {pt.tierLabel || tier.label}
                   </span>
                   <span style={{ fontSize: "8px", color: isDark ? "#71717a" : "#94a3b8" }}>•</span>
-                  <span style={{ fontSize: "9px", fontWeight: 700, color: isDark ? "#f4f4f5" : "#0f172a" }}>
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      fontWeight: 700,
+                      color: isDark ? "#f4f4f5" : "#0f172a",
+                    }}
+                  >
                     {pt.monthName}
                   </span>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: "3px", marginTop: "1px" }}>
-                  <strong style={{ fontSize: "14px", fontWeight: 900, color: isDark ? "#ffffff" : "#0f172a", fontVariantNumeric: "tabular-nums" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "center",
+                    gap: "3px",
+                    marginTop: "1px",
+                  }}
+                >
+                  <strong
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: 900,
+                      color: isDark ? "#ffffff" : "#0f172a",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
                     {pt.count}
                   </strong>
-                  <span style={{ fontSize: "10px", fontWeight: 700, color: isDark ? "#a1a1aa" : "#64748b" }}>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      color: isDark ? "#a1a1aa" : "#64748b",
+                    }}
+                  >
                     {pt.count === 1 ? "card" : "cards"}
                   </span>
                 </div>
 
-                <div style={{ fontSize: "10px", fontWeight: 800, color: tier.color, fontVariantNumeric: "tabular-nums" }}>
+                <div
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    color: tier.color,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
                   {formatBrlK(pt.totalValue)}
                 </div>
               </div>
@@ -499,7 +546,8 @@ function CohortAutonomousTvOverlay({
 }
 
 interface CommercialSafrasTableViewProps {
-  data?: TVCohortsResponse;
+  data: TVCohortsResponse;
+  division?: string;
   tenantId?: string | null;
   onOpenDeal?: (dealId: string) => void;
   onRefresh?: () => void;
@@ -507,7 +555,8 @@ interface CommercialSafrasTableViewProps {
 }
 
 export function CommercialSafrasTableView({
-  data = getBaselineSafrasCohortsData(),
+  data,
+  division = "",
   tenantId = "tecfag",
   onOpenDeal,
   onRefresh,
@@ -515,7 +564,9 @@ export function CommercialSafrasTableView({
 }: CommercialSafrasTableViewProps) {
   const [activeTiers, setActiveTiers] = useState<Record<number, boolean>>({});
   const [isTvModeActive, setIsTvModeActive] = useState(true);
-  const [pointsRegistry, setPointsRegistry] = useState<Record<number, Record<number, TVPointData>>>({});
+  const [pointsRegistry, setPointsRegistry] = useState<Record<number, Record<number, TVPointData>>>(
+    {},
+  );
   const chartWrapperRef = useRef<HTMLDivElement>(null);
   const { isDark } = useTheme();
 
@@ -524,6 +575,7 @@ export function CommercialSafrasTableView({
     monthKey: string;
     monthLabel: string;
   } | null>(null);
+  const cohortDeals = useCommercialCohortDeals(selectedDrilldown?.monthKey || null, division);
 
   const tiersConfig = useMemo(() => {
     return data.tiersConfig || [];
@@ -575,7 +627,7 @@ export function CommercialSafrasTableView({
   const chartData = useMemo(() => {
     if (!data?.months) return [];
     return data.months.map((m) => {
-      const item: any = {
+      const item: Record<string, string | number | boolean | undefined> = {
         monthKey: m.monthKey,
         monthName: m.monthName,
         monthShort: m.monthShort,
@@ -684,7 +736,11 @@ export function CommercialSafrasTableView({
                   ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/60 dark:bg-blue-950/40 dark:text-blue-300 shadow-xs"
                   : "border-slate-200 bg-slate-100 text-slate-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
               }`}
-              title={isTvModeActive ? "Pausar rastreador autônomo da TV" : "Ativar rastreador autônomo da TV"}
+              title={
+                isTvModeActive
+                  ? "Pausar rastreador autônomo da TV"
+                  : "Ativar rastreador autônomo da TV"
+              }
             >
               <Tv className="h-3 w-3" />
               <span>{isTvModeActive ? "RASTREADOR TV: ON" : "RASTREADOR TV: OFF"}</span>
@@ -744,7 +800,9 @@ export function CommercialSafrasTableView({
                   }}
                 />
                 <span style={{ color: isVisible ? tier.color : undefined }}>{tier.label}</span>
-                <span className="text-[9px] text-slate-500 dark:text-zinc-400">({tier.valueRuleLabel})</span>
+                <span className="text-[9px] text-slate-500 dark:text-zinc-400">
+                  ({tier.valueRuleLabel})
+                </span>
               </motion.button>
             );
           })}
@@ -766,14 +824,19 @@ export function CommercialSafrasTableView({
             )}
           </div>
           <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500 hidden md:inline italic">
-            * Baseado na data original de criação do negócio no CRM • Funis Máquinas 2.0 e Personnalité 2.0
+            * Baseado na data original de criação do negócio no CRM • Funis Máquinas 2.0 e
+            Personnalité 2.0
           </span>
         </div>
 
         <div ref={chartWrapperRef} className="flex-1 w-full min-h-0 relative">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 12, right: 24, left: 0, bottom: 4 }}>
-              <CartesianGrid stroke={isDark ? "#1f2026" : "#e2e8f0"} strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid
+                stroke={isDark ? "#1f2026" : "#e2e8f0"}
+                strokeDasharray="3 3"
+                vertical={false}
+              />
               <XAxis
                 dataKey="monthName"
                 stroke={isDark ? "#52525b" : "#94a3b8"}
@@ -789,7 +852,9 @@ export function CommercialSafrasTableView({
                         y={0}
                         dy={14}
                         textAnchor="middle"
-                        fill={isCurr ? (isDark ? "#ffffff" : "#0f172a") : (isDark ? "#a1a1aa" : "#64748b")}
+                        fill={
+                          isCurr ? (isDark ? "#ffffff" : "#0f172a") : isDark ? "#a1a1aa" : "#64748b"
+                        }
                         fontSize={11}
                         fontWeight={isCurr ? 800 : 600}
                         fontFamily="monospace"
@@ -817,7 +882,12 @@ export function CommercialSafrasTableView({
               />
               <YAxis
                 stroke={isDark ? "#52525b" : "#94a3b8"}
-                tick={{ fill: isDark ? "#71717a" : "#64748b", fontSize: 10, fontFamily: "monospace", fontWeight: 700 }}
+                tick={{
+                  fill: isDark ? "#71717a" : "#64748b",
+                  fontSize: 10,
+                  fontFamily: "monospace",
+                  fontWeight: 700,
+                }}
                 tickLine={false}
                 axisLine={{ stroke: isDark ? "#3f3f46" : "#cbd5e1" }}
                 allowDecimals={false}
@@ -829,7 +899,9 @@ export function CommercialSafrasTableView({
                   return (
                     <div className="rounded-[4px] border border-slate-200 bg-white/95 text-slate-900 dark:border-zinc-700 dark:bg-zinc-950/95 dark:text-white p-3 shadow-xl min-w-[210px] text-xs font-mono">
                       <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800 pb-1.5 mb-2">
-                        <strong className="text-red-600 dark:text-red-400 font-bold">{monthData.fullLabel}</strong>
+                        <strong className="text-red-600 dark:text-red-400 font-bold">
+                          {monthData.fullLabel}
+                        </strong>
                         {monthData.isCurrentMonth && (
                           <span className="text-[9px] font-black bg-red-600 text-white px-1.5 py-0.5 rounded-[2px]">
                             MÊS ATUAL
@@ -841,14 +913,24 @@ export function CommercialSafrasTableView({
                           const count = monthData[`tier_${t.index}`] || 0;
                           const val = monthData[`tier_${t.index}_val`] || 0;
                           return (
-                            <div key={t.index} className="flex items-center justify-between gap-3 text-[11px]">
+                            <div
+                              key={t.index}
+                              className="flex items-center justify-between gap-3 text-[11px]"
+                            >
                               <div className="flex items-center gap-1.5">
-                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color }} />
-                                <span className="text-slate-700 dark:text-zinc-300 font-semibold">{t.label}</span>
+                                <span
+                                  className="h-2 w-2 rounded-full"
+                                  style={{ backgroundColor: t.color }}
+                                />
+                                <span className="text-slate-700 dark:text-zinc-300 font-semibold">
+                                  {t.label}
+                                </span>
                               </div>
                               <div className="text-right">
                                 <strong style={{ color: t.color }}>{count} cards</strong>
-                                <span className="block text-[9px] text-slate-500 dark:text-zinc-400">{formatBrlK(val)}</span>
+                                <span className="block text-[9px] text-slate-500 dark:text-zinc-400">
+                                  {formatBrlK(val)}
+                                </span>
                               </div>
                             </div>
                           );
@@ -861,7 +943,9 @@ export function CommercialSafrasTableView({
                         </div>
                         <div className="flex justify-between text-slate-900 dark:text-white font-bold">
                           <span>Total Oportunidades:</span>
-                          <span className="text-blue-600 dark:text-blue-400">{monthData.totalCards} cards</span>
+                          <span className="text-blue-600 dark:text-blue-400">
+                            {monthData.totalCards} cards
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -890,7 +974,12 @@ export function CommercialSafrasTableView({
                         onRegisterPoint={handleRegisterPoint}
                       />
                     }
-                    activeDot={{ r: 7, fill: tier.color, stroke: isDark ? "#ffffff" : "#0f172a", strokeWidth: 2 }}
+                    activeDot={{
+                      r: 7,
+                      fill: tier.color,
+                      stroke: isDark ? "#ffffff" : "#0f172a",
+                      strokeWidth: 2,
+                    }}
                   />
                 );
               })}
@@ -963,20 +1052,26 @@ export function CommercialSafrasTableView({
                   <span className="text-[11px] font-mono font-bold text-slate-900 dark:text-white">
                     {m.monthName}
                   </span>
-                  <span className="text-[9px] font-mono text-slate-400 dark:text-zinc-500">{m.year}</span>
+                  <span className="text-[9px] font-mono text-slate-400 dark:text-zinc-500">
+                    {m.year}
+                  </span>
                 </div>
 
                 <div className="flex items-baseline gap-1.5 my-1">
                   <span
                     className={`text-[11px] font-mono font-bold ${
-                      hasZero ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"
+                      hasZero
+                        ? "text-emerald-700 dark:text-emerald-400"
+                        : "text-amber-700 dark:text-amber-400"
                     }`}
                   >
                     Sem classificação &gt;
                   </span>
                   <strong
                     className={`text-sm sm:text-base font-mono font-black ${
-                      hasZero ? "text-emerald-800 dark:text-emerald-300" : "text-amber-800 dark:text-amber-300"
+                      hasZero
+                        ? "text-emerald-800 dark:text-emerald-300"
+                        : "text-amber-800 dark:text-amber-300"
                     }`}
                   >
                     {m.unclassifiedCount}
@@ -1002,7 +1097,9 @@ export function CommercialSafrasTableView({
           onClose={() => setSelectedDrilldown(null)}
           monthKey={selectedDrilldown.monthKey}
           monthLabel={selectedDrilldown.monthLabel}
-          deals={getBaselineUnclassifiedDeals(selectedDrilldown.monthKey)}
+          deals={cohortDeals.deals}
+          loading={cohortDeals.loading}
+          error={cohortDeals.error}
           onOpenDeal={onOpenDeal}
         />
       )}

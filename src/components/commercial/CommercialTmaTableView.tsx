@@ -1,10 +1,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Clock, Target, Zap, CheckCircle2 } from "lucide-react";
+import { getAiPersona } from "@/lib/ai-persona";
 import {
-  BASELINE_TMA_KPIS,
-  BASELINE_TMA_PERSONNALITE,
-  BASELINE_TMA_MAQUINAS,
   TmaConsultantRow,
   TmaKpis,
   TmaTeamGroup,
@@ -12,9 +10,9 @@ import {
 } from "@/lib/commercial/tma-whatsapp-data";
 
 interface CommercialTmaTableViewProps {
-  kpis?: TmaKpis;
-  personnaliteData?: TmaTeamGroup;
-  semiMaquinasData?: TmaTeamGroup;
+  kpis: TmaKpis;
+  personnaliteData: TmaTeamGroup;
+  semiMaquinasData: TmaTeamGroup;
   waitingChats?: TmaWaitingChatItem[];
   tenantId?: string | null;
   onConsultantClick?: (consultant: TmaConsultantRow) => void;
@@ -22,17 +20,17 @@ interface CommercialTmaTableViewProps {
 }
 
 export function CommercialTmaTableView({
-  kpis = BASELINE_TMA_KPIS,
-  personnaliteData = BASELINE_TMA_PERSONNALITE,
-  semiMaquinasData = BASELINE_TMA_MAQUINAS,
+  kpis,
+  personnaliteData,
+  semiMaquinasData,
   waitingChats = [],
-  tenantId = "tecfag",
+  tenantId = "",
   onConsultantClick,
   onOpenChat,
 }: CommercialTmaTableViewProps) {
   const [activeTab, setActiveTab] = useState<"contato" | "aguardando">("contato");
 
-  const aiName = tenantId === "valem" ? "Valentina" : "Fagner";
+  const aiName = getAiPersona(tenantId || "").name;
 
   const renderProgressBar = (consultant: TmaConsultantRow) => {
     const total = consultant.totalAnswered;
@@ -47,16 +45,28 @@ export function CommercialTmaTableView({
       <div className="w-full">
         {/* 4 Buckets Labels com números e contraste nítido */}
         <div className="grid grid-cols-4 font-mono text-xs sm:text-[13px] mb-1.5 font-bold">
-          <span className={under5m > 0 ? "text-emerald-700 dark:text-emerald-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}>
+          <span
+            className={
+              under5m > 0
+                ? "text-emerald-700 dark:text-emerald-400 font-black"
+                : "text-slate-400 dark:text-zinc-500 font-semibold"
+            }
+          >
             {under5m} ≤ 5m
           </span>
-          <span className={`text-center ${between5and15m > 0 ? "text-cyan-700 dark:text-cyan-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}>
+          <span
+            className={`text-center ${between5and15m > 0 ? "text-cyan-700 dark:text-cyan-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}
+          >
             {between5and15m} 5-15m
           </span>
-          <span className={`text-center ${between15and30m > 0 ? "text-amber-700 dark:text-amber-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}>
+          <span
+            className={`text-center ${between15and30m > 0 ? "text-amber-700 dark:text-amber-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}
+          >
             {between15and30m} 15-30m
           </span>
-          <span className={`text-right ${over30m > 0 ? "text-red-700 dark:text-red-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}>
+          <span
+            className={`text-right ${over30m > 0 ? "text-red-700 dark:text-red-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}
+          >
             {over30m} &gt; 30m
           </span>
         </div>
@@ -135,9 +145,7 @@ export function CommercialTmaTableView({
         </div>
 
         {/* Centro: Barra de Distribuição de Tempo */}
-        <div className="flex-1 px-3 sm:px-6 xl:px-8">
-          {renderProgressBar(consultant)}
-        </div>
+        <div className="flex-1 px-3 sm:px-6 xl:px-8">{renderProgressBar(consultant)}</div>
 
         {/* Direita: Total de Atendimentos */}
         <div className="w-16 sm:w-20 text-right font-mono shrink-0">
@@ -259,13 +267,14 @@ export function CommercialTmaTableView({
           {/* EQUIPE 1: ★ TIME PERSONNALITÉ */}
           <div className="rounded-[4px] border border-slate-200 bg-slate-50/60 dark:border-zinc-800/80 dark:bg-zinc-950/50 p-2.5 sm:p-3 xl:p-3.5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
-              <span className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${personnaliteData.badgeColorClass}`}>
+              <span
+                className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${personnaliteData.badgeColorClass}`}
+              >
                 {personnaliteData.teamLabel}
               </span>
               <div className="flex items-center gap-3 sm:gap-4 font-mono text-[11px] sm:text-xs text-slate-600 dark:text-zinc-400">
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  ≤ 5m
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />≤ 5m
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-cyan-400" />
@@ -290,13 +299,14 @@ export function CommercialTmaTableView({
           {/* EQUIPE 2: ⚍ TIME SEMI (MÁQUINAS) */}
           <div className="rounded-[4px] border border-slate-200 bg-slate-50/60 dark:border-zinc-800/80 dark:bg-zinc-950/50 p-2.5 sm:p-3 xl:p-3.5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
-              <span className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${semiMaquinasData.badgeColorClass}`}>
+              <span
+                className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${semiMaquinasData.badgeColorClass}`}
+              >
                 {semiMaquinasData.teamLabel}
               </span>
               <div className="flex items-center gap-3 sm:gap-4 font-mono text-[11px] sm:text-xs text-slate-600 dark:text-zinc-400">
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  ≤ 5m
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />≤ 5m
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-cyan-400" />

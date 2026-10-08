@@ -403,6 +403,7 @@ export async function getResponsibilityAnalysis(options: AnalysisOptions & { mon
       assignedDate: commercialDirectives.assignedDate,
       status: commercialDirectives.status,
       instruction: commercialDirectives.instruction,
+      completionNote: commercialDirectives.completionNote,
       snapshot: commercialDirectives.snapshot,
       completedAt: commercialDirectives.completedAt,
       dealTitle: crmDeals.title,
@@ -449,6 +450,7 @@ export async function getResponsibilityAnalysis(options: AnalysisOptions & { mon
         status: row.status,
         state,
         instruction: row.instruction,
+        completionNote: row.completionNote,
         completedAt: row.completedAt,
         dealStatus: row.dealStatus,
         daysOverdue:
@@ -596,6 +598,12 @@ export async function getTmaAnalysis(options: AnalysisOptions & { month: string 
   const consultants = scope.consultants
     .map((consultant) => {
       const own = answered.filter((event) => event.operatorId === consultant.operatorId);
+      const fastest = [...own].sort(
+        (a, b) => Number(a.durationSeconds) - Number(b.durationSeconds),
+      )[0];
+      const slowest = [...own].sort(
+        (a, b) => Number(b.durationSeconds) - Number(a.durationSeconds),
+      )[0];
       return {
         ...consultant,
         answeredCount: own.length,
@@ -610,6 +618,10 @@ export async function getTmaAnalysis(options: AnalysisOptions & { month: string 
             100
           : null,
         buckets: buckets(own),
+        bestSeconds: fastest?.durationSeconds ?? null,
+        bestContactName: fastest?.contactName || fastest?.contactPhone || null,
+        worstSeconds: slowest?.durationSeconds ?? null,
+        worstContactName: slowest?.contactName || slowest?.contactPhone || null,
       };
     })
     .sort((a, b) => (a.averageSeconds ?? Infinity) - (b.averageSeconds ?? Infinity));
@@ -934,8 +946,6 @@ export async function getDealDrilldown(
     return { error: "Consultor fora do escopo comercial.", status: 404 };
   if (options.mode !== "pipeline" && !options.operatorId)
     return { error: "Selecione um consultor para este detalhamento.", status: 400 };
-  if (options.mode === "pipeline" && !options.operatorId && !options.stageId)
-    return { error: "Selecione uma etapa ou consultor.", status: 400 };
   const deals = await getOpenDeals(
     options.tenantId,
     options.operatorId ? [options.operatorId] : ids,
@@ -975,7 +985,7 @@ export async function getDealDrilldown(
   const filtered = deals
     .flatMap((deal) => {
       if (options.stageId && deal.stageId !== options.stageId) return [];
-      if (options.mode !== "pipeline" && scope.excludedStageIds.has(deal.stageId)) return [];
+      if (scope.excludedStageIds.has(deal.stageId)) return [];
       const maturity = classifyMaturity(Number(deal.value || 0), deal.createdAt, now, scope.rules);
       if (options.mode === "maturity") {
         if (!maturity) return [];
@@ -1210,11 +1220,34 @@ export async function getCohortDealDrilldown(
         operatorId: crmDeals.operatorId,
         stageId: crmDeals.stageId,
         accountName: crmAccounts.name,
+        operatorName: operators.name,
+        stageName: crmStages.name,
+        pipelineName: crmPipelines.name,
+        division: commercialConsultantProfiles.division,
       })
       .from(crmDeals)
       .leftJoin(
         crmAccounts,
         and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, options.tenantId)),
+      )
+      .leftJoin(
+        operators,
+        and(eq(operators.id, crmDeals.operatorId), eq(operators.tenantId, options.tenantId)),
+      )
+      .leftJoin(
+        commercialConsultantProfiles,
+        and(
+          eq(commercialConsultantProfiles.operatorId, crmDeals.operatorId),
+          eq(commercialConsultantProfiles.tenantId, options.tenantId),
+        ),
+      )
+      .innerJoin(
+        crmStages,
+        and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, options.tenantId)),
+      )
+      .innerJoin(
+        crmPipelines,
+        and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, options.tenantId)),
       )
       .where(filter)
       .orderBy(desc(crmDeals.createdAt), desc(crmDeals.id))

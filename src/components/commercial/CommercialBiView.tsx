@@ -23,63 +23,37 @@ import { CommercialDealFilterModal } from "./CommercialDealFilterModal";
 import { CommercialDeparaTableView } from "./CommercialDeparaTableView";
 import { CommercialDeparaFilterModal } from "./CommercialDeparaFilterModal";
 import {
-  BASELINE_PERSONNALITE,
-  BASELINE_SEMI_MAQUINAS,
-  getBaselineDeals,
   PipelineStageKey,
   SellerPipelineRow,
+  CommercialPipelineDeal,
 } from "@/lib/commercial/pipeline-data";
-import {
-  BASELINE_DEPARA_PERSONNALITE,
-  BASELINE_DEPARA_SEMI_MAQUINAS,
-  getBaselineDeparaDeals,
-  DeparaTierKey,
-  SellerDeparaRow,
-} from "@/lib/commercial/depara-data";
+import { DeparaTierKey, SellerDeparaRow } from "@/lib/commercial/depara-data";
 import { CommercialPrevistasTableView } from "./CommercialPrevistasTableView";
 import { CommercialPrevistasFilterModal } from "./CommercialPrevistasFilterModal";
-import {
-  BASELINE_PREVISTAS_PERSONNALITE,
-  BASELINE_PREVISTAS_SEMI_MAQUINAS,
-  getBaselinePrevistasDeals,
-  PrevistasTierKey,
-  SellerPrevistasRow,
-} from "@/lib/commercial/previstas-data";
+import { PrevistasTierKey, SellerPrevistasRow } from "@/lib/commercial/previstas-data";
 import { CommercialPacingTableView } from "./CommercialPacingTableView";
 import { CommercialPacingFilterModal } from "./CommercialPacingFilterModal";
-import {
-  BASELINE_PACING_PERSONNALITE,
-  BASELINE_PACING_SEMI_MAQUINAS,
-  getBaselinePacingDeals,
-  PacingSellerRow,
-  PacingViewMode,
-} from "@/lib/commercial/pacing-data";
+import { PacingSellerRow, PacingViewMode } from "@/lib/commercial/pacing-data";
 import { CommercialPerdasTableView } from "./CommercialPerdasTableView";
-import {
-  ALL_PERDAS_PERIODS,
-  PerdasPeriodKey,
-} from "@/lib/commercial/perdas-data";
+import type { PerdasPeriodKey } from "@/lib/commercial/perdas-data";
 import { CommercialRankingTableView } from "./CommercialRankingTableView";
 import { CommercialDiretrizesTableView } from "./CommercialDiretrizesTableView";
 import { CommercialDiretrizesDetailModal } from "./CommercialDiretrizesDetailModal";
 import { CommercialDiretrizesBreakdownModal } from "./CommercialDiretrizesBreakdownModal";
-import {
-  BASELINE_DIRETRIZES_KPIS,
-  BASELINE_DIRETRIZES_PERSONNALITE,
-  BASELINE_DIRETRIZES_MAQUINAS,
-  ALL_BASELINE_DIRETRIZES_CONSULTANTS,
-  DiretrizesConsultantRow,
-} from "@/lib/commercial/diretrizes-crm-data";
+import type { DiretrizesConsultantRow } from "@/lib/commercial/diretrizes-crm-data";
 import { CommercialTmaTableView } from "./CommercialTmaTableView";
 import {
-  BASELINE_TMA_KPIS,
-  BASELINE_TMA_PERSONNALITE,
-  BASELINE_TMA_MAQUINAS,
-} from "@/lib/commercial/tma-whatsapp-data";
+  toCohortPresentation,
+  toDiretrizesPresentation,
+  toLossPresentation,
+  toMaturityPresentation,
+  toPacingPresentation,
+  toPipelinePresentation,
+  toTmaPresentation,
+} from "@/lib/commercial/presentation-data";
+import type { TVCohortsResponse } from "@/lib/commercial/safras-cohorts-data";
 import { CommercialSafrasTableView } from "./CommercialSafrasTableView";
 import { MaturityCohortFullscreenModal } from "./MaturityCohortFullscreenModal";
-
-
 
 type Tier = {
   tier: number;
@@ -102,6 +76,10 @@ type Cohort = {
   ageDays: number;
   daysRemaining: number;
   expectedValue: number;
+  companyName: string | null;
+  accountPhone: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
 };
 type Goal = {
   operatorId: string;
@@ -110,6 +88,7 @@ type Goal = {
   activeOnTv: boolean;
   targetValue: number;
   realizedValue: number;
+  conversionRate: number;
   coveragePercent: number;
   expectedPercent: number;
   dailyRequired: number;
@@ -117,6 +96,7 @@ type Goal = {
 };
 type BiData = {
   asOf: string;
+  today: string;
   month: string;
   division: string | null;
   settings: {
@@ -139,6 +119,7 @@ type BiData = {
   pipeline: Array<{ stageId: string; name: string; count: number; value: number }>;
   maturity: { tiers: Tier[]; cohorts: Cohort[] };
   goals: Goal[];
+  pendingTasksByOperator: Array<{ operatorId: string | null; count: number }>;
   losses: {
     currentCount: number;
     currentValue: number;
@@ -168,8 +149,10 @@ const money = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 0,
 });
 const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
-const surface = "rounded-[4px] border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950/70 p-4 text-slate-900 dark:text-white";
-const badge = "text-[10px] font-mono font-bold uppercase tracking-[.18em] text-red-500 dark:text-red-400";
+const surface =
+  "rounded-[4px] border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950/70 p-4 text-slate-900 dark:text-white";
+const badge =
+  "text-[10px] font-mono font-bold uppercase tracking-[.18em] text-red-500 dark:text-red-400";
 const TOTAL_SLIDES = 9;
 
 function Empty({ text }: { text: string }) {
@@ -193,12 +176,28 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
 
 export function CommercialBiView() {
   const navigate = useNavigate();
-  const { tenant } = useChat();
+  const { tenant, setActiveView } = useChat();
   const panelRef = useRef<HTMLElement>(null);
   const [division, setDivision] = useState("");
   const [module, setModule] = useState(0);
   const [rotating, setRotating] = useState(true);
   const [data, setData] = useState<BiData | null>(null);
+  const [pipelineData, setPipelineData] = useState<ReturnType<
+    typeof toPipelinePresentation
+  > | null>(null);
+  const [diretrizesData, setDiretrizesData] = useState<ReturnType<
+    typeof toDiretrizesPresentation
+  > | null>(null);
+  const [tmaData, setTmaData] = useState<ReturnType<typeof toTmaPresentation> | null>(null);
+  const [pacingData, setPacingData] = useState<ReturnType<typeof toPacingPresentation> | null>(
+    null,
+  );
+  const [lossData, setLossData] = useState<ReturnType<typeof toLossPresentation> | null>(null);
+  const [cohortData, setCohortData] = useState<TVCohortsResponse | null>(null);
+  const maturityData = useMemo(
+    () => (data ? toMaturityPresentation(data, diretrizesData) : null),
+    [data, diretrizesData],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
@@ -222,7 +221,9 @@ export function CommercialBiView() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalSeller, setModalSeller] = useState<SellerPipelineRow | null>(null);
   const [modalStageKey, setModalStageKey] = useState<PipelineStageKey | "all">("all");
-  const [modalDivision, setModalDivision] = useState<"personnalite" | "maquinas">("personnalite");
+  const [modalDivision, setModalDivision] = useState<"" | "personnalite" | "maquinas">("");
+  const [pipelineModalDeals, setPipelineModalDeals] = useState<CommercialPipelineDeal[]>([]);
+  const [pipelineModalLoading, setPipelineModalLoading] = useState(false);
 
   // Estados para o Modal de Detalhamento De-Para / Maturidade (Slide 2 / Fotos 2 e 3)
   const [deparaModalOpen, setDeparaModalOpen] = useState(false);
@@ -232,7 +233,9 @@ export function CommercialBiView() {
   // Estados para o Modal de Previsão e Diretrizes Temporais (Slide 3 / Fotos 2 e 3)
   const [previstasModalOpen, setPrevistasModalOpen] = useState(false);
   const [previstasModalSeller, setPrevistasModalSeller] = useState<SellerPrevistasRow | null>(null);
-  const [previstasModalHorizonKey, setPrevistasModalHorizonKey] = useState<PrevistasTierKey | "all">("all");
+  const [previstasModalHorizonKey, setPrevistasModalHorizonKey] = useState<
+    PrevistasTierKey | "all"
+  >("all");
 
   // Estados para o Modal de Pacing / Oportunidades do Dia (Slide 4 / Fotos 1, 2 e 3)
   const [pacingModalOpen, setPacingModalOpen] = useState(false);
@@ -245,12 +248,11 @@ export function CommercialBiView() {
   // Estados para o Slide 6 (Diretrizes CRM / Fotos 1, 2, 3 e 4)
   const [diretrizesDetailOpen, setDiretrizesDetailOpen] = useState(false);
   const [diretrizesBreakdownOpen, setDiretrizesBreakdownOpen] = useState(false);
-  const [diretrizesModalConsultant, setDiretrizesModalConsultant] = useState<DiretrizesConsultantRow | null>(null);
+  const [diretrizesModalConsultant, setDiretrizesModalConsultant] =
+    useState<DiretrizesConsultantRow | null>(null);
 
   // Estado para o Slide 8 (Safras & Régua De-Para Fullscreen)
   const [safrasFullscreenOpen, setSafrasFullscreenOpen] = useState(false);
-
-
 
   // Relógio digital e data ao vivo
   const [currentTime, setCurrentTime] = useState(() => new Date());
@@ -294,13 +296,70 @@ export function CommercialBiView() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(
-          `/api/commercial/bi${division ? `?division=${encodeURIComponent(division)}` : ""}`,
-          { credentials: "same-origin", signal },
-        );
+        const scope = division ? `&division=${encodeURIComponent(division)}` : "";
+        const [
+          response,
+          pipelineResponse,
+          directivesResponse,
+          tmaResponse,
+          goalsResponse,
+          lossesResponse,
+          cohortsResponse,
+        ] = await Promise.all([
+          fetch(
+            `/api/commercial/bi${division ? `?division=${encodeURIComponent(division)}` : ""}`,
+            { credentials: "same-origin", signal },
+          ),
+          fetch(`/api/commercial/analysis?view=pipeline${scope}`, {
+            credentials: "same-origin",
+            signal,
+          }),
+          fetch(`/api/commercial/analysis?view=responsibilities${scope}`, {
+            credentials: "same-origin",
+            signal,
+          }),
+          fetch(`/api/commercial/analysis?view=tma${scope}`, {
+            credentials: "same-origin",
+            signal,
+          }),
+          fetch(`/api/commercial/analysis?view=goals${scope}`, {
+            credentials: "same-origin",
+            signal,
+          }),
+          fetch(`/api/commercial/analysis?view=losses${scope}`, {
+            credentials: "same-origin",
+            signal,
+          }),
+          fetch(`/api/commercial/analysis?view=cohorts${scope}`, {
+            credentials: "same-origin",
+            signal,
+          }),
+        ]);
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Falha ao carregar BI comercial.");
-        if (!signal?.aborted) setData(body);
+        const pipelineBody = await pipelineResponse.json();
+        if (!pipelineResponse.ok)
+          throw new Error(pipelineBody.error || "Falha ao carregar pipeline.");
+        const directiveBody = await directivesResponse.json();
+        const tmaBody = await tmaResponse.json();
+        const goalsBody = await goalsResponse.json();
+        const lossesBody = await lossesResponse.json();
+        const cohortsBody = await cohortsResponse.json();
+        if (!directivesResponse.ok)
+          throw new Error(directiveBody.error || "Falha ao carregar diretrizes.");
+        if (!tmaResponse.ok) throw new Error(tmaBody.error || "Falha ao carregar TMA.");
+        if (!goalsResponse.ok) throw new Error(goalsBody.error || "Falha ao carregar metas.");
+        if (!lossesResponse.ok) throw new Error(lossesBody.error || "Falha ao carregar perdas.");
+        if (!cohortsResponse.ok) throw new Error(cohortsBody.error || "Falha ao carregar safras.");
+        if (!signal?.aborted) {
+          setData(body);
+          setPipelineData(toPipelinePresentation(pipelineBody));
+          setDiretrizesData(toDiretrizesPresentation(directiveBody));
+          setTmaData(toTmaPresentation(tmaBody));
+          setPacingData(toPacingPresentation(goalsBody, body));
+          setLossData(toLossPresentation(lossesBody));
+          setCohortData(toCohortPresentation(cohortsBody, body.today));
+        }
       } catch (cause) {
         if (!signal?.aborted)
           setError(cause instanceof Error ? cause.message : "Falha ao carregar BI comercial.");
@@ -336,10 +395,7 @@ export function CommercialBiView() {
   // Rotação automática de slides (8 módulos TV)
   useEffect(() => {
     if (!rotating || isAnyModalOpen || !isTabVisible) return;
-    const rotationSeconds = Math.max(
-      10,
-      data?.settings?.tvSettings?.rotationSeconds || 24,
-    );
+    const rotationSeconds = Math.max(10, data?.settings?.tvSettings?.rotationSeconds || 24);
     const interval = window.setInterval(() => {
       setModule((current) => (current + 1) % TOTAL_SLIDES);
     }, rotationSeconds * 1000);
@@ -407,15 +463,89 @@ export function CommercialBiView() {
   const handleHeaderStageClick = (stageKey: PipelineStageKey) => {
     setModalSeller(null);
     setModalStageKey(stageKey);
+    setModalDivision("");
     setModalOpen(true);
   };
 
-  const activeModalDeals = useMemo(() => {
-    if (modalSeller) {
-      return getBaselineDeals(modalSeller.sellerId);
-    }
-    return getBaselineDeals().filter((d) => d.division === modalDivision);
-  }, [modalSeller, modalDivision]);
+  useEffect(() => {
+    if (!modalOpen || !pipelineData) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ view: "deals", mode: "pipeline", limit: "100" });
+    if (modalDivision) params.set("division", modalDivision);
+    if (modalSeller) params.set("operatorId", modalSeller.sellerId);
+    if (modalStageKey !== "all") params.set("stageId", modalStageKey);
+    setPipelineModalDeals([]);
+    setPipelineModalLoading(true);
+    const fetchPage = async (page: number) => {
+      params.set("page", String(page));
+      const response = await fetch(`/api/commercial/analysis?${params}`, {
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Falha ao abrir negociações.");
+      return body as {
+        total: number;
+        deals: Array<{
+          id: string;
+          title: string;
+          value: number;
+          operatorId: string | null;
+          pipelineId: string;
+          stageId: string;
+          stageName: string;
+          createdAt: string;
+        }>;
+      };
+    };
+    void (async () => {
+      try {
+        const first = await fetchPage(1);
+        const all = [...first.deals];
+        const pages = Math.ceil(first.total / 100);
+        for (let start = 2; start <= pages; start += 4) {
+          const batch = await Promise.all(
+            Array.from({ length: Math.min(4, pages - start + 1) }, (_, index) =>
+              fetchPage(start + index),
+            ),
+          );
+          for (const result of batch) all.push(...result.deals);
+        }
+        const sellers = [
+          ...pipelineData.personnaliteData.sellers,
+          ...pipelineData.semiMaquinasData.sellers,
+        ];
+        const byId = new Map(sellers.map((seller) => [seller.sellerId, seller]));
+        const stages = new Map(pipelineData.stages.map((stage) => [stage.key, stage]));
+        if (!controller.signal.aborted)
+          setPipelineModalDeals(
+            all.map((deal) => ({
+              id: deal.id,
+              title: deal.title,
+              funnelName: stages.get(deal.stageId)?.label || "CRM",
+              responsibleName: byId.get(deal.operatorId || "")?.sellerName || "Consultor",
+              responsibleId: deal.operatorId || undefined,
+              division:
+                byId.get(deal.operatorId || "")?.division || modalDivision || "personnalite",
+              value: deal.value,
+              daysOpen: Math.max(
+                0,
+                Math.floor((Date.now() - new Date(deal.createdAt).getTime()) / 86_400_000),
+              ),
+              createdAt: new Date(deal.createdAt).toLocaleDateString("pt-BR"),
+              stageKey: deal.stageId,
+              stageName: deal.stageName,
+            })),
+          );
+      } catch (cause) {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : "Falha ao abrir negociações.");
+      } finally {
+        if (!controller.signal.aborted) setPipelineModalLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [modalOpen, modalSeller, modalStageKey, modalDivision, pipelineData]);
 
   // Handlers para o Modal de De-Para / Maturidade (Slide 2)
   const handleDeparaCellClick = (seller: SellerDeparaRow, tierKey: DeparaTierKey | "all") => {
@@ -431,22 +561,22 @@ export function CommercialBiView() {
   };
 
   const handleDeparaHeaderTierClick = (tierKey: DeparaTierKey) => {
-    setDeparaModalSeller(BASELINE_DEPARA_PERSONNALITE.sellers[0]);
+    setDeparaModalSeller(null);
     setDeparaModalTierKey(tierKey);
     setDeparaModalOpen(true);
   };
 
   const activeDeparaModalDeals = useMemo(() => {
-    if (deparaModalSeller) {
-      return getBaselineDeparaDeals(deparaModalSeller.sellerId);
-    }
-    return getBaselineDeparaDeals();
-  }, [deparaModalSeller]);
+    const deals = maturityData?.depara.deals || [];
+    return deparaModalSeller
+      ? deals.filter((deal) => deal.sellerId === deparaModalSeller.sellerId)
+      : deals;
+  }, [deparaModalSeller, maturityData]);
 
   // Handlers para o Modal de Previsão e Diretrizes (Slide 3)
   const handlePrevistasCellClick = (
     seller: SellerPrevistasRow,
-    horizonKey: PrevistasTierKey | "all"
+    horizonKey: PrevistasTierKey | "all",
   ) => {
     setPrevistasModalSeller(seller);
     setPrevistasModalHorizonKey(horizonKey);
@@ -454,17 +584,17 @@ export function CommercialBiView() {
   };
 
   const handlePrevistasHeaderTierClick = (horizonKey: PrevistasTierKey) => {
-    setPrevistasModalSeller(BASELINE_PREVISTAS_PERSONNALITE.sellers[0]);
+    setPrevistasModalSeller(null);
     setPrevistasModalHorizonKey(horizonKey);
     setPrevistasModalOpen(true);
   };
 
   const activePrevistasModalDeals = useMemo(() => {
-    if (previstasModalSeller) {
-      return getBaselinePrevistasDeals(previstasModalSeller.sellerId);
-    }
-    return getBaselinePrevistasDeals();
-  }, [previstasModalSeller]);
+    const deals = maturityData?.previstas.deals || [];
+    return previstasModalSeller
+      ? deals.filter((deal) => deal.sellerId === previstasModalSeller.sellerId)
+      : deals;
+  }, [previstasModalSeller, maturityData]);
 
   // Handlers para o Modal de Pacing / Oportunidades do Dia (Slide 4)
   const handlePacingSellerClick = (seller: PacingSellerRow) => {
@@ -473,11 +603,11 @@ export function CommercialBiView() {
   };
 
   const activePacingModalDeals = useMemo(() => {
-    if (pacingModalSeller) {
-      return getBaselinePacingDeals(pacingModalSeller.sellerId);
-    }
-    return getBaselinePacingDeals();
-  }, [pacingModalSeller]);
+    const deals = pacingData?.deals || [];
+    return pacingModalSeller
+      ? deals.filter((deal) => deal.sellerId === pacingModalSeller.sellerId)
+      : deals;
+  }, [pacingModalSeller, pacingData]);
 
   return (
     <section
@@ -677,20 +807,21 @@ export function CommercialBiView() {
                 className="w-full h-full flex flex-col justify-between"
               >
                 {/* ─── SLIDE 0: PIPELINE POR FASE CRM ─── */}
-                {module === 0 && (
+                {module === 0 && pipelineData && (
                   <CommercialPipelineTableView
-                    personnaliteData={BASELINE_PERSONNALITE}
-                    semiMaquinasData={BASELINE_SEMI_MAQUINAS}
+                    stages={pipelineData.stages}
+                    personnaliteData={pipelineData.personnaliteData}
+                    semiMaquinasData={pipelineData.semiMaquinasData}
                     onCellClick={handleCellClick}
                     onHeaderStageClick={handleHeaderStageClick}
                   />
                 )}
 
                 {/* ─── SLIDE 1: RESPONSABILIDADES POR DEPARA CWR (RÉPLICA FIEL) ─── */}
-                {module === 1 && (
+                {module === 1 && maturityData && (
                   <CommercialDeparaTableView
-                    personnaliteData={BASELINE_DEPARA_PERSONNALITE}
-                    semiMaquinasData={BASELINE_DEPARA_SEMI_MAQUINAS}
+                    personnaliteData={maturityData.depara.personnaliteData}
+                    semiMaquinasData={maturityData.depara.semiMaquinasData}
                     onCellClick={handleDeparaCellClick}
                     onTasksClick={handleDeparaTasksClick}
                     onHeaderTierClick={handleDeparaHeaderTierClick}
@@ -698,20 +829,21 @@ export function CommercialBiView() {
                 )}
 
                 {/* ─── SLIDE 2: RESPONSABILIDADES PREVISTAS CWR (RÉPLICA FIEL) ─── */}
-                {module === 2 && (
+                {module === 2 && maturityData && (
                   <CommercialPrevistasTableView
-                    personnaliteData={BASELINE_PREVISTAS_PERSONNALITE}
-                    semiMaquinasData={BASELINE_PREVISTAS_SEMI_MAQUINAS}
+                    personnaliteData={maturityData.previstas.personnaliteData}
+                    semiMaquinasData={maturityData.previstas.semiMaquinasData}
                     onCellClick={handlePrevistasCellClick}
                     onHeaderTierClick={handlePrevistasHeaderTierClick}
                   />
                 )}
 
                 {/* ─── SLIDE 3: COCKPIT DE METAS & PACING DIÁRIO / SEMANAL (RÉPLICA FIEL) ─── */}
-                {module === 3 && (
+                {module === 3 && pacingData && (
                   <CommercialPacingTableView
-                    personnaliteData={BASELINE_PACING_PERSONNALITE}
-                    semiMaquinasData={BASELINE_PACING_SEMI_MAQUINAS}
+                    personnaliteData={pacingData.personnaliteData}
+                    semiMaquinasData={pacingData.semiMaquinasData}
+                    globalKpis={pacingData.globalKpis}
                     viewMode={pacingViewMode}
                     onToggleViewMode={setPacingViewMode}
                     onSellerClick={handlePacingSellerClick}
@@ -720,22 +852,25 @@ export function CommercialBiView() {
                 )}
 
                 {/* ─── SLIDE 4: PERDAS DO MÊS & MOTIVOS DE PERDA (RÉPLICA FIEL) ─── */}
-                {module === 4 && (
+                {module === 4 && lossData && (
                   <CommercialPerdasTableView
+                    periods={lossData}
                     selectedPeriod={perdasPeriod}
                     onSelectPeriod={setPerdasPeriod}
                   />
                 )}
 
                 {/* ─── SLIDE 5: RANKING GERAL DE RESPOSTA & SLA (RÉPLICA FIEL) ─── */}
-                {module === 5 && <CommercialRankingTableView />}
+                {module === 5 && tmaData && (
+                  <CommercialRankingTableView operators={tmaData.ranking} />
+                )}
 
                 {/* ─── SLIDE 6: DIRETRIZES CRM (RÉPLICA FIEL FOTOS 1 E 4) ─── */}
-                {module === 6 && (
+                {module === 6 && diretrizesData && (
                   <CommercialDiretrizesTableView
-                    kpis={BASELINE_DIRETRIZES_KPIS}
-                    personnaliteData={BASELINE_DIRETRIZES_PERSONNALITE}
-                    semiMaquinasData={BASELINE_DIRETRIZES_MAQUINAS}
+                    kpis={diretrizesData.kpis}
+                    personnaliteData={diretrizesData.personnaliteData}
+                    semiMaquinasData={diretrizesData.semiMaquinasData}
                     onConsultantClick={(consultant) => {
                       setDiretrizesModalConsultant(consultant);
                       setDiretrizesDetailOpen(true);
@@ -745,21 +880,24 @@ export function CommercialBiView() {
                 )}
 
                 {/* ─── SLIDE 7: TMA WHATSAPP (RÉPLICA FIEL FOTOS 1 E 2) ─── */}
-                {module === 7 && (
+                {module === 7 && tmaData && (
                   <CommercialTmaTableView
-                    kpis={BASELINE_TMA_KPIS}
-                    personnaliteData={BASELINE_TMA_PERSONNALITE}
-                    semiMaquinasData={BASELINE_TMA_MAQUINAS}
+                    kpis={tmaData.kpis}
+                    personnaliteData={tmaData.personnaliteData}
+                    semiMaquinasData={tmaData.semiMaquinasData}
+                    waitingChats={tmaData.waitingChats}
                     tenantId={tenant}
                     onOpenChat={(convId) => {
-                      navigate({ to: "/chat" as any, search: { conversationId: convId } as any });
+                      navigate({ to: "/chat/$chatKey", params: { chatKey: convId } });
                     }}
                   />
                 )}
 
                 {/* ─── SLIDE 8: SAFRAS & RÉGUA DE-PARA (EVOLUÇÃO MENSAL POR FAIXA DE VALOR) ─── */}
-                {module === 8 && (
+                {module === 8 && cohortData && (
                   <CommercialSafrasTableView
+                    data={cohortData}
+                    division={division}
                     tenantId={tenant}
                     onOpenDeal={openDeal}
                     onFullscreen={() => setSafrasFullscreenOpen(true)}
@@ -787,15 +925,22 @@ export function CommercialBiView() {
         onClose={() => setModalOpen(false)}
         sellerName={
           modalSeller?.sellerName ||
-          (modalDivision === "personnalite" ? "Time Personnalité" : "Time Semi (Máquinas)")
+          (modalDivision === "personnalite"
+            ? "Time Personnalité"
+            : modalDivision === "maquinas"
+              ? "Time Semi (Máquinas)"
+              : "Todas as equipes")
         }
         sellerId={modalSeller?.sellerId}
-        division={modalDivision}
+        division={modalDivision || undefined}
         initialStageKey={modalStageKey}
-        deals={activeModalDeals}
+        deals={pipelineModalDeals}
+        loading={pipelineModalLoading}
+        stages={pipelineData?.stages}
         onOpenDeal={openDeal}
         onOpenProfile={() => {
-          navigate({ to: "/commercial-management" as any });
+          setActiveView("commercialManagement");
+          navigate({ to: "/" });
         }}
       />
 
@@ -803,19 +948,20 @@ export function CommercialBiView() {
       <CommercialDeparaFilterModal
         isOpen={deparaModalOpen}
         onClose={() => setDeparaModalOpen(false)}
-        sellerName={deparaModalSeller?.sellerName || "Diana Gimenes"}
+        sellerName={deparaModalSeller?.sellerName || "Equipe comercial"}
         sellerId={deparaModalSeller?.sellerId}
         division={deparaModalSeller?.division || "personnalite"}
-        metaValue={deparaModalSeller?.metaValue || 1_000_000}
+        metaValue={deparaModalSeller?.metaValue || 0}
         initialTierKey={deparaModalTierKey}
         deals={activeDeparaModalDeals}
         sellerAvatar={deparaModalSeller?.avatarUrl}
         onOpenDeal={(dealId) => openDeal(dealId)}
         onOpenProfile={() => {
-          navigate({ to: "/commercial-management" as any });
+          setActiveView("commercialManagement");
+          navigate({ to: "/" });
         }}
         onCallContact={(phone, dealTitle) => {
-          console.log(`[DE-PARA] Contatando telefone: ${phone} (${dealTitle})`);
+          if (phone) window.open(`tel:${phone.replace(/[^\d+]/g, "")}`, "_self");
         }}
       />
 
@@ -823,22 +969,41 @@ export function CommercialBiView() {
       <CommercialPrevistasFilterModal
         isOpen={previstasModalOpen}
         onClose={() => setPrevistasModalOpen(false)}
-        sellerName={previstasModalSeller?.sellerName || "Diana Gimenes"}
+        sellerName={previstasModalSeller?.sellerName || "Equipe comercial"}
         sellerId={previstasModalSeller?.sellerId}
         division={previstasModalSeller?.division || "personnalite"}
-        metaValue={previstasModalSeller?.metaValue || 1_000_000}
+        metaValue={previstasModalSeller?.metaValue || 0}
         initialHorizonKey={previstasModalHorizonKey}
         deals={activePrevistasModalDeals}
         sellerAvatar={previstasModalSeller?.avatarUrl}
         onOpenDeal={(dealId) => openDeal(dealId)}
         onOpenProfile={() => {
-          navigate({ to: "/commercial-management" as any });
+          setActiveView("commercialManagement");
+          navigate({ to: "/" });
         }}
         onCallContact={(phone, dealTitle) => {
-          console.log(`[PREVISTAS] Contatando telefone: ${phone} (${dealTitle})`);
+          if (phone) window.open(`tel:${phone.replace(/[^\d+]/g, "")}`, "_self");
         }}
-        onSaveDirectives={(dealIds) => {
-          console.log(`[PREVISTAS] Salvando diretrizes para ${dealIds.length} oportunidades:`, dealIds);
+        onSaveDirectives={async (dealIds) => {
+          const deals = (maturityData?.previstas.deals || []).filter((deal) =>
+            dealIds.includes(deal.id),
+          );
+          if (deals.length !== dealIds.length)
+            throw new Error("Negociações selecionadas não estão mais disponíveis.");
+          const byOperator = new Map<string, string[]>();
+          for (const deal of deals)
+            byOperator.set(deal.sellerId, [...(byOperator.get(deal.sellerId) || []), deal.id]);
+          for (const [operatorId, ids] of byOperator) {
+            const response = await fetch("/api/commercial/directives/point", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ operatorId, dealIds: ids }),
+            });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error || "Falha ao pontuar responsabilidades.");
+          }
+          await load();
         }}
       />
 
@@ -846,18 +1011,19 @@ export function CommercialBiView() {
       <CommercialPacingFilterModal
         isOpen={pacingModalOpen}
         onClose={() => setPacingModalOpen(false)}
-        sellerName={pacingModalSeller?.sellerName || "Marcelo Nardelli"}
+        sellerName={pacingModalSeller?.sellerName || "Equipe comercial"}
         sellerId={pacingModalSeller?.sellerId}
         division={pacingModalSeller?.division || "personnalite"}
-        metaValue={pacingModalSeller?.metaMonthly || 880_000}
+        metaValue={pacingModalSeller?.metaMonthly || 0}
         deals={activePacingModalDeals}
         sellerAvatar={pacingModalSeller?.avatarUrl}
         onOpenDeal={(dealId) => openDeal(dealId)}
         onOpenProfile={() => {
-          navigate({ to: "/commercial-management" as any });
+          setActiveView("commercialManagement");
+          navigate({ to: "/" });
         }}
         onCallContact={(phone, dealTitle) => {
-          console.log(`[PACING] Contatando telefone: ${phone} (${dealTitle})`);
+          if (phone) window.open(`tel:${phone.replace(/[^\d+]/g, "")}`, "_self");
         }}
       />
 
@@ -868,32 +1034,48 @@ export function CommercialBiView() {
         consultant={diretrizesModalConsultant}
         onOpenDeal={(dealId) => openDeal(dealId)}
         onOpenProfile={() => {
-          navigate({ to: "/commercial-management" as any });
+          setActiveView("commercialManagement");
+          navigate({ to: "/" });
         }}
       />
 
       {/* ─── MODAL BREAKDOWN DE TAXA DE EXECUÇÃO (DIRETRIZES CRM / FOTO 3) ─── */}
-      <CommercialDiretrizesBreakdownModal
-        isOpen={diretrizesBreakdownOpen}
-        onClose={() => setDiretrizesBreakdownOpen(false)}
-        kpis={BASELINE_DIRETRIZES_KPIS}
-        consultants={ALL_BASELINE_DIRETRIZES_CONSULTANTS}
-        onSelectConsultant={(c) => {
-          setDiretrizesBreakdownOpen(false);
-          setDiretrizesModalConsultant(c);
-          setDiretrizesDetailOpen(true);
-        }}
-      />
+      {diretrizesData && (
+        <CommercialDiretrizesBreakdownModal
+          isOpen={diretrizesBreakdownOpen}
+          onClose={() => setDiretrizesBreakdownOpen(false)}
+          kpis={diretrizesData.kpis}
+          consultants={diretrizesData.consultants}
+          onSelectConsultant={(c) => {
+            setDiretrizesBreakdownOpen(false);
+            setDiretrizesModalConsultant(c);
+            setDiretrizesDetailOpen(true);
+          }}
+        />
+      )}
 
       {/* ─── MODAL FULLSCREEN DE SAFRAS & RÉGUA DE-PARA (SLIDE 8) ─── */}
       <MaturityCohortFullscreenModal
         isOpen={safrasFullscreenOpen}
         onClose={() => setSafrasFullscreenOpen(false)}
+        data={
+          cohortData || {
+            success: true,
+            updatedAt: "",
+            tiersConfig: [],
+            months: [],
+            summary: {
+              totalCardsAllMonths: 0,
+              totalUnclassifiedAllMonths: 0,
+              totalClassifiedAllMonths: 0,
+              totalValueAllMonths: 0,
+            },
+          }
+        }
+        division={division}
         tenantId={tenant}
         onOpenDeal={openDeal}
       />
     </section>
   );
 }
-
-

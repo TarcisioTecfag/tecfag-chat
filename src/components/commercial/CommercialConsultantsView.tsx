@@ -39,7 +39,6 @@ export type ConsultantRow = {
   avatar?: string | null;
   division?: string | null; // 'personnalite' | 'maquinas'
   activeOnTv?: boolean | null;
-  rdUserId?: string | null;
   status?: string | null; // 'disponivel' | 'ocupado' | 'ausente'
   role?: string | null;
   isOnline?: boolean | null;
@@ -66,26 +65,17 @@ export function CommercialConsultantsView({
   // Estados de modais
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [editingConsultant, setEditingConsultant] = useState<ConsultantRow | null>(null);
-  const [linkingConsultant, setLinkingConsultant] = useState<ConsultantRow | null>(null);
   const [deletingConsultant, setDeletingConsultant] = useState<ConsultantRow | null>(null);
 
   // Formulário Novo Consultor
-  const [newConsultantType, setNewConsultantType] = useState<"existing" | "new">("existing");
   const [selectedOperatorId, setSelectedOperatorId] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
   const [newDivision, setNewDivision] = useState<"maquinas" | "personnalite">("maquinas");
   const [newActiveOnTv, setNewActiveOnTv] = useState(true);
-  const [newRdUserId, setNewRdUserId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Formulário Edição
   const [editDivision, setEditDivision] = useState<"maquinas" | "personnalite">("maquinas");
   const [editActiveOnTv, setEditActiveOnTv] = useState(true);
-  const [editRdUserId, setEditRdUserId] = useState("");
-
-  // Formulário Vínculo CRM direto
-  const [directRdUserId, setDirectRdUserId] = useState("");
 
   // Lista de operadores elegíveis para "Novo Consultor" (operadores que ainda não têm equipe definida)
   const unassignedOperators = useMemo(() => {
@@ -103,9 +93,7 @@ export function CommercialConsultantsView({
   }, [consultants]);
 
   const teamsCount = useMemo(() => {
-    const teams = new Set(
-      consultants.map((c) => c.division?.toLowerCase()).filter(Boolean)
-    );
+    const teams = new Set(consultants.map((c) => c.division?.toLowerCase()).filter(Boolean));
     return teams.size || 2; // Máquinas e Personnalité
   }, [consultants]);
 
@@ -113,15 +101,8 @@ export function CommercialConsultantsView({
   const filteredConsultants = useMemo(() => {
     let result = consultants.filter((c) => Boolean(c.division));
 
-    // Se não tiver nenhum com divisão mas houver consultores na lista, mostra todos
-    if (result.length === 0 && consultants.length > 0) {
-      result = consultants;
-    }
-
     if (teamFilter !== "all") {
-      result = result.filter(
-        (c) => c.division?.toLowerCase() === teamFilter.toLowerCase()
-      );
+      result = result.filter((c) => c.division?.toLowerCase() === teamFilter.toLowerCase());
     }
 
     if (searchTerm.trim()) {
@@ -131,7 +112,7 @@ export function CommercialConsultantsView({
           c.name.toLowerCase().includes(term) ||
           c.email.toLowerCase().includes(term) ||
           (c.division && c.division.toLowerCase().includes(term)) ||
-          (c.rdUserId && c.rdUserId.toLowerCase().includes(term))
+          c.operatorId.toLowerCase().includes(term),
       );
     }
 
@@ -168,20 +149,20 @@ export function CommercialConsultantsView({
         }
 
         toast.success(
-          `${consultant.name} agora está ${nextTvState ? "visível" : "oculto"} no BI TV.`
+          `${consultant.name} agora está ${nextTvState ? "visível" : "oculto"} no BI TV.`,
         );
         if (onRefresh) await onRefresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Erro ao atualizar TV");
       }
     },
-    [onRefresh]
+    [onRefresh],
   );
 
-  // Copiar ID do CRM
-  const handleCopyRdId = useCallback((rdId: string) => {
-    navigator.clipboard.writeText(rdId);
-    toast.success("ID CRM copiado com sucesso!");
+  // O CRM local usa o mesmo ID do operador autenticado.
+  const handleCopyOperatorId = useCallback((operatorId: string) => {
+    void navigator.clipboard.writeText(operatorId);
+    toast.success("ID do usuário copiado.");
   }, []);
 
   // Exportar para CSV compatível com Excel
@@ -196,7 +177,7 @@ export function CommercialConsultantsView({
       "E-mail",
       "Equipe",
       "Visível no BI TV",
-      "Vínculo CRM",
+      "ID do usuário",
       "Status",
     ];
 
@@ -204,13 +185,12 @@ export function CommercialConsultantsView({
       `"${c.name.replace(/"/g, '""')}"`,
       `"${c.email.replace(/"/g, '""')}"`,
       `"${(c.division || "NÃO ATRIBUÍDO").toUpperCase()}"`,
-      c.activeOnTv ?? true ? "SIM" : "NÃO",
-      `"${c.rdUserId || "NÃO VINCULADO"}"`,
+      (c.activeOnTv ?? true) ? "SIM" : "NÃO",
+      `"${c.operatorId}"`,
       c.status === "ausente" ? "Ausente" : "Ativo",
     ]);
 
-    const csvContent =
-      "\uFEFF" + [headers.join(";"), ...rows.map((r) => r.join(";"))].join("\r\n");
+    const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map((r) => r.join(";"))].join("\r\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -218,7 +198,7 @@ export function CommercialConsultantsView({
     link.setAttribute("href", url);
     link.setAttribute(
       "download",
-      `consultores-equipes-tecfag-${new Date().toISOString().slice(0, 10)}.csv`
+      `consultores-equipes-tecfag-${new Date().toISOString().slice(0, 10)}.csv`,
     );
     document.body.appendChild(link);
     link.click();
@@ -230,11 +210,8 @@ export function CommercialConsultantsView({
   // Abertura do Modal de Edição
   const handleOpenEdit = useCallback((consultant: ConsultantRow) => {
     setEditingConsultant(consultant);
-    setEditDivision(
-      consultant.division === "personnalite" ? "personnalite" : "maquinas"
-    );
+    setEditDivision(consultant.division === "personnalite" ? "personnalite" : "maquinas");
     setEditActiveOnTv(consultant.activeOnTv ?? true);
-    setEditRdUserId(consultant.rdUserId || "");
   }, []);
 
   // Salvar Edição
@@ -250,7 +227,6 @@ export function CommercialConsultantsView({
           operatorId: editingConsultant.operatorId,
           division: editDivision,
           activeOnTv: editActiveOnTv,
-          rdUserId: editRdUserId.trim() || null,
         }),
       });
 
@@ -267,47 +243,7 @@ export function CommercialConsultantsView({
     } finally {
       setIsSubmitting(false);
     }
-  }, [editingConsultant, editDivision, editActiveOnTv, editRdUserId, onRefresh]);
-
-  // Abertura do Modal de Vínculo CRM Direto
-  const handleOpenLinkRd = useCallback((consultant: ConsultantRow) => {
-    setLinkingConsultant(consultant);
-    setDirectRdUserId(consultant.rdUserId || "");
-  }, []);
-
-  // Salvar Vínculo CRM Direto
-  const handleSaveDirectRd = useCallback(async () => {
-    if (!linkingConsultant) return;
-    setIsSubmitting(true);
-    try {
-      const response = await fetch("/api/commercial/consultants", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          operatorId: linkingConsultant.operatorId,
-          rdUserId: directRdUserId.trim() || null,
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || "Falha ao atualizar vínculo CRM.");
-      }
-
-      toast.success(
-        directRdUserId.trim()
-          ? `Vínculo com CRM atualizado para ${linkingConsultant.name}!`
-          : `Vínculo com CRM removido para ${linkingConsultant.name}.`
-      );
-      setLinkingConsultant(null);
-      if (onRefresh) await onRefresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao atualizar vínculo.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [linkingConsultant, directRdUserId, onRefresh]);
+  }, [editingConsultant, editDivision, editActiveOnTv, onRefresh]);
 
   // Confirmar Exclusão / Remoção da Equipe Comercial
   const handleConfirmDelete = useCallback(async () => {
@@ -316,12 +252,12 @@ export function CommercialConsultantsView({
     try {
       const response = await fetch(
         `/api/commercial/consultants?operatorId=${encodeURIComponent(
-          deletingConsultant.operatorId
+          deletingConsultant.operatorId,
         )}`,
         {
           method: "DELETE",
           credentials: "same-origin",
-        }
+        },
       );
 
       if (!response.ok) {
@@ -343,43 +279,8 @@ export function CommercialConsultantsView({
   const handleSaveNewConsultant = useCallback(async () => {
     setIsSubmitting(true);
     try {
-      let targetOperatorId = selectedOperatorId;
-
-      if (newConsultantType === "new") {
-        if (!newName.trim() || !newEmail.trim()) {
-          throw new Error("Nome e E-mail são obrigatórios para novo cadastro.");
-        }
-
-        const generatedId = `op-tf-${newEmail
-          .split("@")[0]
-          .replace(/[^a-zA-Z0-9]/g, ".")
-          .toLowerCase()}`;
-
-        // Cria operador no sistema
-        const createOpRes = await fetch("/api/operators", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({
-            id: generatedId,
-            name: newName.trim(),
-            email: newEmail.trim().toLowerCase(),
-            password: "Mudar@123456",
-            role: "agent",
-            status: "disponivel",
-          }),
-        });
-
-        if (!createOpRes.ok) {
-          const err = await createOpRes.json().catch(() => ({}));
-          throw new Error(err.error || "Falha ao criar operador no sistema.");
-        }
-
-        targetOperatorId = generatedId;
-      }
-
-      if (!targetOperatorId) {
-        throw new Error("Selecione um operador ou cadastre um novo.");
+      if (!selectedOperatorId) {
+        throw new Error("Selecione um usuário existente do Tecfag Chat.");
       }
 
       // Vincula à equipe comercial
@@ -388,10 +289,9 @@ export function CommercialConsultantsView({
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({
-          operatorId: targetOperatorId,
+          operatorId: selectedOperatorId,
           division: newDivision,
           activeOnTv: newActiveOnTv,
-          rdUserId: newRdUserId.trim() || null,
         }),
       });
 
@@ -403,25 +303,13 @@ export function CommercialConsultantsView({
       toast.success("Novo consultor comercial adicionado com sucesso!");
       setIsNewModalOpen(false);
       setSelectedOperatorId("");
-      setNewName("");
-      setNewEmail("");
-      setNewRdUserId("");
       if (onRefresh) await onRefresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao adicionar consultor.");
     } finally {
       setIsSubmitting(false);
     }
-  }, [
-    newConsultantType,
-    selectedOperatorId,
-    newName,
-    newEmail,
-    newDivision,
-    newActiveOnTv,
-    newRdUserId,
-    onRefresh,
-  ]);
+  }, [selectedOperatorId, newDivision, newActiveOnTv, onRefresh]);
 
   return (
     <div className="space-y-6">
@@ -644,7 +532,6 @@ export function CommercialConsultantsView({
                 paginatedConsultants.map((consultant) => {
                   const isVisibleOnTv = consultant.activeOnTv ?? true;
                   const divisionDisplay = (consultant.division || "Sem equipe").toUpperCase();
-                  const rdId = consultant.rdUserId;
 
                   // Iniciais para avatar
                   const initials = consultant.name
@@ -659,7 +546,7 @@ export function CommercialConsultantsView({
                       key={consultant.operatorId}
                       className="hover:bg-muted/30 transition-colors group"
                     >
-                      {/* 1. Consultor (Avatar + Nome + Vínculo CRM) */}
+                      {/* 1. Consultor vinculado ao usuário local */}
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-3">
                           <div className="relative shrink-0">
@@ -681,25 +568,22 @@ export function CommercialConsultantsView({
                               {consultant.name}
                             </div>
                             <div className="text-[10px] text-muted-foreground dark:text-zinc-400 mt-0.5 flex items-center gap-1 font-mono">
-                              {rdId ? (
-                                <SystemTooltip content={`ID CRM: ${rdId} (Clique para copiar)`}>
-                                  <button
-                                    onClick={() => handleCopyRdId(rdId)}
-                                    className="hover:text-primary transition flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <span>
-                                      Vínculo CRM: {rdId.length > 10 ? `${rdId.slice(0, 8)}...` : rdId}
-                                    </span>
-                                    <Copy className="h-2.5 w-2.5 opacity-60 hover:opacity-100" />
-                                  </button>
-                                </SystemTooltip>
-                              ) : (
-                                <SystemTooltip content="Consultor não vinculado ao CRM. Clique no ícone de link ao lado para vincular.">
-                                  <span className="text-muted-foreground/60 italic">
-                                    Vínculo CRM: Não vinculado
+                              <SystemTooltip
+                                content={`Usuário do Tecfag Chat: ${consultant.operatorId} (clique para copiar)`}
+                              >
+                                <button
+                                  onClick={() => handleCopyOperatorId(consultant.operatorId)}
+                                  className="hover:text-primary transition flex items-center gap-1 cursor-pointer"
+                                >
+                                  <span>
+                                    Usuário local:{" "}
+                                    {consultant.operatorId.length > 10
+                                      ? `${consultant.operatorId.slice(0, 8)}...`
+                                      : consultant.operatorId}
                                   </span>
-                                </SystemTooltip>
-                              )}
+                                  <Copy className="h-2.5 w-2.5 opacity-60 hover:opacity-100" />
+                                </button>
+                              </SystemTooltip>
                             </div>
                           </div>
                         </div>
@@ -765,13 +649,12 @@ export function CommercialConsultantsView({
                         </div>
                       </td>
 
-                      {/* 6. Ações (Vínculo CRM, Editar, Excluir) */}
+                      {/* 6. Ações */}
                       <td className="px-6 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Botão Vínculo CRM */}
-                          <SystemTooltip content="Configurar Vínculo com CRM">
+                          <SystemTooltip content="Copiar ID do usuário local">
                             <button
-                              onClick={() => handleOpenLinkRd(consultant)}
+                              onClick={() => handleCopyOperatorId(consultant.operatorId)}
                               className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-primary hover:border-primary/50 transition cursor-pointer shadow-sm"
                             >
                               <Link2 className="h-3.5 w-3.5" />
@@ -814,10 +697,7 @@ export function CommercialConsultantsView({
               <>
                 Mostrando{" "}
                 <span className="font-bold text-foreground dark:text-zinc-100">
-                  {Math.min(
-                    (validCurrentPage - 1) * PAGE_SIZE + 1,
-                    filteredConsultants.length
-                  )}
+                  {Math.min((validCurrentPage - 1) * PAGE_SIZE + 1, filteredConsultants.length)}
                 </span>{" "}
                 a{" "}
                 <span className="font-bold text-foreground dark:text-zinc-100">
@@ -890,86 +770,28 @@ export function CommercialConsultantsView({
               <span className="font-mono">Novo Consultor Comercial</span>
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
-              Vincule um operador existente da Tecfag a uma equipe ou crie um novo consultor.
+              Vincule um usuário já cadastrado no Tecfag Chat a uma equipe comercial.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Seletor de Modo: Operador Existente vs Novo Cadastro */}
-            <div className="grid grid-cols-2 gap-1 p-1 rounded-[4px] bg-muted/20 dark:bg-zinc-900/80 border border-border/80 dark:border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setNewConsultantType("existing")}
-                className={`py-1.5 text-xs font-mono font-bold rounded-[2px] transition cursor-pointer ${
-                  newConsultantType === "existing"
-                    ? "bg-card dark:bg-zinc-800 text-foreground shadow-xs border border-border/60 dark:border-zinc-700"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+                Usuário do Tecfag Chat
+              </label>
+              <select
+                value={selectedOperatorId}
+                onChange={(e) => setSelectedOperatorId(e.target.value)}
+                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary cursor-pointer"
               >
-                Operador Existente
-              </button>
-              <button
-                type="button"
-                onClick={() => setNewConsultantType("new")}
-                className={`py-1.5 text-xs font-mono font-bold rounded-[2px] transition cursor-pointer ${
-                  newConsultantType === "new"
-                    ? "bg-card dark:bg-zinc-800 text-foreground shadow-xs border border-border/60 dark:border-zinc-700"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Novo Cadastro
-              </button>
+                <option value="">Selecione um usuário...</option>
+                {unassignedOperators.map((op) => (
+                  <option key={op.operatorId} value={op.operatorId}>
+                    {op.name} ({op.email})
+                  </option>
+                ))}
+              </select>
             </div>
-
-            {newConsultantType === "existing" ? (
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
-                  Selecione o Operador
-                </label>
-                <div className="relative">
-                  <select
-                    value={selectedOperatorId}
-                    onChange={(e) => setSelectedOperatorId(e.target.value)}
-                    className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary cursor-pointer"
-                  >
-                    <option value="">Selecione um operador...</option>
-                    {consultants.map((op) => (
-                      <option key={op.operatorId} value={op.operatorId}>
-                        {op.name} ({op.email})
-                        {op.division ? ` - Já em ${op.division.toUpperCase()}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
-                    Nome Completo
-                  </label>
-                  <input
-                    type="text"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="Ex: Beatriz Ribeiro"
-                    className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
-                    E-mail Corporativo
-                  </label>
-                  <input
-                    type="email"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="Ex: vendas7@tecfag.com.br"
-                    className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
-                  />
-                </div>
-              </>
-            )}
 
             {/* Seleção de Equipe */}
             <div className="space-y-1.5">
@@ -1007,7 +829,9 @@ export function CommercialConsultantsView({
             {/* Visibilidade no BI TV */}
             <div className="flex items-center justify-between p-3 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-muted/20 dark:bg-zinc-900/40">
               <div>
-                <div className="text-xs font-mono font-bold text-foreground dark:text-zinc-100">Visível no BI TV</div>
+                <div className="text-xs font-mono font-bold text-foreground dark:text-zinc-100">
+                  Visível no BI TV
+                </div>
                 <div className="text-[11px] text-muted-foreground dark:text-zinc-400">
                   Exibir os resultados e métricas no painel de TV
                 </div>
@@ -1031,23 +855,6 @@ export function CommercialConsultantsView({
                   </>
                 )}
               </button>
-            </div>
-
-            {/* Vínculo CRM */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 flex items-center justify-between">
-                <span>Vínculo CRM (Opcional)</span>
-                <span className="text-[10px] text-muted-foreground/80 lowercase">
-                  user_id do crm
-                </span>
-              </label>
-              <input
-                type="text"
-                value={newRdUserId}
-                onChange={(e) => setNewRdUserId(e.target.value)}
-                placeholder="Ex: 67b482ec047d9c001e3b5e4a"
-                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
-              />
             </div>
           </div>
 
@@ -1084,8 +891,11 @@ export function CommercialConsultantsView({
               <span className="font-mono">Editar Consultor Comercial</span>
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
-              Atualize a equipe, visibilidade no BI TV e vínculo CRM de{" "}
-              <strong className="text-foreground dark:text-zinc-100">{editingConsultant?.name}</strong>.
+              Atualize a equipe e a visibilidade no BI TV de{" "}
+              <strong className="text-foreground dark:text-zinc-100">
+                {editingConsultant?.name}
+              </strong>
+              .
             </DialogDescription>
           </DialogHeader>
 
@@ -1126,7 +936,9 @@ export function CommercialConsultantsView({
             {/* Visibilidade no BI TV */}
             <div className="flex items-center justify-between p-3 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-muted/20 dark:bg-zinc-900/40">
               <div>
-                <div className="text-xs font-mono font-bold text-foreground dark:text-zinc-100">Visível no BI TV</div>
+                <div className="text-xs font-mono font-bold text-foreground dark:text-zinc-100">
+                  Visível no BI TV
+                </div>
                 <div className="text-[11px] text-muted-foreground dark:text-zinc-400">
                   Exibir os resultados e métricas no painel de TV
                 </div>
@@ -1151,23 +963,6 @@ export function CommercialConsultantsView({
                 )}
               </button>
             </div>
-
-            {/* Vínculo CRM */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 flex items-center justify-between">
-                <span>Vínculo CRM</span>
-                <span className="text-[10px] text-muted-foreground/80 lowercase">
-                  user_id do crm
-                </span>
-              </label>
-              <input
-                type="text"
-                value={editRdUserId}
-                onChange={(e) => setEditRdUserId(e.target.value)}
-                placeholder="Ex: 67b482ec047d9c001e3b5e4a"
-                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
-              />
-            </div>
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
@@ -1191,64 +986,6 @@ export function CommercialConsultantsView({
         </DialogContent>
       </Dialog>
 
-      {/* Modal: Vínculo Rápido CRM */}
-      <Dialog
-        open={Boolean(linkingConsultant)}
-        onOpenChange={(open) => !open && setLinkingConsultant(null)}
-      >
-        <DialogContent className="sm:max-w-md rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950 p-6 shadow-xl font-sans">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
-              <Link2 className="h-5 w-5 text-primary" />
-              <span className="font-mono">Vínculo com CRM</span>
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
-              Defina o identificador do consultor no CRM para sincronização de
-              negociações e histórico de vendas de{" "}
-              <strong className="text-foreground dark:text-zinc-100">{linkingConsultant?.name}</strong>.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
-                ID de Usuário no CRM (user_id)
-              </label>
-              <input
-                type="text"
-                value={directRdUserId}
-                onChange={(e) => setDirectRdUserId(e.target.value)}
-                placeholder="Ex: 67b482ec047d9c001e3b5e4a"
-                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
-              />
-            </div>
-            <p className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400 leading-relaxed">
-              Dica: O ID de usuário é o hash hexadecimal (ObjectId de 24 caracteres)
-              encontrado no cadastro de usuários do CRM.
-            </p>
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <button
-              type="button"
-              onClick={() => setLinkingConsultant(null)}
-              className="px-4 py-2 rounded-[4px] text-xs font-mono font-bold text-muted-foreground hover:bg-muted dark:hover:bg-zinc-900 transition cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => void handleSaveDirectRd()}
-              className="px-4 py-2 rounded-[4px] bg-primary text-primary-foreground text-xs font-mono font-bold shadow-sm hover:brightness-110 disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
-            >
-              {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              <span>Salvar vínculo</span>
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Modal: Confirmação de Remoção / Desvinculação */}
       <Dialog
         open={Boolean(deletingConsultant)}
@@ -1262,8 +999,10 @@ export function CommercialConsultantsView({
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
               Tem certeza de que deseja remover{" "}
-              <strong className="text-foreground dark:text-zinc-100">{deletingConsultant?.name}</strong> da equipe
-              comercial?
+              <strong className="text-foreground dark:text-zinc-100">
+                {deletingConsultant?.name}
+              </strong>{" "}
+              da equipe comercial?
             </DialogDescription>
           </DialogHeader>
 

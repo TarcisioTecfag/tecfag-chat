@@ -1,22 +1,10 @@
 import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  Users,
-  Zap,
-  Layers,
-  CircleDollarSign,
-  Clock,
-  HelpCircle,
-} from "lucide-react";
-import {
-  ALL_PERDAS_PERIODS,
-  PerdasCategory,
-  PerdasPeriodData,
-  PerdasPeriodKey,
-} from "@/lib/commercial/perdas-data";
+import { Users, Zap, Layers, CircleDollarSign, Clock, HelpCircle } from "lucide-react";
+import { PerdasCategory, PerdasPeriodData, PerdasPeriodKey } from "@/lib/commercial/perdas-data";
 
 export interface CommercialPerdasTableViewProps {
-  periods?: Record<PerdasPeriodKey, PerdasPeriodData>;
+  periods: Record<PerdasPeriodKey, PerdasPeriodData>;
   initialPeriod?: PerdasPeriodKey;
   selectedPeriod?: PerdasPeriodKey;
   onSelectPeriod?: (period: PerdasPeriodKey) => void;
@@ -24,13 +12,7 @@ export interface CommercialPerdasTableViewProps {
 }
 
 // ─── SVG DONUT CHART VECTORIAL & PURO (FIEL À VERSÃO ORIGINAL) ───
-function DonutChart({
-  total,
-  categories,
-}: {
-  total: number;
-  categories: PerdasCategory[];
-}) {
+function DonutChart({ total, categories }: { total: number; categories: PerdasCategory[] }) {
   const strokeWidth = 14;
   const radius = 36;
   const circumference = 2 * Math.PI * radius; // ~226.195
@@ -52,10 +34,7 @@ function DonutChart({
 
   return (
     <div className="relative flex items-center justify-center select-none w-[110px] h-[110px] sm:w-[124px] sm:h-[124px] xl:w-[136px] xl:h-[136px]">
-      <svg
-        viewBox="0 0 100 100"
-        className="w-full h-full rotate-[-90deg] transform"
-      >
+      <svg viewBox="0 0 100 100" className="w-full h-full rotate-[-90deg] transform">
         {/* Trilho base */}
         <circle
           cx="50"
@@ -112,7 +91,7 @@ function CategoryIcon({ iconName, colorHex }: { iconName: string; colorHex: stri
 }
 
 export function CommercialPerdasTableView({
-  periods = ALL_PERDAS_PERIODS,
+  periods,
   initialPeriod = "mes_atual",
   selectedPeriod: controlledPeriod,
   onSelectPeriod,
@@ -126,8 +105,7 @@ export function CommercialPerdasTableView({
     onSelectPeriod?.(key);
   };
 
-  const activePeriodData: PerdasPeriodData =
-    periods[activePeriodKey] || periods.mes_atual || ALL_PERDAS_PERIODS.mes_atual;
+  const activePeriodData: PerdasPeriodData = periods[activePeriodKey];
 
   const periodKeys: PerdasPeriodKey[] = ["mes_atual", "mes_passado", "geral_historico"];
 
@@ -167,10 +145,7 @@ export function CommercialPerdasTableView({
               >
                 {/* Donut Chart com Total Central */}
                 <div className="my-auto flex items-center justify-center">
-                  <DonutChart
-                    total={pData.totalCount}
-                    categories={pData.categories}
-                  />
+                  <DonutChart total={pData.totalCount} categories={pData.categories} />
                 </div>
 
                 {/* Textos Informativos Inferiores */}
@@ -186,8 +161,8 @@ export function CommercialPerdasTableView({
                       pKey === "mes_atual"
                         ? "text-cyan-600 dark:text-cyan-400"
                         : pKey === "mes_passado"
-                        ? "text-amber-600 dark:text-amber-400"
-                        : "text-slate-500 dark:text-zinc-500"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-slate-500 dark:text-zinc-500"
                     }`}
                   >
                     {pData.subtitleMetric}
@@ -203,7 +178,8 @@ export function CommercialPerdasTableView({
           {/* Cabeçalho do Painel Direito */}
           <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800/70 pb-2 mb-2 shrink-0">
             <span className="font-mono text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wide">
-              MOTIVOS DE PERDA MAPEADOS • {activePeriodData.title} ({activePeriodData.totalCount} PERDAS)
+              MOTIVOS DE PERDA MAPEADOS • {activePeriodData.title} ({activePeriodData.totalCount}{" "}
+              PERDAS)
             </span>
             <span className="font-mono text-[9px] sm:text-[10px] text-slate-500 dark:text-zinc-500">
               Filtro Selecionado: {activePeriodData.headerFilterLabel}
@@ -224,10 +200,7 @@ export function CommercialPerdasTableView({
                   {/* Linha Superior: Ícone + Nome da Categoria (Esquerda) e Contagem + Pill % (Direita) */}
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-1.5 sm:gap-2">
-                      <CategoryIcon
-                        iconName={category.iconName}
-                        colorHex={category.colorHex}
-                      />
+                      <CategoryIcon iconName={category.iconName} colorHex={category.colorHex} />
                       <span className="font-mono text-[11px] sm:text-xs xl:text-sm font-bold text-slate-900 group-hover:text-slate-700 dark:text-white tracking-wide dark:group-hover:text-zinc-200">
                         {category.name}
                       </span>

@@ -2,26 +2,23 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Users, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import {
-  BASELINE_DIRETRIZES_KPIS,
-  BASELINE_DIRETRIZES_PERSONNALITE,
-  BASELINE_DIRETRIZES_MAQUINAS,
   DiretrizesConsultantRow,
   DiretrizesKpis,
   DiretrizesTeamGroup,
 } from "@/lib/commercial/diretrizes-crm-data";
 
 interface CommercialDiretrizesTableViewProps {
-  kpis?: DiretrizesKpis;
-  personnaliteData?: DiretrizesTeamGroup;
-  semiMaquinasData?: DiretrizesTeamGroup;
+  kpis: DiretrizesKpis;
+  personnaliteData: DiretrizesTeamGroup;
+  semiMaquinasData: DiretrizesTeamGroup;
   onConsultantClick?: (consultant: DiretrizesConsultantRow) => void;
   onBreakdownClick?: () => void;
 }
 
 export function CommercialDiretrizesTableView({
-  kpis = BASELINE_DIRETRIZES_KPIS,
-  personnaliteData = BASELINE_DIRETRIZES_PERSONNALITE,
-  semiMaquinasData = BASELINE_DIRETRIZES_MAQUINAS,
+  kpis,
+  personnaliteData,
+  semiMaquinasData,
   onConsultantClick,
   onBreakdownClick,
 }: CommercialDiretrizesTableViewProps) {
@@ -52,13 +49,31 @@ export function CommercialDiretrizesTableView({
     return (
       <div className="w-full">
         <div className="flex items-center justify-between font-mono text-xs sm:text-[13px] mb-1.5 font-bold">
-          <span className={consultant.concluidas > 0 ? "text-emerald-700 dark:text-emerald-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}>
+          <span
+            className={
+              consultant.concluidas > 0
+                ? "text-emerald-700 dark:text-emerald-400 font-black"
+                : "text-slate-400 dark:text-zinc-500 font-semibold"
+            }
+          >
             {consultant.concluidas} conc.
           </span>
-          <span className={consultant.pendenteHoje > 0 ? "text-amber-700 dark:text-amber-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}>
+          <span
+            className={
+              consultant.pendenteHoje > 0
+                ? "text-amber-700 dark:text-amber-400 font-black"
+                : "text-slate-400 dark:text-zinc-500 font-semibold"
+            }
+          >
             {consultant.pendenteHoje} hoje
           </span>
-          <span className={consultant.atrasadas > 0 ? "text-red-700 dark:text-red-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}>
+          <span
+            className={
+              consultant.atrasadas > 0
+                ? "text-red-700 dark:text-red-400 font-black"
+                : "text-slate-400 dark:text-zinc-500 font-semibold"
+            }
+          >
             {consultant.atrasadas} atras.
           </span>
         </div>
@@ -103,9 +118,7 @@ export function CommercialDiretrizesTableView({
         transition={{ duration: 0.12 }}
         onClick={() => onConsultantClick?.(consultant)}
         className={`flex items-center justify-between gap-3 sm:gap-4 rounded-[4px] border border-slate-200 bg-white hover:bg-slate-50 dark:border-zinc-800/80 dark:bg-zinc-950/60 dark:hover:bg-zinc-900/60 px-3 sm:px-4 py-2 sm:py-2.5 xl:py-3 transition-colors cursor-pointer ${
-          hasDirectives
-            ? "shadow-sm"
-            : ""
+          hasDirectives ? "shadow-sm" : ""
         }`}
       >
         {/* Esquerda: Avatar + Nome + Quantidade de Diretrizes */}
@@ -132,15 +145,15 @@ export function CommercialDiretrizesTableView({
         </div>
 
         {/* Centro: Barra de Progresso com Contadores que se estende por quase toda a largura */}
-        <div className="flex-1 px-3 sm:px-6 xl:px-8">
-          {renderProgressBar(consultant)}
-        </div>
+        <div className="flex-1 px-3 sm:px-6 xl:px-8">{renderProgressBar(consultant)}</div>
 
         {/* Direita: Taxa de Execução + Valor */}
         <div className="w-20 sm:w-24 text-right font-mono shrink-0">
           <span
             className={`block text-xs sm:text-sm font-black ${
-              hasDirectives ? "text-emerald-700 dark:text-emerald-400" : "text-slate-400 dark:text-zinc-500"
+              hasDirectives
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-slate-400 dark:text-zinc-500"
             }`}
           >
             {hasDirectives ? `${consultant.taxaExecucaoPercent}%` : "—"}
@@ -225,7 +238,9 @@ export function CommercialDiretrizesTableView({
               deals
             </span>
           </div>
-          <p className="mt-0.5 font-mono text-xs sm:text-sm text-slate-600 dark:text-zinc-400">{kpis.atrasoLabel}</p>
+          <p className="mt-0.5 font-mono text-xs sm:text-sm text-slate-600 dark:text-zinc-400">
+            {kpis.atrasoLabel}
+          </p>
         </motion.div>
       </div>
 
@@ -268,7 +283,9 @@ export function CommercialDiretrizesTableView({
           {/* EQUIPE 1: ★ TIME PERSONNALITÉ */}
           <div className="rounded-[4px] border border-slate-200 bg-slate-50/60 dark:border-zinc-800/80 dark:bg-zinc-950/50 p-2.5 sm:p-3 xl:p-3.5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
-              <span className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${personnaliteData.badgeColorClass}`}>
+              <span
+                className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${personnaliteData.badgeColorClass}`}
+              >
                 {personnaliteData.teamLabel}
               </span>
               <div className="flex items-center gap-3 sm:gap-4 font-mono text-[11px] sm:text-xs text-slate-600 dark:text-zinc-400">
@@ -295,7 +312,9 @@ export function CommercialDiretrizesTableView({
           {/* EQUIPE 2: 🗝 TIME MÁQUINAS / SEMI */}
           <div className="rounded-[4px] border border-slate-200 bg-slate-50/60 dark:border-zinc-800/80 dark:bg-zinc-950/50 p-2.5 sm:p-3 xl:p-3.5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
-              <span className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${semiMaquinasData.badgeColorClass}`}>
+              <span
+                className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${semiMaquinasData.badgeColorClass}`}
+              >
                 {semiMaquinasData.teamLabel}
               </span>
               <div className="flex items-center gap-3 sm:gap-4 font-mono text-[11px] sm:text-xs text-slate-600 dark:text-zinc-400">

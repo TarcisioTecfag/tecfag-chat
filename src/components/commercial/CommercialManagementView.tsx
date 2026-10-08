@@ -24,13 +24,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { CommercialDiretrizesTableView } from "./CommercialDiretrizesTableView";
 import { CommercialDiretrizesDetailModal } from "./CommercialDiretrizesDetailModal";
 import { CommercialDiretrizesBreakdownModal } from "./CommercialDiretrizesBreakdownModal";
-import {
-  BASELINE_DIRETRIZES_KPIS,
-  BASELINE_DIRETRIZES_PERSONNALITE,
-  BASELINE_DIRETRIZES_MAQUINAS,
-  ALL_BASELINE_DIRETRIZES_CONSULTANTS,
-  DiretrizesConsultantRow,
-} from "@/lib/commercial/diretrizes-crm-data";
+import type { DiretrizesConsultantRow } from "@/lib/commercial/diretrizes-crm-data";
+import { toDiretrizesPresentation } from "@/lib/commercial/presentation-data";
 
 const COMMERCIAL_TABS = [
   { id: "consultants", label: "Consultores", icon: Users },
@@ -97,7 +92,8 @@ type Evidence = {
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const fieldClass =
   "w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary transition-colors";
-const labelClass = "text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400";
+const labelClass =
+  "text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400";
 
 async function getJson(url: string) {
   const response = await fetch(url, { credentials: "same-origin" });
@@ -133,6 +129,9 @@ export function CommercialManagementView() {
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [directives, setDirectives] = useState<Directive[]>([]);
+  const [responsibilities, setResponsibilities] = useState<ReturnType<
+    typeof toDiretrizesPresentation
+  > | null>(null);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [closings, setClosings] = useState<Closing[]>([]);
@@ -157,7 +156,8 @@ export function CommercialManagementView() {
   });
 
   // Estados para o Cockpit de Diretrizes CRM (Fotos 1, 2, 3 e 4)
-  const [diretrizesModalConsultant, setDiretrizesModalConsultant] = useState<DiretrizesConsultantRow | null>(null);
+  const [diretrizesModalConsultant, setDiretrizesModalConsultant] =
+    useState<DiretrizesConsultantRow | null>(null);
   const [diretrizesDetailOpen, setDiretrizesDetailOpen] = useState(false);
   const [diretrizesBreakdownOpen, setDiretrizesBreakdownOpen] = useState(false);
   const [showManualDirectiveForm, setShowManualDirectiveForm] = useState(false);
@@ -166,15 +166,25 @@ export function CommercialManagementView() {
     setLoading(true);
     setError(null);
     try {
-      const [consultantData, goalData, calendarData, directiveData, evidenceData, dealData] =
-        await Promise.all([
-          getJson("/api/commercial/consultants"),
-          getJson(`/api/commercial/goals?month=${encodeURIComponent(month)}`),
-          getJson(`/api/commercial/calendar?month=${encodeURIComponent(month)}`),
-          getJson("/api/commercial/directives"),
-          getJson("/api/commercial/evidence"),
-          getJson("/api/crm/deals?status=open&limit=100&includeTotal=false"),
-        ]);
+      const [
+        consultantData,
+        goalData,
+        calendarData,
+        directiveData,
+        evidenceData,
+        dealData,
+        responsibilityData,
+      ] = await Promise.all([
+        getJson("/api/commercial/consultants"),
+        getJson(`/api/commercial/goals?month=${encodeURIComponent(month)}`),
+        getJson(`/api/commercial/calendar?month=${encodeURIComponent(month)}`),
+        getJson("/api/commercial/directives"),
+        getJson("/api/commercial/evidence"),
+        getJson("/api/crm/deals?status=open&limit=100&includeTotal=false"),
+        getJson(
+          `/api/commercial/analysis?view=responsibilities&month=${encodeURIComponent(month)}`,
+        ),
+      ]);
       setConsultants(consultantData.consultants || []);
       setGoals(goalData.goals || []);
       setCalendarDays(calendarData.days || []);
@@ -182,6 +192,7 @@ export function CommercialManagementView() {
       setDirectives(directiveData.directives || []);
       setEvidence(evidenceData.evidence || []);
       setDeals(dealData.deals || []);
+      setResponsibilities(toDiretrizesPresentation(responsibilityData));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Falha ao carregar gestão comercial.");
     } finally {
@@ -369,22 +380,23 @@ export function CommercialManagementView() {
 
               {tab === "calendar" && <CommercialCalendarView initialMonth={month} />}
 
-
               {tab === "directives" && (
                 <div className="space-y-4">
                   {/* Cockpit Executivo Oficial de Diretrizes CRM (Fotos 1 e 4) */}
-                  <div className="rounded-[4px] border border-zinc-800 bg-[#0c0d12] p-4 text-white shadow-sm">
-                    <CommercialDiretrizesTableView
-                      kpis={BASELINE_DIRETRIZES_KPIS}
-                      personnaliteData={BASELINE_DIRETRIZES_PERSONNALITE}
-                      semiMaquinasData={BASELINE_DIRETRIZES_MAQUINAS}
-                      onConsultantClick={(consultant) => {
-                        setDiretrizesModalConsultant(consultant);
-                        setDiretrizesDetailOpen(true);
-                      }}
-                      onBreakdownClick={() => setDiretrizesBreakdownOpen(true)}
-                    />
-                  </div>
+                  {responsibilities && (
+                    <div className="rounded-[4px] border border-zinc-800 bg-[#0c0d12] p-4 text-white shadow-sm">
+                      <CommercialDiretrizesTableView
+                        kpis={responsibilities.kpis}
+                        personnaliteData={responsibilities.personnaliteData}
+                        semiMaquinasData={responsibilities.semiMaquinasData}
+                        onConsultantClick={(consultant) => {
+                          setDiretrizesModalConsultant(consultant);
+                          setDiretrizesDetailOpen(true);
+                        }}
+                        onBreakdownClick={() => setDiretrizesBreakdownOpen(true)}
+                      />
+                    </div>
+                  )}
 
                   {/* Alternador para Atribuição Manual de Diretriz */}
                   <div className="flex justify-end">
@@ -448,7 +460,8 @@ export function CommercialManagementView() {
                                 (item) =>
                                   item.division &&
                                   item.operatorId ===
-                                    deals.find((deal) => deal.id === directiveForm.dealId)?.operatorId,
+                                    deals.find((deal) => deal.id === directiveForm.dealId)
+                                      ?.operatorId,
                               )
                               .map((item) => (
                                 <option key={item.operatorId} value={item.operatorId}>
@@ -518,13 +531,20 @@ export function CommercialManagementView() {
                           Diretrizes recentes
                         </h2>
                         {directives.length === 0 ? (
-                          <p className="text-xs text-muted-foreground dark:text-zinc-400">Nenhuma diretriz criada.</p>
+                          <p className="text-xs text-muted-foreground dark:text-zinc-400">
+                            Nenhuma diretriz criada.
+                          </p>
                         ) : (
                           <div className="space-y-2">
                             {directives.map((item) => (
-                              <div key={item.id} className="border-b border-border/80 dark:border-zinc-800/80 py-3 last:border-0">
+                              <div
+                                key={item.id}
+                                className="border-b border-border/80 dark:border-zinc-800/80 py-3 last:border-0"
+                              >
                                 <div className="flex flex-wrap justify-between gap-2">
-                                  <strong className="text-xs font-bold text-foreground dark:text-zinc-100">{item.dealTitle}</strong>
+                                  <strong className="text-xs font-bold text-foreground dark:text-zinc-100">
+                                    {item.dealTitle}
+                                  </strong>
                                   <span className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
                                     {item.assignedDate} · {item.status}
                                   </span>
@@ -544,7 +564,6 @@ export function CommercialManagementView() {
                 </div>
               )}
 
-
               {tab === "evidence" && (
                 <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 shadow-sm">
                   <h2 className="mb-1 font-mono text-base font-bold text-foreground dark:text-zinc-50">
@@ -561,10 +580,15 @@ export function CommercialManagementView() {
                   ) : (
                     <div className="space-y-3">
                       {evidence.map((item) => (
-                        <article key={item.id} className="rounded-[2px] border border-border/80 dark:border-zinc-800 bg-card/60 dark:bg-zinc-900/40 p-4 hover:border-primary/40 transition-colors">
+                        <article
+                          key={item.id}
+                          className="rounded-[2px] border border-border/80 dark:border-zinc-800 bg-card/60 dark:bg-zinc-900/40 p-4 hover:border-primary/40 transition-colors"
+                        >
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
-                              <strong className="text-xs font-bold text-foreground dark:text-zinc-100">{item.dealTitle}</strong>
+                              <strong className="text-xs font-bold text-foreground dark:text-zinc-100">
+                                {item.dealTitle}
+                              </strong>
                               <p className="mt-1 text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
                                 {item.operatorName || "Operador"} ·{" "}
                                 {new Date(item.createdAt).toLocaleString("pt-BR", {
@@ -589,9 +613,14 @@ export function CommercialManagementView() {
                             </span>
                           </div>
                           <p className="mt-2 text-xs text-muted-foreground dark:text-zinc-400">
-                            <span className="font-semibold text-foreground/80 dark:text-zinc-300">Diretriz:</span> {item.instruction}
+                            <span className="font-semibold text-foreground/80 dark:text-zinc-300">
+                              Diretriz:
+                            </span>{" "}
+                            {item.instruction}
                           </p>
-                          <p className="mt-2 text-xs text-foreground dark:text-zinc-200">{item.summary}</p>
+                          <p className="mt-2 text-xs text-foreground dark:text-zinc-200">
+                            {item.summary}
+                          </p>
                           <p className="mt-2 text-[11px] font-mono font-semibold text-primary">
                             Próximo passo:{" "}
                             {item.metadata?.nextAction === "won"
@@ -653,18 +682,19 @@ export function CommercialManagementView() {
       />
 
       {/* ─── MODAL BREAKDOWN DE TAXA DE EXECUÇÃO (DIRETRIZES CRM) ─── */}
-      <CommercialDiretrizesBreakdownModal
-        isOpen={diretrizesBreakdownOpen}
-        onClose={() => setDiretrizesBreakdownOpen(false)}
-        kpis={BASELINE_DIRETRIZES_KPIS}
-        consultants={ALL_BASELINE_DIRETRIZES_CONSULTANTS}
-        onSelectConsultant={(c) => {
-          setDiretrizesBreakdownOpen(false);
-          setDiretrizesModalConsultant(c);
-          setDiretrizesDetailOpen(true);
-        }}
-      />
+      {responsibilities && (
+        <CommercialDiretrizesBreakdownModal
+          isOpen={diretrizesBreakdownOpen}
+          onClose={() => setDiretrizesBreakdownOpen(false)}
+          kpis={responsibilities.kpis}
+          consultants={responsibilities.consultants}
+          onSelectConsultant={(c) => {
+            setDiretrizesBreakdownOpen(false);
+            setDiretrizesModalConsultant(c);
+            setDiretrizesDetailOpen(true);
+          }}
+        />
+      )}
     </div>
   );
 }
-

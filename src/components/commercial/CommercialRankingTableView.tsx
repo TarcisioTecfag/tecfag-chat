@@ -1,13 +1,10 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Zap, AlertTriangle, Trophy, Medal, Clock, ShieldCheck } from "lucide-react";
-import {
-  BASELINE_RANKING_OPERATORS,
-  RankingOperatorRow,
-} from "@/lib/commercial/ranking-data";
+import { RankingOperatorRow } from "@/lib/commercial/ranking-data";
 
 export interface CommercialRankingTableViewProps {
-  operators?: RankingOperatorRow[];
+  operators: RankingOperatorRow[];
   onOperatorClick?: (operator: RankingOperatorRow) => void;
 }
 
@@ -53,7 +50,7 @@ function PositionBadge({ position }: { position: number }) {
 }
 
 export function CommercialRankingTableView({
-  operators = BASELINE_RANKING_OPERATORS,
+  operators,
   onOperatorClick,
 }: CommercialRankingTableViewProps) {
   // Separa em 2 colunas de 5 linhas conforme a foto de referência:

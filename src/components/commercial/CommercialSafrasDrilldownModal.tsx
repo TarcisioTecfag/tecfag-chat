@@ -20,6 +20,7 @@ interface CommercialSafrasDrilldownModalProps {
   monthLabel: string;
   deals: TVUnclassifiedDeal[];
   loading?: boolean;
+  error?: string | null;
   onOpenDeal?: (dealId: string) => void;
 }
 
@@ -30,6 +31,7 @@ export function CommercialSafrasDrilldownModal({
   monthLabel,
   deals,
   loading = false,
+  error = null,
   onOpenDeal,
 }: CommercialSafrasDrilldownModalProps) {
   const [dealsSearch, setDealsSearch] = useState("");
@@ -137,7 +139,11 @@ export function CommercialSafrasDrilldownModal({
 
           {/* Tabela de Oportunidades Sem Classificação */}
           <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
-            {loading ? (
+            {error ? (
+              <div role="alert" className="p-6 text-center text-sm text-red-500">
+                {error}
+              </div>
+            ) : loading ? (
               <div className="flex items-center justify-center h-full gap-3 text-slate-500 dark:text-zinc-400 font-mono text-xs">
                 <RefreshCw className="h-5 w-5 animate-spin text-amber-500 dark:text-amber-400" />
                 <span>Buscando oportunidades sem valor no banco de dados...</span>
@@ -203,7 +209,9 @@ export function CommercialSafrasDrilldownModal({
                                 </span>
                               )}
                               {!deal.companyName && !deal.clientName && (
-                                <span className="text-slate-400 dark:text-zinc-600 italic">Contato não informado</span>
+                                <span className="text-slate-400 dark:text-zinc-600 italic">
+                                  Contato não informado
+                                </span>
                               )}
                             </div>
                           </div>
@@ -227,7 +235,9 @@ export function CommercialSafrasDrilldownModal({
                               </strong>
                               <span
                                 className={`text-[9px] font-black uppercase tracking-wider ${
-                                  isPersonnalite ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"
+                                  isPersonnalite
+                                    ? "text-red-600 dark:text-red-400"
+                                    : "text-blue-600 dark:text-blue-400"
                                 }`}
                               >
                                 {isPersonnalite ? "Personnalité" : "Máquinas"}
@@ -239,8 +249,12 @@ export function CommercialSafrasDrilldownModal({
                         {/* Funil e Etapa */}
                         <td className="py-3 px-3">
                           <div className="flex flex-col">
-                            <span className="text-slate-800 dark:text-zinc-200 font-medium">{deal.stageName}</span>
-                            <span className="text-[10px] text-slate-400 dark:text-zinc-500">{deal.pipelineName}</span>
+                            <span className="text-slate-800 dark:text-zinc-200 font-medium">
+                              {deal.stageName}
+                            </span>
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+                              {deal.pipelineName}
+                            </span>
                           </div>
                         </td>
 
@@ -287,8 +301,10 @@ export function CommercialSafrasDrilldownModal({
           {/* Rodapé do Modal Drilldown */}
           <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 bg-slate-50 dark:bg-zinc-950 border-t border-slate-200 dark:border-zinc-800 text-[11px] font-mono text-slate-500 dark:text-zinc-400">
             <span>
-              Exibindo <strong className="text-slate-900 dark:text-white">{filteredDeals.length}</strong> de{" "}
-              <strong className="text-slate-900 dark:text-white">{deals.length}</strong> oportunidades sem valor.
+              Exibindo{" "}
+              <strong className="text-slate-900 dark:text-white">{filteredDeals.length}</strong> de{" "}
+              <strong className="text-slate-900 dark:text-white">{deals.length}</strong>{" "}
+              oportunidades sem valor.
             </span>
 
             <motion.button

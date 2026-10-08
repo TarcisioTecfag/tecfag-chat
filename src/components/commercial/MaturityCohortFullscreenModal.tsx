@@ -32,9 +32,8 @@ import {
   TVCohortTierConfig,
   TVUnclassifiedDeal,
   formatBrlK,
-  getBaselineSafrasCohortsData,
-  getBaselineUnclassifiedDeals,
 } from "@/lib/commercial/safras-cohorts-data";
+import { useCommercialCohortDeals } from "@/hooks/useCommercialCohortDeals";
 import { CommercialSafrasDrilldownModal } from "./CommercialSafrasDrilldownModal";
 import { TVPointData } from "./CommercialSafrasTableView";
 import { useTheme } from "@/hooks/useTheme";
@@ -42,7 +41,8 @@ import { useTheme } from "@/hooks/useTheme";
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  defaultTiersConfig?: TVCohortTierConfig[];
+  data: TVCohortsResponse;
+  division?: string;
   tenantId?: string | null;
   onOpenDeal?: (dealId: string) => void;
 }
@@ -51,7 +51,7 @@ interface CohortPointDotProps {
   cx?: number;
   cy?: number;
   index?: number;
-  payload?: any;
+  payload?: Record<string, string | number | boolean | undefined>;
   tierIndex: number;
   tierColor: string;
   isDark?: boolean;
@@ -73,13 +73,13 @@ const CohortPointDot = React.memo(function CohortPointDot(props: CohortPointDotP
         x: cx,
         y: cy,
         monthIndex: index,
-        monthName: payload?.monthName || "",
-        fullLabel: payload?.fullLabel || "",
+        monthName: String(payload?.monthName || ""),
+        fullLabel: String(payload?.fullLabel || ""),
         count: Number(payload?.[`tier_${tierIndex}`] ?? 0),
         totalValue: Number(payload?.[`tier_${tierIndex}_val`] ?? 0),
         tierIndex,
-        tierLabel: payload?.[`tier_${tierIndex}_label`] || "",
-        tierRule: payload?.[`tier_${tierIndex}_rule`] || "",
+        tierLabel: String(payload?.[`tier_${tierIndex}_label`] || ""),
+        tierRule: String(payload?.[`tier_${tierIndex}_rule`] || ""),
         color: tierColor,
       });
     }
@@ -104,30 +104,29 @@ const CohortPointDot = React.memo(function CohortPointDot(props: CohortPointDotP
 export function MaturityCohortFullscreenModal({
   isOpen,
   onClose,
-  defaultTiersConfig,
+  data,
+  division = "",
   tenantId = "tecfag",
   onOpenDeal,
 }: Props) {
   const { isDark } = useTheme();
-  const [data, setData] = useState<TVCohortsResponse>(getBaselineSafrasCohortsData);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [activeTiers, setActiveTiers] = useState<Record<number, boolean>>({});
 
   const [isTvModeActive, setIsTvModeActive] = useState(true);
-  const [pointsRegistry, setPointsRegistry] = useState<Record<number, Record<number, TVPointData>>>({});
+  const [pointsRegistry, setPointsRegistry] = useState<Record<number, Record<number, TVPointData>>>(
+    {},
+  );
   const chartWrapperRef = useRef<HTMLDivElement>(null);
 
   const [selectedMonthDrilldown, setSelectedMonthDrilldown] = useState<{
     monthKey: string;
     fullLabel: string;
   } | null>(null);
+  const cohortDeals = useCommercialCohortDeals(selectedMonthDrilldown?.monthKey || null, division);
 
   const tiersConfig = useMemo(() => {
-    if (data?.tiersConfig && data.tiersConfig.length > 0) return data.tiersConfig;
-    if (defaultTiersConfig && defaultTiersConfig.length > 0) return defaultTiersConfig;
-    return getBaselineSafrasCohortsData().tiersConfig;
-  }, [data, defaultTiersConfig]);
+    return data.tiersConfig;
+  }, [data]);
 
   useEffect(() => {
     if (tiersConfig.length > 0 && Object.keys(activeTiers).length === 0) {
@@ -174,7 +173,7 @@ export function MaturityCohortFullscreenModal({
   const chartData = useMemo(() => {
     if (!data?.months) return [];
     return data.months.map((m) => {
-      const item: any = {
+      const item: Record<string, string | number | boolean | undefined> = {
         monthKey: m.monthKey,
         monthName: m.monthName,
         monthShort: m.monthShort,
@@ -352,7 +351,9 @@ export function MaturityCohortFullscreenModal({
                     }}
                   />
                   <span style={{ color: isVisible ? tier.color : undefined }}>{tier.label}</span>
-                  <span className="text-[10px] text-slate-500 dark:text-zinc-400">({tier.valueRuleLabel})</span>
+                  <span className="text-[10px] text-slate-500 dark:text-zinc-400">
+                    ({tier.valueRuleLabel})
+                  </span>
                 </motion.button>
               );
             })}
@@ -376,14 +377,19 @@ export function MaturityCohortFullscreenModal({
                 )}
               </div>
               <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500 italic hidden sm:inline">
-                * Baseado na data original de criação do negócio no CRM • Funis Máquinas 2.0 e Personnalité 2.0
+                * Baseado na data original de criação do negócio no CRM • Funis Máquinas 2.0 e
+                Personnalité 2.0
               </span>
             </div>
 
             <div ref={chartWrapperRef} className="flex-1 w-full min-h-0 relative">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 16, right: 30, left: 10, bottom: 5 }}>
-                  <CartesianGrid stroke={isDark ? "#222226" : "#e2e8f0"} strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid
+                    stroke={isDark ? "#222226" : "#e2e8f0"}
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
                   <XAxis
                     dataKey="monthName"
                     stroke={isDark ? "#52525b" : "#94a3b8"}
@@ -399,7 +405,15 @@ export function MaturityCohortFullscreenModal({
                             y={0}
                             dy={16}
                             textAnchor="middle"
-                            fill={isCurr ? (isDark ? "#ffffff" : "#0f172a") : (isDark ? "#a1a1aa" : "#64748b")}
+                            fill={
+                              isCurr
+                                ? isDark
+                                  ? "#ffffff"
+                                  : "#0f172a"
+                                : isDark
+                                  ? "#a1a1aa"
+                                  : "#64748b"
+                            }
                             fontSize={12}
                             fontWeight={isCurr ? 800 : 600}
                             fontFamily="monospace"
@@ -427,7 +441,12 @@ export function MaturityCohortFullscreenModal({
                   />
                   <YAxis
                     stroke={isDark ? "#52525b" : "#94a3b8"}
-                    tick={{ fill: isDark ? "#71717a" : "#64748b", fontSize: 11, fontFamily: "monospace", fontWeight: 700 }}
+                    tick={{
+                      fill: isDark ? "#71717a" : "#64748b",
+                      fontSize: 11,
+                      fontFamily: "monospace",
+                      fontWeight: 700,
+                    }}
                     tickLine={false}
                     axisLine={{ stroke: isDark ? "#3f3f46" : "#cbd5e1" }}
                     allowDecimals={false}
@@ -439,7 +458,9 @@ export function MaturityCohortFullscreenModal({
                       return (
                         <div className="bg-white dark:bg-[#18181b] border border-slate-200 dark:border-zinc-700 rounded-[4px] p-3 text-slate-900 dark:text-white shadow-2xl min-w-[220px] text-xs font-mono">
                           <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-2 mb-2">
-                            <strong className="text-red-500 font-bold">{monthData.fullLabel}</strong>
+                            <strong className="text-red-500 font-bold">
+                              {monthData.fullLabel}
+                            </strong>
                             {monthData.isCurrentMonth && (
                               <span className="text-[9px] font-black bg-red-600 text-white px-2 py-0.5 rounded-[2px]">
                                 MÊS ATUAL
@@ -451,14 +472,24 @@ export function MaturityCohortFullscreenModal({
                               const count = monthData[`tier_${t.index}`] || 0;
                               const val = monthData[`tier_${t.index}_val`] || 0;
                               return (
-                                <div key={t.index} className="flex items-center justify-between gap-3 text-xs">
+                                <div
+                                  key={t.index}
+                                  className="flex items-center justify-between gap-3 text-xs"
+                                >
                                   <div className="flex items-center gap-1.5">
-                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color }} />
-                                    <span className="text-slate-700 dark:text-zinc-300 font-semibold">{t.label}</span>
+                                    <span
+                                      className="h-2 w-2 rounded-full"
+                                      style={{ backgroundColor: t.color }}
+                                    />
+                                    <span className="text-slate-700 dark:text-zinc-300 font-semibold">
+                                      {t.label}
+                                    </span>
                                   </div>
                                   <div className="text-right">
                                     <strong style={{ color: t.color }}>{count} cards</strong>
-                                    <span className="block text-[10px] text-slate-400 dark:text-zinc-400">{formatBrlK(val)}</span>
+                                    <span className="block text-[10px] text-slate-400 dark:text-zinc-400">
+                                      {formatBrlK(val)}
+                                    </span>
                                   </div>
                                 </div>
                               );
@@ -471,7 +502,9 @@ export function MaturityCohortFullscreenModal({
                             </div>
                             <div className="flex justify-between text-slate-900 dark:text-white font-bold">
                               <span>Total Oportunidades:</span>
-                              <span className="text-blue-600 dark:text-blue-400">{monthData.totalCards} cards</span>
+                              <span className="text-blue-600 dark:text-blue-400">
+                                {monthData.totalCards} cards
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -499,7 +532,12 @@ export function MaturityCohortFullscreenModal({
                             onRegisterPoint={handleRegisterPoint}
                           />
                         }
-                        activeDot={{ r: 8, fill: tier.color, stroke: isDark ? "#ffffff" : "#0f172a", strokeWidth: 2 }}
+                        activeDot={{
+                          r: 8,
+                          fill: tier.color,
+                          stroke: isDark ? "#ffffff" : "#0f172a",
+                          strokeWidth: 2,
+                        }}
                       />
                     );
                   })}
@@ -517,7 +555,8 @@ export function MaturityCohortFullscreenModal({
                   Cards Sem Classificação (Sem Valor no CRM)
                 </span>
                 <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-500">
-                  — Clique em qualquer mês para abrir a lista de oportunidades e o link direto no CRM
+                  — Clique em qualquer mês para abrir a lista de oportunidades e o link direto no
+                  CRM
                 </span>
               </div>
             </div>
@@ -553,21 +592,29 @@ export function MaturityCohortFullscreenModal({
                     )}
 
                     <div className="flex items-center justify-between pr-8">
-                      <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">{m.monthName}</span>
-                      <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500">{m.year}</span>
+                      <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">
+                        {m.monthName}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500">
+                        {m.year}
+                      </span>
                     </div>
 
                     <div className="flex items-baseline gap-1.5 my-1.5">
                       <span
                         className={`text-xs font-mono font-bold ${
-                          hasZero ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
+                          hasZero
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-amber-600 dark:text-amber-400"
                         }`}
                       >
                         Sem classificação &gt;
                       </span>
                       <strong
                         className={`text-base font-mono font-black ${
-                          hasZero ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"
+                          hasZero
+                            ? "text-emerald-700 dark:text-emerald-300"
+                            : "text-amber-700 dark:text-amber-300"
                         }`}
                       >
                         {m.unclassifiedCount}
@@ -592,7 +639,9 @@ export function MaturityCohortFullscreenModal({
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
             <span>
-              <strong>War Room Comercial:</strong> Régua De-Para dinâmica integrada ao banco de dados. Monitoramento exclusivo dos Funis <strong>Máquinas 2.0 (Semi)</strong> e <strong>Personnalité 2.0</strong>.
+              <strong>War Room Comercial:</strong> Régua De-Para dinâmica integrada ao banco de
+              dados. Monitoramento exclusivo dos Funis <strong>Máquinas 2.0 (Semi)</strong> e{" "}
+              <strong>Personnalité 2.0</strong>.
             </span>
           </div>
           <div>
@@ -607,7 +656,9 @@ export function MaturityCohortFullscreenModal({
             onClose={() => setSelectedMonthDrilldown(null)}
             monthKey={selectedMonthDrilldown.monthKey}
             monthLabel={selectedMonthDrilldown.fullLabel}
-            deals={getBaselineUnclassifiedDeals(selectedMonthDrilldown.monthKey)}
+            deals={cohortDeals.deals}
+            loading={cohortDeals.loading}
+            error={cohortDeals.error}
             onOpenDeal={onOpenDeal}
           />
         )}

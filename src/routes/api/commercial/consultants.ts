@@ -29,7 +29,6 @@ export const Route = createFileRoute("/api/commercial/consultants")({
               isOnline: operators.isOnline,
               division: commercialConsultantProfiles.division,
               activeOnTv: commercialConsultantProfiles.activeOnTv,
-              rdUserId: commercialConsultantProfiles.rdUserId,
             })
             .from(operators)
             .leftJoin(
@@ -74,7 +73,6 @@ export const Route = createFileRoute("/api/commercial/consultants")({
               id: commercialConsultantProfiles.id,
               division: commercialConsultantProfiles.division,
               activeOnTv: commercialConsultantProfiles.activeOnTv,
-              rdUserId: commercialConsultantProfiles.rdUserId,
             })
             .from(commercialConsultantProfiles)
             .where(
@@ -92,18 +90,16 @@ export const Route = createFileRoute("/api/commercial/consultants")({
             } else if (["personnalite", "maquinas"].includes(body.division)) {
               division = body.division;
             } else {
-              return json({ error: "Divisão inválida. Escolha 'personnalite' ou 'maquinas'." }, 400);
+              return json(
+                { error: "Divisão inválida. Escolha 'personnalite' ou 'maquinas'." },
+                400,
+              );
             }
           }
 
           let activeOnTv = existingProfile?.activeOnTv ?? true;
           if (typeof body.activeOnTv === "boolean") {
             activeOnTv = body.activeOnTv;
-          }
-
-          let rdUserId = existingProfile?.rdUserId ?? null;
-          if (body.rdUserId !== undefined) {
-            rdUserId = typeof body.rdUserId === "string" ? body.rdUserId.trim() : null;
           }
 
           const [profile] = await db
@@ -114,7 +110,6 @@ export const Route = createFileRoute("/api/commercial/consultants")({
               operatorId,
               division,
               activeOnTv,
-              rdUserId,
             })
             .onConflictDoUpdate({
               target: [
@@ -124,7 +119,6 @@ export const Route = createFileRoute("/api/commercial/consultants")({
               set: {
                 division,
                 activeOnTv,
-                rdUserId,
                 updatedAt: new Date(),
               },
             })

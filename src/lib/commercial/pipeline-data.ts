@@ -4,14 +4,7 @@
  * Tela 1: OPORTUNIDADES & PIPELINE POR FASE (CRM)
  */
 
-export type PipelineStageKey =
-  | "requalificacao"
-  | "esfriando"
-  | "leads_recebidos"
-  | "abordagem_comercial"
-  | "qualificado"
-  | "proposta_enviada"
-  | "fechamento";
+export type PipelineStageKey = string;
 
 export interface PipelineStageDef {
   key: PipelineStageKey;
@@ -154,7 +147,10 @@ export function formatDealValue(value: number): string {
  * Formatação do resumo da equipe
  * Ex: "Total: 1307 cards - Valor: R$ 60.05M"
  */
-export function formatTeamSummary(totalCards: number, totalValue: number): { cards: string; value: string } {
+export function formatTeamSummary(
+  totalCards: number,
+  totalValue: number,
+): { cards: string; value: string } {
   const cardsStr = `Total: ${totalCards} cards`;
   const millions = totalValue / 1_000_000;
   const valStr = `Valor: R$ ${millions.toFixed(2)}M`;
@@ -521,7 +517,10 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
 ];
 
 // Gerador determinístico de negociações para preencher o conjunto completo
-export function getBaselineDeals(sellerId?: string, stageKey?: PipelineStageKey): CommercialPipelineDeal[] {
+export function getBaselineDeals(
+  sellerId?: string,
+  stageKey?: PipelineStageKey,
+): CommercialPipelineDeal[] {
   const deals: CommercialPipelineDeal[] = [...BASELINE_DEALS_DIANA_ABORDAGEM];
 
   // Adicionar negociações complementares para Diana em Abordagem Comercial até somar 42
@@ -536,7 +535,7 @@ export function getBaselineDeals(sellerId?: string, stageKey?: PipelineStageKey)
       division: "personnalite",
       value: i === 15 ? 1500 : i === 22 ? 800 : 0,
       daysOpen: days,
-      createdAt: `${Math.min(28, (i * 2) % 28 + 1)} de ago. de 2026`,
+      createdAt: `${Math.min(28, ((i * 2) % 28) + 1)} de ago. de 2026`,
       stageKey: "abordagem_comercial",
       stageName: "Abordagem Comercial",
       rdDealUrl: `https://crm.rdstation.com/app/deals/deal-dg-${i}`,

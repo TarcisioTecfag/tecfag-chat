@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -30,7 +30,7 @@ interface CommercialPrevistasFilterModalProps {
   onOpenDeal?: (dealId: string) => void;
   onOpenProfile?: (sellerId?: string) => void;
   onCallContact?: (phone: string, dealTitle: string) => void;
-  onSaveDirectives?: (selectedDealIds: string[]) => void;
+  onSaveDirectives?: (selectedDealIds: string[]) => Promise<void>;
 }
 
 export function CommercialPrevistasFilterModal({
@@ -49,7 +49,7 @@ export function CommercialPrevistasFilterModal({
   onSaveDirectives,
 }: CommercialPrevistasFilterModalProps) {
   const [selectedHorizon, setSelectedHorizon] = useState<PrevistasTierKey | "all">(
-    initialHorizonKey
+    initialHorizonKey,
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDealIds, setSelectedDealIds] = useState<Set<string>>(new Set());
@@ -57,7 +57,7 @@ export function CommercialPrevistasFilterModal({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Sincroniza deals iniciais e aba
-  useMemo(() => {
+  useEffect(() => {
     setSelectedHorizon(initialHorizonKey);
     setDealsList(initialDeals);
     setSelectedDealIds(new Set());
@@ -132,28 +132,25 @@ export function CommercialPrevistasFilterModal({
   }, [dealsList, selectedDealIds]);
 
   // Ação de Salvar Diretrizes
-  const handleExecuteSaveDirectives = () => {
+  const handleExecuteSaveDirectives = async () => {
     if (selectedDealIds.size === 0) return;
-
-    // Atualiza status local para 'hasDirectiveCompleted'
-    setDealsList((prev) =>
-      prev.map((deal) =>
-        selectedDealIds.has(deal.id) ? { ...deal, hasDirectiveCompleted: true, isDelayed: false } : deal
-      )
-    );
-
     const count = selectedDealIds.size;
-    onSaveDirectives?.(Array.from(selectedDealIds));
-
-    setToastMessage(`✓ ${count} diretriz(es) de faturamento concluída(s) e salva(s) com sucesso!`);
+    try {
+      if (!onSaveDirectives) throw new Error("Pontuação indisponível.");
+      await onSaveDirectives(Array.from(selectedDealIds));
+      setToastMessage(`✓ ${count} responsabilidade(s) pontuada(s).`);
+      setSelectedDealIds(new Set());
+    } catch (cause) {
+      setToastMessage(
+        cause instanceof Error ? cause.message : "Falha ao pontuar responsabilidades.",
+      );
+    }
     setTimeout(() => setToastMessage(null), 3500);
-    setSelectedDealIds(new Set());
   };
 
   if (!isOpen) return null;
 
-  const isAllSelected =
-    filteredDeals.length > 0 && selectedDealIds.size === filteredDeals.length;
+  const isAllSelected = filteredDeals.length > 0 && selectedDealIds.size === filteredDeals.length;
 
   return (
     <div
@@ -476,7 +473,9 @@ export function CommercialPrevistasFilterModal({
                 </span>
               </div>
             ) : (
-              <span className="text-slate-400 dark:text-zinc-500">0 oportunidades selecionadas</span>
+              <span className="text-slate-400 dark:text-zinc-500">
+                0 oportunidades selecionadas
+              </span>
             )}
           </div>
 
@@ -500,7 +499,7 @@ export function CommercialPrevistasFilterModal({
               }`}
             >
               <Sliders className="h-3.5 w-3.5" />
-              <span>Concluir e Salvar Diretrizes ({selectedDealIds.size})</span>
+              <span>Pontuar responsabilidades ({selectedDealIds.size})</span>
             </button>
           </div>
         </footer>

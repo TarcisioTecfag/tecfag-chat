@@ -6,6 +6,10 @@ import {
   commercialGoals,
   commercialSettings,
   commercialTransferResponseEvents,
+  contacts,
+  crmAccounts,
+  crmDealContacts,
+  crmDealActivities,
   crmDeals,
   crmStages,
   operators,
@@ -72,8 +76,14 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
         createdAt: crmDeals.createdAt,
         closedAt: crmDeals.closedAt,
         lossReason: crmDeals.lossReason,
+        accountName: crmAccounts.name,
+        accountPhone: crmAccounts.phone,
       })
       .from(crmDeals)
+      .leftJoin(
+        crmAccounts,
+        and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)),
+      )
       .where(
         and(
           eq(crmDeals.tenantId, tenantId),
@@ -147,6 +157,23 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
     (item) => item.activeOnTv && (!division || item.division === division),
   );
   const operatorMap = new Map(scopedOperators.map((item) => [item.id, item]));
+  const taskRows = scopedOperators.length
+    ? await db
+        .select({ operatorId: crmDealActivities.assignedToOperatorId, count: count() })
+        .from(crmDealActivities)
+        .where(
+          and(
+            eq(crmDealActivities.tenantId, tenantId),
+            eq(crmDealActivities.type, "task"),
+            eq(crmDealActivities.status, "pending"),
+            inArray(
+              crmDealActivities.assignedToOperatorId,
+              scopedOperators.map((item) => item.id),
+            ),
+          ),
+        )
+        .groupBy(crmDealActivities.assignedToOperatorId)
+    : [];
   const goals = new Map(goalRows.map((goal) => [goal.operatorId, goal]));
   const stageMap = new Map(stageRows.map((stage) => [stage.id, stage]));
   const settings = settingsRows[0];
@@ -201,6 +228,10 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
     ageDays: number;
     daysRemaining: number;
     expectedValue: number;
+    companyName: string | null;
+    accountPhone: string | null;
+    contactName: string | null;
+    contactPhone: string | null;
   }> = [];
   for (const deal of openDeals) {
     const value = Number(deal.value || 0);
@@ -228,7 +259,36 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
       ageDays: maturity.ageDays,
       daysRemaining: maturity.daysRemaining,
       expectedValue,
+      companyName: deal.accountName,
+      accountPhone: deal.accountPhone,
+      contactName: null,
+      contactPhone: null,
     });
+  }
+  for (let start = 0; start < cohorts.length; start += 500) {
+    const ids = cohorts.slice(start, start + 500).map((item) => item.dealId);
+    const linked = await db
+      .select({
+        dealId: crmDealContacts.dealId,
+        isPrimary: crmDealContacts.isPrimary,
+        name: contacts.name,
+        phone: contacts.phone,
+      })
+      .from(crmDealContacts)
+      .innerJoin(
+        contacts,
+        and(eq(contacts.id, crmDealContacts.contactId), eq(contacts.tenantId, tenantId)),
+      )
+      .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, ids)));
+    const chosen = new Map<string, (typeof linked)[number]>();
+    for (const item of linked) {
+      if (!chosen.has(item.dealId) || item.isPrimary) chosen.set(item.dealId, item);
+    }
+    for (const cohort of cohorts.slice(start, start + 500)) {
+      const contact = chosen.get(cohort.dealId);
+      cohort.contactName = contact?.name || null;
+      cohort.contactPhone = contact?.phone || null;
+    }
   }
   cohorts.sort((a, b) => a.daysRemaining - b.daysRemaining || b.value - a.value);
 
@@ -330,6 +390,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
     pipeline,
     maturity: { tiers: matureTiers, cohorts },
     goals: consultants,
+    pendingTasksByOperator: taskRows,
     losses: {
       currentCount: currentLosses.length,
       currentValue: sum(currentLosses),

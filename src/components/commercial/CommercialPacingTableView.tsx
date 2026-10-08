@@ -11,7 +11,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  GLOBAL_PACING_KPIS,
+  PacingGlobalKpis,
   PacingSellerRow,
   PacingViewMode,
   TeamPacingData,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/commercial/pacing-data";
 
 interface CommercialPacingTableViewProps {
+  globalKpis: PacingGlobalKpis;
   personnaliteData: TeamPacingData;
   semiMaquinasData: TeamPacingData;
   viewMode?: PacingViewMode;
@@ -28,6 +29,7 @@ interface CommercialPacingTableViewProps {
 }
 
 export function CommercialPacingTableView({
+  globalKpis,
   personnaliteData,
   semiMaquinasData,
   viewMode: controlledViewMode,
@@ -92,14 +94,18 @@ export function CommercialPacingTableView({
       <div className={density.tableSpace} key={team.division}>
         {/* Cabeçalho da Equipe */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <div className={`flex items-center gap-1.5 ${density.teamTitle} uppercase tracking-wider text-red-600 dark:text-red-400 font-mono`}>
+          <div
+            className={`flex items-center gap-1.5 ${density.teamTitle} uppercase tracking-wider text-red-600 dark:text-red-400 font-mono`}
+          >
             <Star className="h-3.5 w-3.5 fill-red-600 text-red-600 dark:fill-red-400 dark:text-red-400" />
             <span>{team.teamName}</span>
           </div>
 
           <div className={`flex items-center gap-2 font-mono ${density.teamSummary}`}>
             <span className="text-slate-500 dark:text-zinc-400">Meta:</span>
-            <span className="font-bold text-slate-900 dark:text-white">{formatPacingCurrency(team.metaTotal)}</span>
+            <span className="font-bold text-slate-900 dark:text-white">
+              {formatPacingCurrency(team.metaTotal)}
+            </span>
             <span className="text-slate-400 dark:text-zinc-600">-</span>
             <span className="text-slate-500 dark:text-zinc-400">Fechado:</span>
             <span className="font-bold text-emerald-600 dark:text-emerald-400">
@@ -107,7 +113,9 @@ export function CommercialPacingTableView({
             </span>
             <span className="text-slate-400 dark:text-zinc-600">-</span>
             <span className="text-slate-500 dark:text-zinc-400">Ritmo:</span>
-            <span className="font-bold text-slate-700 dark:text-zinc-200">{formatPacingCurrency(team.ritmoDiarioTotal)}/dia</span>
+            <span className="font-bold text-slate-700 dark:text-zinc-200">
+              {formatPacingCurrency(team.ritmoDiarioTotal)}/dia
+            </span>
           </div>
         </div>
 
@@ -116,16 +124,24 @@ export function CommercialPacingTableView({
           <table className="table-fixed w-full border-collapse text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100/90 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600 dark:border-zinc-800 dark:bg-zinc-900/90 dark:text-zinc-400">
-                <th className={`${density.headerPy} px-2 sm:px-3 font-semibold text-slate-700 dark:text-zinc-300 w-[13%] min-w-[125px]`}>
+                <th
+                  className={`${density.headerPy} px-2 sm:px-3 font-semibold text-slate-700 dark:text-zinc-300 w-[13%] min-w-[125px]`}
+                >
                   VENDEDOR / RITMO
                 </th>
-                <th className={`${density.headerPy} px-3 text-left font-semibold text-slate-700 dark:text-zinc-300 w-[62%]`}>
+                <th
+                  className={`${density.headerPy} px-3 text-left font-semibold text-slate-700 dark:text-zinc-300 w-[62%]`}
+                >
                   PROGRESSO DA META MENSAL
                 </th>
-                <th className={`${density.headerPy} px-2 text-right font-mono font-semibold text-slate-700 dark:text-zinc-300 w-[11%] min-w-[105px]`}>
+                <th
+                  className={`${density.headerPy} px-2 text-right font-mono font-semibold text-slate-700 dark:text-zinc-300 w-[11%] min-w-[105px]`}
+                >
                   {viewMode === "daily" ? "META DO DIA (RECÁLCULO)" : "META DA SEMANA"}
                 </th>
-                <th className={`${density.headerPy} px-2 text-center font-mono font-bold text-emerald-700 bg-emerald-50 border-l border-slate-200 dark:text-emerald-300 dark:bg-emerald-950/20 dark:border-zinc-800 w-[14%] min-w-[130px]`}>
+                <th
+                  className={`${density.headerPy} px-2 text-center font-mono font-bold text-emerald-700 bg-emerald-50 border-l border-slate-200 dark:text-emerald-300 dark:bg-emerald-950/20 dark:border-zinc-800 w-[14%] min-w-[130px]`}
+                >
                   OPORTUNIDADES DO DIA (DE-PARA)
                 </th>
               </tr>
@@ -137,20 +153,23 @@ export function CommercialPacingTableView({
                   seller.pacingStatus === "acelerado"
                     ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]"
                     : seller.pacingStatus === "alvo"
-                    ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]"
-                    : "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]";
+                      ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]"
+                      : "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]";
 
                 const badgeClass =
                   seller.pacingStatus === "acelerado"
                     ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/50 dark:bg-emerald-950/40 dark:text-emerald-300"
                     : seller.pacingStatus === "alvo"
-                    ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/50 dark:bg-blue-950/40 dark:text-blue-300"
-                    : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/50 dark:bg-amber-950/40 dark:text-amber-300";
+                      ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/50 dark:bg-blue-950/40 dark:text-blue-300"
+                      : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/50 dark:bg-amber-950/40 dark:text-amber-300";
 
                 const clampedWidth = Math.min(100, Math.max(0, seller.realizedPercent));
 
                 return (
-                  <tr key={seller.sellerId} className="hover:bg-slate-50/80 dark:hover:bg-zinc-900/40 transition-colors">
+                  <tr
+                    key={seller.sellerId}
+                    className="hover:bg-slate-50/80 dark:hover:bg-zinc-900/40 transition-colors"
+                  >
                     {/* Coluna 1: Vendedor e Ritmo */}
                     <td
                       onClick={() => onSellerClick(seller)}
@@ -158,7 +177,9 @@ export function CommercialPacingTableView({
                     >
                       <div className="flex items-center gap-2">
                         {/* Avatar */}
-                        <div className={`relative ${density.avatarSize} shrink-0 overflow-hidden rounded-[2px] border border-slate-200 bg-slate-100 dark:border-zinc-800 dark:bg-zinc-900`}>
+                        <div
+                          className={`relative ${density.avatarSize} shrink-0 overflow-hidden rounded-[2px] border border-slate-200 bg-slate-100 dark:border-zinc-800 dark:bg-zinc-900`}
+                        >
                           {seller.avatarUrl ? (
                             <img
                               src={seller.avatarUrl}
@@ -177,14 +198,22 @@ export function CommercialPacingTableView({
 
                         {/* Nome e Badge de Ritmo */}
                         <div className="min-w-0 flex-1">
-                          <span className={`font-sans ${density.sellerText} text-slate-900 hover:text-red-600 dark:text-white dark:hover:text-red-400 transition-colors truncate block`}>
+                          <span
+                            className={`font-sans ${density.sellerText} text-slate-900 hover:text-red-600 dark:text-white dark:hover:text-red-400 transition-colors truncate block`}
+                          >
                             {seller.sellerName}
                           </span>
                           <div className="mt-0.5">
-                            <span className={`inline-flex items-center gap-1 rounded-[2px] border font-mono font-bold text-[9px] px-1.5 py-0.2 uppercase ${badgeClass}`}>
-                              {seller.pacingStatus === "acelerado" && <TrendingUp className="h-2.5 w-2.5" />}
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-[2px] border font-mono font-bold text-[9px] px-1.5 py-0.2 uppercase ${badgeClass}`}
+                            >
+                              {seller.pacingStatus === "acelerado" && (
+                                <TrendingUp className="h-2.5 w-2.5" />
+                              )}
                               {seller.pacingStatus === "alvo" && <Target className="h-2.5 w-2.5" />}
-                              {seller.pacingStatus === "recuperar" && <AlertTriangle className="h-2.5 w-2.5" />}
+                              {seller.pacingStatus === "recuperar" && (
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                              )}
                               <span>{seller.statusLabel}</span>
                             </span>
                           </div>
@@ -199,13 +228,19 @@ export function CommercialPacingTableView({
                         <div className="flex items-center justify-between text-[11px] font-mono leading-none">
                           <div className="text-slate-800 dark:text-zinc-200 font-bold">
                             <span>{formatPacingCurrency(seller.realizedMonthly)}</span>
-                            <span className="text-slate-400 dark:text-zinc-500 font-normal mx-1">de</span>
-                            <span className="text-slate-500 dark:text-zinc-400 font-medium">{formatPacingCurrency(seller.metaMonthly)}</span>
+                            <span className="text-slate-400 dark:text-zinc-500 font-normal mx-1">
+                              de
+                            </span>
+                            <span className="text-slate-500 dark:text-zinc-400 font-medium">
+                              {formatPacingCurrency(seller.metaMonthly)}
+                            </span>
                           </div>
 
                           <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono">
                             <span>Falta: </span>
-                            <span className="text-slate-700 dark:text-zinc-300 font-semibold">{formatPacingCurrency(seller.remainingMonthly)}</span>
+                            <span className="text-slate-700 dark:text-zinc-300 font-semibold">
+                              {formatPacingCurrency(seller.remainingMonthly)}
+                            </span>
                           </div>
 
                           <div className="text-slate-900 dark:text-zinc-100 font-black text-xs">
@@ -214,7 +249,9 @@ export function CommercialPacingTableView({
                         </div>
 
                         {/* Barra de Progresso com marcador de Run Rate */}
-                        <div className={`relative w-full ${density.pacingBarH} rounded-full bg-slate-200 border border-slate-300 dark:bg-zinc-900 dark:border-zinc-800/80 overflow-visible`}>
+                        <div
+                          className={`relative w-full ${density.pacingBarH} rounded-full bg-slate-200 border border-slate-300 dark:bg-zinc-900 dark:border-zinc-800/80 overflow-visible`}
+                        >
                           {/* Barra preenchida animada */}
                           <motion.div
                             initial={{ width: 0 }}
@@ -226,15 +263,17 @@ export function CommercialPacingTableView({
                           {/* Marcador vertical de Run Rate (Dia Atual do Mês) */}
                           <div
                             className="absolute -top-1 -bottom-1 w-[2.5px] bg-slate-800 shadow-[0_0_6px_rgba(0,0,0,0.4)] dark:bg-white rounded-full dark:shadow-[0_0_8px_rgba(255,255,255,0.9)] z-10 pointer-events-none"
-                            style={{ left: `${GLOBAL_PACING_KPIS.elapsedPercent}%` }}
-                            title={`Run Rate Hoje: ${GLOBAL_PACING_KPIS.elapsedPercent.toFixed(1)}% do mês`}
+                            style={{ left: `${globalKpis.elapsedPercent}%` }}
+                            title={`Run Rate Hoje: ${globalKpis.elapsedPercent.toFixed(1)}% do mês`}
                           />
                         </div>
                       </div>
                     </td>
 
                     {/* Coluna 3: Meta do Dia / Meta da Semana */}
-                    <td className={`${density.rowPy} px-2 text-right font-mono align-middle w-[11%] min-w-[105px]`}>
+                    <td
+                      className={`${density.rowPy} px-2 text-right font-mono align-middle w-[11%] min-w-[105px]`}
+                    >
                       {viewMode === "daily" ? (
                         <div className="flex flex-col items-end leading-tight">
                           <div className="text-[9.5px] text-slate-500 dark:text-zinc-400">
@@ -244,7 +283,8 @@ export function CommercialPacingTableView({
                             </span>
                           </div>
                           <div className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
-                            Fechou: {formatPacingCurrency(seller.dailyRealized)} ({seller.dailyRealizedPercent}%)
+                            Fechou: {formatPacingCurrency(seller.dailyRealized)} (
+                            {seller.dailyRealizedPercent}%)
                           </div>
                         </div>
                       ) : (
@@ -256,7 +296,8 @@ export function CommercialPacingTableView({
                             </span>
                           </div>
                           <div className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
-                            Semana: {formatPacingCurrency(seller.weeklyRealized)} ({seller.weeklyRealizedPercent}%)
+                            Semana: {formatPacingCurrency(seller.weeklyRealized)} (
+                            {seller.weeklyRealizedPercent}%)
                           </div>
                         </div>
                       )}
@@ -315,9 +356,11 @@ export function CommercialPacingTableView({
           >
             <Calendar className="h-3 w-3 text-slate-400 dark:text-zinc-400" />
             <div>
-              <div className="text-[8px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 leading-none">Dias Restantes</div>
+              <div className="text-[8px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 leading-none">
+                Dias Restantes
+              </div>
               <div className="font-bold text-slate-900 dark:text-white leading-none mt-0.5">
-                {GLOBAL_PACING_KPIS.businessDaysRemaining} de {GLOBAL_PACING_KPIS.businessDaysTotal} dias úteis
+                {globalKpis.businessDaysRemaining} de {globalKpis.businessDaysTotal} dias úteis
               </div>
             </div>
           </motion.div>
@@ -334,8 +377,10 @@ export function CommercialPacingTableView({
                 Meta Global {companyLabel}
               </div>
               <div className="font-bold text-slate-900 dark:text-white leading-none mt-0.5">
-                {formatPacingCurrency(GLOBAL_PACING_KPIS.metaGlobal)}{" "}
-                <span className="text-emerald-600 dark:text-emerald-400 font-bold">({GLOBAL_PACING_KPIS.globalPercent}% batida)</span>
+                {formatPacingCurrency(globalKpis.metaGlobal)}{" "}
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                  ({globalKpis.globalPercent}% batida)
+                </span>
               </div>
             </div>
           </motion.div>
@@ -348,10 +393,14 @@ export function CommercialPacingTableView({
           >
             <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
             <div>
-              <div className="text-[8px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 leading-none">Pacing da Empresa</div>
+              <div className="text-[8px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 leading-none">
+                Pacing da Empresa
+              </div>
               <div className="font-bold text-slate-900 dark:text-white leading-none mt-0.5">
-                {formatPacingCurrency(GLOBAL_PACING_KPIS.companyPacingDaily)}/dia{" "}
-                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">• Hoje: {formatPacingCurrency(GLOBAL_PACING_KPIS.companyRealizedToday)}</span>
+                {formatPacingCurrency(globalKpis.companyPacingDaily)}/dia{" "}
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                  • Hoje: {formatPacingCurrency(globalKpis.companyRealizedToday)}
+                </span>
               </div>
             </div>
           </motion.div>
