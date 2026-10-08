@@ -759,7 +759,7 @@ export function CommercialSafrasTableView({
             )}
           </div>
           <span className="text-[10px] font-mono text-zinc-500 hidden md:inline italic">
-            * Baseado na data original de criação do negócio no RD CRM • Funis Máquinas 2.0 e Personnalité 2.0
+            * Baseado na data original de criação do negócio no CRM • Funis Máquinas 2.0 e Personnalité 2.0
           </span>
         </div>
 

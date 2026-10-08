@@ -1191,7 +1191,7 @@ export function CommercialCalendarView({
               {formatDateFull(selectedDayInfo.date)}
             </h3>
             <p className="text-xs text-muted-foreground dark:text-zinc-400 mt-0.5">
-              Acompanhe as vendas fechadas hoje em tempo real pelo RD Station CRM.
+              Acompanhe as vendas fechadas hoje em tempo real pelo CRM.
             </p>
 
             {/* 3 Mini KPIs do Dia */}

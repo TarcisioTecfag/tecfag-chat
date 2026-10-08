@@ -145,7 +145,7 @@ export function CommercialDealFilterModal({
               </div>
 
               <p className="mt-0.5 text-[11px] text-zinc-400 font-mono">
-                Rastreamento detalhado de negociações ativas no RD Station CRM com link direto para o card
+                Rastreamento detalhado de negociações ativas no CRM com link direto para o card
               </p>
             </div>
           </div>
@@ -309,7 +309,7 @@ export function CommercialDealFilterModal({
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 bg-zinc-950 p-3 sm:px-4 shrink-0">
           <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-            <span>Dados em tempo real sincronizados com o RD Station CRM.</span>
+            <span>Dados em tempo real sincronizados com o CRM.</span>
           </div>
 
           <button

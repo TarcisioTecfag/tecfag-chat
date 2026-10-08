@@ -84,7 +84,7 @@ export function CommercialConsultantsView({
   const [editActiveOnTv, setEditActiveOnTv] = useState(true);
   const [editRdUserId, setEditRdUserId] = useState("");
 
-  // Formulário Vínculo RD direto
+  // Formulário Vínculo CRM direto
   const [directRdUserId, setDirectRdUserId] = useState("");
 
   // Lista de operadores elegíveis para "Novo Consultor" (operadores que ainda não têm equipe definida)
@@ -178,10 +178,10 @@ export function CommercialConsultantsView({
     [onRefresh]
   );
 
-  // Copiar ID do RD Station CRM
+  // Copiar ID do CRM
   const handleCopyRdId = useCallback((rdId: string) => {
     navigator.clipboard.writeText(rdId);
-    toast.success("ID RD Station copiado com sucesso!");
+    toast.success("ID CRM copiado com sucesso!");
   }, []);
 
   // Exportar para CSV compatível com Excel
@@ -196,7 +196,7 @@ export function CommercialConsultantsView({
       "E-mail",
       "Equipe",
       "Visível no BI TV",
-      "Vínculo RD CRM",
+      "Vínculo CRM",
       "Status",
     ];
 
@@ -269,13 +269,13 @@ export function CommercialConsultantsView({
     }
   }, [editingConsultant, editDivision, editActiveOnTv, editRdUserId, onRefresh]);
 
-  // Abertura do Modal de Vínculo RD Direto
+  // Abertura do Modal de Vínculo CRM Direto
   const handleOpenLinkRd = useCallback((consultant: ConsultantRow) => {
     setLinkingConsultant(consultant);
     setDirectRdUserId(consultant.rdUserId || "");
   }, []);
 
-  // Salvar Vínculo RD Direto
+  // Salvar Vínculo CRM Direto
   const handleSaveDirectRd = useCallback(async () => {
     if (!linkingConsultant) return;
     setIsSubmitting(true);
@@ -292,13 +292,13 @@ export function CommercialConsultantsView({
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || "Falha ao atualizar vínculo RD Station.");
+        throw new Error(err.error || "Falha ao atualizar vínculo CRM.");
       }
 
       toast.success(
         directRdUserId.trim()
-          ? `Vínculo com RD Station CRM atualizado para ${linkingConsultant.name}!`
-          : `Vínculo com RD Station CRM removido para ${linkingConsultant.name}.`
+          ? `Vínculo com CRM atualizado para ${linkingConsultant.name}!`
+          : `Vínculo com CRM removido para ${linkingConsultant.name}.`
       );
       setLinkingConsultant(null);
       if (onRefresh) await onRefresh();
@@ -659,7 +659,7 @@ export function CommercialConsultantsView({
                       key={consultant.operatorId}
                       className="hover:bg-muted/30 transition-colors group"
                     >
-                      {/* 1. Consultor (Avatar + Nome + Vínculo RD) */}
+                      {/* 1. Consultor (Avatar + Nome + Vínculo CRM) */}
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-3">
                           <div className="relative shrink-0">
@@ -682,21 +682,21 @@ export function CommercialConsultantsView({
                             </div>
                             <div className="text-[10px] text-muted-foreground dark:text-zinc-400 mt-0.5 flex items-center gap-1 font-mono">
                               {rdId ? (
-                                <SystemTooltip content={`ID RD Station: ${rdId} (Clique para copiar)`}>
+                                <SystemTooltip content={`ID CRM: ${rdId} (Clique para copiar)`}>
                                   <button
                                     onClick={() => handleCopyRdId(rdId)}
                                     className="hover:text-primary transition flex items-center gap-1 cursor-pointer"
                                   >
                                     <span>
-                                      Vínculo RD: {rdId.length > 10 ? `${rdId.slice(0, 8)}...` : rdId}
+                                      Vínculo CRM: {rdId.length > 10 ? `${rdId.slice(0, 8)}...` : rdId}
                                     </span>
                                     <Copy className="h-2.5 w-2.5 opacity-60 hover:opacity-100" />
                                   </button>
                                 </SystemTooltip>
                               ) : (
-                                <SystemTooltip content="Consultor não vinculado ao RD Station. Clique no ícone de link ao lado para vincular.">
+                                <SystemTooltip content="Consultor não vinculado ao CRM. Clique no ícone de link ao lado para vincular.">
                                   <span className="text-muted-foreground/60 italic">
-                                    Vínculo RD: Não vinculado
+                                    Vínculo CRM: Não vinculado
                                   </span>
                                 </SystemTooltip>
                               )}
@@ -765,11 +765,11 @@ export function CommercialConsultantsView({
                         </div>
                       </td>
 
-                      {/* 6. Ações (Vínculo RD, Editar, Excluir) */}
+                      {/* 6. Ações (Vínculo CRM, Editar, Excluir) */}
                       <td className="px-6 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Botão Vínculo RD */}
-                          <SystemTooltip content="Configurar Vínculo com RD Station CRM">
+                          {/* Botão Vínculo CRM */}
+                          <SystemTooltip content="Configurar Vínculo com CRM">
                             <button
                               onClick={() => handleOpenLinkRd(consultant)}
                               className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-primary hover:border-primary/50 transition cursor-pointer shadow-sm"
@@ -1033,10 +1033,10 @@ export function CommercialConsultantsView({
               </button>
             </div>
 
-            {/* Vínculo RD Station CRM */}
+            {/* Vínculo CRM */}
             <div className="space-y-1.5">
               <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 flex items-center justify-between">
-                <span>Vínculo RD Station CRM (Opcional)</span>
+                <span>Vínculo CRM (Opcional)</span>
                 <span className="text-[10px] text-muted-foreground/80 lowercase">
                   user_id do crm
                 </span>
@@ -1084,7 +1084,7 @@ export function CommercialConsultantsView({
               <span className="font-mono">Editar Consultor Comercial</span>
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
-              Atualize a equipe, visibilidade no BI TV e vínculo RD de{" "}
+              Atualize a equipe, visibilidade no BI TV e vínculo CRM de{" "}
               <strong className="text-foreground dark:text-zinc-100">{editingConsultant?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
@@ -1152,10 +1152,10 @@ export function CommercialConsultantsView({
               </button>
             </div>
 
-            {/* Vínculo RD Station CRM */}
+            {/* Vínculo CRM */}
             <div className="space-y-1.5">
               <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 flex items-center justify-between">
-                <span>Vínculo RD Station CRM</span>
+                <span>Vínculo CRM</span>
                 <span className="text-[10px] text-muted-foreground/80 lowercase">
                   user_id do crm
                 </span>
@@ -1191,7 +1191,7 @@ export function CommercialConsultantsView({
         </DialogContent>
       </Dialog>
 
-      {/* Modal: Vínculo Rápido RD Station */}
+      {/* Modal: Vínculo Rápido CRM */}
       <Dialog
         open={Boolean(linkingConsultant)}
         onOpenChange={(open) => !open && setLinkingConsultant(null)}
@@ -1200,10 +1200,10 @@ export function CommercialConsultantsView({
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <Link2 className="h-5 w-5 text-primary" />
-              <span className="font-mono">Vínculo com RD Station CRM</span>
+              <span className="font-mono">Vínculo com CRM</span>
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
-              Defina o identificador do consultor no RD Station para sincronização de
+              Defina o identificador do consultor no CRM para sincronização de
               negociações e histórico de vendas de{" "}
               <strong className="text-foreground dark:text-zinc-100">{linkingConsultant?.name}</strong>.
             </DialogDescription>
@@ -1212,7 +1212,7 @@ export function CommercialConsultantsView({
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
               <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
-                ID de Usuário no RD Station (user_id)
+                ID de Usuário no CRM (user_id)
               </label>
               <input
                 type="text"
@@ -1224,7 +1224,7 @@ export function CommercialConsultantsView({
             </div>
             <p className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400 leading-relaxed">
               Dica: O ID de usuário é o hash hexadecimal (ObjectId de 24 caracteres)
-              encontrado na URL do RD Station CRM ou no cadastro de usuários.
+              encontrado no cadastro de usuários do CRM.
             </p>
           </div>
 

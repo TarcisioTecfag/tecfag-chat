@@ -1,7 +1,7 @@
 /**
  * pipeline-data.ts
  * Estruturas, tipos, cálculos e baseline do Commercial War Room
- * Tela 1: OPORTUNIDADES & PIPELINE POR FASE (RD CRM)
+ * Tela 1: OPORTUNIDADES & PIPELINE POR FASE (CRM)
  */
 
 export type PipelineStageKey =

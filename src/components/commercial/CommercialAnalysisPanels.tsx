@@ -424,7 +424,7 @@ export function CommercialOperationalPanel() {
         Status da operação comercial
       </h2>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Indicadores do CRM próprio e do atendimento local, sem sincronização com RD.
+        Indicadores do CRM próprio e do atendimento local.
       </p>
       {error && (
         <div role="alert" className="mt-3 rounded-[2px] border border-destructive/30 bg-destructive/10 p-3 text-xs font-mono text-destructive">

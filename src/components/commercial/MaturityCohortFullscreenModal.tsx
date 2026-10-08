@@ -278,7 +278,7 @@ export function MaturityCohortFullscreenModal({
           <div className="flex items-center gap-2.5">
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-mono font-bold text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981]" />
-              AO VIVO • WEBHOOK RD
+              AO VIVO • CRM
             </div>
 
             <motion.button
@@ -371,7 +371,7 @@ export function MaturityCohortFullscreenModal({
                 )}
               </div>
               <span className="text-[10px] font-mono text-zinc-500 italic hidden sm:inline">
-                * Baseado na data original de criação do negócio no RD CRM • Funis Máquinas 2.0 e Personnalité 2.0
+                * Baseado na data original de criação do negócio no CRM • Funis Máquinas 2.0 e Personnalité 2.0
               </span>
             </div>
 

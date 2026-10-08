@@ -95,7 +95,7 @@ export function CommercialSafrasDrilldownModal({
                   </span>
                 </div>
                 <p className="text-[11px] font-mono text-zinc-400">
-                  Cards criados nesta safra que ainda não possuem valor preenchido no RD Station CRM.
+                  Cards criados nesta safra que ainda não possuem valor preenchido no CRM.
                 </p>
               </div>
             </div>
@@ -269,7 +269,7 @@ export function CommercialSafrasDrilldownModal({
                               target="_blank"
                               rel="noopener noreferrer"
                               className="rounded-[2px] border border-red-600 bg-gradient-to-b from-[#c83d4e] to-[#962234] px-3 py-1 text-[11px] font-mono font-black text-white hover:brightness-110 shadow-sm shadow-red-950 flex items-center gap-1.5 transition-all"
-                              title="Abrir esta oportunidade diretamente no RD Station CRM"
+                              title="Abrir esta oportunidade diretamente no CRM"
                             >
                               <span>ABRIR NO CRM</span>
                               <ExternalLink className="h-3 w-3" />

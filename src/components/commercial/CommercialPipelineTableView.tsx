@@ -95,7 +95,7 @@ export function CommercialPipelineTableView({
           ⊞
         </span>
         <h2 className="text-[11px] sm:text-xs xl:text-sm font-black uppercase tracking-wider text-[#df3d3d] font-mono leading-normal">
-          OPORTUNIDADES & PIPELINE POR FASE (RD CRM)
+          OPORTUNIDADES & PIPELINE POR FASE (CRM)
         </h2>
       </motion.div>
 

@@ -170,7 +170,7 @@ const money = new Intl.NumberFormat("pt-BR", {
 const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 const surface = "rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-4";
 const badge = "text-[10px] font-mono font-bold uppercase tracking-[.18em] text-red-400";
-const TOTAL_SLIDES = 8;
+const TOTAL_SLIDES = 9;
 
 function Empty({ text }: { text: string }) {
   return (
@@ -676,7 +676,7 @@ export function CommercialBiView() {
                 transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
                 className="w-full h-full flex flex-col justify-between"
               >
-                {/* ─── SLIDE 0: PIPELINE POR FASE RD CRM (RÉPLICA FIEL) ─── */}
+                {/* ─── SLIDE 0: PIPELINE POR FASE CRM ─── */}
                 {module === 0 && (
                   <CommercialPipelineTableView
                     personnaliteData={BASELINE_PERSONNALITE}
