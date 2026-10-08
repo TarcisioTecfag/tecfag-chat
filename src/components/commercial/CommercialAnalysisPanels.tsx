@@ -169,7 +169,27 @@ export function CommercialResponsibilitiesPanel({
               <tbody>
                 {data.consultants.map((consultant) => (
                   <tr key={consultant.operatorId} className="border-b border-border/60 dark:border-zinc-800/60 hover:bg-muted/20 dark:hover:bg-zinc-900/30 transition-colors">
-                    <td className="p-2.5 font-semibold">{consultant.name}</td>
+                    <td className="p-2.5 font-semibold">
+                      <div className="flex items-center gap-2">
+                        <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-[2px] border border-border/80 dark:border-zinc-800 bg-muted/40 dark:bg-zinc-900">
+                          {(consultant as any).avatar ? (
+                            <img
+                              src={(consultant as any).avatar}
+                              alt={consultant.name}
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = "none";
+                              }}
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
+                              {consultant.name.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                        <span>{consultant.name}</span>
+                      </div>
+                    </td>
                     <td className="p-2.5">{consultant.totalCount}</td>
                     <td className="p-2.5 text-emerald-500 font-semibold">{consultant.completedCount}</td>
                     <td className="p-2.5 text-amber-500 font-semibold">{consultant.pendingTodayCount}</td>

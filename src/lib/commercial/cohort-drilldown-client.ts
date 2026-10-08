@@ -3,7 +3,9 @@ import type { TVUnclassifiedDeal } from "./safras-cohorts-data";
 type ApiDeal = {
   id: string;
   title: string;
+  operatorId?: string | null;
   operatorName: string | null;
+  operatorAvatar?: string | null;
   division: string | null;
   pipelineName: string;
   stageName: string;
@@ -44,6 +46,7 @@ export async function fetchUnclassifiedCohortDeals(
     id: deal.id,
     name: deal.title,
     userName: deal.operatorName || "Consultor",
+    userAvatar: deal.operatorAvatar || undefined,
     team:
       deal.division === "maquinas"
         ? "Máquinas"

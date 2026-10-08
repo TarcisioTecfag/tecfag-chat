@@ -54,6 +54,7 @@ import {
 import type { TVCohortsResponse } from "@/lib/commercial/safras-cohorts-data";
 import { CommercialSafrasTableView } from "./CommercialSafrasTableView";
 import { MaturityCohortFullscreenModal } from "./MaturityCohortFullscreenModal";
+import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
 import { toast } from "sonner";
 
 type Tier = {
@@ -195,9 +196,15 @@ export function CommercialBiView() {
   );
   const [lossData, setLossData] = useState<ReturnType<typeof toLossPresentation> | null>(null);
   const [cohortData, setCohortData] = useState<TVCohortsResponse | null>(null);
+  const [avatarResolverState, setAvatarResolverState] = useState<
+    ((id?: string | null, name?: string | null) => string | undefined) | null
+  >(null);
   const maturityData = useMemo(
-    () => (data ? toMaturityPresentation(data, diretrizesData) : null),
-    [data, diretrizesData],
+    () =>
+      data
+        ? toMaturityPresentation(data, diretrizesData, avatarResolverState || undefined)
+        : null,
+    [data, diretrizesData, avatarResolverState],
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -307,6 +314,7 @@ export function CommercialBiView() {
           goalsResponse,
           lossesResponse,
           cohortsResponse,
+          consultantsResponse,
         ] = await Promise.all([
           fetch(
             `/api/commercial/bi${division ? `?division=${encodeURIComponent(division)}` : ""}`,
@@ -336,6 +344,10 @@ export function CommercialBiView() {
             credentials: "same-origin",
             signal,
           }),
+          fetch("/api/commercial/consultants", {
+            credentials: "same-origin",
+            signal,
+          }).catch(() => null),
         ]);
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Falha ao carregar BI comercial.");
@@ -347,6 +359,10 @@ export function CommercialBiView() {
         const goalsBody = await goalsResponse.json();
         const lossesBody = await lossesResponse.json();
         const cohortsBody = await cohortsResponse.json();
+        const consultantsBody =
+          consultantsResponse && consultantsResponse.ok
+            ? await consultantsResponse.json().catch(() => null)
+            : null;
         if (!directivesResponse.ok)
           throw new Error(directiveBody.error || "Falha ao carregar diretrizes.");
         if (!tmaResponse.ok) throw new Error(tmaBody.error || "Falha ao carregar TMA.");
@@ -354,11 +370,47 @@ export function CommercialBiView() {
         if (!lossesResponse.ok) throw new Error(lossesBody.error || "Falha ao carregar perdas.");
         if (!cohortsResponse.ok) throw new Error(cohortsBody.error || "Falha ao carregar safras.");
         if (!signal?.aborted) {
+          // Criar resolvedor consolidado e resiliente de avatares dos consultores
+          const avatarResolver = buildConsultantAvatarResolver([
+            consultantsBody?.consultants,
+            body.goals,
+            pipelineBody?.rows,
+            directiveBody?.consultants,
+            tmaBody?.consultants,
+            goalsBody?.consultants,
+          ]);
+          setAvatarResolverState(() => avatarResolver.getAvatar);
+
+          // Enriquecer todos os arrays brutos com os avatares resolvidos
+          for (const g of body.goals || []) {
+            g.avatar = avatarResolver.getAvatar(g.operatorId, g.name) || g.avatar || null;
+          }
+          if (pipelineBody?.rows) {
+            for (const r of pipelineBody.rows) {
+              r.avatar = avatarResolver.getAvatar(r.operatorId, r.name) || r.avatar || null;
+            }
+          }
+          if (directiveBody?.consultants) {
+            for (const c of directiveBody.consultants) {
+              c.avatar = avatarResolver.getAvatar(c.operatorId, c.name) || c.avatar || null;
+            }
+          }
+          if (tmaBody?.consultants) {
+            for (const c of tmaBody.consultants) {
+              c.avatar = avatarResolver.getAvatar(c.operatorId, c.name) || c.avatar || null;
+            }
+          }
+          if (goalsBody?.consultants) {
+            for (const c of goalsBody.consultants) {
+              c.avatar = avatarResolver.getAvatar(c.operatorId, c.name) || c.avatar || null;
+            }
+          }
+
           setData(body);
-          setPipelineData(toPipelinePresentation(pipelineBody));
-          setDiretrizesData(toDiretrizesPresentation(directiveBody));
-          setTmaData(toTmaPresentation(tmaBody));
-          setPacingData(toPacingPresentation(goalsBody, body));
+          setPipelineData(toPipelinePresentation(pipelineBody, avatarResolver.getAvatar));
+          setDiretrizesData(toDiretrizesPresentation(directiveBody, avatarResolver.getAvatar));
+          setTmaData(toTmaPresentation(tmaBody, avatarResolver.getAvatar));
+          setPacingData(toPacingPresentation(goalsBody, body, avatarResolver.getAvatar));
           setLossData(toLossPresentation(lossesBody));
           setCohortData(toCohortPresentation(cohortsBody, body.today));
         }
@@ -968,11 +1020,17 @@ export function CommercialBiView() {
               : "Todas as equipes")
         }
         sellerId={modalSeller?.sellerId}
+        sellerAvatar={
+          modalSeller?.avatarUrl ||
+          modalSeller?.avatar ||
+          avatarResolverState?.(modalSeller?.sellerId, modalSeller?.sellerName)
+        }
         division={modalDivision || undefined}
         initialStageKey={modalStageKey}
         deals={pipelineModalDeals}
         loading={pipelineModalLoading}
         stages={modalDivision ? pipelineData?.stagesByDivision[modalDivision] || [] : []}
+        avatarResolver={avatarResolverState || undefined}
         onOpenDeal={openDeal}
         onOpenProfile={() => {
           setActiveView("commercialManagement");
@@ -990,7 +1048,10 @@ export function CommercialBiView() {
         metaValue={deparaModalSeller?.metaValue || 0}
         initialTierKey={deparaModalTierKey}
         deals={activeDeparaModalDeals}
-        sellerAvatar={deparaModalSeller?.avatarUrl}
+        sellerAvatar={
+          deparaModalSeller?.avatarUrl ||
+          avatarResolverState?.(deparaModalSeller?.sellerId, deparaModalSeller?.sellerName)
+        }
         onOpenDeal={(dealId) => openDeal(dealId)}
         onOpenProfile={() => {
           setActiveView("commercialManagement");
@@ -1011,7 +1072,10 @@ export function CommercialBiView() {
         metaValue={previstasModalSeller?.metaValue || 0}
         initialHorizonKey={previstasModalHorizonKey}
         deals={activePrevistasModalDeals}
-        sellerAvatar={previstasModalSeller?.avatarUrl}
+        sellerAvatar={
+          previstasModalSeller?.avatarUrl ||
+          avatarResolverState?.(previstasModalSeller?.sellerId, previstasModalSeller?.sellerName)
+        }
         onOpenDeal={(dealId) => openDeal(dealId)}
         onOpenProfile={() => {
           setActiveView("commercialManagement");
@@ -1059,7 +1123,10 @@ export function CommercialBiView() {
         division={pacingModalSeller?.division || "personnalite"}
         metaValue={pacingModalSeller?.metaMonthly || 0}
         deals={activePacingModalDeals}
-        sellerAvatar={pacingModalSeller?.avatarUrl}
+        sellerAvatar={
+          pacingModalSeller?.avatarUrl ||
+          avatarResolverState?.(pacingModalSeller?.sellerId, pacingModalSeller?.sellerName)
+        }
         onOpenDeal={(dealId) => openDeal(dealId)}
         onOpenProfile={() => {
           setActiveView("commercialManagement");
@@ -1074,7 +1141,19 @@ export function CommercialBiView() {
       <CommercialDiretrizesDetailModal
         isOpen={diretrizesDetailOpen}
         onClose={() => setDiretrizesDetailOpen(false)}
-        consultant={diretrizesModalConsultant}
+        consultant={
+          diretrizesModalConsultant
+            ? {
+                ...diretrizesModalConsultant,
+                avatarUrl:
+                  diretrizesModalConsultant.avatarUrl ||
+                  avatarResolverState?.(
+                    diretrizesModalConsultant.consultantId,
+                    diretrizesModalConsultant.name,
+                  ),
+              }
+            : null
+        }
         onOpenDeal={(dealId) => openDeal(dealId)}
         onOpenProfile={() => {
           setActiveView("commercialManagement");

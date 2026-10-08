@@ -59,6 +59,7 @@ export interface TVUnclassifiedDeal {
   id: string;
   name: string;
   userName: string;
+  userAvatar?: string;
   team: string;
   pipelineName: string;
   stageName: string;

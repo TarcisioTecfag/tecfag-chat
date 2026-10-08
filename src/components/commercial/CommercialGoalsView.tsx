@@ -289,7 +289,9 @@ export function CommercialGoalsView({
   const businessDays = data?.businessDays ?? 22;
   const elapsedDays = data?.elapsedDays ?? 0;
   const remainingDays = data?.remainingDays ?? 0;
-  const consultants = data?.consultants ?? [];
+  const consultants = useMemo(() => {
+    return (data?.consultants ?? []).filter((c) => Boolean(c.division));
+  }, [data?.consultants]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -531,7 +533,7 @@ export function CommercialGoalsView({
                 {consultants.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-muted-foreground dark:text-zinc-400 text-xs font-mono">
-                      Nenhum consultor cadastrado no sistema.
+                      Nenhum consultor comercial cadastrado na aba Consultores. Cadastre os consultores comerciais na aba &quot;Consultores&quot; para definir e acompanhar suas metas.
                     </td>
                   </tr>
                 ) : (

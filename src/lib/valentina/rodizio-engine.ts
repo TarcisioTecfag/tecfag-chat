@@ -179,7 +179,6 @@ export class RodizioEngine {
             .set({
               walletOperatorId: toOperatorId,
               responsibleName: toOperatorName,
-              updatedAt: new Date(),
             })
             .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
         }

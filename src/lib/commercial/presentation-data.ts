@@ -35,6 +35,7 @@ import type {
   getTmaAnalysis,
 } from "./analysis-service";
 import { teamStages, type PipelineDivision } from "./pipeline-scope";
+import { buildConsultantAvatarResolver } from "./avatar-matcher";
 
 type ResponsibilityAnalysis = Awaited<ReturnType<typeof getResponsibilityAnalysis>>;
 type TmaAnalysis = Awaited<ReturnType<typeof getTmaAnalysis>>;
@@ -70,6 +71,7 @@ export type CommercialBiSnapshot = {
   goals: Array<{
     operatorId: string;
     name: string;
+    avatar?: string | null;
     division: string | null;
     targetValue: number;
     realizedValue: number;
@@ -100,6 +102,7 @@ const forecastKey = (daysRemaining: number): PrevistasTierKey =>
 export function toMaturityPresentation(
   snapshot: CommercialBiSnapshot,
   directives: ReturnType<typeof toDiretrizesPresentation> | null,
+  avatarResolver?: (id?: string | null, name?: string | null) => string | undefined,
 ) {
   const divisionById = new Map(snapshot.goals.map((goal) => [goal.operatorId, goal.division]));
   const relevant = snapshot.maturity.cohorts.filter(
@@ -155,9 +158,13 @@ export function toMaturityPresentation(
     const mature = own.filter((deal) => deal.daysRemaining <= 0);
     const matureValue = mature.reduce((sum, deal) => sum + deal.value, 0);
     const forecastValue = own.reduce((sum, deal) => sum + deal.value, 0);
+    const resolvedAvatar = avatarResolver
+      ? avatarResolver(goal.operatorId, goal.name)
+      : goal.avatar || undefined;
     const common = {
       sellerId: goal.operatorId,
       sellerName: goal.name,
+      avatarUrl: resolvedAvatar || goal.avatar || undefined,
       division: goal.division as Division,
       metaValue: goal.targetValue,
       conversionPercent: goal.conversionRate,
@@ -236,7 +243,11 @@ export function toMaturityPresentation(
   };
 }
 
-export function toPacingPresentation(data: GoalAnalysis, snapshot: CommercialBiSnapshot) {
+export function toPacingPresentation(
+  data: GoalAnalysis,
+  snapshot: CommercialBiSnapshot,
+  avatarResolver?: (id?: string | null, name?: string | null) => string | undefined,
+) {
   const mature = new Map(
     snapshot.maturity.cohorts
       .filter((deal) => deal.daysRemaining <= 0)
@@ -265,6 +276,11 @@ export function toPacingPresentation(data: GoalAnalysis, snapshot: CommercialBiS
       return {
         sellerId: consultant.operatorId,
         sellerName: consultant.name,
+        avatarUrl:
+          avatarResolver?.(consultant.operatorId, consultant.name) ||
+          (consultant as any).avatar ||
+          (consultant as any).avatarUrl ||
+          undefined,
         division: consultant.division,
         pacingStatus,
         statusLabel:
@@ -482,7 +498,10 @@ export function toCohortPresentation(data: CohortAnalysis, today: string): TVCoh
   };
 }
 
-export function toPipelinePresentation(data: PipelineAnalysis) {
+export function toPipelinePresentation(
+  data: PipelineAnalysis,
+  avatarResolver?: (id?: string | null, name?: string | null) => string | undefined,
+) {
   const stageDefinitions = (division: PipelineDivision): PipelineStageDef[] =>
     teamStages(data.stages, data.pipelineByDivision, division).map((stage) => ({
       key: stage.id,
@@ -500,27 +519,36 @@ export function toPipelinePresentation(data: PipelineAnalysis) {
       (row): row is typeof row & { division: Division } =>
         row.division === "personnalite" || row.division === "maquinas",
     )
-    .map((row) => ({
-      sellerId: row.operatorId,
-      sellerName: row.name,
-      division: row.division,
-      stages: Object.fromEntries(
-        stagesByDivision[row.division].map((stage) => {
-          const cell = row.byStage.find((entry) => entry.stageId === stage.key);
-          return [
-            stage.key,
-            {
-              count: cell?.count || 0,
-              value: cell?.value || 0,
-              percent: cell?.shareOfConsultantPercent || 0,
-            },
-          ];
-        }),
-      ),
-      totalCards: row.total.count,
-      totalValue: row.total.value,
-      teamSharePercent: 0,
-    }));
+    .map((row) => {
+      const resolvedAvatar =
+        avatarResolver?.(row.operatorId, row.name) ||
+        (row as any).avatar ||
+        (row as any).avatarUrl ||
+        undefined;
+      return {
+        sellerId: row.operatorId,
+        sellerName: row.name,
+        avatar: resolvedAvatar,
+        avatarUrl: resolvedAvatar,
+        division: row.division,
+        stages: Object.fromEntries(
+          stagesByDivision[row.division].map((stage) => {
+            const cell = row.byStage.find((entry) => entry.stageId === stage.key);
+            return [
+              stage.key,
+              {
+                count: cell?.count || 0,
+                value: cell?.value || 0,
+                percent: cell?.shareOfConsultantPercent || 0,
+              },
+            ];
+          }),
+        ),
+        totalCards: row.total.count,
+        totalValue: row.total.value,
+        teamSharePercent: 0,
+      };
+    });
   const group = (division: Division): TeamPipelineData => {
     const sellers = rows.filter((row) => row.division === division);
     const totalValue = sellers.reduce((sum, seller) => sum + seller.totalValue, 0);
@@ -532,6 +560,8 @@ export function toPipelinePresentation(data: PipelineAnalysis) {
       totalValue,
       sellers: sellers.map((seller) => ({
         ...seller,
+        avatar: seller.avatarUrl || seller.avatar,
+        avatarUrl: seller.avatarUrl || seller.avatar,
         teamSharePercent: totalValue ? Math.round((seller.totalValue / totalValue) * 100) : 0,
       })),
       stageTotals: Object.fromEntries(
@@ -556,7 +586,10 @@ export function toPipelinePresentation(data: PipelineAnalysis) {
   };
 }
 
-export function toDiretrizesPresentation(data: ResponsibilityAnalysis) {
+export function toDiretrizesPresentation(
+  data: ResponsibilityAnalysis,
+  avatarResolver?: (id?: string | null, name?: string | null) => string | undefined,
+) {
   const consultants: DiretrizesConsultantRow[] = data.consultants
     .filter(
       (consultant): consultant is typeof consultant & { division: Division } =>
@@ -591,6 +624,11 @@ export function toDiretrizesPresentation(data: ResponsibilityAnalysis) {
       return {
         consultantId: consultant.operatorId,
         name: consultant.name,
+        avatarUrl:
+          avatarResolver?.(consultant.operatorId, consultant.name) ||
+          (consultant as any).avatar ||
+          (consultant as any).avatarUrl ||
+          undefined,
         division: consultant.division,
         totalDirectives: consultant.totalCount,
         concluidas: consultant.completedCount,
@@ -634,7 +672,10 @@ function formatSeconds(seconds: number | null): string {
   return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
 }
 
-export function toTmaPresentation(data: TmaAnalysis) {
+export function toTmaPresentation(
+  data: TmaAnalysis,
+  avatarResolver?: (id?: string | null, name?: string | null) => string | undefined,
+) {
   const consultants: TmaConsultantRow[] = data.consultants
     .filter(
       (consultant): consultant is typeof consultant & { division: Division } =>
@@ -643,6 +684,11 @@ export function toTmaPresentation(data: TmaAnalysis) {
     .map((consultant) => ({
       consultantId: consultant.operatorId,
       name: consultant.name,
+      avatarUrl:
+        avatarResolver?.(consultant.operatorId, consultant.name) ||
+        (consultant as any).avatar ||
+        (consultant as any).avatarUrl ||
+        undefined,
       division: consultant.division,
       buckets: {
         under5m: consultant.buckets[0] || 0,
@@ -685,6 +731,11 @@ export function toTmaPresentation(data: TmaAnalysis) {
     position: index + 1,
     operatorId: consultant.operatorId,
     name: consultant.name,
+    avatarUrl:
+      avatarResolver?.(consultant.operatorId, consultant.name) ||
+      (consultant as any).avatar ||
+      (consultant as any).avatarUrl ||
+      undefined,
     division: consultant.division === "maquinas" ? "Máquinas" : "Personnalité",
     averageTime: formatSeconds(consultant.averageSeconds),
     slaPercent: consultant.withinSlaPercent ?? 0,

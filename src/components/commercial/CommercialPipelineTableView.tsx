@@ -184,7 +184,25 @@ export function CommercialPipelineTableView({
                     onClick={() => onCellClick(seller, "all", "personnalite")}
                     className={`${density.rowPy} px-3 sm:px-4 font-sans ${density.sellerText} text-slate-900 dark:text-white hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap`}
                   >
-                    {seller.sellerName}
+                    <div className="flex items-center gap-2">
+                      <div className="relative h-6 w-6 sm:h-7 sm:w-7 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
+                        {seller.avatarUrl || seller.avatar ? (
+                          <img
+                            src={seller.avatarUrl || seller.avatar}
+                            alt={seller.sellerName}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
+                            {seller.sellerName.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      <span className="truncate">{seller.sellerName}</span>
+                    </div>
                   </td>
 
                   {/* Células das Fases */}
@@ -378,7 +396,25 @@ export function CommercialPipelineTableView({
                     onClick={() => onCellClick(seller, "all", "maquinas")}
                     className={`${density.rowPy} px-3 sm:px-4 font-sans ${density.sellerText} text-slate-900 dark:text-white hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap`}
                   >
-                    {seller.sellerName}
+                    <div className="flex items-center gap-2">
+                      <div className="relative h-6 w-6 sm:h-7 sm:w-7 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
+                        {seller.avatarUrl || seller.avatar ? (
+                          <img
+                            src={seller.avatarUrl || seller.avatar}
+                            alt={seller.sellerName}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
+                            {seller.sellerName.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      <span className="truncate">{seller.sellerName}</span>
+                    </div>
                   </td>
 
                   {/* Células das Fases */}

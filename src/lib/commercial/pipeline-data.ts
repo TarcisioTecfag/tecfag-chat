@@ -68,6 +68,7 @@ export interface SellerPipelineRow {
   sellerId: string;
   sellerName: string;
   avatar?: string;
+  avatarUrl?: string;
   division: "personnalite" | "maquinas";
   stages: Record<PipelineStageKey, StageMetric>;
   totalCards: number;

@@ -81,10 +81,28 @@ export function CommercialDiretrizesBreakdownModal({
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  {/* Nome do Consultor */}
-                  <span className="font-mono text-xs font-bold text-slate-900 dark:text-white min-w-[150px] truncate">
-                    {c.name}
-                  </span>
+                  {/* Nome do Consultor + Avatar */}
+                  <div className="flex items-center gap-2 min-w-[170px] truncate">
+                    <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
+                      {c.avatarUrl ? (
+                        <img
+                          src={c.avatarUrl}
+                          alt={c.name}
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
+                          {c.name.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-mono text-xs font-bold text-slate-900 dark:text-white truncate">
+                      {c.name}
+                    </span>
+                  </div>
 
                   {/* Barra de Progresso + Contadores */}
                   <div className="flex-1 max-w-md mx-3">

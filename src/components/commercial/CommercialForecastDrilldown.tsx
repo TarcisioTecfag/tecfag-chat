@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
 
 type ForecastCell = { tier: number; days: number; count: number; value: number };
 type ForecastRow = {
   operatorId: string;
   name: string;
+  avatar?: string | null;
   division: string | null;
   targetValue: number;
   conversionRate: number;
@@ -56,6 +58,8 @@ export function CommercialForecastDrilldown({
   const [pointing, setPointing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+
+  const avatarResolver = useMemo(() => buildConsultantAvatarResolver(), []);
 
   const divisionQuery = division ? `&division=${encodeURIComponent(division)}` : "";
   const loadAnalysis = useCallback(
@@ -192,19 +196,42 @@ export function CommercialForecastDrilldown({
             {analysis?.rows.map((row) => (
               <tr key={row.operatorId} className="border-b border-white/10">
                 <td className="p-2">
-                  <button
-                    className="font-semibold underline"
-                    onClick={() => {
-                      setSelection({ operatorId: row.operatorId, name: row.name });
-                      setPage(1);
-                      setSearch("");
-                    }}
-                  >
-                    {row.name}
-                  </button>
-                  <span className="block text-zinc-500">
-                    {row.division === "maquinas" ? "Máquinas" : "Personnalité"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-[2px] border border-white/10 bg-white/5">
+                      {(() => {
+                        const avatar = row.avatar || avatarResolver(row.operatorId, row.name);
+                        return avatar ? (
+                          <img
+                            src={avatar}
+                            alt={row.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-400 bg-red-950/30">
+                            {row.name.slice(0, 2).toUpperCase()}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <div>
+                      <button
+                        className="font-semibold underline hover:text-red-400 transition-colors"
+                        onClick={() => {
+                          setSelection({ operatorId: row.operatorId, name: row.name });
+                          setPage(1);
+                          setSearch("");
+                        }}
+                      >
+                        {row.name}
+                      </button>
+                      <span className="block text-zinc-500">
+                        {row.division === "maquinas" ? "Máquinas" : "Personnalité"}
+                      </span>
+                    </div>
+                  </div>
                 </td>
                 <td className="p-2">{money.format(row.targetValue)}</td>
                 <td className="p-2">{money.format(row.forecastValue)}</td>

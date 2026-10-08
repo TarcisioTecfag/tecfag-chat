@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { TVUnclassifiedDeal } from "@/lib/commercial/safras-cohorts-data";
+import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
 
 interface CommercialSafrasDrilldownModalProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export function CommercialSafrasDrilldownModal({
   onOpenDeal,
 }: CommercialSafrasDrilldownModalProps) {
   const [dealsSearch, setDealsSearch] = useState("");
+  const avatarResolver = useMemo(() => buildConsultantAvatarResolver(), []);
 
   // Tecla ESC para fechar
   useEffect(() => {
@@ -221,13 +223,27 @@ export function CommercialSafrasDrilldownModal({
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-2">
                             <div
-                              className={`h-6 w-6 rounded-[2px] font-bold text-[10px] grid place-items-center ${
+                              className={`relative h-6 w-6 shrink-0 overflow-hidden rounded-[2px] font-bold text-[10px] grid place-items-center ${
                                 isPersonnalite
                                   ? "bg-red-500/10 border border-red-500/30 text-red-600 dark:bg-red-500/20 dark:border-red-500/50 dark:text-red-300"
                                   : "bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:bg-blue-500/20 dark:border-blue-500/50 dark:text-blue-300"
                               }`}
                             >
-                              {deal.userName.slice(0, 2).toUpperCase()}
+                              {(() => {
+                                const avatar = deal.userAvatar || avatarResolver(undefined, deal.userName);
+                                return avatar ? (
+                                  <img
+                                    src={avatar}
+                                    alt={deal.userName}
+                                    className="h-full w-full object-cover"
+                                    onError={(e) => {
+                                      (e.target as HTMLElement).style.display = "none";
+                                    }}
+                                  />
+                                ) : (
+                                  deal.userName.slice(0, 2).toUpperCase()
+                                );
+                              })()}
                             </div>
                             <div>
                               <strong className="text-slate-800 dark:text-zinc-200 block text-xs font-semibold">

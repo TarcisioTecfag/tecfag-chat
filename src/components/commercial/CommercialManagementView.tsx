@@ -26,6 +26,7 @@ import { CommercialDiretrizesDetailModal } from "./CommercialDiretrizesDetailMod
 import { CommercialDiretrizesBreakdownModal } from "./CommercialDiretrizesBreakdownModal";
 import type { DiretrizesConsultantRow } from "@/lib/commercial/diretrizes-crm-data";
 import { toDiretrizesPresentation } from "@/lib/commercial/presentation-data";
+import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
 
 const COMMERCIAL_TABS = [
   { id: "consultants", label: "Consultores", icon: Users },
@@ -214,7 +215,18 @@ export function CommercialManagementView() {
       setDirectives(directiveData.directives || []);
       setEvidence(evidenceData.evidence || []);
       setDeals(dealData);
-      setResponsibilities(toDiretrizesPresentation(responsibilityData));
+
+      // Enriquecer responsibilityData com avatares carregados de consultants de forma resiliente
+      const avatarResolver = buildConsultantAvatarResolver([
+        consultantData.consultants,
+        responsibilityData?.consultants,
+      ]);
+      if (responsibilityData?.consultants) {
+        for (const c of responsibilityData.consultants) {
+          c.avatar = avatarResolver.getAvatar(c.operatorId, c.name) || c.avatar || null;
+        }
+      }
+      setResponsibilities(toDiretrizesPresentation(responsibilityData, avatarResolver.getAvatar));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Falha ao carregar gestão comercial.");
     } finally {
@@ -226,8 +238,17 @@ export function CommercialManagementView() {
     void load();
   }, [load]);
 
+  const avatarResolver = useMemo(
+    () => buildConsultantAvatarResolver([consultants]),
+    [consultants],
+  );
+
   const consultantMap = useMemo(
     () => new Map(consultants.map((consultant) => [consultant.operatorId, consultant.name])),
+    [consultants],
+  );
+  const consultantAvatarMap = useMemo(
+    () => new Map(consultants.map((c) => [c.operatorId, c.avatar])),
     [consultants],
   );
   const calendarClosingMap = useMemo(
@@ -571,11 +592,33 @@ export function CommercialManagementView() {
                                     {item.assignedDate} · {item.status}
                                   </span>
                                 </div>
-                                <p className="mt-1 text-xs text-muted-foreground dark:text-zinc-400">
-                                  {consultantMap.get(item.assignedToOperatorId || "") ||
-                                    "Sem responsável"}{" "}
-                                  · {item.instruction}
-                                </p>
+                                <div className="mt-1.5 flex items-center gap-2">
+                                  <div className="relative h-5 w-5 shrink-0 overflow-hidden rounded-[2px] border border-border dark:border-zinc-800 bg-muted">
+                                    {consultantAvatarMap.get(item.assignedToOperatorId || "") ? (
+                                      <img
+                                        src={consultantAvatarMap.get(item.assignedToOperatorId || "")!}
+                                        alt={consultantMap.get(item.assignedToOperatorId || "") || "Consultor"}
+                                        className="h-full w-full object-cover"
+                                        onError={(e) => {
+                                          (e.target as HTMLElement).style.display = "none";
+                                        }}
+                                      />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center font-mono text-[9px] font-bold text-muted-foreground">
+                                        {(consultantMap.get(item.assignedToOperatorId || "") || "C")
+                                          .slice(0, 2)
+                                          .toUpperCase()}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground dark:text-zinc-400">
+                                    <strong className="text-foreground dark:text-zinc-200">
+                                      {consultantMap.get(item.assignedToOperatorId || "") ||
+                                        "Sem responsável"}
+                                    </strong>{" "}
+                                    · {item.instruction}
+                                  </p>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -611,12 +654,33 @@ export function CommercialManagementView() {
                               <strong className="text-xs font-bold text-foreground dark:text-zinc-100">
                                 {item.dealTitle}
                               </strong>
-                              <p className="mt-1 text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
-                                {item.operatorName || "Operador"} ·{" "}
-                                {new Date(item.createdAt).toLocaleString("pt-BR", {
-                                  timeZone: "America/Sao_Paulo",
-                                })}
-                              </p>
+                              <div className="mt-1.5 flex items-center gap-2">
+                                <div className="relative h-5 w-5 shrink-0 overflow-hidden rounded-[2px] border border-border dark:border-zinc-800 bg-muted">
+                                  {avatarResolver.getAvatar(undefined, item.operatorName) ? (
+                                    <img
+                                      src={avatarResolver.getAvatar(undefined, item.operatorName)!}
+                                      alt={item.operatorName || "Operador"}
+                                      className="h-full w-full object-cover"
+                                      onError={(e) => {
+                                        (e.target as HTMLElement).style.display = "none";
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center font-mono text-[9px] font-bold text-muted-foreground">
+                                      {(item.operatorName || "OP").slice(0, 2).toUpperCase()}
+                                    </div>
+                                  )}
+                                </div>
+                                <p className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
+                                  <strong className="text-foreground dark:text-zinc-200">
+                                    {item.operatorName || "Operador"}
+                                  </strong>{" "}
+                                  ·{" "}
+                                  {new Date(item.createdAt).toLocaleString("pt-BR", {
+                                    timeZone: "America/Sao_Paulo",
+                                  })}
+                                </p>
+                              </div>
                             </div>
                             <span
                               className={`rounded-[2px] px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider ${item.source === "manual_report" ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"}`}

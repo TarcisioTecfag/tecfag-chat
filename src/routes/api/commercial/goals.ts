@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, eq, gte, lt } from "drizzle-orm";
+import { and, eq, gte, isNotNull, lt, ne } from "drizzle-orm";
 import { db } from "../../../db";
 import {
   commercialCalendarDays,
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/api/commercial/goals")({
           const monthStart = `${month}-01`;
           const nextMonthStart = `${monthNumber === 12 ? year + 1 : year}-${String(monthNumber === 12 ? 1 : monthNumber + 1).padStart(2, "0")}-01`;
 
-          // 1. Operadores e perfis comerciais
+          // 1. Consultores comerciais cadastrados na aba Consultores (com equipe/divisão atribuída)
           const operatorRows = await db
             .select({
               operatorId: operators.id,
@@ -42,15 +42,21 @@ export const Route = createFileRoute("/api/commercial/goals")({
               division: commercialConsultantProfiles.division,
               activeOnTv: commercialConsultantProfiles.activeOnTv,
             })
-            .from(operators)
-            .leftJoin(
-              commercialConsultantProfiles,
+            .from(commercialConsultantProfiles)
+            .innerJoin(
+              operators,
               and(
-                eq(commercialConsultantProfiles.operatorId, operators.id),
-                eq(commercialConsultantProfiles.tenantId, tenantId),
+                eq(operators.id, commercialConsultantProfiles.operatorId),
+                eq(operators.tenantId, tenantId),
               ),
             )
-            .where(eq(operators.tenantId, tenantId))
+            .where(
+              and(
+                eq(commercialConsultantProfiles.tenantId, tenantId),
+                isNotNull(commercialConsultantProfiles.division),
+                ne(commercialConsultantProfiles.division, ""),
+              ),
+            )
             .orderBy(operators.name);
 
           // 2. Metas cadastradas no mês
@@ -175,17 +181,20 @@ export const Route = createFileRoute("/api/commercial/goals")({
               ? validRates.reduce((a, b) => a + b, 0) / validRates.length
               : 10;
 
-          // Compatibilidade com listagem antiga de goals
-          const goals = goalRows.map((g) => {
-            const op = operatorRows.find((o) => o.operatorId === g.operatorId);
-            return {
-              id: g.id,
-              operatorId: g.operatorId,
-              operatorName: op?.name || "Consultor",
-              targetValue: g.targetValue,
-              conversionRate: g.conversionRate,
-            };
-          });
+          // Compatibilidade com listagem antiga de goals (filtrada estritamente por consultores cadastrados)
+          const registeredOperatorIds = new Set(operatorRows.map((o) => o.operatorId));
+          const goals = goalRows
+            .filter((g) => registeredOperatorIds.has(g.operatorId))
+            .map((g) => {
+              const op = operatorRows.find((o) => o.operatorId === g.operatorId);
+              return {
+                id: g.id,
+                operatorId: g.operatorId,
+                operatorName: op?.name || "Consultor",
+                targetValue: g.targetValue,
+                conversionRate: g.conversionRate,
+              };
+            });
 
           return json({
             month,
@@ -273,7 +282,7 @@ export const Route = createFileRoute("/api/commercial/goals")({
             return json({ error: "Meta ou conversão inválidos." }, 400);
           }
 
-          // Garantir que perfil do consultor exista para integridade
+          // Validar que o operador é um consultor cadastrado na aba Consultores
           const [profile] = await db
             .select({ division: commercialConsultantProfiles.division })
             .from(commercialConsultantProfiles)
@@ -285,16 +294,24 @@ export const Route = createFileRoute("/api/commercial/goals")({
             )
             .limit(1);
 
-          const division = body.division || profile?.division || "maquinas";
-          if (!profile) {
-            await db.insert(commercialConsultantProfiles).values({
-              id: crypto.randomUUID(),
-              tenantId,
-              operatorId,
-              division,
-              activeOnTv: true,
-            });
-          } else if (body.division && body.division !== profile.division) {
+          if (!profile || !profile.division) {
+            return json(
+              {
+                error:
+                  "Este operador não está cadastrado como consultor comercial. Cadastre-o primeiro na aba Consultores atribuindo uma equipe.",
+                code: "CONSULTANT_NOT_REGISTERED",
+              },
+              400,
+            );
+          }
+
+          if (body.division && body.division !== profile.division) {
+            if (!["personnalite", "maquinas"].includes(body.division)) {
+              return json(
+                { error: "Divisão inválida. Escolha 'personnalite' ou 'maquinas'." },
+                400,
+              );
+            }
             await db
               .update(commercialConsultantProfiles)
               .set({ division: body.division, updatedAt: new Date() })

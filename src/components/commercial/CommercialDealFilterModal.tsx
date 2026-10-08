@@ -7,6 +7,8 @@ import {
   PipelineStageDef,
 } from "@/lib/commercial/pipeline-data";
 
+import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
+
 interface CommercialDealFilterModalProps {
   stages: PipelineStageDef[];
   isOpen: boolean;
@@ -18,6 +20,7 @@ interface CommercialDealFilterModalProps {
   deals: CommercialPipelineDeal[];
   loading?: boolean;
   sellerAvatar?: string;
+  avatarResolver?: ((id?: string | null, name?: string | null) => string | undefined) | null;
   onOpenDeal?: (dealId: string) => void;
   onOpenProfile?: (sellerId?: string) => void;
 }
@@ -33,11 +36,18 @@ export function CommercialDealFilterModal({
   deals,
   loading = false,
   sellerAvatar,
+  avatarResolver,
   onOpenDeal,
   onOpenProfile,
 }: CommercialDealFilterModalProps) {
   const [selectedStage, setSelectedStage] = useState<PipelineStageKey | "all">(initialStageKey);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const defaultResolver = useMemo(() => buildConsultantAvatarResolver(), []);
+  const effectiveAvatarResolver = avatarResolver || defaultResolver;
+
+  const effectiveSellerAvatar =
+    sellerAvatar || effectiveAvatarResolver(sellerId, sellerName);
 
   useEffect(() => {
     setSelectedStage(initialStageKey);
@@ -93,9 +103,9 @@ export function CommercialDealFilterModal({
           <div className="flex items-center gap-3">
             {/* Avatar Angular */}
             <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
-              {sellerAvatar ? (
+              {effectiveSellerAvatar ? (
                 <img
-                  src={sellerAvatar}
+                  src={effectiveSellerAvatar}
                   alt={sellerName}
                   className="h-full w-full object-cover"
                   onError={(e) => {
@@ -268,7 +278,35 @@ export function CommercialDealFilterModal({
 
                     {/* Responsável */}
                     <td className="py-2 px-3 font-medium text-slate-700 dark:text-zinc-200">
-                      {deal.responsibleName}
+                      <div className="flex items-center gap-2">
+                        <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
+                          {(() => {
+                            const rowAvatar =
+                              effectiveAvatarResolver(undefined, deal.responsibleName) ||
+                              (deal.responsibleName === sellerName ? effectiveSellerAvatar : undefined);
+                            return rowAvatar ? (
+                              <img
+                                src={rowAvatar}
+                                alt={deal.responsibleName}
+                                className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLElement).style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[9px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
+                                {deal.responsibleName
+                                  .split(" ")
+                                  .map((n) => n[0])
+                                  .slice(0, 2)
+                                  .join("")
+                                  .toUpperCase()}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                        <span className="truncate">{deal.responsibleName}</span>
+                      </div>
                     </td>
 
                     {/* Valor */}

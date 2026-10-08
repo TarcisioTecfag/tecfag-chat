@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, lt, or } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, lt, ne, or } from "drizzle-orm";
 import { db } from "../../db";
 import {
   commercialCalendarDays,
@@ -24,7 +24,13 @@ import {
 } from "./metrics";
 
 type Division = "personnalite" | "maquinas" | null;
-type OperatorRow = { id: string; name: string; division: string | null; activeOnTv: boolean };
+type OperatorRow = {
+  id: string;
+  name: string;
+  avatar: string | null;
+  division: string | null;
+  activeOnTv: boolean;
+};
 
 export async function getCommercialBi(tenantId: string, division: Division, now = new Date()) {
   const today = saoPauloDay(now);
@@ -48,6 +54,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
       .select({
         id: operators.id,
         name: operators.name,
+        avatar: operators.avatar,
         division: commercialConsultantProfiles.division,
         activeOnTv: commercialConsultantProfiles.activeOnTv,
       })
@@ -59,7 +66,13 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
           eq(operators.tenantId, tenantId),
         ),
       )
-      .where(eq(commercialConsultantProfiles.tenantId, tenantId)),
+      .where(
+        and(
+          eq(commercialConsultantProfiles.tenantId, tenantId),
+          isNotNull(commercialConsultantProfiles.division),
+          ne(commercialConsultantProfiles.division, ""),
+        ),
+      ),
     db
       .select({ id: crmStages.id, name: crmStages.name, orderIndex: crmStages.orderIndex })
       .from(crmStages)
@@ -154,7 +167,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
   ]);
 
   const scopedOperators = (operatorsRows as OperatorRow[]).filter(
-    (item) => item.activeOnTv && (!division || item.division === division),
+    (item) => item.activeOnTv && Boolean(item.division) && (!division || item.division === division),
   );
   const operatorMap = new Map(scopedOperators.map((item) => [item.id, item]));
   const taskRows = scopedOperators.length
@@ -307,6 +320,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
     return {
       operatorId: operator.id,
       name: operator.name,
+      avatar: operator.avatar,
       division: operator.division,
       activeOnTv: operator.activeOnTv,
       targetValue,
@@ -359,6 +373,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
       return {
         operatorId: operator.id,
         name: operator.name,
+        avatar: operator.avatar,
         count: events.length,
         averageSeconds: events.length ? totalSeconds / events.length : null,
         pending: pending.filter((item) => item.operatorId === operator.id).length,

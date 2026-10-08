@@ -118,3 +118,30 @@ test("cálculo de meta diária necessária global bate exatamente com o card da 
   assert.equal(Math.round(dailyRequired), 221289);
   assert.equal(( (totalRealized / totalTarget) * 100 ).toFixed(1), "22.1");
 });
+
+test("filtra estritamente apenas consultores cadastrados na aba consultores (com divisão atribuída) para a tabela de metas e cálculo dos totais", () => {
+  // Simulação de operadores gerais do sistema (como Alessandra Rocha, Déborah Rayane, Fernanda Cristina, Fernando Mendes)
+  // que NÃO possuem equipe comercial (division = null / sem perfil)
+  const systemUsers = [
+    { operatorId: "1", name: "Adriano Ordonho", division: "maquinas", targetValue: 300_000, conversionRate: 10, realizedValue: 50_000 },
+    { operatorId: "2", name: "Alessandra Rocha", division: null, targetValue: 0, conversionRate: 10, realizedValue: 0 },
+    { operatorId: "3", name: "Andreia Camargo", division: "maquinas", targetValue: 300_000, conversionRate: 10, realizedValue: 24_538 },
+    { operatorId: "4", name: "Déborah Rayane", division: null, targetValue: 0, conversionRate: 10, realizedValue: 0 },
+    { operatorId: "5", name: "Diana Vieira", division: "personnalite", targetValue: 500_000, conversionRate: 10, realizedValue: 80_000 },
+    { operatorId: "6", name: "Fernanda Cristina", division: null, targetValue: 0, conversionRate: 10, realizedValue: 0 },
+  ];
+
+  // Apenas usuários com equipe comercial definida na aba Consultores são elegíveis
+  const registeredConsultants = systemUsers.filter((u) => Boolean(u.division));
+  assert.equal(registeredConsultants.length, 3);
+  assert.deepEqual(
+    registeredConsultants.map((c) => c.name),
+    ["Adriano Ordonho", "Andreia Camargo", "Diana Vieira"]
+  );
+
+  const result = calculateGoalMetrics(registeredConsultants, 22, 17);
+  assert.equal(result.processed.length, 3);
+  assert.equal(result.totals.totalTarget, 1_100_000);
+  assert.equal(result.totals.totalRealized, 154_538);
+});
+

@@ -51,6 +51,7 @@ async function getScope({ tenantId, division, includeHidden }: AnalysisOptions) 
       .select({
         operatorId: operators.id,
         name: operators.name,
+        avatar: operators.avatar,
         division: commercialConsultantProfiles.division,
       })
       .from(commercialConsultantProfiles)
@@ -219,6 +220,7 @@ export async function getOperationalAnalysis(options: AnalysisOptions) {
     .select({
       operatorId: operators.id,
       name: operators.name,
+      avatar: operators.avatar,
       division: commercialConsultantProfiles.division,
       activeOnTv: commercialConsultantProfiles.activeOnTv,
       isOnline: operators.isOnline,
@@ -407,6 +409,7 @@ export async function getResponsibilityAnalysis(options: AnalysisOptions & { mon
     .select({
       operatorId: operators.id,
       name: operators.name,
+      avatar: operators.avatar,
       division: commercialConsultantProfiles.division,
     })
     .from(commercialConsultantProfiles)
@@ -1261,6 +1264,7 @@ export async function getCohortDealDrilldown(
         stageId: crmDeals.stageId,
         accountName: crmAccounts.name,
         operatorName: operators.name,
+        operatorAvatar: operators.avatar,
         stageName: crmStages.name,
         pipelineName: crmPipelines.name,
         division: commercialConsultantProfiles.division,

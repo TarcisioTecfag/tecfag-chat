@@ -109,7 +109,7 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
             const resetOps = await RodizioEngine.resetRodizioCounters(tenantId);
             const dashboardData = await RodizioEngine.getDashboardData(tenantId);
             return new Response(
-              JSON.stringify({ success: true, operators: resetOps, ...dashboardData }),
+              JSON.stringify({ success: true, ...dashboardData, operators: resetOps }),
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }

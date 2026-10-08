@@ -8,7 +8,7 @@ import {
   UserPlus, CheckCircle, Clock, XCircle, Bot, User as UserIcon,
   ChevronRight, ChevronDown, Circle, Search, ExternalLink, ShieldCheck, Smartphone,
   Power, Save, RefreshCw, MessageSquare, Square, UserCheck, Calendar, Filter, X,
-  Play, Pause, FileText, Download, Globe
+  Play, Pause, FileText, Download, Globe, PanelRightOpen, PanelRightClose
 } from "lucide-react";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
 import { useChat } from "@/hooks/useChatState";
@@ -202,13 +202,28 @@ function StatusBadge({ status }: { status: SdrTriageSession["status"] }) {
   );
 }
 
-export function SdrTab() {
+export interface SdrTabProps {
+  sdrEnabled?: boolean;
+  onSdrConfigChange?: (enabled: boolean) => void;
+}
+
+export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: SdrTabProps = {}) {
   const { tenant, setActiveView, setSelectedChatId } = useChat();
   const persona = getAiPersona(tenant || "valem");
 
-  const [sdrEnabled, setSdrEnabled] = useState(true);
+  const [sdrEnabled, setSdrEnabled] = useState(externalSdrEnabled ?? true);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Sincroniza estado vindo do Header superior
+  useEffect(() => {
+    if (externalSdrEnabled !== undefined) {
+      setSdrEnabled(externalSdrEnabled);
+    }
+  }, [externalSdrEnabled]);
+
+  // Menu lateral direito de dados coletados (minimizado por padrão conforme solicitação de UX)
+  const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
 
   // Filtros
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "completed">("all");
@@ -236,7 +251,9 @@ export function SdrTab() {
       if (res.ok) {
         const data = await res.json();
         if (data.config) {
-          setSdrEnabled(Boolean(data.config.enabled));
+          const isEn = Boolean(data.config.enabled);
+          setSdrEnabled(isEn);
+          onSdrConfigChange?.(isEn);
         }
         if (Array.isArray(data.sessions)) {
           const formattedLiveSessions: SdrTriageSession[] = data.sessions.map((s: any) => ({
@@ -395,46 +412,7 @@ export function SdrTab() {
   });
 
   return (
-    <div className="flex flex-col gap-3 h-full overflow-hidden">
-      {/* ── PAINEL SUPERIOR — Controle Global SDR Valentina ──────────────── */}
-      <div className="bg-card rounded-2xl border border-border shadow-soft px-4 py-3 shrink-0 flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary font-bold">
-            <Bot className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs font-extrabold text-foreground">Triagem Automática — {persona.name} SDR</h3>
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold border ${
-                sdrEnabled ? "bg-primary-soft text-primary border-primary/30" : "bg-muted text-muted-foreground border-border"
-              }`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${sdrEnabled ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
-                {sdrEnabled ? "SDR ATIVO (TODOS OS LEADS)" : "SDR PAUSADO"}
-              </span>
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-0.5">
-              {persona.name} responde e qualifica automaticamente todos os contatos que chegam sem responsável.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleToggleSdr}
-            disabled={isSavingConfig}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition flex items-center gap-2 cursor-pointer shadow-soft border ${
-              sdrEnabled
-                ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
-                : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
-            } ${isSavingConfig ? "opacity-70 cursor-not-allowed" : ""}`}
-            title={sdrEnabled ? `Clique para pausar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente` : `Clique para ativar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`}
-          >
-            <Power className="h-3.5 w-3.5" />
-            <span>{sdrEnabled ? "SDR Ativo" : "SDR Inativo"}</span>
-          </button>
-        </div>
-      </div>
-
+    <div className="flex flex-col h-full overflow-hidden">
       {/* ── PAINÉIS DE CONTEÚDO AO VIVO REAIS ───────────────────────────────── */}
       <div className="flex gap-4 flex-1 overflow-hidden min-h-0">
         {/* ── PAINEL ESQUERDO — Lista de sessões reais (30%) ────────────────── */}
@@ -757,7 +735,35 @@ export function SdrTab() {
                       <p className="text-[10px] text-muted-foreground">{selectedSession.company} · {selectedSession.currentStep}</p>
                     </div>
                   </div>
-                  <StatusBadge status={selectedSession.status} />
+                  <div className="flex items-center gap-2 shrink-0">
+                    <StatusBadge status={selectedSession.status} />
+
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => setIsInfoPanelOpen((prev) => !prev)}
+                            className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                              isInfoPanelOpen
+                                ? "bg-primary-soft text-primary border-primary/30 hover:bg-primary-soft/80"
+                                : "bg-muted/60 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                            }`}
+                            title={isInfoPanelOpen ? "Minimizar dados coletados" : "Expandir dados coletados"}
+                            aria-label={isInfoPanelOpen ? "Minimizar dados coletados" : "Expandir dados coletados"}
+                          >
+                            {isInfoPanelOpen ? (
+                              <PanelRightClose className="h-3.5 w-3.5" />
+                            ) : (
+                              <PanelRightOpen className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          {isInfoPanelOpen ? "Minimizar menu de informações coletadas" : "Expandir menu de informações coletadas"}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                 </div>
               </div>
 
@@ -960,135 +966,167 @@ export function SdrTab() {
           )}
         </div>
 
-        {/* ── PAINEL DIREITO — Dados Coletados Reais (25%) ─────────────────────── */}
-        <div className="w-[25%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
-          {selectedSession ? (
-            (() => {
-              const mergedData = getMergedCollectedData(selectedSession.collectedData);
-              const filledCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
-              const totalCount = Object.keys(mergedData).length;
+        {/* ── PAINEL DIREITO — Dados Coletados Reais (Expandível / Minimizado por Padrão) ───────── */}
+        <AnimatePresence>
+          {isInfoPanelOpen && (
+            <motion.div
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: "26%", opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+              className="w-[26%] min-w-[270px] max-w-[340px] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft"
+            >
+              {selectedSession ? (
+                (() => {
+                  const mergedData = getMergedCollectedData(selectedSession.collectedData);
+                  const filledCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
+                  const totalCount = Object.keys(mergedData).length;
 
-              return (
-                <>
-                  <div className="px-4 py-3 border-b border-line shrink-0 flex items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
-                        <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0" />
-                        Dados Coletados
-                      </h3>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {filledCount} de {totalCount} campos
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={handleStopValentina}
-                              disabled={isStoppingValentina || selectedSession.status === "abandoned" || selectedSession.outcome === "stopped"}
-                              className="text-[10px] font-extrabold text-primary hover:text-primary-hover bg-primary-soft hover:bg-primary-soft/80 border border-primary/20 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-40"
-                            >
-                              <Square className="h-3 w-3 text-primary fill-primary/30" />
-                              {isStoppingValentina ? "Parando..." : `Parar ${persona.name}`}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            Interromper instantaneamente as ações {persona.gender === "female" ? "da" : "do"} {persona.name} para este contato
-                          </TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => {
-                                const targetChatId = selectedSession.conversationId;
-                                setSelectedChatId(targetChatId);
-                                setActiveView("chat");
-                                toast.info("Redirecionando para o chat...");
-                              }}
-                              className="text-[10px] font-black text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              Abrir
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            Abrir atendimento correspondente
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
-                    {Object.entries(mergedData).map(([key, data]) => (
-                      <div
-                        key={key}
-                        className={`rounded-xl border p-3 transition ${
-                          data.status === "filled"
-                            ? "border-primary/20 bg-primary-soft/30"
-                            : "border-border bg-muted/30"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                            {key}
-                          </span>
-                          {data.status === "filled" ? (
-                            <CheckCircle className="h-3 w-3 text-primary" />
-                          ) : (
-                            <Clock className="h-3 w-3 text-muted-foreground/50" />
-                          )}
+                  return (
+                    <>
+                      <div className="px-4 py-3 border-b border-line shrink-0 flex items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
+                            <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0" />
+                            Dados Coletados
+                          </h3>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {filledCount} de {totalCount} campos
+                          </p>
                         </div>
-                        <p className={`text-xs font-bold ${
-                          data.status === "filled" ? "text-foreground" : "text-muted-foreground/40 italic"
-                        }`}>
-                          {data.status === "filled" ? data.value : "Aguardando..."}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
 
-                  {/* ── SEÇÃO RESPONSÁVEL (RODÍZIO ALOCADO) ────────────────────────── */}
-                  <div className="px-4 py-3 border-t border-line shrink-0 space-y-2">
-                    <div className="rounded-xl border border-primary/20 bg-primary-soft/30 p-2.5">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[10px] font-bold text-primary uppercase tracking-wide flex items-center gap-1">
-                          <UserCheck className="h-3 w-3 text-primary" />
-                          Responsável (Rodízio)
-                        </span>
-                        <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-primary/15 text-primary rounded-md">
-                          {selectedSession.status === "completed" ? "Alocado" : "Pendente"}
-                        </span>
-                      </div>
-                      <p className="text-xs font-extrabold text-foreground mt-0.5">
-                        {selectedSession.responsibleName || `${persona.name} IA (Em Triagem)`}
-                      </p>
-                    </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={handleStopValentina}
+                                  disabled={isStoppingValentina || selectedSession.status === "abandoned" || selectedSession.outcome === "stopped"}
+                                  className="text-[10px] font-extrabold text-primary hover:text-primary-hover bg-primary-soft hover:bg-primary-soft/80 border border-primary/20 px-2 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                                >
+                                  <Square className="h-2.5 w-2.5 text-primary fill-primary/30" />
+                                  <span className="hidden sm:inline">{isStoppingValentina ? "Parando..." : `Parar ${persona.name}`}</span>
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">
+                                Interromper instantaneamente as ações {persona.gender === "female" ? "da" : "do"} {persona.name} para este contato
+                              </TooltipContent>
+                            </Tooltip>
 
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3 text-primary" />
-                        Início: {selectedSession.startedAt ? new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : "—"}
-                      </span>
-                      <span className="flex items-center gap-1 truncate max-w-[140px]">
-                        <ChevronRight className="h-3 w-3 text-primary" />
-                        Etapa: <span className="font-bold text-foreground truncate">{selectedSession.currentStep || "—"}</span>
-                      </span>
-                    </div>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => {
+                                    const targetChatId = selectedSession.conversationId;
+                                    setSelectedChatId(targetChatId);
+                                    setActiveView("chat");
+                                    toast.info("Redirecionando para o chat...");
+                                  }}
+                                  className="text-[10px] font-black text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  <span className="hidden sm:inline">Abrir</span>
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">
+                                Abrir atendimento correspondente
+                              </TooltipContent>
+                            </Tooltip>
+
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => setIsInfoPanelOpen(false)}
+                                  className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer shrink-0"
+                                  title="Minimizar painel de dados coletados"
+                                >
+                                  <PanelRightClose className="h-3.5 w-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">Minimizar</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
+                        {Object.entries(mergedData).map(([key, data]) => (
+                          <div
+                            key={key}
+                            className={`rounded-xl border p-3 transition ${
+                              data.status === "filled"
+                                ? "border-primary/20 bg-primary-soft/30"
+                                : "border-border bg-muted/30"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                {key}
+                              </span>
+                              {data.status === "filled" ? (
+                                <CheckCircle className="h-3 w-3 text-primary" />
+                              ) : (
+                                <Clock className="h-3 w-3 text-muted-foreground/50" />
+                              )}
+                            </div>
+                            <p className={`text-xs font-bold ${
+                              data.status === "filled" ? "text-foreground" : "text-muted-foreground/40 italic"
+                            }`}>
+                              {data.status === "filled" ? data.value : "Aguardando..."}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* ── SEÇÃO RESPONSÁVEL (RODÍZIO ALOCADO) ────────────────────────── */}
+                      <div className="px-4 py-3 border-t border-line shrink-0 space-y-2">
+                        <div className="rounded-xl border border-primary/20 bg-primary-soft/30 p-2.5">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-[10px] font-bold text-primary uppercase tracking-wide flex items-center gap-1">
+                              <UserCheck className="h-3 w-3 text-primary" />
+                              Responsável (Rodízio)
+                            </span>
+                            <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-primary/15 text-primary rounded-md">
+                              {selectedSession.status === "completed" ? "Alocado" : "Pendente"}
+                            </span>
+                          </div>
+                          <p className="text-xs font-extrabold text-foreground mt-0.5">
+                            {selectedSession.responsibleName || `${persona.name} IA (Em Triagem)`}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3 text-primary" />
+                            Início: {selectedSession.startedAt ? new Date(selectedSession.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : "—"}
+                          </span>
+                          <span className="flex items-center gap-1 truncate max-w-[140px]">
+                            <ChevronRight className="h-3 w-3 text-primary" />
+                            Etapa: <span className="font-bold text-foreground truncate">{selectedSession.currentStep || "—"}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+                  <div className="flex items-center justify-between w-full px-4 py-2 border-b border-line mb-4">
+                    <span className="text-xs font-bold text-foreground">Informações</span>
+                    <button
+                      onClick={() => setIsInfoPanelOpen(false)}
+                      className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                    >
+                      <PanelRightClose className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                </>
-              );
-            })()
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-              <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
-              <p className="text-xs font-bold text-muted-foreground">Sem dados selecionados</p>
-            </div>
+                  <Clock className="h-8 w-8 text-muted-foreground/30 mb-2" />
+                  <p className="text-xs font-bold text-muted-foreground">Sem dados selecionados</p>
+                </div>
+              )}
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
       </div>
 
       {/* ── MODAL DE VISUALIZAÇÃO EM TELA CHEIA DA FOTO DE PERFIL ────────── */}
