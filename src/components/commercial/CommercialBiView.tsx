@@ -69,6 +69,12 @@ import {
   ALL_BASELINE_DIRETRIZES_CONSULTANTS,
   DiretrizesConsultantRow,
 } from "@/lib/commercial/diretrizes-crm-data";
+import { CommercialTmaTableView } from "./CommercialTmaTableView";
+import {
+  BASELINE_TMA_KPIS,
+  BASELINE_TMA_PERSONNALITE,
+  BASELINE_TMA_MAQUINAS,
+} from "@/lib/commercial/tma-whatsapp-data";
 
 
 
@@ -298,12 +304,12 @@ export function CommercialBiView() {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  // Rotação automática de slides (7 módulos TV)
+  // Rotação automática de slides (8 módulos TV)
   useEffect(() => {
     if (!rotating) return;
     const interval = window.setInterval(
       () => {
-        setModule((current) => (current + 1) % 7);
+        setModule((current) => (current + 1) % 8);
       },
       Math.max(10, data?.settings.tvSettings.rotationSeconds || 30) * 1000,
     );
@@ -528,7 +534,7 @@ export function CommercialBiView() {
               type="button"
               onClick={() => {
                 setRotating(false);
-                setModule((current) => (current === 0 ? 6 : current - 1));
+                setModule((current) => (current === 0 ? 7 : current - 1));
               }}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Slide Anterior"
@@ -551,7 +557,7 @@ export function CommercialBiView() {
               type="button"
               onClick={() => {
                 setRotating(false);
-                setModule((current) => (current + 1) % 7);
+                setModule((current) => (current + 1) % 8);
               }}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Próximo Slide"
@@ -591,9 +597,9 @@ export function CommercialBiView() {
             </button>
           </div>
 
-          {/* 7 Dots de Navegação Angular (Dashboard TV) */}
+          {/* 8 Dots de Navegação Angular (Dashboard TV) */}
           <div className="flex items-center gap-1 ml-1">
-            {[0, 1, 2, 3, 4, 5, 6].map((idx) => {
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((idx) => {
               const isActive = module === idx;
               return (
                 <button
@@ -709,6 +715,19 @@ export function CommercialBiView() {
                     setDiretrizesDetailOpen(true);
                   }}
                   onBreakdownClick={() => setDiretrizesBreakdownOpen(true)}
+                />
+              )}
+
+              {/* ─── SLIDE 7: TMA WHATSAPP (RÉPLICA FIEL FOTOS 1 E 2) ─── */}
+              {module === 7 && (
+                <CommercialTmaTableView
+                  kpis={BASELINE_TMA_KPIS}
+                  personnaliteData={BASELINE_TMA_PERSONNALITE}
+                  semiMaquinasData={BASELINE_TMA_MAQUINAS}
+                  tenantId={tenant}
+                  onOpenChat={(convId) => {
+                    navigate({ to: "/chat" as any, search: { conversationId: convId } as any });
+                  }}
                 />
               )}
             </>
