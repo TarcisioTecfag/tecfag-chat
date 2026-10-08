@@ -36,39 +36,39 @@ export function CommercialPipelineTableView({
   // Evita vazios pretos gigantes quando há poucos consultores e comprime proporcionalmente quando a equipe cresce
   const density = useMemo(() => {
     // Modo Amplo & Robusto (<= 10 consultores, estado atual com 4 + 6 = 10)
-    // Linhas mais encorpadas, altas ("gordas") e tipografia proeminente
+    // Linhas encorpadas e robustas, perfeitamente calibradas para não estourar a viewport
     if (totalSellers <= 10) {
       return {
-        rowPy: "py-2 sm:py-2.5 xl:py-3 2xl:py-3.5",
-        stagePy: "py-1.5 sm:py-2 xl:py-2.5 2xl:py-3",
-        headerPy: "py-2 sm:py-2.5 xl:py-2.5",
+        rowPy: "py-1.5 sm:py-2 xl:py-2.5",
+        stagePy: "py-1 sm:py-1.5 xl:py-2",
+        headerPy: "py-1.5 sm:py-2 xl:py-2",
         sellerText: "text-xs sm:text-xs xl:text-sm font-bold",
         countText: "text-xs sm:text-sm xl:text-base font-black",
-        subText: "text-[9.5px] sm:text-[10px] xl:text-xs font-semibold",
+        subText: "text-[9.5px] sm:text-[10px] xl:text-[11px] font-semibold",
         teamTitle: "text-xs sm:text-xs xl:text-sm font-black",
         teamSummary: "text-[10px] sm:text-xs xl:text-sm",
-        gap: "gap-2.5 sm:gap-3.5 xl:gap-4",
-        tableSpace: "space-y-1 sm:space-y-1.5 xl:space-y-2",
+        gap: "gap-2 sm:gap-2.5 xl:gap-3",
+        tableSpace: "space-y-1 sm:space-y-1.5",
       };
     }
     // Modo Intermediário (11 a 16 consultores)
     if (totalSellers <= 16) {
       return {
-        rowPy: "py-1.5 sm:py-2 xl:py-2.5",
-        stagePy: "py-1 sm:py-1.5 xl:py-2",
-        headerPy: "py-1.5 sm:py-2",
+        rowPy: "py-1 sm:py-1.5 xl:py-2",
+        stagePy: "py-0.5 sm:py-1 xl:py-1.5",
+        headerPy: "py-1 sm:py-1.5",
         sellerText: "text-xs font-bold",
         countText: "text-xs sm:text-sm font-black",
-        subText: "text-[9px] sm:text-[9.5px] xl:text-[10.5px] font-medium",
+        subText: "text-[9px] sm:text-[9.5px] xl:text-[10px] font-medium",
         teamTitle: "text-xs font-bold",
         teamSummary: "text-[10px] sm:text-xs",
-        gap: "gap-2 sm:gap-2.5",
-        tableSpace: "space-y-1",
+        gap: "gap-1.5 sm:gap-2",
+        tableSpace: "space-y-0.5 sm:space-y-1",
       };
     }
     // Modo Compacto (> 16 consultores)
     return {
-      rowPy: "py-1 px-2.5",
+      rowPy: "py-0.5 px-2",
       stagePy: "py-0.5 px-1.5",
       headerPy: "py-1 px-2",
       sellerText: "text-[11px] font-semibold",
@@ -76,19 +76,19 @@ export function CommercialPipelineTableView({
       subText: "text-[9px] font-normal leading-none",
       teamTitle: "text-[11px] font-bold",
       teamSummary: "text-[10px]",
-      gap: "gap-1.5",
+      gap: "gap-1",
       tableSpace: "space-y-0.5",
     };
   }, [totalSellers]);
 
   return (
-    <div className={`w-full h-full flex flex-col justify-center ${density.gap} select-none`}>
+    <div className="w-full h-full flex flex-col justify-between py-1 select-none">
       {/* ─── TAG DA TELA 1 ─── */}
-      <div className="flex items-center gap-2 px-1">
+      <div className="shrink-0 flex items-center gap-2 px-1 pt-0.5 pb-0.5">
         <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-red-950/40 border border-red-500/30 text-red-500 font-mono text-[10px] font-black">
           ⊞
         </span>
-        <h2 className="text-[11px] sm:text-xs xl:text-sm font-black uppercase tracking-wider text-[#df3d3d] font-mono">
+        <h2 className="text-[11px] sm:text-xs xl:text-sm font-black uppercase tracking-wider text-[#df3d3d] font-mono leading-normal">
           OPORTUNIDADES & PIPELINE POR FASE (RD CRM)
         </h2>
       </div>

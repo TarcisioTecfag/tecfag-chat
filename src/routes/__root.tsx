@@ -43,7 +43,11 @@ function MaybeCrmChatWidget() {
     location.pathname === "/chat" ||
     location.pathname.startsWith("/chat/") ||
     location.pathname.startsWith("/chat");
-  if (!isAuthenticated || isMobile || isChatView) return null;
+  const isWarRoom =
+    activeView === "commercialBi" ||
+    location.pathname.includes("war-room") ||
+    location.pathname.includes("commercial-bi");
+  if (!isAuthenticated || isMobile || isChatView || isWarRoom) return null;
   return (
     <Suspense fallback={null}>
       <CrmChatWidget />

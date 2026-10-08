@@ -483,8 +483,8 @@ export function CommercialBiView() {
       </header>
 
       {/* ─── CORPO PRINCIPAL: FIXO E CENTRALIZADO NA TELA (ZERO SCROLLBAR) ─── */}
-      <div className="flex-1 w-full overflow-hidden flex flex-col justify-center items-center p-2 sm:p-3 xl:p-4">
-        <div className="w-full max-w-[1720px] h-full flex flex-col justify-center">
+      <div className="flex-1 w-full overflow-hidden flex flex-col justify-start items-center px-2 py-1 sm:px-3 sm:py-1.5 xl:px-4 xl:py-2">
+        <div className="w-full max-w-[1720px] h-full flex flex-col justify-between">
           {error && (
             <p
               role="alert"
