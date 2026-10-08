@@ -6,8 +6,8 @@ describe("Commercial War Room — Rotação Automática, Headers e Desvinculaç�
   const biViewPath = resolve(__dirname, "../src/components/commercial/CommercialBiView.tsx");
   const biViewCode = readFileSync(biViewPath, "utf-8");
 
-  it("garante que TOTAL_SLIDES está definido exatamente como 8", () => {
-    expect(biViewCode).toContain("const TOTAL_SLIDES = 8;");
+  it("garante que TOTAL_SLIDES está definido exatamente como 9", () => {
+    expect(biViewCode).toContain("const TOTAL_SLIDES = 9;");
   });
 
   it("garante que a rotação inicia ATIVA por padrão (rotating = true)", () => {
