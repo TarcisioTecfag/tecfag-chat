@@ -47,22 +47,22 @@ export function CommercialTmaTableView({
       <div className="w-full">
         {/* 4 Buckets Labels com números e contraste nítido */}
         <div className="grid grid-cols-4 font-mono text-xs sm:text-[13px] mb-1.5 font-bold">
-          <span className={under5m > 0 ? "text-emerald-400 font-black" : "text-zinc-500 font-semibold"}>
+          <span className={under5m > 0 ? "text-emerald-700 dark:text-emerald-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}>
             {under5m} ≤ 5m
           </span>
-          <span className={`text-center ${between5and15m > 0 ? "text-cyan-400 font-black" : "text-zinc-500 font-semibold"}`}>
+          <span className={`text-center ${between5and15m > 0 ? "text-cyan-700 dark:text-cyan-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}>
             {between5and15m} 5-15m
           </span>
-          <span className={`text-center ${between15and30m > 0 ? "text-amber-400 font-black" : "text-zinc-500 font-semibold"}`}>
+          <span className={`text-center ${between15and30m > 0 ? "text-amber-700 dark:text-amber-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}>
             {between15and30m} 15-30m
           </span>
-          <span className={`text-right ${over30m > 0 ? "text-red-400 font-black" : "text-zinc-500 font-semibold"}`}>
+          <span className={`text-right ${over30m > 0 ? "text-red-700 dark:text-red-400 font-black" : "text-slate-400 dark:text-zinc-500 font-semibold"}`}>
             {over30m} &gt; 30m
           </span>
         </div>
 
         {/* Trilha horizontal contínua de largura total */}
-        <div className="h-3 sm:h-3.5 xl:h-4 w-full overflow-hidden rounded-full bg-zinc-800/80 border border-zinc-700/50 flex shadow-inner">
+        <div className="h-3 sm:h-3.5 xl:h-4 w-full overflow-hidden rounded-full bg-slate-200 border border-slate-300 dark:bg-zinc-800/80 dark:border-zinc-700/50 flex shadow-inner">
           {total > 0 ? (
             <>
               {pctUnder5m > 0 && (
@@ -70,7 +70,7 @@ export function CommercialTmaTableView({
                   initial={{ width: 0 }}
                   animate={{ width: `${pctUnder5m}%` }}
                   transition={{ duration: 0.55, ease: "easeOut" }}
-                  className="h-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.35)]"
+                  className="h-full bg-emerald-500 dark:bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.35)]"
                 />
               )}
               {pct5to15m > 0 && (
@@ -78,7 +78,7 @@ export function CommercialTmaTableView({
                   initial={{ width: 0 }}
                   animate={{ width: `${pct5to15m}%` }}
                   transition={{ duration: 0.55, ease: "easeOut" }}
-                  className="h-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.35)]"
+                  className="h-full bg-cyan-500 dark:bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.35)]"
                 />
               )}
               {pct15to30m > 0 && (
@@ -86,7 +86,7 @@ export function CommercialTmaTableView({
                   initial={{ width: 0 }}
                   animate={{ width: `${pct15to30m}%` }}
                   transition={{ duration: 0.55, ease: "easeOut" }}
-                  className="h-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.35)]"
+                  className="h-full bg-amber-500 dark:bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.35)]"
                 />
               )}
               {pctOver30m > 0 && (
@@ -108,11 +108,11 @@ export function CommercialTmaTableView({
     return (
       <motion.div
         key={consultant.consultantId}
-        whileHover={{ scale: 1.003, backgroundColor: "rgba(24, 24, 27, 0.8)" }}
+        whileHover={{ scale: 1.003 }}
         whileTap={{ scale: 0.995 }}
         transition={{ duration: 0.12 }}
         onClick={() => onConsultantClick?.(consultant)}
-        className="flex items-center justify-between gap-3 sm:gap-4 rounded-[4px] border border-zinc-800/80 bg-zinc-950/60 px-3 sm:px-4 py-2 sm:py-2.5 xl:py-3 transition-colors cursor-pointer hover:border-zinc-700 shadow-sm"
+        className="flex items-center justify-between gap-3 sm:gap-4 rounded-[4px] border border-slate-200 bg-white hover:bg-slate-50 dark:border-zinc-800/80 dark:bg-zinc-950/60 dark:hover:bg-zinc-900/60 px-3 sm:px-4 py-2 sm:py-2.5 xl:py-3 transition-colors cursor-pointer shadow-sm"
       >
         {/* Esquerda: Avatar + Nome */}
         <div className="flex items-center gap-2.5 sm:gap-3 w-48 sm:w-56 xl:w-64 shrink-0">
@@ -120,15 +120,15 @@ export function CommercialTmaTableView({
             <img
               src={consultant.avatarUrl}
               alt={consultant.name}
-              className="h-8 w-8 sm:h-9 sm:w-9 xl:h-10 xl:w-10 rounded-[3px] border border-zinc-700/80 object-cover shrink-0 shadow-sm"
+              className="h-8 w-8 sm:h-9 sm:w-9 xl:h-10 xl:w-10 rounded-[3px] border border-slate-200 dark:border-zinc-700/80 object-cover shrink-0 shadow-sm"
             />
           ) : (
-            <div className="flex h-8 w-8 sm:h-9 sm:w-9 xl:h-10 xl:w-10 shrink-0 items-center justify-center rounded-[3px] border border-zinc-700/80 bg-zinc-900 font-mono text-xs font-bold text-zinc-300">
+            <div className="flex h-8 w-8 sm:h-9 sm:w-9 xl:h-10 xl:w-10 shrink-0 items-center justify-center rounded-[3px] border border-slate-200 bg-slate-100 font-mono text-xs font-bold text-slate-700 dark:border-zinc-700/80 dark:bg-zinc-900 dark:text-zinc-300">
               {consultant.name.slice(0, 2).toUpperCase()}
             </div>
           )}
           <div className="truncate">
-            <span className="block font-mono text-xs sm:text-sm font-bold text-white tracking-tight truncate">
+            <span className="block font-mono text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-tight truncate">
               {consultant.name}
             </span>
           </div>
@@ -141,10 +141,10 @@ export function CommercialTmaTableView({
 
         {/* Direita: Total de Atendimentos */}
         <div className="w-16 sm:w-20 text-right font-mono shrink-0">
-          <span className="block text-xs sm:text-sm font-black text-white">
+          <span className="block text-xs sm:text-sm font-black text-slate-900 dark:text-white">
             {consultant.totalAnswered}
           </span>
-          <span className="block text-[10px] sm:text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+          <span className="block text-[10px] sm:text-[11px] font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
             TOTAL
           </span>
         </div>
@@ -160,21 +160,21 @@ export function CommercialTmaTableView({
         <motion.div
           whileHover={{ y: -2, scale: 1.008 }}
           transition={{ duration: 0.15 }}
-          className="relative overflow-hidden rounded-[4px] border border-emerald-500/40 bg-[#0d1714] p-3 sm:p-4 shadow-sm before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1.5 before:bg-emerald-500"
+          className="relative overflow-hidden rounded-[4px] border border-emerald-300 bg-emerald-50/70 dark:border-emerald-500/40 dark:bg-[#0d1714] p-3 sm:p-4 shadow-sm before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1.5 before:bg-emerald-500"
         >
-          <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
-            <Clock className="h-3 w-3 text-zinc-400" />
+          <div className="flex items-center gap-1.5 text-slate-600 dark:text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
+            <Clock className="h-3 w-3 text-slate-500 dark:text-zinc-400" />
             <span>TMA MÉDIO HOJE</span>
           </div>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="font-mono text-2xl sm:text-3xl xl:text-4xl font-black text-emerald-400">
+            <span className="font-mono text-2xl sm:text-3xl xl:text-4xl font-black text-emerald-700 dark:text-emerald-400">
               {kpis.averageMinutes}
             </span>
-            <span className="text-sm sm:text-base font-semibold text-emerald-400/90 font-mono">
+            <span className="text-sm sm:text-base font-semibold text-emerald-700/90 dark:text-emerald-400/90 font-mono">
               min
             </span>
           </div>
-          <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">
+          <p className="mt-0.5 font-mono text-xs sm:text-sm text-slate-600 dark:text-zinc-400">
             Dentro da meta de {kpis.targetMinutes} min
           </p>
         </motion.div>
@@ -183,18 +183,18 @@ export function CommercialTmaTableView({
         <motion.div
           whileHover={{ y: -2, scale: 1.008 }}
           transition={{ duration: 0.15 }}
-          className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 shadow-sm"
+          className="rounded-[4px] border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950/70 p-3 sm:p-4 shadow-sm"
         >
-          <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
-            <Target className="h-3 w-3 text-zinc-400" />
+          <div className="flex items-center gap-1.5 text-slate-600 dark:text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
+            <Target className="h-3 w-3 text-slate-500 dark:text-zinc-400" />
             <span>TAXA NO SLA</span>
           </div>
           <div className="mt-1">
-            <span className="font-mono text-2xl sm:text-3xl xl:text-4xl font-black text-white">
+            <span className="font-mono text-2xl sm:text-3xl xl:text-4xl font-black text-slate-900 dark:text-white">
               {kpis.slaPercent}%
             </span>
           </div>
-          <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">
+          <p className="mt-0.5 font-mono text-xs sm:text-sm text-slate-500 dark:text-zinc-400">
             Respondidos no prazo
           </p>
         </motion.div>
@@ -203,18 +203,18 @@ export function CommercialTmaTableView({
         <motion.div
           whileHover={{ y: -2, scale: 1.008 }}
           transition={{ duration: 0.15 }}
-          className="rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-3 sm:p-4 shadow-sm"
+          className="rounded-[4px] border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950/70 p-3 sm:p-4 shadow-sm"
         >
-          <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
-            <Zap className="h-3 w-3 text-zinc-400" />
+          <div className="flex items-center gap-1.5 text-slate-600 dark:text-zinc-400 font-mono text-[11px] sm:text-xs font-bold uppercase tracking-wider">
+            <Zap className="h-3 w-3 text-slate-500 dark:text-zinc-400" />
             <span>TOTAL TRANSFERÊNCIAS</span>
           </div>
           <div className="mt-1">
-            <span className="font-mono text-2xl sm:text-3xl xl:text-4xl font-black text-white">
+            <span className="font-mono text-2xl sm:text-3xl xl:text-4xl font-black text-slate-900 dark:text-white">
               {kpis.totalTransfers}
             </span>
           </div>
-          <p className="mt-0.5 font-mono text-xs sm:text-sm text-zinc-400">
+          <p className="mt-0.5 font-mono text-xs sm:text-sm text-slate-500 dark:text-zinc-400">
             Hoje pelo {aiName}
           </p>
         </motion.div>
@@ -229,8 +229,8 @@ export function CommercialTmaTableView({
           onClick={() => setActiveTab("contato")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
             activeTab === "contato"
-              ? "border border-[#c53030] bg-zinc-950/90 text-white shadow-sm"
-              : "border border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:text-white"
+              ? "border border-[#c53030] bg-red-50 text-red-700 dark:bg-zinc-950/90 dark:text-white shadow-sm"
+              : "border border-slate-200 bg-slate-100 text-slate-600 hover:text-slate-900 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-400 dark:hover:text-white"
           }`}
         >
           <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -244,8 +244,8 @@ export function CommercialTmaTableView({
           onClick={() => setActiveTab("aguardando")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-[3px] py-2 sm:py-2.5 font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
             activeTab === "aguardando"
-              ? "border border-[#c53030] bg-zinc-950/90 text-white shadow-sm"
-              : "border border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:text-white"
+              ? "border border-[#c53030] bg-red-50 text-red-700 dark:bg-zinc-950/90 dark:text-white shadow-sm"
+              : "border border-slate-200 bg-slate-100 text-slate-600 hover:text-slate-900 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-400 dark:hover:text-white"
           }`}
         >
           <span className="h-2 w-2 rounded-full bg-red-500" />
@@ -257,12 +257,12 @@ export function CommercialTmaTableView({
       {activeTab === "contato" ? (
         <div className="flex-1 flex flex-col justify-between gap-2.5 sm:gap-3 xl:gap-4 overflow-hidden">
           {/* EQUIPE 1: ★ TIME PERSONNALITÉ */}
-          <div className="rounded-[4px] border border-zinc-800/80 bg-zinc-950/50 p-2.5 sm:p-3 xl:p-3.5 shadow-sm flex flex-col justify-between">
+          <div className="rounded-[4px] border border-slate-200 bg-slate-50/60 dark:border-zinc-800/80 dark:bg-zinc-950/50 p-2.5 sm:p-3 xl:p-3.5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
               <span className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${personnaliteData.badgeColorClass}`}>
                 {personnaliteData.teamLabel}
               </span>
-              <div className="flex items-center gap-3 sm:gap-4 font-mono text-[11px] sm:text-xs text-zinc-400">
+              <div className="flex items-center gap-3 sm:gap-4 font-mono text-[11px] sm:text-xs text-slate-600 dark:text-zinc-400">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500" />
                   ≤ 5m
@@ -288,12 +288,12 @@ export function CommercialTmaTableView({
           </div>
 
           {/* EQUIPE 2: ⚍ TIME SEMI (MÁQUINAS) */}
-          <div className="rounded-[4px] border border-zinc-800/80 bg-zinc-950/50 p-2.5 sm:p-3 xl:p-3.5 shadow-sm flex flex-col justify-between">
+          <div className="rounded-[4px] border border-slate-200 bg-slate-50/60 dark:border-zinc-800/80 dark:bg-zinc-950/50 p-2.5 sm:p-3 xl:p-3.5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
               <span className={`font-mono text-xs sm:text-sm font-bold uppercase tracking-wider ${semiMaquinasData.badgeColorClass}`}>
                 {semiMaquinasData.teamLabel}
               </span>
-              <div className="flex items-center gap-3 sm:gap-4 font-mono text-[11px] sm:text-xs text-zinc-400">
+              <div className="flex items-center gap-3 sm:gap-4 font-mono text-[11px] sm:text-xs text-slate-600 dark:text-zinc-400">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500" />
                   ≤ 5m
@@ -324,27 +324,27 @@ export function CommercialTmaTableView({
           <div className="flex items-center justify-between py-2 font-mono text-xs sm:text-sm">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-red-500" />
-              <span className="font-bold text-red-500 uppercase tracking-wider">
+              <span className="font-bold text-red-600 uppercase tracking-wider">
                 FILA EM TEMPO REAL
               </span>
-              <span className="font-bold text-white">
+              <span className="font-bold text-slate-900 dark:text-white">
                 Atendimentos Aguardando Primeira Resposta
               </span>
             </div>
-            <span className="text-zinc-500 text-xs font-mono">
+            <span className="text-slate-400 dark:text-zinc-500 text-xs font-mono">
               Ordenado por maior tempo de espera
             </span>
           </div>
 
           {waitingChats.length === 0 ? (
-            <div className="mt-4 flex flex-1 flex-col items-center justify-center rounded-[4px] border border-dashed border-zinc-800/80 bg-zinc-950/30 p-12 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-950/30 text-emerald-400 shadow-sm">
+            <div className="mt-4 flex flex-1 flex-col items-center justify-center rounded-[4px] border border-dashed border-slate-300 bg-white dark:border-zinc-800/80 dark:bg-zinc-950/30 p-12 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-500/40 dark:bg-emerald-950/30 dark:text-emerald-400 shadow-sm">
                 <CheckCircle2 className="h-6 w-6" />
               </div>
-              <h3 className="mt-4 font-mono text-base sm:text-lg font-bold text-white">
+              <h3 className="mt-4 font-mono text-base sm:text-lg font-bold text-slate-900 dark:text-white">
                 Fila zerada!
               </h3>
-              <p className="mt-1 max-w-sm text-xs sm:text-sm text-zinc-400 font-mono">
+              <p className="mt-1 max-w-sm text-xs sm:text-sm text-slate-600 dark:text-zinc-400 font-mono">
                 Nenhum atendimento aguardando primeira resposta neste momento.
               </p>
             </div>
@@ -354,20 +354,20 @@ export function CommercialTmaTableView({
                 <div
                   key={chat.id}
                   onClick={() => onOpenChat?.(chat.conversationId)}
-                  className="flex items-center justify-between rounded-[3px] border border-zinc-800 bg-zinc-950/60 p-3 hover:border-zinc-700 cursor-pointer transition-colors"
+                  className="flex items-center justify-between rounded-[3px] border border-slate-200 bg-white hover:border-slate-300 dark:border-zinc-800 dark:bg-zinc-950/60 p-3 dark:hover:border-zinc-700 cursor-pointer transition-colors shadow-sm"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs font-bold text-white">
+                    <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">
                       {chat.clientName}
                     </span>
-                    <span className="font-mono text-xs text-zinc-400">
+                    <span className="font-mono text-xs text-slate-500 dark:text-zinc-400">
                       {chat.phone}
                     </span>
-                    <span className="rounded-[2px] bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-300">
+                    <span className="rounded-[2px] bg-slate-100 text-slate-700 dark:bg-zinc-800 px-2 py-0.5 font-mono text-[10px] dark:text-zinc-300">
                       Resp: {chat.consultantName}
                     </span>
                   </div>
-                  <span className="font-mono text-xs font-bold text-amber-400">
+                  <span className="font-mono text-xs font-bold text-amber-700 dark:text-amber-400">
                     Aguardando há {chat.waitingFormatted}
                   </span>
                 </div>

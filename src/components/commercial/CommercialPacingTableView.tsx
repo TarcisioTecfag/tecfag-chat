@@ -92,45 +92,45 @@ export function CommercialPacingTableView({
       <div className={density.tableSpace} key={team.division}>
         {/* Cabeçalho da Equipe */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <div className={`flex items-center gap-1.5 ${density.teamTitle} uppercase tracking-wider text-red-400 font-mono`}>
-            <Star className="h-3.5 w-3.5 fill-red-400 text-red-400" />
+          <div className={`flex items-center gap-1.5 ${density.teamTitle} uppercase tracking-wider text-red-600 dark:text-red-400 font-mono`}>
+            <Star className="h-3.5 w-3.5 fill-red-600 text-red-600 dark:fill-red-400 dark:text-red-400" />
             <span>{team.teamName}</span>
           </div>
 
           <div className={`flex items-center gap-2 font-mono ${density.teamSummary}`}>
-            <span className="text-zinc-400">Meta:</span>
-            <span className="font-bold text-white">{formatPacingCurrency(team.metaTotal)}</span>
-            <span className="text-zinc-600">-</span>
-            <span className="text-zinc-400">Fechado:</span>
-            <span className="font-bold text-emerald-400">
+            <span className="text-slate-500 dark:text-zinc-400">Meta:</span>
+            <span className="font-bold text-slate-900 dark:text-white">{formatPacingCurrency(team.metaTotal)}</span>
+            <span className="text-slate-400 dark:text-zinc-600">-</span>
+            <span className="text-slate-500 dark:text-zinc-400">Fechado:</span>
+            <span className="font-bold text-emerald-600 dark:text-emerald-400">
               {formatPacingCurrency(team.fechadoTotal)} ({team.fechadoPercent}%)
             </span>
-            <span className="text-zinc-600">-</span>
-            <span className="text-zinc-400">Ritmo:</span>
-            <span className="font-bold text-zinc-200">{formatPacingCurrency(team.ritmoDiarioTotal)}/dia</span>
+            <span className="text-slate-400 dark:text-zinc-600">-</span>
+            <span className="text-slate-500 dark:text-zinc-400">Ritmo:</span>
+            <span className="font-bold text-slate-700 dark:text-zinc-200">{formatPacingCurrency(team.ritmoDiarioTotal)}/dia</span>
           </div>
         </div>
 
         {/* Tabela de Pacing com colunas proporcionais */}
-        <div className="overflow-x-auto rounded-[4px] border border-zinc-800 bg-zinc-950/70 shadow-sm scrollbar-none">
+        <div className="overflow-x-auto rounded-[4px] border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70 scrollbar-none">
           <table className="table-fixed w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/90 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
-                <th className={`${density.headerPy} px-2 sm:px-3 font-semibold text-zinc-300 w-[13%] min-w-[125px]`}>
+              <tr className="border-b border-slate-200 bg-slate-100/90 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600 dark:border-zinc-800 dark:bg-zinc-900/90 dark:text-zinc-400">
+                <th className={`${density.headerPy} px-2 sm:px-3 font-semibold text-slate-700 dark:text-zinc-300 w-[13%] min-w-[125px]`}>
                   VENDEDOR / RITMO
                 </th>
-                <th className={`${density.headerPy} px-3 text-left font-semibold text-zinc-300 w-[62%]`}>
+                <th className={`${density.headerPy} px-3 text-left font-semibold text-slate-700 dark:text-zinc-300 w-[62%]`}>
                   PROGRESSO DA META MENSAL
                 </th>
-                <th className={`${density.headerPy} px-2 text-right font-mono font-semibold text-zinc-300 w-[11%] min-w-[105px]`}>
+                <th className={`${density.headerPy} px-2 text-right font-mono font-semibold text-slate-700 dark:text-zinc-300 w-[11%] min-w-[105px]`}>
                   {viewMode === "daily" ? "META DO DIA (RECÁLCULO)" : "META DA SEMANA"}
                 </th>
-                <th className={`${density.headerPy} px-2 text-center font-mono font-bold text-emerald-300 bg-emerald-950/20 border-l border-zinc-800 w-[14%] min-w-[130px]`}>
+                <th className={`${density.headerPy} px-2 text-center font-mono font-bold text-emerald-700 bg-emerald-50 border-l border-slate-200 dark:text-emerald-300 dark:bg-emerald-950/20 dark:border-zinc-800 w-[14%] min-w-[130px]`}>
                   OPORTUNIDADES DO DIA (DE-PARA)
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/60 font-mono">
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 font-mono">
               {team.sellers.map((seller) => {
                 // Cálculo das cores da barra de progresso por status
                 const barColor =
@@ -142,23 +142,23 @@ export function CommercialPacingTableView({
 
                 const badgeClass =
                   seller.pacingStatus === "acelerado"
-                    ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-300"
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/50 dark:bg-emerald-950/40 dark:text-emerald-300"
                     : seller.pacingStatus === "alvo"
-                    ? "border-blue-500/50 bg-blue-950/40 text-blue-300"
-                    : "border-amber-500/50 bg-amber-950/40 text-amber-300";
+                    ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/50 dark:bg-blue-950/40 dark:text-blue-300"
+                    : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/50 dark:bg-amber-950/40 dark:text-amber-300";
 
                 const clampedWidth = Math.min(100, Math.max(0, seller.realizedPercent));
 
                 return (
-                  <tr key={seller.sellerId} className="hover:bg-zinc-900/40 transition-colors">
+                  <tr key={seller.sellerId} className="hover:bg-slate-50/80 dark:hover:bg-zinc-900/40 transition-colors">
                     {/* Coluna 1: Vendedor e Ritmo */}
                     <td
                       onClick={() => onSellerClick(seller)}
-                      className={`${density.rowPy} px-2 sm:px-3 cursor-pointer hover:bg-zinc-800/30 transition-colors w-[13%] min-w-[125px]`}
+                      className={`${density.rowPy} px-2 sm:px-3 cursor-pointer hover:bg-slate-100/60 dark:hover:bg-zinc-800/30 transition-colors w-[13%] min-w-[125px]`}
                     >
                       <div className="flex items-center gap-2">
                         {/* Avatar */}
-                        <div className={`relative ${density.avatarSize} shrink-0 overflow-hidden rounded-[2px] border border-zinc-800 bg-zinc-900`}>
+                        <div className={`relative ${density.avatarSize} shrink-0 overflow-hidden rounded-[2px] border border-slate-200 bg-slate-100 dark:border-zinc-800 dark:bg-zinc-900`}>
                           {seller.avatarUrl ? (
                             <img
                               src={seller.avatarUrl}
@@ -169,7 +169,7 @@ export function CommercialPacingTableView({
                               }}
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-400 bg-red-950/30">
+                            <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-950/30">
                               {seller.sellerName.slice(0, 2).toUpperCase()}
                             </div>
                           )}
@@ -177,7 +177,7 @@ export function CommercialPacingTableView({
 
                         {/* Nome e Badge de Ritmo */}
                         <div className="min-w-0 flex-1">
-                          <span className={`font-sans ${density.sellerText} text-white hover:text-red-400 transition-colors truncate block`}>
+                          <span className={`font-sans ${density.sellerText} text-slate-900 hover:text-red-600 dark:text-white dark:hover:text-red-400 transition-colors truncate block`}>
                             {seller.sellerName}
                           </span>
                           <div className="mt-0.5">
@@ -197,24 +197,24 @@ export function CommercialPacingTableView({
                       <div className="flex flex-col justify-center gap-1">
                         {/* Valores superior: R$ X de R$ Y | Falta: R$ Z | % */}
                         <div className="flex items-center justify-between text-[11px] font-mono leading-none">
-                          <div className="text-zinc-200 font-bold">
+                          <div className="text-slate-800 dark:text-zinc-200 font-bold">
                             <span>{formatPacingCurrency(seller.realizedMonthly)}</span>
-                            <span className="text-zinc-500 font-normal mx-1">de</span>
-                            <span className="text-zinc-400 font-medium">{formatPacingCurrency(seller.metaMonthly)}</span>
+                            <span className="text-slate-400 dark:text-zinc-500 font-normal mx-1">de</span>
+                            <span className="text-slate-500 dark:text-zinc-400 font-medium">{formatPacingCurrency(seller.metaMonthly)}</span>
                           </div>
 
-                          <div className="text-[10px] text-zinc-400 font-mono">
+                          <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono">
                             <span>Falta: </span>
-                            <span className="text-zinc-300 font-semibold">{formatPacingCurrency(seller.remainingMonthly)}</span>
+                            <span className="text-slate-700 dark:text-zinc-300 font-semibold">{formatPacingCurrency(seller.remainingMonthly)}</span>
                           </div>
 
-                          <div className="text-zinc-100 font-black text-xs">
+                          <div className="text-slate-900 dark:text-zinc-100 font-black text-xs">
                             {seller.realizedPercent.toFixed(1)}%
                           </div>
                         </div>
 
                         {/* Barra de Progresso com marcador de Run Rate */}
-                        <div className={`relative w-full ${density.pacingBarH} rounded-full bg-zinc-900 border border-zinc-800/80 overflow-visible`}>
+                        <div className={`relative w-full ${density.pacingBarH} rounded-full bg-slate-200 border border-slate-300 dark:bg-zinc-900 dark:border-zinc-800/80 overflow-visible`}>
                           {/* Barra preenchida animada */}
                           <motion.div
                             initial={{ width: 0 }}
@@ -225,7 +225,7 @@ export function CommercialPacingTableView({
 
                           {/* Marcador vertical de Run Rate (Dia Atual do Mês) */}
                           <div
-                            className="absolute -top-1 -bottom-1 w-[2.5px] bg-white rounded-full shadow-[0_0_8px_rgba(255,255,255,0.9)] z-10 pointer-events-none"
+                            className="absolute -top-1 -bottom-1 w-[2.5px] bg-slate-800 shadow-[0_0_6px_rgba(0,0,0,0.4)] dark:bg-white rounded-full dark:shadow-[0_0_8px_rgba(255,255,255,0.9)] z-10 pointer-events-none"
                             style={{ left: `${GLOBAL_PACING_KPIS.elapsedPercent}%` }}
                             title={`Run Rate Hoje: ${GLOBAL_PACING_KPIS.elapsedPercent.toFixed(1)}% do mês`}
                           />
@@ -237,25 +237,25 @@ export function CommercialPacingTableView({
                     <td className={`${density.rowPy} px-2 text-right font-mono align-middle w-[11%] min-w-[105px]`}>
                       {viewMode === "daily" ? (
                         <div className="flex flex-col items-end leading-tight">
-                          <div className="text-[9.5px] text-zinc-400">
+                          <div className="text-[9.5px] text-slate-500 dark:text-zinc-400">
                             Meta Hoje:{" "}
-                            <span className="text-white font-bold text-xs">
+                            <span className="text-slate-900 dark:text-white font-bold text-xs">
                               {formatPacingCurrency(seller.dailyGoal)}
                             </span>
                           </div>
-                          <div className="text-[9px] text-amber-400 font-semibold mt-0.5">
+                          <div className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
                             Fechou: {formatPacingCurrency(seller.dailyRealized)} ({seller.dailyRealizedPercent}%)
                           </div>
                         </div>
                       ) : (
                         <div className="flex flex-col items-end leading-tight">
-                          <div className="text-[9.5px] text-zinc-400">
+                          <div className="text-[9.5px] text-slate-500 dark:text-zinc-400">
                             Meta Semana:{" "}
-                            <span className="text-white font-bold text-xs">
+                            <span className="text-slate-900 dark:text-white font-bold text-xs">
                               {formatPacingCurrency(seller.weeklyGoal)}
                             </span>
                           </div>
-                          <div className="text-[9px] text-amber-400 font-semibold mt-0.5">
+                          <div className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
                             Semana: {formatPacingCurrency(seller.weeklyRealized)} ({seller.weeklyRealizedPercent}%)
                           </div>
                         </div>
@@ -265,18 +265,18 @@ export function CommercialPacingTableView({
                     {/* Coluna 4: Oportunidades do Dia (De-Para) */}
                     <td
                       onClick={() => onSellerClick(seller)}
-                      className={`${density.rowPy} px-2 text-center align-middle bg-emerald-950/10 border-l border-zinc-800 w-[14%] min-w-[130px]`}
+                      className={`${density.rowPy} px-2 text-center align-middle bg-emerald-50/50 border-l border-slate-200 dark:bg-emerald-950/10 dark:border-zinc-800 w-[14%] min-w-[130px]`}
                     >
                       <motion.button
                         type="button"
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.97 }}
-                        className="w-full bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-500/60 rounded-[3px] py-1 px-1.5 text-center transition-all cursor-pointer shadow-[0_0_8px_rgba(16,185,129,0.15)]"
+                        className="w-full bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 dark:bg-emerald-950/30 dark:hover:bg-emerald-950/50 dark:border-emerald-500/60 rounded-[3px] py-1 px-1.5 text-center transition-all cursor-pointer shadow-xs dark:shadow-[0_0_8px_rgba(16,185,129,0.15)]"
                       >
-                        <div className="text-emerald-300 font-bold text-xs font-mono leading-none">
+                        <div className="text-emerald-700 dark:text-emerald-300 font-bold text-xs font-mono leading-none">
                           {seller.habeisCount} Hábeis Hoje
                         </div>
-                        <div className="text-emerald-400/80 font-mono text-[9px] mt-0.5 leading-none">
+                        <div className="text-emerald-600/90 dark:text-emerald-400/80 font-mono text-[9px] mt-0.5 leading-none">
                           {formatPacingCurrency(seller.habeisValue)} no De-Para
                         </div>
                       </motion.button>
@@ -297,10 +297,10 @@ export function CommercialPacingTableView({
       <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-1 pt-0.5 pb-1">
         {/* Tag da Tela */}
         <div className="flex items-center gap-2">
-          <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-red-950/40 border border-red-500/30 text-red-500 font-mono text-[10px] font-black">
+          <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-red-50 border border-red-300 text-red-600 dark:bg-red-950/40 dark:border-red-500/30 dark:text-red-500 font-mono text-[10px] font-black">
             <Gauge className="h-2.5 w-2.5" />
           </span>
-          <h2 className="text-[11px] sm:text-xs xl:text-sm font-black uppercase tracking-wider text-[#df3d3d] font-mono leading-normal">
+          <h2 className="text-[11px] sm:text-xs xl:text-sm font-black uppercase tracking-wider text-red-600 dark:text-[#df3d3d] font-mono leading-normal">
             COCKPIT DE METAS & PACING DIÁRIO (RUN RATE & OPORTUNIDADES)
           </h2>
         </div>
@@ -311,12 +311,12 @@ export function CommercialPacingTableView({
           <motion.div
             whileHover={{ y: -1.5, scale: 1.01 }}
             transition={{ duration: 0.15 }}
-            className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
+            className="flex items-center gap-1.5 rounded-[2px] border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
           >
-            <Calendar className="h-3 w-3 text-zinc-400" />
+            <Calendar className="h-3 w-3 text-slate-400 dark:text-zinc-400" />
             <div>
-              <div className="text-[8px] uppercase tracking-wider text-zinc-400 leading-none">Dias Restantes</div>
-              <div className="font-bold text-white leading-none mt-0.5">
+              <div className="text-[8px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 leading-none">Dias Restantes</div>
+              <div className="font-bold text-slate-900 dark:text-white leading-none mt-0.5">
                 {GLOBAL_PACING_KPIS.businessDaysRemaining} de {GLOBAL_PACING_KPIS.businessDaysTotal} dias úteis
               </div>
             </div>
@@ -326,16 +326,16 @@ export function CommercialPacingTableView({
           <motion.div
             whileHover={{ y: -1.5, scale: 1.01 }}
             transition={{ duration: 0.15 }}
-            className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
+            className="flex items-center gap-1.5 rounded-[2px] border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
           >
-            <Target className="h-3 w-3 text-red-500" />
+            <Target className="h-3 w-3 text-red-600 dark:text-red-500" />
             <div>
-              <div className="text-[8px] uppercase tracking-wider text-zinc-400 leading-none">
+              <div className="text-[8px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 leading-none">
                 Meta Global {companyLabel}
               </div>
-              <div className="font-bold text-white leading-none mt-0.5">
+              <div className="font-bold text-slate-900 dark:text-white leading-none mt-0.5">
                 {formatPacingCurrency(GLOBAL_PACING_KPIS.metaGlobal)}{" "}
-                <span className="text-emerald-400 font-bold">({GLOBAL_PACING_KPIS.globalPercent}% batida)</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold">({GLOBAL_PACING_KPIS.globalPercent}% batida)</span>
               </div>
             </div>
           </motion.div>
@@ -344,20 +344,20 @@ export function CommercialPacingTableView({
           <motion.div
             whileHover={{ y: -1.5, scale: 1.01 }}
             transition={{ duration: 0.15 }}
-            className="flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
+            className="flex items-center gap-1.5 rounded-[2px] border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950/70 px-2 py-0.5 font-mono text-[10px] shadow-xs"
           >
-            <Zap className="h-3 w-3 text-emerald-400" />
+            <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
             <div>
-              <div className="text-[8px] uppercase tracking-wider text-zinc-400 leading-none">Pacing da Empresa</div>
-              <div className="font-bold text-white leading-none mt-0.5">
+              <div className="text-[8px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 leading-none">Pacing da Empresa</div>
+              <div className="font-bold text-slate-900 dark:text-white leading-none mt-0.5">
                 {formatPacingCurrency(GLOBAL_PACING_KPIS.companyPacingDaily)}/dia{" "}
-                <span className="text-emerald-400 font-semibold">• Hoje: {formatPacingCurrency(GLOBAL_PACING_KPIS.companyRealizedToday)}</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">• Hoje: {formatPacingCurrency(GLOBAL_PACING_KPIS.companyRealizedToday)}</span>
               </div>
             </div>
           </motion.div>
 
           {/* Alternador Diária / Semanal */}
-          <div className="flex items-center rounded-[2px] border border-zinc-800 bg-zinc-950 p-0.5 font-mono text-[10px]">
+          <div className="flex items-center rounded-[2px] border border-slate-200 bg-slate-100 dark:border-zinc-800 dark:bg-zinc-950 p-0.5 font-mono text-[10px]">
             <motion.button
               type="button"
               whileTap={{ scale: 0.95 }}
@@ -365,7 +365,7 @@ export function CommercialPacingTableView({
               className={`flex items-center gap-1 rounded-[2px] px-2 py-1 font-bold transition-colors cursor-pointer ${
                 viewMode === "daily"
                   ? "bg-[#df3d3d] text-white shadow-sm"
-                  : "text-zinc-400 hover:text-white"
+                  : "text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white"
               }`}
             >
               <Gauge className="h-3 w-3" />
@@ -378,7 +378,7 @@ export function CommercialPacingTableView({
               className={`flex items-center gap-1 rounded-[2px] px-2 py-1 font-bold transition-colors cursor-pointer ${
                 viewMode === "weekly"
                   ? "bg-[#df3d3d] text-white shadow-sm"
-                  : "text-zinc-400 hover:text-white"
+                  : "text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white"
               }`}
             >
               <CalendarDays className="h-3 w-3" />

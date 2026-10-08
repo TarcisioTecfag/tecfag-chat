@@ -70,31 +70,31 @@ export function CommercialSafrasDrilldownModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 dark:bg-black/85 backdrop-blur-md">
         <motion.div
           initial={{ opacity: 0, scale: 0.96, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: 10 }}
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-          className="w-full max-w-[1240px] h-[86vh] rounded-[4px] border border-zinc-800 bg-[#121215] text-zinc-100 flex flex-col shadow-2xl shadow-black/90 overflow-hidden"
+          className="w-full max-w-[1240px] h-[86vh] rounded-[4px] border border-slate-200 dark:border-zinc-800 bg-white dark:bg-[#121215] text-slate-900 dark:text-zinc-100 flex flex-col shadow-2xl shadow-slate-900/20 dark:shadow-black/90 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header do Modal Drilldown */}
-          <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 bg-gradient-to-b from-zinc-900 to-zinc-950 border-b border-zinc-800 gap-4">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 bg-slate-50 dark:bg-gradient-to-b dark:from-zinc-900 dark:to-zinc-950 border-b border-slate-200 dark:border-zinc-800 gap-4">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-[2px] bg-amber-500/15 border border-amber-500/35 text-amber-400 grid place-items-center">
+              <div className="h-9 w-9 rounded-[2px] bg-amber-500/15 border border-amber-500/35 text-amber-600 dark:text-amber-400 grid place-items-center">
                 <AlertCircle className="h-5 w-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm sm:text-base font-mono font-bold text-white tracking-tight">
+                  <h2 className="text-sm sm:text-base font-mono font-bold text-slate-900 dark:text-white tracking-tight">
                     Oportunidades Sem Classificação • {monthLabel}
                   </h2>
                   <span className="text-[10px] font-mono font-black bg-amber-500 text-zinc-950 px-2 py-0.5 rounded-[2px]">
                     {deals.length} CARDS
                   </span>
                 </div>
-                <p className="text-[11px] font-mono text-zinc-400">
+                <p className="text-[11px] font-mono text-slate-500 dark:text-zinc-400">
                   Cards criados nesta safra que ainda não possuem valor preenchido no CRM.
                 </p>
               </div>
@@ -102,20 +102,20 @@ export function CommercialSafrasDrilldownModal({
 
             {/* Barra de Busca e Botão Fechar */}
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="flex items-center gap-2 bg-zinc-900/90 border border-zinc-800 px-3 py-1.5 rounded-[2px] w-48 sm:w-72">
-                <Search className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+              <div className="flex items-center gap-2 bg-slate-100 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 px-3 py-1.5 rounded-[2px] w-48 sm:w-72">
+                <Search className="h-3.5 w-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
                 <input
                   type="text"
                   placeholder="Buscar cliente, negócio ou consultor..."
                   value={dealsSearch}
                   onChange={(e) => setDealsSearch(e.target.value)}
-                  className="bg-transparent border-none outline-none text-xs text-white placeholder-zinc-500 w-full font-mono"
+                  className="bg-transparent border-none outline-none text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 w-full font-mono"
                 />
                 {dealsSearch && (
                   <button
                     type="button"
                     onClick={() => setDealsSearch("")}
-                    className="text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                    className="text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300 cursor-pointer"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -127,7 +127,7 @@ export function CommercialSafrasDrilldownModal({
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={onClose}
-                className="rounded-[2px] border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-mono font-bold text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5"
+                className="rounded-[2px] border border-slate-200 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-mono font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer flex items-center gap-1.5"
               >
                 <X className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">FECHAR</span>
@@ -138,13 +138,13 @@ export function CommercialSafrasDrilldownModal({
           {/* Tabela de Oportunidades Sem Classificação */}
           <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
             {loading ? (
-              <div className="flex items-center justify-center h-full gap-3 text-zinc-400 font-mono text-xs">
-                <RefreshCw className="h-5 w-5 animate-spin text-amber-400" />
+              <div className="flex items-center justify-center h-full gap-3 text-slate-500 dark:text-zinc-400 font-mono text-xs">
+                <RefreshCw className="h-5 w-5 animate-spin text-amber-500 dark:text-amber-400" />
                 <span>Buscando oportunidades sem valor no banco de dados...</span>
               </div>
             ) : filteredDeals.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2.5 text-zinc-500 font-mono py-12">
-                <Inbox className="h-10 w-10 text-zinc-600" />
+              <div className="flex flex-col items-center justify-center h-full gap-2.5 text-slate-400 dark:text-zinc-500 font-mono py-12">
+                <Inbox className="h-10 w-10 text-slate-300 dark:text-zinc-600" />
                 <p className="text-xs font-semibold">
                   {dealsSearch
                     ? "Nenhuma oportunidade corresponde ao filtro de busca."
@@ -154,7 +154,7 @@ export function CommercialSafrasDrilldownModal({
             ) : (
               <table className="w-full border-collapse text-left text-xs font-mono">
                 <thead>
-                  <tr className="border-b border-zinc-800 text-zinc-400 text-[10px] uppercase tracking-wider bg-zinc-900/40">
+                  <tr className="border-b border-slate-200 dark:border-zinc-800 text-slate-500 dark:text-zinc-400 text-[10px] uppercase tracking-wider bg-slate-50 dark:bg-zinc-900/40">
                     <th className="py-2.5 px-3 font-bold">Negociação / Empresa</th>
                     <th className="py-2.5 px-3 font-bold">Consultor / Equipe</th>
                     <th className="py-2.5 px-3 font-bold">Funil / Etapa</th>
@@ -162,7 +162,7 @@ export function CommercialSafrasDrilldownModal({
                     <th className="py-2.5 px-3 font-bold text-right">Ação Oficial</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800/60">
+                <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
                   {filteredDeals.map((deal, idx) => {
                     const isPersonnalite =
                       deal.team === "PERSONNALITE" ||
@@ -180,30 +180,30 @@ export function CommercialSafrasDrilldownModal({
                     return (
                       <tr
                         key={deal.id || idx}
-                        className="hover:bg-zinc-900/50 transition-colors"
+                        className="hover:bg-slate-50/80 dark:hover:bg-zinc-900/50 transition-colors"
                       >
                         {/* Nome do Negócio e Empresa */}
                         <td className="py-3 px-3">
                           <div className="flex flex-col gap-0.5">
-                            <strong className="text-white text-xs sm:text-[13px] font-bold">
+                            <strong className="text-slate-900 dark:text-white text-xs sm:text-[13px] font-bold">
                               {deal.name}
                             </strong>
-                            <div className="flex items-center gap-2 text-zinc-400 text-[11px]">
+                            <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400 text-[11px]">
                               {deal.companyName && (
                                 <span className="inline-flex items-center gap-1">
-                                  <Building2 className="h-3 w-3 text-zinc-500" />
+                                  <Building2 className="h-3 w-3 text-slate-400 dark:text-zinc-500" />
                                   {deal.companyName}
                                 </span>
                               )}
                               {deal.clientName && deal.companyName && <span>•</span>}
                               {deal.clientName && (
                                 <span className="inline-flex items-center gap-1">
-                                  <User className="h-3 w-3 text-zinc-500" />
+                                  <User className="h-3 w-3 text-slate-400 dark:text-zinc-500" />
                                   {deal.clientName}
                                 </span>
                               )}
                               {!deal.companyName && !deal.clientName && (
-                                <span className="text-zinc-600 italic">Contato não informado</span>
+                                <span className="text-slate-400 dark:text-zinc-600 italic">Contato não informado</span>
                               )}
                             </div>
                           </div>
@@ -215,19 +215,19 @@ export function CommercialSafrasDrilldownModal({
                             <div
                               className={`h-6 w-6 rounded-[2px] font-bold text-[10px] grid place-items-center ${
                                 isPersonnalite
-                                  ? "bg-red-500/20 border border-red-500/50 text-red-300"
-                                  : "bg-blue-500/20 border border-blue-500/50 text-blue-300"
+                                  ? "bg-red-500/10 border border-red-500/30 text-red-600 dark:bg-red-500/20 dark:border-red-500/50 dark:text-red-300"
+                                  : "bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:bg-blue-500/20 dark:border-blue-500/50 dark:text-blue-300"
                               }`}
                             >
                               {deal.userName.slice(0, 2).toUpperCase()}
                             </div>
                             <div>
-                              <strong className="text-zinc-200 block text-xs font-semibold">
+                              <strong className="text-slate-800 dark:text-zinc-200 block text-xs font-semibold">
                                 {deal.userName}
                               </strong>
                               <span
                                 className={`text-[9px] font-black uppercase tracking-wider ${
-                                  isPersonnalite ? "text-red-400" : "text-blue-400"
+                                  isPersonnalite ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"
                                 }`}
                               >
                                 {isPersonnalite ? "Personnalité" : "Máquinas"}
@@ -239,15 +239,15 @@ export function CommercialSafrasDrilldownModal({
                         {/* Funil e Etapa */}
                         <td className="py-3 px-3">
                           <div className="flex flex-col">
-                            <span className="text-zinc-200 font-medium">{deal.stageName}</span>
-                            <span className="text-[10px] text-zinc-500">{deal.pipelineName}</span>
+                            <span className="text-slate-800 dark:text-zinc-200 font-medium">{deal.stageName}</span>
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500">{deal.pipelineName}</span>
                           </div>
                         </td>
 
                         {/* Data de Criação */}
-                        <td className="py-3 px-3 text-zinc-400 font-mono text-[11px]">
+                        <td className="py-3 px-3 text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
                           <span className="inline-flex items-center gap-1.5">
-                            <Calendar className="h-3 w-3 text-zinc-500" />
+                            <Calendar className="h-3 w-3 text-slate-400 dark:text-zinc-500" />
                             {formattedDate}
                           </span>
                         </td>
@@ -259,7 +259,7 @@ export function CommercialSafrasDrilldownModal({
                               <button
                                 type="button"
                                 onClick={() => onOpenDeal(deal.id)}
-                                className="rounded-[2px] border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-mono font-bold text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer"
+                                className="rounded-[2px] border border-slate-200 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 px-2.5 py-1 text-[11px] font-mono font-bold text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
                               >
                                 Abrir Detalhe
                               </button>
@@ -285,10 +285,10 @@ export function CommercialSafrasDrilldownModal({
           </div>
 
           {/* Rodapé do Modal Drilldown */}
-          <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 bg-zinc-950 border-t border-zinc-800 text-[11px] font-mono text-zinc-400">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 bg-slate-50 dark:bg-zinc-950 border-t border-slate-200 dark:border-zinc-800 text-[11px] font-mono text-slate-500 dark:text-zinc-400">
             <span>
-              Exibindo <strong className="text-white">{filteredDeals.length}</strong> de{" "}
-              <strong className="text-white">{deals.length}</strong> oportunidades sem valor.
+              Exibindo <strong className="text-slate-900 dark:text-white">{filteredDeals.length}</strong> de{" "}
+              <strong className="text-slate-900 dark:text-white">{deals.length}</strong> oportunidades sem valor.
             </span>
 
             <motion.button
@@ -296,7 +296,7 @@ export function CommercialSafrasDrilldownModal({
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.96 }}
               onClick={onClose}
-              className="rounded-[2px] border border-zinc-700 bg-zinc-800 px-4 py-1 text-xs font-mono font-bold text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-slate-200 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 px-4 py-1 text-xs font-mono font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
             >
               Concluído
             </motion.button>

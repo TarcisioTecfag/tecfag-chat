@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Maximize2,
 } from "lucide-react";
+import { useTheme } from "@/hooks/useTheme";
 import {
   TVCohortsResponse,
   TVCohortTierConfig,
@@ -49,11 +50,12 @@ interface CohortPointDotProps {
   payload?: any;
   tierIndex: number;
   tierColor: string;
+  isDark?: boolean;
   onRegisterPoint: (tierIndex: number, monthIndex: number, point: TVPointData) => void;
 }
 
 const CohortPointDot = React.memo(function CohortPointDot(props: CohortPointDotProps) {
-  const { cx, cy, index, payload, tierIndex, tierColor, onRegisterPoint } = props;
+  const { cx, cy, index, payload, tierIndex, tierColor, isDark = true, onRegisterPoint } = props;
 
   useEffect(() => {
     if (
@@ -89,7 +91,7 @@ const CohortPointDot = React.memo(function CohortPointDot(props: CohortPointDotP
       cy={cy}
       r={4.5}
       fill={tierColor}
-      stroke="#0c0d12"
+      stroke={isDark ? "#0c0d12" : "#ffffff"}
       strokeWidth={2}
     />
   );
@@ -101,6 +103,7 @@ interface CohortAutonomousTvOverlayProps {
   activeTiers: Record<number, boolean>;
   pointsRegistry: Record<number, Record<number, TVPointData>>;
   chartWrapperRef: React.RefObject<HTMLDivElement | null>;
+  isDark?: boolean;
 }
 
 function CohortAutonomousTvOverlay({
@@ -109,6 +112,7 @@ function CohortAutonomousTvOverlay({
   activeTiers,
   pointsRegistry,
   chartWrapperRef,
+  isDark = true,
 }: CohortAutonomousTvOverlayProps) {
   const particleRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const popupRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -440,11 +444,13 @@ function CohortAutonomousTvOverlay({
             >
               <div
                 style={{
-                  background: "#161619",
+                  background: isDark ? "#161619" : "#ffffff",
                   border: `1.5px solid ${tier.color}`,
                   borderRadius: "4px",
                   padding: "5px 10px",
-                  boxShadow: `0 8px 24px rgba(0, 0, 0, 0.8), 0 0 12px ${tier.color}30`,
+                  boxShadow: isDark
+                    ? `0 8px 24px rgba(0, 0, 0, 0.8), 0 0 12px ${tier.color}30`
+                    : `0 8px 24px rgba(0, 0, 0, 0.15), 0 0 12px ${tier.color}30`,
                   display: "flex",
                   flexDirection: "column",
                   gap: "2px",
@@ -465,17 +471,17 @@ function CohortAutonomousTvOverlay({
                   <span style={{ fontSize: "9px", fontWeight: 800, color: tier.color, letterSpacing: "0.04em" }}>
                     {pt.tierLabel || tier.label}
                   </span>
-                  <span style={{ fontSize: "8px", color: "#71717a" }}>•</span>
-                  <span style={{ fontSize: "9px", fontWeight: 700, color: "#f4f4f5" }}>
+                  <span style={{ fontSize: "8px", color: isDark ? "#71717a" : "#94a3b8" }}>•</span>
+                  <span style={{ fontSize: "9px", fontWeight: 700, color: isDark ? "#f4f4f5" : "#0f172a" }}>
                     {pt.monthName}
                   </span>
                 </div>
 
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: "3px", marginTop: "1px" }}>
-                  <strong style={{ fontSize: "14px", fontWeight: 900, color: "#ffffff", fontVariantNumeric: "tabular-nums" }}>
+                  <strong style={{ fontSize: "14px", fontWeight: 900, color: isDark ? "#ffffff" : "#0f172a", fontVariantNumeric: "tabular-nums" }}>
                     {pt.count}
                   </strong>
-                  <span style={{ fontSize: "10px", fontWeight: 700, color: "#a1a1aa" }}>
+                  <span style={{ fontSize: "10px", fontWeight: 700, color: isDark ? "#a1a1aa" : "#64748b" }}>
                     {pt.count === 1 ? "card" : "cards"}
                   </span>
                 </div>
@@ -511,6 +517,7 @@ export function CommercialSafrasTableView({
   const [isTvModeActive, setIsTvModeActive] = useState(true);
   const [pointsRegistry, setPointsRegistry] = useState<Record<number, Record<number, TVPointData>>>({});
   const chartWrapperRef = useRef<HTMLDivElement>(null);
+  const { isDark } = useTheme();
 
   // Modal de Drilldown de Oportunidades Sem Classificação
   const [selectedDrilldown, setSelectedDrilldown] = useState<{
@@ -592,7 +599,7 @@ export function CommercialSafrasTableView({
   return (
     <div className="w-full h-full flex flex-col justify-between overflow-hidden">
       {/* ─── 1. HEADER DO SLIDE 9: SAFRAS & RÉGUA DE-PARA ─── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2 mb-1.5 shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-zinc-800/80 pb-2 mb-1.5 shrink-0">
         <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
           <motion.div
             initial={{ opacity: 0, x: -8 }}
@@ -602,10 +609,10 @@ export function CommercialSafrasTableView({
             <TrendingUp className="h-3.5 w-3.5" />
             <span>SAFRAS &amp; RÉGUA DE-PARA</span>
           </motion.div>
-          <span className="rounded-[2px] border border-red-500/40 bg-red-950/30 px-2 py-0.5 text-[10px] font-mono font-bold text-red-300">
+          <span className="rounded-[2px] border border-red-300 bg-red-50 text-red-700 dark:border-red-500/40 dark:bg-red-950/30 px-2 py-0.5 text-[10px] font-mono font-bold dark:text-red-300">
             ÚLTIMOS 6 MESES
           </span>
-          <span className="text-xs sm:text-[13px] font-mono font-bold text-zinc-300 tracking-tight">
+          <span className="text-xs sm:text-[13px] font-mono font-bold text-slate-700 dark:text-zinc-300 tracking-tight">
             Evolução Mensal de Criação de Oportunidades por Faixa de Valor
           </span>
         </div>
@@ -614,56 +621,56 @@ export function CommercialSafrasTableView({
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <motion.div
             whileHover={{ y: -1.5, scale: 1.01 }}
-            className="rounded-[4px] border border-zinc-800 bg-[#0e0f14] px-3 py-1 text-center"
+            className="rounded-[4px] border border-slate-200 bg-white dark:border-zinc-800 dark:bg-[#0e0f14] px-3 py-1 text-center shadow-xs"
           >
-            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-zinc-400 block">
+            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
               Total Cards (6m)
             </span>
-            <strong className="text-sm font-mono font-extrabold text-white">
+            <strong className="text-sm font-mono font-extrabold text-slate-900 dark:text-white">
               {data.summary.totalCardsAllMonths.toLocaleString("pt-BR")}
             </strong>
           </motion.div>
 
           <motion.div
             whileHover={{ y: -1.5, scale: 1.01 }}
-            className="rounded-[4px] border border-emerald-500/40 bg-emerald-950/20 px-3 py-1 text-center shadow-xs"
+            className="rounded-[4px] border border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-950/20 px-3 py-1 text-center shadow-xs"
           >
-            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-emerald-400 block">
+            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block">
               Classificados
             </span>
-            <strong className="text-sm font-mono font-extrabold text-emerald-400">
+            <strong className="text-sm font-mono font-extrabold text-emerald-700 dark:text-emerald-400">
               {data.summary.totalClassifiedAllMonths.toLocaleString("pt-BR")}
             </strong>
           </motion.div>
 
           <motion.div
             whileHover={{ y: -1.5, scale: 1.01 }}
-            className="rounded-[4px] border border-amber-500/40 bg-amber-950/20 px-3 py-1 text-center shadow-xs"
+            className="rounded-[4px] border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-950/20 px-3 py-1 text-center shadow-xs"
           >
-            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-amber-400 block">
+            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 block">
               Sem Classificação
             </span>
-            <strong className="text-sm font-mono font-extrabold text-amber-300">
+            <strong className="text-sm font-mono font-extrabold text-amber-800 dark:text-amber-300">
               {data.summary.totalUnclassifiedAllMonths.toLocaleString("pt-BR")}
             </strong>
           </motion.div>
 
           <motion.div
             whileHover={{ y: -1.5, scale: 1.01 }}
-            className="rounded-[4px] border border-cyan-500/40 bg-cyan-950/20 px-3 py-1 text-center shadow-xs"
+            className="rounded-[4px] border border-cyan-300 bg-cyan-50 text-cyan-700 dark:border-cyan-500/40 dark:bg-cyan-950/20 px-3 py-1 text-center shadow-xs"
           >
-            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-400 block">
+            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-700 dark:text-cyan-400 block">
               Volume Faturável
             </span>
-            <strong className="text-sm font-mono font-extrabold text-cyan-300">
+            <strong className="text-sm font-mono font-extrabold text-cyan-800 dark:text-cyan-300">
               {formatBrlK(data.summary.totalValueAllMonths)}
             </strong>
           </motion.div>
 
           {/* Badge AO VIVO e Botão Rastreador TV */}
           <div className="hidden lg:flex items-center gap-1.5 ml-1">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/30 px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#10b981]" />
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/30 px-2 py-0.5 text-[10px] font-mono font-bold dark:text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shadow-[0_0_8px_#10b981]" />
               AO VIVO
             </span>
 
@@ -674,8 +681,8 @@ export function CommercialSafrasTableView({
               onClick={() => setIsTvModeActive((prev) => !prev)}
               className={`rounded-[2px] border px-2.5 py-1 text-[10px] font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 isTvModeActive
-                  ? "border-blue-500/60 bg-blue-950/40 text-blue-300 shadow-xs"
-                  : "border-zinc-800 bg-zinc-900 text-zinc-400"
+                  ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/60 dark:bg-blue-950/40 dark:text-blue-300 shadow-xs"
+                  : "border-slate-200 bg-slate-100 text-slate-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
               }`}
               title={isTvModeActive ? "Pausar rastreador autônomo da TV" : "Ativar rastreador autônomo da TV"}
             >
@@ -689,7 +696,7 @@ export function CommercialSafrasTableView({
                 whileHover={{ scale: 1.08 }}
                 whileTap={{ scale: 0.92 }}
                 onClick={onFullscreen}
-                className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+                className="rounded-[2px] border border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:border-zinc-800 dark:bg-zinc-900 p-1 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white transition-colors cursor-pointer"
                 title="Expandir tela cheia"
               >
                 <Maximize2 className="h-3.5 w-3.5" />
@@ -700,12 +707,12 @@ export function CommercialSafrasTableView({
       </div>
 
       {/* ─── 2. BARRA DE LEGENDA / FILTROS DA RÉGUA DE-PARA ─── */}
-      <div className="flex items-center justify-between px-2 py-1 bg-zinc-950/70 border border-zinc-800/80 rounded-[4px] mb-2 shrink-0 flex-wrap gap-2">
+      <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border border-slate-200 dark:bg-zinc-950/70 dark:border-zinc-800/80 rounded-[4px] mb-2 shrink-0 flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
+          <span className="text-[10px] font-mono font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">
             Faixas da Régua De-Para:
           </span>
-          <span className="text-[10px] font-mono text-zinc-500 hidden sm:inline">
+          <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500 hidden sm:inline">
             (Clique para alternar linha no gráfico)
           </span>
         </div>
@@ -722,8 +729,8 @@ export function CommercialSafrasTableView({
                 onClick={() => toggleTier(tier.index)}
                 className={`rounded-[2px] border px-2.5 py-0.5 text-[10px] font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                   isVisible
-                    ? "bg-zinc-900/90 text-white shadow-xs"
-                    : "border-zinc-800/60 bg-zinc-950/40 text-zinc-500 opacity-40"
+                    ? "bg-white text-slate-900 shadow-xs dark:bg-zinc-900/90 dark:text-white"
+                    : "border-slate-200 bg-slate-100 text-slate-400 dark:border-zinc-800/60 dark:bg-zinc-950/40 dark:text-zinc-500 opacity-40"
                 }`}
                 style={{
                   borderColor: isVisible ? tier.color : undefined,
@@ -737,7 +744,7 @@ export function CommercialSafrasTableView({
                   }}
                 />
                 <span style={{ color: isVisible ? tier.color : undefined }}>{tier.label}</span>
-                <span className="text-[9px] text-zinc-400">({tier.valueRuleLabel})</span>
+                <span className="text-[9px] text-slate-500 dark:text-zinc-400">({tier.valueRuleLabel})</span>
               </motion.button>
             );
           })}
@@ -745,20 +752,20 @@ export function CommercialSafrasTableView({
       </div>
 
       {/* ─── 3. GRÁFICO CENTRAL MULTILINHAS COM RASTREADOR AUTÔNOMO ─── */}
-      <div className="flex-1 min-h-[220px] max-h-[460px] rounded-[4px] border border-zinc-800 bg-[#0c0d12] p-3 flex flex-col relative mb-2">
+      <div className="flex-1 min-h-[220px] max-h-[460px] rounded-[4px] border border-slate-200 bg-white dark:border-zinc-800 dark:bg-[#0c0d12] p-3 flex flex-col relative mb-2">
         <div className="flex items-center justify-between mb-1 px-1 shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
               Volume de Cards Criados (Por Mês de Criação)
             </span>
             {isTvModeActive && (
-              <span className="text-[9px] font-mono font-bold text-blue-400 bg-blue-950/40 border border-blue-500/30 px-2 py-0.5 rounded-[2px] flex items-center gap-1">
+              <span className="text-[9px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-500/30 px-2 py-0.5 rounded-[2px] flex items-center gap-1">
                 <Tv className="h-2.5 w-2.5" />
                 Rastreador TV Ativo
               </span>
             )}
           </div>
-          <span className="text-[10px] font-mono text-zinc-500 hidden md:inline italic">
+          <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500 hidden md:inline italic">
             * Baseado na data original de criação do negócio no CRM • Funis Máquinas 2.0 e Personnalité 2.0
           </span>
         </div>
@@ -766,12 +773,12 @@ export function CommercialSafrasTableView({
         <div ref={chartWrapperRef} className="flex-1 w-full min-h-0 relative">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 12, right: 24, left: 0, bottom: 4 }}>
-              <CartesianGrid stroke="#1f2026" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke={isDark ? "#1f2026" : "#e2e8f0"} strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="monthName"
-                stroke="#52525b"
+                stroke={isDark ? "#52525b" : "#94a3b8"}
                 tickLine={false}
-                axisLine={{ stroke: "#3f3f46" }}
+                axisLine={{ stroke: isDark ? "#3f3f46" : "#cbd5e1" }}
                 tick={({ x, y, payload }) => {
                   const monthObj = chartData.find((m) => m.monthName === payload.value);
                   const isCurr = monthObj?.isCurrentMonth;
@@ -782,7 +789,7 @@ export function CommercialSafrasTableView({
                         y={0}
                         dy={14}
                         textAnchor="middle"
-                        fill={isCurr ? "#ffffff" : "#a1a1aa"}
+                        fill={isCurr ? (isDark ? "#ffffff" : "#0f172a") : (isDark ? "#a1a1aa" : "#64748b")}
                         fontSize={11}
                         fontWeight={isCurr ? 800 : 600}
                         fontFamily="monospace"
@@ -809,10 +816,10 @@ export function CommercialSafrasTableView({
                 height={36}
               />
               <YAxis
-                stroke="#52525b"
-                tick={{ fill: "#71717a", fontSize: 10, fontFamily: "monospace", fontWeight: 700 }}
+                stroke={isDark ? "#52525b" : "#94a3b8"}
+                tick={{ fill: isDark ? "#71717a" : "#64748b", fontSize: 10, fontFamily: "monospace", fontWeight: 700 }}
                 tickLine={false}
-                axisLine={{ stroke: "#3f3f46" }}
+                axisLine={{ stroke: isDark ? "#3f3f46" : "#cbd5e1" }}
                 allowDecimals={false}
               />
               <RechartsTooltip
@@ -820,9 +827,9 @@ export function CommercialSafrasTableView({
                   if (!active || !payload || !payload.length) return null;
                   const monthData = payload[0]?.payload;
                   return (
-                    <div className="rounded-[4px] border border-zinc-700 bg-zinc-950/95 p-3 text-white shadow-xl min-w-[210px] text-xs font-mono">
-                      <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5 mb-2">
-                        <strong className="text-red-400 font-bold">{monthData.fullLabel}</strong>
+                    <div className="rounded-[4px] border border-slate-200 bg-white/95 text-slate-900 dark:border-zinc-700 dark:bg-zinc-950/95 dark:text-white p-3 shadow-xl min-w-[210px] text-xs font-mono">
+                      <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800 pb-1.5 mb-2">
+                        <strong className="text-red-600 dark:text-red-400 font-bold">{monthData.fullLabel}</strong>
                         {monthData.isCurrentMonth && (
                           <span className="text-[9px] font-black bg-red-600 text-white px-1.5 py-0.5 rounded-[2px]">
                             MÊS ATUAL
@@ -837,24 +844,24 @@ export function CommercialSafrasTableView({
                             <div key={t.index} className="flex items-center justify-between gap-3 text-[11px]">
                               <div className="flex items-center gap-1.5">
                                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color }} />
-                                <span className="text-zinc-300 font-semibold">{t.label}</span>
+                                <span className="text-slate-700 dark:text-zinc-300 font-semibold">{t.label}</span>
                               </div>
                               <div className="text-right">
                                 <strong style={{ color: t.color }}>{count} cards</strong>
-                                <span className="block text-[9px] text-zinc-400">{formatBrlK(val)}</span>
+                                <span className="block text-[9px] text-slate-500 dark:text-zinc-400">{formatBrlK(val)}</span>
                               </div>
                             </div>
                           );
                         })}
                       </div>
-                      <div className="mt-2 pt-1.5 border-t border-zinc-800 flex flex-col gap-0.5 text-[11px]">
-                        <div className="flex justify-between text-amber-400">
+                      <div className="mt-2 pt-1.5 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-0.5 text-[11px]">
+                        <div className="flex justify-between text-amber-600 dark:text-amber-400">
                           <span>Sem Classificação:</span>
                           <strong>{monthData.unclassifiedCount} cards</strong>
                         </div>
-                        <div className="flex justify-between text-white font-bold">
+                        <div className="flex justify-between text-slate-900 dark:text-white font-bold">
                           <span>Total Oportunidades:</span>
-                          <span className="text-blue-400">{monthData.totalCards} cards</span>
+                          <span className="text-blue-600 dark:text-blue-400">{monthData.totalCards} cards</span>
                         </div>
                       </div>
                     </div>
@@ -879,10 +886,11 @@ export function CommercialSafrasTableView({
                       <CohortPointDot
                         tierIndex={tier.index}
                         tierColor={tier.color}
+                        isDark={isDark}
                         onRegisterPoint={handleRegisterPoint}
                       />
                     }
-                    activeDot={{ r: 7, fill: tier.color, stroke: "#ffffff", strokeWidth: 2 }}
+                    activeDot={{ r: 7, fill: tier.color, stroke: isDark ? "#ffffff" : "#0f172a", strokeWidth: 2 }}
                   />
                 );
               })}
@@ -896,24 +904,25 @@ export function CommercialSafrasTableView({
             activeTiers={activeTiers}
             pointsRegistry={pointsRegistry}
             chartWrapperRef={chartWrapperRef}
+            isDark={isDark}
           />
         </div>
       </div>
 
       {/* ─── 4. PARTE INFERIOR: BLOCO DEDICADO "CARDS SEM CLASSIFICAÇÃO" COM DRILLDOWN ─── */}
-      <div className="rounded-[4px] border border-zinc-800 bg-[#0e0f14] p-2.5 flex flex-col gap-2 shrink-0">
+      <div className="rounded-[4px] border border-slate-200 bg-slate-50/80 dark:border-zinc-800 dark:bg-[#0e0f14] p-2.5 flex flex-col gap-2 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-400 inline-flex items-center gap-1.5">
+            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 inline-flex items-center gap-1.5">
               <AlertCircle className="h-3.5 w-3.5" />
               Cards Sem Classificação (Sem Valor no CRM)
             </span>
-            <span className="text-[11px] font-mono text-zinc-500 hidden md:inline">
+            <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-500 hidden md:inline">
               — Clique em qualquer mês para abrir a lista de oportunidades e o link direto no CRM
             </span>
           </div>
 
-          <div className="text-[10px] font-mono text-zinc-400 hidden sm:block">
+          <div className="text-[10px] font-mono text-slate-500 dark:text-zinc-400 hidden sm:block">
             💡 <em>Ao receber valor via webhook, o card é alocado na régua do mês de criação.</em>
           </div>
         </div>
@@ -939,8 +948,8 @@ export function CommercialSafrasTableView({
                 }
                 className={`rounded-[2px] border p-2 text-left transition-all cursor-pointer relative flex flex-col justify-between ${
                   m.isCurrentMonth
-                    ? "border-amber-500/50 bg-amber-950/25 shadow-xs"
-                    : "border-zinc-800 bg-zinc-950/60 hover:border-amber-500/40 hover:bg-zinc-900/60"
+                    ? "border-amber-400 bg-amber-50 shadow-xs dark:border-amber-500/50 dark:bg-amber-950/25"
+                    : "border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/50 dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:border-amber-500/40 dark:hover:bg-zinc-900/60"
                 }`}
                 title={`Clique para ver as ${m.unclassifiedCount} oportunidades sem valor em ${m.monthName}`}
               >
@@ -951,32 +960,32 @@ export function CommercialSafrasTableView({
                 )}
 
                 <div className="flex items-center justify-between pr-8">
-                  <span className="text-[11px] font-mono font-bold text-white">
+                  <span className="text-[11px] font-mono font-bold text-slate-900 dark:text-white">
                     {m.monthName}
                   </span>
-                  <span className="text-[9px] font-mono text-zinc-500">{m.year}</span>
+                  <span className="text-[9px] font-mono text-slate-400 dark:text-zinc-500">{m.year}</span>
                 </div>
 
                 <div className="flex items-baseline gap-1.5 my-1">
                   <span
                     className={`text-[11px] font-mono font-bold ${
-                      hasZero ? "text-emerald-400" : "text-amber-400"
+                      hasZero ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"
                     }`}
                   >
                     Sem classificação &gt;
                   </span>
                   <strong
                     className={`text-sm sm:text-base font-mono font-black ${
-                      hasZero ? "text-emerald-300" : "text-amber-300"
+                      hasZero ? "text-emerald-800 dark:text-emerald-300" : "text-amber-800 dark:text-amber-300"
                     }`}
                   >
                     {m.unclassifiedCount}
                   </strong>
                 </div>
 
-                <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 pt-0.5 border-t border-zinc-800/60">
+                <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 dark:text-zinc-500 pt-0.5 border-t border-slate-200 dark:border-zinc-800/60">
                   <span>{hasZero ? "100% qualificado" : `${unclassPct}% da safra`}</span>
-                  <span className="text-blue-400 font-bold inline-flex items-center gap-0.5">
+                  <span className="text-blue-600 dark:text-blue-400 font-bold inline-flex items-center gap-0.5">
                     Ver cards <ArrowUpRight className="h-2.5 w-2.5" />
                   </span>
                 </div>
