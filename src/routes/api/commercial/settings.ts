@@ -35,6 +35,7 @@ export const Route = createFileRoute("/api/commercial/settings")({
             settings: settings[0] || {
               maturityRules: DEFAULT_MATURITY_RULES,
               excludedStageIds: [],
+              pipelineByDivision: {},
               slaLimitMinutes: 15,
               slaBuckets: [5, 15, 30],
               lossReasonCategories: [],

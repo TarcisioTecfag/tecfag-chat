@@ -32,6 +32,11 @@ import {
   saoPauloDay,
   type CommercialCalendarDay,
 } from "./metrics";
+import {
+  belongsToTeamPipeline,
+  configuredPipelineId,
+  type PipelineByDivision,
+} from "./pipeline-scope";
 
 type AnalysisOptions = {
   tenantId: string;
@@ -87,6 +92,7 @@ async function getScope({ tenantId, division, includeHidden }: AnalysisOptions) 
     stages,
     stageMap: new Map(stages.map((stage) => [stage.id, stage])),
     excludedStageIds: new Set(settings?.excludedStageIds || []),
+    pipelineByDivision: (settings?.pipelineByDivision || {}) as PipelineByDivision,
     rules: settings?.maturityRules?.length === 5 ? settings.maturityRules : DEFAULT_MATURITY_RULES,
     slaLimitMinutes: settings?.slaLimitMinutes || 15,
     slaBuckets: settings?.slaBuckets?.length === 3 ? settings.slaBuckets : [5, 15, 30],
@@ -120,25 +126,41 @@ async function getOpenDeals(tenantId: string, operatorIds: string[]) {
 
 export async function getPipelineAnalysis(options: AnalysisOptions) {
   const scope = await getScope(options);
-  const deals = await getOpenDeals(
-    options.tenantId,
-    scope.consultants.map((item) => item.operatorId),
-  );
+  const [deals, pipelineOptions] = await Promise.all([
+    getOpenDeals(
+      options.tenantId,
+      scope.consultants.map((item) => item.operatorId),
+    ),
+    db
+      .select({ id: crmPipelines.id, name: crmPipelines.name })
+      .from(crmPipelines)
+      .where(eq(crmPipelines.tenantId, options.tenantId))
+      .orderBy(crmPipelines.orderIndex, crmPipelines.name),
+  ]);
+  const consultantById = new Map(scope.consultants.map((item) => [item.operatorId, item]));
   const cells = new Map<string, { count: number; value: number }>();
   for (const deal of deals) {
     if (!deal.operatorId) continue;
+    const consultant = consultantById.get(deal.operatorId);
+    if (!belongsToTeamPipeline(scope.pipelineByDivision, consultant?.division, deal.pipelineId))
+      continue;
     const key = `${deal.operatorId}:${deal.stageId}`;
     const cell = cells.get(key) || { count: 0, value: 0 };
     cell.count += 1;
     cell.value += Number(deal.value || 0);
     cells.set(key, cell);
   }
-  const stages = scope.stages.map((stage) => ({
-    ...stage,
-    excluded: scope.excludedStageIds.has(stage.id),
-  }));
+  const selectedPipelineIds = new Set(Object.values(scope.pipelineByDivision));
+  const stages = scope.stages
+    .filter((stage) => selectedPipelineIds.has(stage.pipelineId))
+    .map((stage) => ({ ...stage, excluded: scope.excludedStageIds.has(stage.id) }));
   const rows = scope.consultants.map((consultant) => {
-    const byStage = stages.map((stage) => ({
+    const teamStages = stages.filter(
+      (stage) =>
+        configuredPipelineId(scope.pipelineByDivision, consultant.division) === stage.pipelineId &&
+        !stage.excluded,
+    );
+    const byStage = teamStages.map((stage) => ({
       stageId: stage.id,
       ...(cells.get(`${consultant.operatorId}:${stage.id}`) || { count: 0, value: 0 }),
     }));
@@ -170,6 +192,8 @@ export async function getPipelineAnalysis(options: AnalysisOptions) {
   }));
   const activeValue = rows.reduce((sum, row) => sum + row.total.value, 0);
   return {
+    pipelineByDivision: scope.pipelineByDivision,
+    pipelineOptions,
     stages,
     rows: rows.map((row) => ({
       ...row,
@@ -947,6 +971,7 @@ export async function getDealDrilldown(
   const today = saoPauloDay(now);
   const scope = await getScope(options);
   const ids = scope.consultants.map((item) => item.operatorId);
+  const consultantById = new Map(scope.consultants.map((item) => [item.operatorId, item]));
   if (options.operatorId && !ids.includes(options.operatorId))
     return { error: "Consultor fora do escopo comercial.", status: 404 };
   if (options.mode !== "pipeline" && !options.operatorId)
@@ -990,6 +1015,16 @@ export async function getDealDrilldown(
   const filtered = deals
     .flatMap((deal) => {
       if (options.stageId && deal.stageId !== options.stageId) return [];
+      if (
+        options.mode === "pipeline" &&
+        !options.includeHidden &&
+        !belongsToTeamPipeline(
+          scope.pipelineByDivision,
+          consultantById.get(deal.operatorId || "")?.division,
+          deal.pipelineId,
+        )
+      )
+        return [];
       if (scope.excludedStageIds.has(deal.stageId)) return [];
       const maturity = classifyMaturity(Number(deal.value || 0), deal.createdAt, now, scope.rules);
       if (options.mode === "maturity") {

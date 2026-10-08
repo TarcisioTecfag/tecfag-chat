@@ -34,6 +34,7 @@ import type {
   getResponsibilityAnalysis,
   getTmaAnalysis,
 } from "./analysis-service";
+import { teamStages, type PipelineDivision } from "./pipeline-scope";
 
 type ResponsibilityAnalysis = Awaited<ReturnType<typeof getResponsibilityAnalysis>>;
 type TmaAnalysis = Awaited<ReturnType<typeof getTmaAnalysis>>;
@@ -482,20 +483,18 @@ export function toCohortPresentation(data: CohortAnalysis, today: string): TVCoh
 }
 
 export function toPipelinePresentation(data: PipelineAnalysis) {
-  const visibleStages = data.stages.filter((stage) => !stage.excluded);
-  const stageNames = new Map<string, number>();
-  for (const stage of visibleStages)
-    stageNames.set(stage.name, (stageNames.get(stage.name) || 0) + 1);
-  const stages: PipelineStageDef[] = visibleStages.map((stage) => {
-    const label =
-      stageNames.get(stage.name)! > 1 ? `${stage.pipelineName} · ${stage.name}` : stage.name;
-    return {
+  const stageDefinitions = (division: PipelineDivision): PipelineStageDef[] =>
+    teamStages(data.stages, data.pipelineByDivision, division).map((stage) => ({
       key: stage.id,
-      label,
-      bracketLabel: `[${label.toLocaleUpperCase("pt-BR")}]`,
-      pillLabel: label,
-    };
-  });
+      label: stage.name,
+      bracketLabel: `[${stage.name.toLocaleUpperCase("pt-BR")}]`,
+      pillLabel: stage.name,
+    }));
+  const stagesByDivision = {
+    personnalite: stageDefinitions("personnalite"),
+    maquinas: stageDefinitions("maquinas"),
+  };
+  const stages = [...stagesByDivision.personnalite, ...stagesByDivision.maquinas];
   const rows: SellerPipelineRow[] = data.rows
     .filter(
       (row): row is typeof row & { division: Division } =>
@@ -506,10 +505,10 @@ export function toPipelinePresentation(data: PipelineAnalysis) {
       sellerName: row.name,
       division: row.division,
       stages: Object.fromEntries(
-        visibleStages.map((stage) => {
-          const cell = row.byStage.find((entry) => entry.stageId === stage.id);
+        stagesByDivision[row.division].map((stage) => {
+          const cell = row.byStage.find((entry) => entry.stageId === stage.key);
           return [
-            stage.id,
+            stage.key,
             {
               count: cell?.count || 0,
               value: cell?.value || 0,
@@ -536,15 +535,25 @@ export function toPipelinePresentation(data: PipelineAnalysis) {
         teamSharePercent: totalValue ? Math.round((seller.totalValue / totalValue) * 100) : 0,
       })),
       stageTotals: Object.fromEntries(
-        visibleStages.map((stage) => {
-          const count = sellers.reduce((sum, seller) => sum + seller.stages[stage.id].count, 0);
-          const value = sellers.reduce((sum, seller) => sum + seller.stages[stage.id].value, 0);
-          return [stage.id, { count, value, percent: totalValue ? (value / totalValue) * 100 : 0 }];
+        stagesByDivision[division].map((stage) => {
+          const count = sellers.reduce((sum, seller) => sum + seller.stages[stage.key].count, 0);
+          const value = sellers.reduce((sum, seller) => sum + seller.stages[stage.key].value, 0);
+          return [
+            stage.key,
+            { count, value, percent: totalValue ? (value / totalValue) * 100 : 0 },
+          ];
         }),
       ),
     };
   };
-  return { stages, personnaliteData: group("personnalite"), semiMaquinasData: group("maquinas") };
+  return {
+    stages,
+    stagesByDivision,
+    pipelineByDivision: data.pipelineByDivision,
+    pipelineOptions: data.pipelineOptions,
+    personnaliteData: group("personnalite"),
+    semiMaquinasData: group("maquinas"),
+  };
 }
 
 export function toDiretrizesPresentation(data: ResponsibilityAnalysis) {

@@ -12,7 +12,11 @@ import {
 } from "@/lib/commercial/pipeline-data";
 
 interface CommercialPipelineTableViewProps {
-  stages: PipelineStageDef[];
+  stagesByDivision: { personnalite: PipelineStageDef[]; maquinas: PipelineStageDef[] };
+  pipelineByDivision: { personnalite?: string; maquinas?: string };
+  pipelineOptions: Array<{ id: string; name: string }>;
+  onPipelineChange: (division: "personnalite" | "maquinas", pipelineId: string | null) => void;
+  savingPipelineMapping?: boolean;
   personnaliteData: TeamPipelineData;
   semiMaquinasData: TeamPipelineData;
   onCellClick: (
@@ -20,16 +24,22 @@ interface CommercialPipelineTableViewProps {
     stageKey: PipelineStageKey | "all",
     division?: "personnalite" | "maquinas",
   ) => void;
-  onHeaderStageClick: (stageKey: PipelineStageKey) => void;
+  onHeaderStageClick: (stageKey: PipelineStageKey, division: "personnalite" | "maquinas") => void;
 }
 
 export function CommercialPipelineTableView({
-  stages,
+  stagesByDivision,
+  pipelineByDivision,
+  pipelineOptions,
+  onPipelineChange,
+  savingPipelineMapping = false,
   personnaliteData,
   semiMaquinasData,
   onCellClick,
   onHeaderStageClick,
 }: CommercialPipelineTableViewProps) {
+  const personnaliteStages = stagesByDivision.personnalite;
+  const maquinasStages = stagesByDivision.maquinas;
   const pSummary = formatTeamSummary(personnaliteData.totalCards, personnaliteData.totalValue);
   const mSummary = formatTeamSummary(semiMaquinasData.totalCards, semiMaquinasData.totalValue);
 
@@ -110,6 +120,22 @@ export function CommercialPipelineTableView({
           >
             <Star className="h-3.5 w-3.5 fill-red-600 dark:fill-red-400 text-red-600 dark:text-red-400" />
             <span>TIME PERSONNALITÉ</span>
+            <select
+              aria-label="Funil do time Personnalité"
+              value={pipelineByDivision.personnalite || ""}
+              disabled={savingPipelineMapping}
+              onChange={(event) => onPipelineChange("personnalite", event.target.value || null)}
+              className="ml-2 max-w-44 rounded-[3px] border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium normal-case text-slate-600 outline-none focus:border-red-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            >
+              <option value="">Selecionar funil...</option>
+              {pipelineOptions
+                .filter((pipeline) => pipeline.id !== pipelineByDivision.maquinas)
+                .map((pipeline) => (
+                  <option key={pipeline.id} value={pipeline.id}>
+                    {pipeline.name}
+                  </option>
+                ))}
+            </select>
           </div>
 
           <div className={`flex items-center gap-2 font-mono ${density.teamSummary}`}>
@@ -131,10 +157,10 @@ export function CommercialPipelineTableView({
                 >
                   VENDEDOR
                 </th>
-                {stages.map((stage) => (
+                {personnaliteStages.map((stage) => (
                   <th
                     key={stage.key}
-                    onClick={() => onHeaderStageClick(stage.key)}
+                    onClick={() => onHeaderStageClick(stage.key, "personnalite")}
                     className={`${density.headerPy} px-2 text-center font-mono hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors`}
                   >
                     {stage.bracketLabel}
@@ -162,7 +188,7 @@ export function CommercialPipelineTableView({
                   </td>
 
                   {/* Células das Fases */}
-                  {stages.map((stage) => {
+                  {personnaliteStages.map((stage) => {
                     const data = seller.stages[stage.key];
                     const hasValue = data.value > 0;
                     return (
@@ -225,7 +251,7 @@ export function CommercialPipelineTableView({
                   TOTAL PERSONNALITÉ
                 </td>
 
-                {stages.map((stage) => {
+                {personnaliteStages.map((stage) => {
                   const data = personnaliteData.stageTotals[stage.key];
                   const hasValue = data.value > 0;
                   return (
@@ -288,6 +314,22 @@ export function CommercialPipelineTableView({
           >
             <Flag className="h-3.5 w-3.5 fill-red-600 dark:fill-red-400 text-red-600 dark:text-red-400" />
             <span>TIME SEMI (MÁQUINAS)</span>
+            <select
+              aria-label="Funil do time Máquinas"
+              value={pipelineByDivision.maquinas || ""}
+              disabled={savingPipelineMapping}
+              onChange={(event) => onPipelineChange("maquinas", event.target.value || null)}
+              className="ml-2 max-w-44 rounded-[3px] border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium normal-case text-slate-600 outline-none focus:border-red-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            >
+              <option value="">Selecionar funil...</option>
+              {pipelineOptions
+                .filter((pipeline) => pipeline.id !== pipelineByDivision.personnalite)
+                .map((pipeline) => (
+                  <option key={pipeline.id} value={pipeline.id}>
+                    {pipeline.name}
+                  </option>
+                ))}
+            </select>
           </div>
 
           <div className={`flex items-center gap-2 font-mono ${density.teamSummary}`}>
@@ -309,10 +351,10 @@ export function CommercialPipelineTableView({
                 >
                   VENDEDOR
                 </th>
-                {stages.map((stage) => (
+                {maquinasStages.map((stage) => (
                   <th
                     key={stage.key}
-                    onClick={() => onHeaderStageClick(stage.key)}
+                    onClick={() => onHeaderStageClick(stage.key, "maquinas")}
                     className={`${density.headerPy} px-2 text-center font-mono hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors`}
                   >
                     {stage.bracketLabel}
@@ -340,7 +382,7 @@ export function CommercialPipelineTableView({
                   </td>
 
                   {/* Células das Fases */}
-                  {stages.map((stage) => {
+                  {maquinasStages.map((stage) => {
                     const data = seller.stages[stage.key];
                     const hasValue = data.value > 0;
                     return (
@@ -403,7 +445,7 @@ export function CommercialPipelineTableView({
                   TOTAL SEMI
                 </td>
 
-                {stages.map((stage) => {
+                {maquinasStages.map((stage) => {
                   const data = semiMaquinasData.stageTotals[stage.key];
                   const hasValue = data.value > 0;
                   return (

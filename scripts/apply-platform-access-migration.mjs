@@ -120,6 +120,10 @@ const migrations = [
     name: "0031_commercial_consultant_rd_link",
     url: new URL("../src/db/migrations/0031_commercial_consultant_rd_link.sql", import.meta.url),
   },
+  {
+    name: "0032_commercial_pipeline_by_division",
+    url: new URL("../src/db/migrations/0032_commercial_pipeline_by_division.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

@@ -993,6 +993,7 @@ export const commercialSettings = pgTable("commercial_settings", {
   tenantId: text("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
   maturityRules: jsonb("maturity_rules").$type<Array<{ days: number; maxValue: number | null }>>().default([]).notNull(),
   excludedStageIds: jsonb("excluded_stage_ids").$type<string[]>().default([]).notNull(),
+  pipelineByDivision: jsonb("pipeline_by_division").$type<{ personnalite?: string; maquinas?: string }>().default({}).notNull(),
   slaLimitMinutes: integer("sla_limit_minutes").default(15).notNull(),
   slaBuckets: jsonb("sla_buckets").$type<number[]>().default([5, 15, 30]).notNull(),
   lossReasonCategories: jsonb("loss_reason_categories").$type<Array<{ name: string; reasons: string[] }>>().default([]).notNull(),

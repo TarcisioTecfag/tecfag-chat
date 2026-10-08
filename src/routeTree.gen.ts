@@ -96,6 +96,7 @@ import { Route as ApiContactsCheckInactivityRouteImport } from './routes/api/con
 import { Route as ApiContactsAccountOptionsRouteImport } from './routes/api/contacts/account-options'
 import { Route as ApiContactsContactIdRouteImport } from './routes/api/contacts/$contactId'
 import { Route as ApiCommercialSettingsRouteImport } from './routes/api/commercial/settings'
+import { Route as ApiCommercialPipelineMappingRouteImport } from './routes/api/commercial/pipeline-mapping'
 import { Route as ApiCommercialHomeRouteImport } from './routes/api/commercial/home'
 import { Route as ApiCommercialGoalsRouteImport } from './routes/api/commercial/goals'
 import { Route as ApiCommercialEvidenceRouteImport } from './routes/api/commercial/evidence'
@@ -604,6 +605,12 @@ const ApiCommercialSettingsRoute = ApiCommercialSettingsRouteImport.update({
   path: '/api/commercial/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCommercialPipelineMappingRoute =
+  ApiCommercialPipelineMappingRouteImport.update({
+    id: '/api/commercial/pipeline-mapping',
+    path: '/api/commercial/pipeline-mapping',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCommercialHomeRoute = ApiCommercialHomeRouteImport.update({
   id: '/api/commercial/home',
   path: '/api/commercial/home',
@@ -1016,6 +1023,7 @@ export interface FileRoutesByFullPath {
   '/api/commercial/evidence': typeof ApiCommercialEvidenceRoute
   '/api/commercial/goals': typeof ApiCommercialGoalsRoute
   '/api/commercial/home': typeof ApiCommercialHomeRoute
+  '/api/commercial/pipeline-mapping': typeof ApiCommercialPipelineMappingRoute
   '/api/commercial/settings': typeof ApiCommercialSettingsRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
@@ -1170,6 +1178,7 @@ export interface FileRoutesByTo {
   '/api/commercial/evidence': typeof ApiCommercialEvidenceRoute
   '/api/commercial/goals': typeof ApiCommercialGoalsRoute
   '/api/commercial/home': typeof ApiCommercialHomeRoute
+  '/api/commercial/pipeline-mapping': typeof ApiCommercialPipelineMappingRoute
   '/api/commercial/settings': typeof ApiCommercialSettingsRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
@@ -1325,6 +1334,7 @@ export interface FileRoutesById {
   '/api/commercial/evidence': typeof ApiCommercialEvidenceRoute
   '/api/commercial/goals': typeof ApiCommercialGoalsRoute
   '/api/commercial/home': typeof ApiCommercialHomeRoute
+  '/api/commercial/pipeline-mapping': typeof ApiCommercialPipelineMappingRoute
   '/api/commercial/settings': typeof ApiCommercialSettingsRoute
   '/api/contacts/$contactId': typeof ApiContactsContactIdRouteWithChildren
   '/api/contacts/account-options': typeof ApiContactsAccountOptionsRoute
@@ -1481,6 +1491,7 @@ export interface FileRouteTypes {
     | '/api/commercial/evidence'
     | '/api/commercial/goals'
     | '/api/commercial/home'
+    | '/api/commercial/pipeline-mapping'
     | '/api/commercial/settings'
     | '/api/contacts/$contactId'
     | '/api/contacts/account-options'
@@ -1635,6 +1646,7 @@ export interface FileRouteTypes {
     | '/api/commercial/evidence'
     | '/api/commercial/goals'
     | '/api/commercial/home'
+    | '/api/commercial/pipeline-mapping'
     | '/api/commercial/settings'
     | '/api/contacts/$contactId'
     | '/api/contacts/account-options'
@@ -1789,6 +1801,7 @@ export interface FileRouteTypes {
     | '/api/commercial/evidence'
     | '/api/commercial/goals'
     | '/api/commercial/home'
+    | '/api/commercial/pipeline-mapping'
     | '/api/commercial/settings'
     | '/api/contacts/$contactId'
     | '/api/contacts/account-options'
@@ -1940,6 +1953,7 @@ export interface RootRouteChildren {
   ApiCommercialEvidenceRoute: typeof ApiCommercialEvidenceRoute
   ApiCommercialGoalsRoute: typeof ApiCommercialGoalsRoute
   ApiCommercialHomeRoute: typeof ApiCommercialHomeRoute
+  ApiCommercialPipelineMappingRoute: typeof ApiCommercialPipelineMappingRoute
   ApiCommercialSettingsRoute: typeof ApiCommercialSettingsRoute
   ApiCrmAccountsRoute: typeof ApiCrmAccountsRouteWithChildren
   ApiCrmActionHistoryRoute: typeof ApiCrmActionHistoryRoute
@@ -2607,6 +2621,13 @@ declare module '@tanstack/react-router' {
       path: '/api/commercial/settings'
       fullPath: '/api/commercial/settings'
       preLoaderRoute: typeof ApiCommercialSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/commercial/pipeline-mapping': {
+      id: '/api/commercial/pipeline-mapping'
+      path: '/api/commercial/pipeline-mapping'
+      fullPath: '/api/commercial/pipeline-mapping'
+      preLoaderRoute: typeof ApiCommercialPipelineMappingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/commercial/home': {
@@ -3424,6 +3445,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCommercialEvidenceRoute: ApiCommercialEvidenceRoute,
   ApiCommercialGoalsRoute: ApiCommercialGoalsRoute,
   ApiCommercialHomeRoute: ApiCommercialHomeRoute,
+  ApiCommercialPipelineMappingRoute: ApiCommercialPipelineMappingRoute,
   ApiCommercialSettingsRoute: ApiCommercialSettingsRoute,
   ApiCrmAccountsRoute: ApiCrmAccountsRouteWithChildren,
   ApiCrmActionHistoryRoute: ApiCrmActionHistoryRoute,

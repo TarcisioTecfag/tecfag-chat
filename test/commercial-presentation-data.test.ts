@@ -4,13 +4,38 @@ import {
   toMaturityPresentation,
   toPipelinePresentation,
 } from "../src/lib/commercial/presentation-data";
+import { belongsToTeamPipeline } from "../src/lib/commercial/pipeline-scope";
 
 describe("War Room com dados do CRM local", () => {
   it("mostra as etapas reais e os negócios do consultor vinculado", () => {
     const payload = {
       stages: [
-        { id: "stage-local", name: "Proposta", pipelineName: "Comercial", excluded: false },
-        { id: "stage-hidden", name: "Arquivado", pipelineName: "Comercial", excluded: true },
+        {
+          id: "stage-local",
+          pipelineId: "pipeline-personnalite",
+          name: "Proposta",
+          pipelineName: "Personnalité",
+          excluded: false,
+        },
+        {
+          id: "stage-hidden",
+          pipelineId: "pipeline-personnalite",
+          name: "Arquivado",
+          pipelineName: "Personnalité",
+          excluded: true,
+        },
+        {
+          id: "stage-maquinas",
+          pipelineId: "pipeline-maquinas",
+          name: "Proposta",
+          pipelineName: "Máquinas",
+          excluded: false,
+        },
+      ],
+      pipelineByDivision: { personnalite: "pipeline-personnalite", maquinas: "pipeline-maquinas" },
+      pipelineOptions: [
+        { id: "pipeline-personnalite", name: "Personnalité" },
+        { id: "pipeline-maquinas", name: "Máquinas" },
       ],
       rows: [
         {
@@ -20,6 +45,7 @@ describe("War Room com dados do CRM local", () => {
           byStage: [
             { stageId: "stage-local", count: 2, value: 1500, shareOfConsultantPercent: 100 },
             { stageId: "stage-hidden", count: 1, value: 900, shareOfConsultantPercent: 0 },
+            { stageId: "stage-maquinas", count: 1, value: 1000, shareOfConsultantPercent: 0 },
           ],
           total: { count: 2, value: 1500 },
         },
@@ -27,16 +53,25 @@ describe("War Room com dados do CRM local", () => {
     } as unknown as Parameters<typeof toPipelinePresentation>[0];
 
     const result = toPipelinePresentation(payload);
-    expect(result.stages.map((stage) => stage.key)).toEqual(["stage-local"]);
+    expect(result.stagesByDivision.personnalite.map((stage) => stage.key)).toEqual(["stage-local"]);
+    expect(result.stagesByDivision.maquinas.map((stage) => stage.key)).toEqual(["stage-maquinas"]);
     expect(result.personnaliteData.sellers[0].sellerId).toBe("operator-local");
     expect(result.personnaliteData.stageTotals["stage-local"].count).toBe(2);
+    expect(result.personnaliteData.stageTotals["stage-maquinas"]).toBeUndefined();
+    expect(result.personnaliteData.sellers[0].stages["stage-maquinas"]).toBeUndefined();
     expect(result.semiMaquinasData.totalCards).toBe(0);
+    expect(
+      belongsToTeamPipeline(payload.pipelineByDivision, "personnalite", "pipeline-maquinas"),
+    ).toBe(false);
   });
 
   it("mostra vazio quando o CRM ainda não tem consultores ou negócios", () => {
-    const pipeline = toPipelinePresentation({ stages: [], rows: [] } as unknown as Parameters<
-      typeof toPipelinePresentation
-    >[0]);
+    const pipeline = toPipelinePresentation({
+      stages: [],
+      rows: [],
+      pipelineByDivision: {},
+      pipelineOptions: [],
+    } as unknown as Parameters<typeof toPipelinePresentation>[0]);
     const maturity = toMaturityPresentation(
       { today: "2026-10-08", maturity: { cohorts: [] }, goals: [], pendingTasksByOperator: [] },
       null,

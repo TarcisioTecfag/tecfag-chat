@@ -54,6 +54,7 @@ import {
 import type { TVCohortsResponse } from "@/lib/commercial/safras-cohorts-data";
 import { CommercialSafrasTableView } from "./CommercialSafrasTableView";
 import { MaturityCohortFullscreenModal } from "./MaturityCohortFullscreenModal";
+import { toast } from "sonner";
 
 type Tier = {
   tier: number;
@@ -224,6 +225,7 @@ export function CommercialBiView() {
   const [modalDivision, setModalDivision] = useState<"" | "personnalite" | "maquinas">("");
   const [pipelineModalDeals, setPipelineModalDeals] = useState<CommercialPipelineDeal[]>([]);
   const [pipelineModalLoading, setPipelineModalLoading] = useState(false);
+  const [savingPipelineMapping, setSavingPipelineMapping] = useState(false);
 
   // Estados para o Modal de Detalhamento De-Para / Maturidade (Slide 2 / Fotos 2 e 3)
   const [deparaModalOpen, setDeparaModalOpen] = useState(false);
@@ -460,11 +462,37 @@ export function CommercialBiView() {
     setModalOpen(true);
   };
 
-  const handleHeaderStageClick = (stageKey: PipelineStageKey) => {
+  const handleHeaderStageClick = (
+    stageKey: PipelineStageKey,
+    selectedDivision: "personnalite" | "maquinas",
+  ) => {
     setModalSeller(null);
     setModalStageKey(stageKey);
-    setModalDivision("");
+    setModalDivision(selectedDivision);
     setModalOpen(true);
+  };
+
+  const handlePipelineChange = async (
+    selectedDivision: "personnalite" | "maquinas",
+    pipelineId: string | null,
+  ) => {
+    setSavingPipelineMapping(true);
+    try {
+      const response = await fetch("/api/commercial/pipeline-mapping", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ division: selectedDivision, pipelineId }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Falha ao configurar o funil.");
+      await load();
+      toast.success("Funil da equipe atualizado.");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Falha ao configurar o funil.");
+    } finally {
+      setSavingPipelineMapping(false);
+    }
   };
 
   useEffect(() => {
@@ -516,13 +544,15 @@ export function CommercialBiView() {
           ...pipelineData.semiMaquinasData.sellers,
         ];
         const byId = new Map(sellers.map((seller) => [seller.sellerId, seller]));
-        const stages = new Map(pipelineData.stages.map((stage) => [stage.key, stage]));
+        const pipelines = new Map(
+          pipelineData.pipelineOptions.map((pipeline) => [pipeline.id, pipeline.name]),
+        );
         if (!controller.signal.aborted)
           setPipelineModalDeals(
             all.map((deal) => ({
               id: deal.id,
               title: deal.title,
-              funnelName: stages.get(deal.stageId)?.label || "CRM",
+              funnelName: pipelines.get(deal.pipelineId) || "CRM",
               responsibleName: byId.get(deal.operatorId || "")?.sellerName || "Consultor",
               responsibleId: deal.operatorId || undefined,
               division:
@@ -809,7 +839,13 @@ export function CommercialBiView() {
                 {/* ─── SLIDE 0: PIPELINE POR FASE CRM ─── */}
                 {module === 0 && pipelineData && (
                   <CommercialPipelineTableView
-                    stages={pipelineData.stages}
+                    stagesByDivision={pipelineData.stagesByDivision}
+                    pipelineByDivision={pipelineData.pipelineByDivision}
+                    pipelineOptions={pipelineData.pipelineOptions}
+                    onPipelineChange={(selectedDivision, pipelineId) => {
+                      void handlePipelineChange(selectedDivision, pipelineId);
+                    }}
+                    savingPipelineMapping={savingPipelineMapping}
                     personnaliteData={pipelineData.personnaliteData}
                     semiMaquinasData={pipelineData.semiMaquinasData}
                     onCellClick={handleCellClick}
@@ -936,7 +972,7 @@ export function CommercialBiView() {
         initialStageKey={modalStageKey}
         deals={pipelineModalDeals}
         loading={pipelineModalLoading}
-        stages={pipelineData?.stages || []}
+        stages={modalDivision ? pipelineData?.stagesByDivision[modalDivision] || [] : []}
         onOpenDeal={openDeal}
         onOpenProfile={() => {
           setActiveView("commercialManagement");
