@@ -86,10 +86,10 @@ export function CommercialPrevistasTableView({
 
           <div className={`flex items-center gap-2 font-mono ${density.teamSummary}`}>
             <span className="text-zinc-400">Meta:</span>
-            <span className="font-bold text-emerald-400">{formatDeparaMeta(team.metaTotal)}</span>
+            <span className="font-bold text-zinc-200">{formatDeparaMeta(team.metaTotal)}</span>
             <span className="text-zinc-600">-</span>
             <span className="text-zinc-400">A Faturar:</span>
-            <span className="font-bold text-emerald-400">{formatDeparaMeta(team.aFaturarTotal)}</span>
+            <span className="font-bold text-cyan-400">{formatDeparaMeta(team.aFaturarTotal)}</span>
             <span className="text-zinc-600">-</span>
             <span className="text-zinc-400">Promessa:</span>
             <span className="font-bold text-emerald-400">{formatDeparaMeta(team.promessaTotal)}</span>
@@ -118,7 +118,7 @@ export function CommercialPrevistasTableView({
                     </div>
                   </th>
                 ))}
-                <th className={`${density.headerPy} px-1.5 sm:px-2 text-center font-mono font-bold text-emerald-300 bg-emerald-950/25 border-l border-zinc-800 w-[6%] min-w-[70px]`}>
+                <th className={`${density.headerPy} px-1.5 sm:px-2 text-center font-mono font-bold text-cyan-300 bg-cyan-950/30 border-l border-zinc-800 w-[6%] min-w-[70px]`}>
                   TOTAL A FATURAR
                 </th>
               </tr>
@@ -183,7 +183,7 @@ export function CommercialPrevistasTableView({
                         <button
                           type="button"
                           onClick={() => onCellClick(seller, tier.key)}
-                          className={`w-full ${tier.colorClass} ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase transition-transform active:scale-[0.98] cursor-pointer text-center flex items-center justify-center`}
+                          className={`w-full ${tier.colorClass} ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase transition-all active:scale-[0.98] cursor-pointer text-center flex items-center justify-center`}
                         >
                           {tierData.formatted}
                         </button>
@@ -194,13 +194,13 @@ export function CommercialPrevistasTableView({
                   {/* Coluna Total A Faturar */}
                   <td
                     onClick={() => onCellClick(seller, "all")}
-                    className={`${density.tierPy} px-1.5 text-center bg-emerald-950/15 border-l border-zinc-800 hover:bg-emerald-950/30 cursor-pointer transition-all align-middle w-[6%] min-w-[70px]`}
+                    className={`${density.tierPy} px-1.5 text-center bg-cyan-950/15 border-l border-zinc-800 hover:bg-cyan-950/30 cursor-pointer transition-all align-middle w-[6%] min-w-[70px]`}
                   >
-                    <div className={`font-mono font-black ${density.totalText} text-emerald-400 leading-tight`}>
+                    <div className={`font-mono font-black ${density.totalText} text-cyan-400 leading-tight`}>
                       {formatDeparaMeta(seller.totalAFaturarValue)}
                     </div>
                     <div className="mt-0.5">
-                      <span className={`inline-block rounded-[2px] border border-emerald-500/40 bg-emerald-950/60 font-mono font-bold text-emerald-300 ${density.totalBadge}`}>
+                      <span className={`inline-block rounded-[2px] border border-cyan-500/40 bg-cyan-950/60 font-mono font-bold text-cyan-300 ${density.totalBadge}`}>
                         {seller.totalAFaturarPercent}%
                       </span>
                     </div>

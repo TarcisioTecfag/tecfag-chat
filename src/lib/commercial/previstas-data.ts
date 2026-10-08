@@ -17,7 +17,8 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     daysLabel: "HOJE",
     subLabel: "Prontos / Atrasados",
     days: 0,
-    colorClass: "bg-[#8b1d1d] hover:bg-[#a12323] text-white",
+    colorClass:
+      "bg-red-950/20 hover:bg-red-950/40 border border-red-500/80 hover:border-red-400 text-white shadow-[0_0_10px_rgba(239,68,68,0.15)]",
     dotColor: "bg-red-500",
     badgeBg: "border-red-500/40 text-red-400 bg-red-950/20",
     colWidth: "w-[10%]",
@@ -27,7 +28,8 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     daysLabel: "15 DIAS",
     subLabel: "A Faturar",
     days: 15,
-    colorClass: "bg-[#b45309] hover:bg-[#d97706] text-white",
+    colorClass:
+      "bg-amber-950/20 hover:bg-amber-950/40 border border-amber-500/80 hover:border-amber-400 text-white shadow-[0_0_10px_rgba(245,158,11,0.15)]",
     dotColor: "bg-amber-500",
     badgeBg: "border-amber-500/40 text-amber-400 bg-amber-950/20",
     colWidth: "w-[13%]",
@@ -37,7 +39,8 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     daysLabel: "30 DIAS",
     subLabel: "A Faturar",
     days: 30,
-    colorClass: "bg-[#1d4ed8] hover:bg-[#2563eb] text-white",
+    colorClass:
+      "bg-blue-950/20 hover:bg-blue-950/40 border border-blue-500/80 hover:border-blue-400 text-white shadow-[0_0_10px_rgba(59,130,246,0.15)]",
     dotColor: "bg-blue-500",
     badgeBg: "border-blue-500/40 text-blue-400 bg-blue-950/20",
     colWidth: "w-[16%]",
@@ -47,7 +50,8 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     daysLabel: "60 DIAS",
     subLabel: "A Faturar",
     days: 60,
-    colorClass: "bg-[#6b21a8] hover:bg-[#7e22ce] text-white",
+    colorClass:
+      "bg-purple-950/20 hover:bg-purple-950/40 border border-purple-500/80 hover:border-purple-400 text-white shadow-[0_0_10px_rgba(168,85,247,0.15)]",
     dotColor: "bg-purple-500",
     badgeBg: "border-purple-500/40 text-purple-400 bg-purple-950/20",
     colWidth: "w-[20%]",
@@ -57,7 +61,8 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     daysLabel: "90 DIAS",
     subLabel: "A Faturar",
     days: 90,
-    colorClass: "bg-[#047857] hover:bg-[#059669] text-white",
+    colorClass:
+      "bg-emerald-950/20 hover:bg-emerald-950/40 border border-emerald-500/80 hover:border-emerald-400 text-white shadow-[0_0_10px_rgba(16,185,129,0.15)]",
     dotColor: "bg-emerald-500",
     badgeBg: "border-emerald-500/40 text-emerald-400 bg-emerald-950/20",
     colWidth: "w-[24%]",
@@ -126,13 +131,13 @@ export const BASELINE_PREVISTAS_PERSONNALITE: TeamPrevistasData = {
       realizedPercent: 29,
       tiers: {
         tier_hoje: { value: 2_930_000, formatted: "2,93 MILHÕES" },
-        tier_15d: { value: 297_000, formatted: "297 MIL" },
+        tier_15d: { value: 397_000, formatted: "397 MIL" },
         tier_30d: { value: 260_000, formatted: "260 MIL" },
-        tier_60d: { value: 250_000, formatted: "250 MIL" },
+        tier_60d: { value: 350_000, formatted: "350 MIL" },
         tier_90d: { value: 0, formatted: "0 MIL" },
       },
       totalAFaturarValue: 3_940_000,
-      totalAFaturarPercent: 394,
+      totalAFaturarPercent: 134,
     },
     {
       sellerId: "jhordan-rueda",
@@ -170,7 +175,7 @@ export const BASELINE_PREVISTAS_PERSONNALITE: TeamPrevistasData = {
         tier_90d: { value: 0, formatted: "0 MIL" },
       },
       totalAFaturarValue: 2_780_000,
-      totalAFaturarPercent: 316,
+      totalAFaturarPercent: 118,
     },
     {
       sellerId: "rosenvaldo-lucas",
@@ -212,7 +217,7 @@ export const BASELINE_PREVISTAS_SEMI_MAQUINAS: TeamPrevistasData = {
       realizedPercent: 87,
       tiers: {
         tier_hoje: { value: 3_240_000, formatted: "3,24 MILHÕES" },
-        tier_15d: { value: 117_000, formatted: "117 MIL" },
+        tier_15d: { value: 113_000, formatted: "113 MIL" },
         tier_30d: { value: 0, formatted: "0 MIL" },
         tier_60d: { value: 0, formatted: "0 MIL" },
         tier_90d: { value: 0, formatted: "0 MIL" },
@@ -275,7 +280,7 @@ export const BASELINE_PREVISTAS_SEMI_MAQUINAS: TeamPrevistasData = {
         tier_90d: { value: 0, formatted: "0 MIL" },
       },
       totalAFaturarValue: 1_080_000,
-      totalAFaturarPercent: 319,
+      totalAFaturarPercent: 119,
     },
     {
       sellerId: "mercado-livre",
@@ -294,7 +299,7 @@ export const BASELINE_PREVISTAS_SEMI_MAQUINAS: TeamPrevistasData = {
         tier_90d: { value: 0, formatted: "0 MIL" },
       },
       totalAFaturarValue: 3_110_000,
-      totalAFaturarPercent: 1352,
+      totalAFaturarPercent: 1182,
     },
     {
       sellerId: "victor-goes",
@@ -313,7 +318,7 @@ export const BASELINE_PREVISTAS_SEMI_MAQUINAS: TeamPrevistasData = {
         tier_90d: { value: 0, formatted: "0 MIL" },
       },
       totalAFaturarValue: 2_430_000,
-      totalAFaturarPercent: 716,
+      totalAFaturarPercent: 714,
     },
   ],
 };

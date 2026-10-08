@@ -56,12 +56,12 @@ describe("Commercial Previstas (Slide 3 - War Room)", () => {
     expect(diana.realizedValue).toBe(291_000);
     expect(diana.realizedPercent).toBe(29);
     expect(diana.tiers.tier_hoje.formatted).toBe("2,93 MILHÕES");
-    expect(diana.tiers.tier_15d.formatted).toBe("297 MIL");
+    expect(diana.tiers.tier_15d.formatted).toBe("397 MIL");
     expect(diana.tiers.tier_30d.formatted).toBe("260 MIL");
-    expect(diana.tiers.tier_60d.formatted).toBe("250 MIL");
+    expect(diana.tiers.tier_60d.formatted).toBe("350 MIL");
     expect(diana.tiers.tier_90d.formatted).toBe("0 MIL");
     expect(diana.totalAFaturarValue).toBe(3_940_000);
-    expect(diana.totalAFaturarPercent).toBe(394);
+    expect(diana.totalAFaturarPercent).toBe(134);
 
     // Jhordan
     const jhordan = sellers.find((s) => s.sellerId === "jhordan-rueda")!;
@@ -71,7 +71,7 @@ describe("Commercial Previstas (Slide 3 - War Room)", () => {
     // Marcelo
     const marcelo = sellers.find((s) => s.sellerId === "marcelo-nardelli")!;
     expect(marcelo.totalAFaturarValue).toBe(2_780_000);
-    expect(marcelo.totalAFaturarPercent).toBe(316);
+    expect(marcelo.totalAFaturarPercent).toBe(118);
 
     // Rosenvaldo
     const rosenvaldo = sellers.find((s) => s.sellerId === "rosenvaldo-lucas")!;
@@ -90,6 +90,7 @@ describe("Commercial Previstas (Slide 3 - War Room)", () => {
 
     // Andreia
     const andreia = sellers.find((s) => s.sellerId === "andreia-camargo")!;
+    expect(andreia.tiers.tier_15d.formatted).toBe("113 MIL");
     expect(andreia.totalAFaturarValue).toBe(3_360_000);
     expect(andreia.totalAFaturarPercent).toBe(1119);
 
@@ -106,17 +107,17 @@ describe("Commercial Previstas (Slide 3 - War Room)", () => {
     // Melissa
     const melissa = sellers.find((s) => s.sellerId === "melissa-gomes")!;
     expect(melissa.totalAFaturarValue).toBe(1_080_000);
-    expect(melissa.totalAFaturarPercent).toBe(319);
+    expect(melissa.totalAFaturarPercent).toBe(119);
 
     // Mercado Livre / Deborah
     const ml = sellers.find((s) => s.sellerId === "mercado-livre")!;
     expect(ml.totalAFaturarValue).toBe(3_110_000);
-    expect(ml.totalAFaturarPercent).toBe(1352);
+    expect(ml.totalAFaturarPercent).toBe(1182);
 
     // Victor
     const victor = sellers.find((s) => s.sellerId === "victor-goes")!;
     expect(victor.totalAFaturarValue).toBe(2_430_000);
-    expect(victor.totalAFaturarPercent).toBe(716);
+    expect(victor.totalAFaturarPercent).toBe(714);
   });
 
   it("deve conter as negociações previstas das Fotos 2 e 3 (Diana - HOJE)", () => {
