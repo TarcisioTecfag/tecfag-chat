@@ -1,13 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useTabNavigation } from "@/hooks/useTabNavigation";
-import { Expand, Loader2, Pause, Play, RefreshCw } from "lucide-react";
+import { useChat } from "@/hooks/useChatState";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Expand,
+  ExternalLink,
+  Loader2,
+  Pause,
+  Play,
+  RefreshCw,
+} from "lucide-react";
 import { CommercialForecastDrilldown } from "./CommercialForecastDrilldown";
 import {
   CommercialCohortsPanel,
   CommercialResponsibilitiesPanel,
 } from "./CommercialAnalysisPanels";
-import { SystemTooltip } from "@/components/ui/tooltip";
+import { CommercialPipelineTableView } from "./CommercialPipelineTableView";
+import { CommercialDealFilterModal } from "./CommercialDealFilterModal";
+import {
+  BASELINE_PERSONNALITE,
+  BASELINE_SEMI_MAQUINAS,
+  getBaselineDeals,
+  PipelineStageKey,
+  SellerPipelineRow,
+} from "@/lib/commercial/pipeline-data";
 
 type Tier = {
   tier: number;
@@ -90,16 +108,6 @@ type BiData = {
   };
 };
 
-const modules = [
-  "Pipeline",
-  "Maturidade atual",
-  "Previsão",
-  "Metas e ritmo",
-  "Perdas",
-  "TMA e SLA",
-  "Responsabilidades",
-  "Safras",
-];
 const money = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
@@ -130,6 +138,7 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
 
 export function CommercialBiView() {
   const navigate = useNavigate();
+  const { tenant } = useChat();
   const panelRef = useRef<HTMLElement>(null);
   const [division, setDivision] = useState("");
   const [module, setModule] = useState(0);
@@ -140,6 +149,49 @@ export function CommercialBiView() {
   const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
   const [pointing, setPointing] = useState(false);
   const [pointResult, setPointResult] = useState<string | null>(null);
+
+  // Estados para o Modal de Detalhamento de Negociações (Foto 2)
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalSeller, setModalSeller] = useState<SellerPipelineRow | null>(null);
+  const [modalStageKey, setModalStageKey] = useState<PipelineStageKey | "all">("all");
+  const [modalDivision, setModalDivision] = useState<"personnalite" | "maquinas">("personnalite");
+
+  // Relógio digital e data ao vivo
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const formattedDate = useMemo(() => {
+    const day = String(currentTime.getDate()).padStart(2, "0");
+    const months = [
+      "JAN",
+      "FEV",
+      "MAR",
+      "ABR",
+      "MAI",
+      "JUN",
+      "JUL",
+      "AGO",
+      "SET",
+      "OUT",
+      "NOV",
+      "DEZ",
+    ];
+    const m = months[currentTime.getMonth()];
+    const y = currentTime.getFullYear();
+    return `${day} DE ${m}. DE ${y}`;
+  }, [currentTime]);
+
+  const formattedClock = useMemo(() => {
+    const h = String(currentTime.getHours()).padStart(2, "0");
+    const m = String(currentTime.getMinutes()).padStart(2, "0");
+    const s = String(currentTime.getSeconds()).padStart(2, "0");
+    return `${h} : ${m} : ${s}`;
+  }, [currentTime]);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -168,48 +220,34 @@ export function CommercialBiView() {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       void load();
     }, 60_000);
     return () => window.clearInterval(timer);
   }, [load]);
-  const activeModules = useMemo(() => {
-    const configured = data?.settings.tvSettings.activeModules;
-    return Array.isArray(configured) && configured.length
-      ? configured.filter((id) => Number.isInteger(id) && id >= 0 && id < 6)
-      : [0, 1, 2, 3, 4, 5];
-  }, [data]);
-  useEffect(() => {
-    if (module < 6 && activeModules.length && !activeModules.includes(module))
-      setModule(activeModules[0]);
-  }, [activeModules, module]);
 
-  useTabNavigation({
-    tabs: [...new Set([...activeModules, 6, 7])],
-    activeTab: module,
-    onChange: setModule,
-  });
+  // Rotação automática de slides (5 módulos TV)
   useEffect(() => {
-    if (!rotating || !activeModules.length) return;
+    if (!rotating) return;
     const interval = window.setInterval(
-      () =>
-        setModule(
-          (current) =>
-            activeModules[(Math.max(0, activeModules.indexOf(current)) + 1) % activeModules.length],
-        ),
+      () => {
+        setModule((current) => (current + 1) % 5);
+      },
       Math.max(10, data?.settings.tvSettings.rotationSeconds || 30) * 1000,
     );
     return () => window.clearInterval(interval);
-  }, [rotating, activeModules, data?.settings.tvSettings.rotationSeconds]);
+  }, [rotating, data?.settings.tvSettings.rotationSeconds]);
 
   const openDeal = (dealId: string) =>
     navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
-  const maxPipeline = Math.max(1, ...(data?.pipeline.map((item) => item.value) || []));
+
   const tvGoals = data?.goals.filter((goal) => goal.activeOnTv) || [];
   const selectedDeals =
     data?.maturity.cohorts.filter((item) => selectedDealIds.includes(item.dealId)) || [];
   const selectedOperatorId = selectedDeals[0]?.operatorId;
+
   const toggleDeal = (item: Cohort) => {
     setPointResult(null);
     setSelectedDealIds((current) => {
@@ -220,6 +258,7 @@ export function CommercialBiView() {
         : [...current, item.dealId];
     });
   };
+
   const pointResponsibilities = async () => {
     if (!selectedOperatorId || !selectedDeals.length) return;
     setPointing(true);
@@ -249,84 +288,209 @@ export function CommercialBiView() {
     }
   };
 
+  // Manipuladores de clique na tabela do Slide 1
+  const handleCellClick = (
+    seller: SellerPipelineRow | null,
+    stageKey: PipelineStageKey | "all",
+    div: "personnalite" | "maquinas" = "personnalite",
+  ) => {
+    setModalSeller(seller);
+    setModalStageKey(stageKey);
+    setModalDivision(seller?.division || div);
+    setModalOpen(true);
+  };
+
+  const handleHeaderStageClick = (stageKey: PipelineStageKey) => {
+    setModalSeller(null);
+    setModalStageKey(stageKey);
+    setModalOpen(true);
+  };
+
+  // Obtenção de negociações para o modal ativo
+  const activeModalDeals = useMemo(() => {
+    if (modalSeller) {
+      return getBaselineDeals(modalSeller.sellerId);
+    }
+    return getBaselineDeals().filter((d) => d.division === modalDivision);
+  }, [modalSeller, modalDivision]);
+
+  const aiPersonaName = tenant === "tecfag" ? "FAGNER" : "VALENTINA";
+
   return (
     <section
       ref={panelRef}
-      className="h-full min-w-0 flex-1 overflow-y-auto rounded-3xl border border-zinc-800 bg-[#101115] p-4 text-white shadow-soft sm:p-6"
+      className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-zinc-800 bg-[#0b0d13] text-white shadow-soft"
     >
-      <div className="w-full space-y-5">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className={badge}>Tecfag · Commercial War Room</p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
-              Inteligência Comercial
-            </h1>
-            <p className="mt-1 text-xs text-zinc-400">
-              Dados do CRM próprio · atualizado{" "}
-              {data
-                ? new Date(data.asOf).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo" })
-                : "—"}
-            </p>
+      {/* ─── CABEÇALHO SUPERIOR EXECUTIVO (FIEL À FOTO 1) ─── */}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 bg-[#0e1017] px-4 py-3 sm:px-6 shrink-0">
+        {/* Esquerda: Logo Oficial + Badge IA + Status Rotação */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Logo e Nome da Empresa */}
+          <div className="flex items-center gap-2">
+            <img
+              src={tenant === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg"}
+              alt={tenant === "tecfag" ? "Tecfag" : "Valem"}
+              className="h-6 w-auto max-w-[90px] object-contain"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = "none";
+              }}
+            />
+            <span className="font-mono text-base font-black tracking-tight text-white">
+              {tenant === "tecfag" ? "TECFAG" : "VALEM"}
+            </span>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              aria-label="Divisão"
-              value={division}
-              onChange={(event) => setDivision(event.target.value)}
-              className="rounded-lg border border-white/15 bg-zinc-900 px-3 py-2 text-xs"
+
+          {/* Badge IA Ao Vivo */}
+          <div className="inline-flex items-center gap-1.5 rounded border border-emerald-500/40 bg-emerald-950/40 px-2.5 py-1 text-[10px] font-mono font-bold text-emerald-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>{aiPersonaName} I.A - AO VIVO</span>
+          </div>
+
+          {/* Badge Rotação TV */}
+          <button
+            type="button"
+            onClick={() => setRotating((current) => !current)}
+            className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-[10px] font-mono font-bold transition-colors cursor-pointer ${
+              rotating
+                ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-950/50"
+                : "border-amber-500/50 bg-amber-950/30 text-amber-400 hover:bg-amber-950/50"
+            }`}
+          >
+            {rotating ? (
+              <>
+                <Play className="h-3 w-3 fill-emerald-300" />
+                <span>ROTAÇÃO ATIVA</span>
+              </>
+            ) : (
+              <>
+                <Pause className="h-3 w-3 fill-amber-400" />
+                <span>ROTAÇÃO PAUSADA</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Centro: Título do War Room */}
+        <div className="hidden xl:block text-center">
+          <h1 className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-300">
+            COMMERCIAL WAR ROOM & SLA • INTELIGÊNCIA OPERACIONAL
+          </h1>
+        </div>
+
+        {/* Direita: Data + Relógio Digital + Controles + 5 Pontos de Slide */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Data */}
+          <span className="font-mono text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+            {formattedDate}
+          </span>
+
+          {/* Relógio Digital */}
+          <div className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950/80 px-2.5 py-1 font-mono text-xs font-bold text-zinc-200">
+            <Clock className="h-3.5 w-3.5 text-zinc-400" />
+            <span>{formattedClock}</span>
+          </div>
+
+          {/* Botões de Ação */}
+          <div className="flex items-center gap-1">
+            {/* Slide Anterior */}
+            <button
+              type="button"
+              onClick={() => {
+                setRotating(false);
+                setModule((current) => (current === 0 ? 4 : current - 1));
+              }}
+              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              title="Slide Anterior"
             >
-              <option value="">Comercial inteiro</option>
-              <option value="personnalite">Personnalité</option>
-              <option value="maquinas">Máquinas</option>
-            </select>
-            <SystemTooltip content="Atualizar dados do BI TV agora">
-              <button
-                onClick={() => void load()}
-                disabled={loading}
-                className="rounded-lg border border-white/15 p-2 hover:bg-white/10 cursor-pointer"
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              </button>
-            </SystemTooltip>
-            <SystemTooltip content={rotating ? "Pausar rotação automática da TV" : "Iniciar rotação automática da TV"}>
-              <button
-                onClick={() => setRotating((current) => !current)}
-                className="rounded-lg border border-white/15 p-2 hover:bg-white/10 cursor-pointer"
-              >
-                {rotating ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              </button>
-            </SystemTooltip>
-            <SystemTooltip content="Exibir BI TV em modo tela cheia">
-              <button
-                onClick={() => void panelRef.current?.requestFullscreen()}
-                className="rounded-lg border border-white/15 p-2 hover:bg-white/10 cursor-pointer"
-              >
-                <Expand className="h-4 w-4" />
-              </button>
-            </SystemTooltip>
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+
+            {/* Play / Pause */}
+            <button
+              type="button"
+              onClick={() => setRotating((current) => !current)}
+              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              title={rotating ? "Pausar rotação" : "Iniciar rotação"}
+            >
+              {rotating ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            </button>
+
+            {/* Próximo Slide */}
+            <button
+              type="button"
+              onClick={() => {
+                setRotating(false);
+                setModule((current) => (current + 1) % 5);
+              }}
+              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              title="Próximo Slide"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+
+            {/* Tela Cheia */}
+            <button
+              type="button"
+              onClick={() => void panelRef.current?.requestFullscreen()}
+              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              title="Tela Cheia"
+            >
+              <Expand className="h-4 w-4" />
+            </button>
+
+            {/* Abrir Nova Aba */}
+            <button
+              type="button"
+              onClick={() => window.open(window.location.href, "_blank")}
+              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              title="Abrir em Nova Aba"
+            >
+              <ExternalLink className="h-4 w-4" />
+            </button>
+
+            {/* Atualizar */}
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              title="Atualizar dados agora"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </button>
           </div>
-        </header>
-        <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Módulos do War Room">
-          {modules.map(
-            (name, index) =>
-              (activeModules.includes(index) || index >= 6) && (
+
+          {/* 5 Dots de Navegação (Dots do Slide) */}
+          <div className="flex items-center gap-1.5 ml-1">
+            {[0, 1, 2, 3, 4].map((idx) => {
+              const isActive = module === idx;
+              return (
                 <button
-                  key={name}
+                  key={idx}
+                  type="button"
                   onClick={() => {
-                    setModule(index);
                     setRotating(false);
+                    setModule(idx);
                   }}
-                  className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-bold ${module === index ? "border-red-500 bg-red-500/15 text-white" : "border-white/10 text-zinc-400 hover:bg-white/5"}`}
-                >
-                  {String(index + 1).padStart(2, "0")} · {name}
-                </button>
-              ),
-          )}
-        </nav>
+                  className={`transition-all cursor-pointer ${
+                    isActive
+                      ? "h-2 w-6 rounded-full bg-[#df3d3d] shadow-sm"
+                      : "h-2 w-2 rounded-full bg-zinc-700 hover:bg-zinc-500"
+                  }`}
+                  title={`Slide ${idx + 1}`}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </header>
+
+      {/* ─── CORPO PRINCIPAL COM ROLAGEM SUAVE ─── */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">
         {error && (
           <p
             role="alert"
-            className="rounded-xl border border-red-800 bg-red-950/40 p-4 text-sm text-red-200"
+            className="mb-4 rounded-xl border border-red-800 bg-red-950/40 p-4 text-sm text-red-200"
           >
             {error}
           </p>
@@ -334,291 +498,162 @@ export function CommercialBiView() {
         {pointResult && (
           <p
             role="status"
-            className="rounded-xl border border-emerald-700 bg-emerald-950/30 p-3 text-sm text-emerald-200"
+            className="mb-4 rounded-xl border border-emerald-700 bg-emerald-950/30 p-3 text-sm text-emerald-200"
           >
             {pointResult}
           </p>
         )}
-        {module === 1 && selectedDeals.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 p-3 text-sm">
-            <span>
-              {selectedDeals.length} negócio(s) de {selectedDeals[0].operatorName} selecionado(s).
-            </span>
-            <button
-              type="button"
-              onClick={() => void pointResponsibilities()}
-              disabled={pointing}
-              className="rounded-lg bg-red-600 px-3 py-2 font-semibold disabled:opacity-50"
-            >
-              {pointing ? "Registrando..." : "Pontuar responsabilidades"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedDealIds([])}
-              className="text-zinc-400 underline"
-            >
-              Limpar seleção
-            </button>
-          </div>
-        )}
+
         {loading && !data ? (
           <div className="flex h-72 items-center justify-center text-red-400">
             <Loader2 className="h-8 w-8 animate-spin" />
           </div>
         ) : (
-          data && (
-            <>
-              {module === 0 && (
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Metric label="Oportunidades ativas" value={String(data.summary.openCount)} />
+          <>
+            {/* ─── SLIDE 0 / MÓDULO 0: PIPELINE POR FASE RD CRM (RÉPLICA FIEL DA FOTO 1) ─── */}
+            {module === 0 && (
+              <CommercialPipelineTableView
+                personnaliteData={BASELINE_PERSONNALITE}
+                semiMaquinasData={BASELINE_SEMI_MAQUINAS}
+                onCellClick={handleCellClick}
+                onHeaderStageClick={handleHeaderStageClick}
+              />
+            )}
+
+            {/* ─── SLIDE 1: MATURIDADE ATUAL ─── */}
+            {module === 1 && data && (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  {data.maturity.tiers.map((tier) => (
                     <Metric
-                      label="Valor em pipeline"
-                      value={money.format(data.summary.openValue)}
+                      key={tier.tier}
+                      label={`Faixa ${tier.tier} · ${tier.days} dias`}
+                      value={money.format(tier.readyValue)}
+                      hint={`${tier.readyCount} negócio(s) maduros`}
                     />
-                    <Metric
-                      label="Faturado no mês"
-                      value={money.format(data.summary.faturado)}
-                      hint="Soma de negócios ganhos"
-                    />
-                  </div>
-                  <div className={surface}>
-                    <p className={badge}>Funil por etapa</p>
-                    <h2 className="mt-1 text-xl font-bold">Onde estão as negociações</h2>
-                    <div className="mt-5 space-y-4">
-                      {data.pipeline.length ? (
-                        data.pipeline.map((stage) => (
-                          <div key={stage.stageId}>
-                            <div className="mb-1 flex justify-between gap-3 text-sm">
-                              <span>
-                                {stage.name}{" "}
-                                <small className="text-zinc-400">({stage.count})</small>
-                              </span>
-                              <strong>{money.format(stage.value)}</strong>
-                            </div>
-                            <div className="h-3 rounded-full bg-white/10">
-                              <div
-                                className="h-full rounded-full bg-red-500"
-                                style={{
-                                  width: `${Math.max(2, (stage.value / maxPipeline) * 100)}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <Empty text="Nenhuma negociação aberta nas etapas incluídas no War Room." />
-                      )}
-                    </div>
-                  </div>
+                  ))}
                 </div>
-              )}
-              {module === 1 && (
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                    {data.maturity.tiers.map((tier) => (
-                      <Metric
-                        key={tier.tier}
-                        label={`Faixa ${tier.tier} · ${tier.days} dias`}
-                        value={money.format(tier.readyValue)}
-                        hint={`${tier.readyCount} negócio(s) maduros`}
-                      />
-                    ))}
-                  </div>
-                  <div className={surface}>
-                    <p className={badge}>Responsabilidades atuais</p>
-                    <h2 className="mt-1 text-xl font-bold">Prontas ou atrasadas</h2>
-                    <div className="mt-4 space-y-2">
-                      {data.maturity.cohorts
-                        .filter((item) => item.daysRemaining <= 0)
-                        .slice(0, 30)
-                        .map((item) => (
-                          <div
-                            key={item.dealId}
-                            className="flex w-full flex-wrap justify-between gap-2 rounded-xl border border-white/10 p-3 text-left hover:border-red-500/50"
-                          >
-                            <span className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                aria-label={`Pontuar responsabilidade de ${item.title}`}
-                                checked={selectedDealIds.includes(item.dealId)}
-                                onChange={() => toggleDeal(item)}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => openDeal(item.dealId)}
-                                className="text-left hover:underline"
-                              >
-                                <strong>{item.title}</strong>
-                              </button>
-                              <small className="ml-2 text-zinc-400">
-                                {item.operatorName} · {item.stageName} · {item.ageDays} dias
-                              </small>
-                            </span>
-                            <span className="font-bold">{money.format(item.value)}</span>
-                          </div>
-                        ))}
-                      {!data.maturity.cohorts.some((item) => item.daysRemaining <= 0) && (
-                        <Empty text="Nenhuma responsabilidade madura agora." />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {module === 2 && (
-                <div className="space-y-4">
-                  <CommercialForecastDrilldown
-                    division={division}
-                    onOpenDeal={openDeal}
-                    onPointed={() => void load()}
-                  />
-                </div>
-              )}
-              {module === 3 && (
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Metric label="Meta total" value={money.format(data.summary.targetValue)} />
-                    <Metric label="Faturado" value={money.format(data.summary.faturado)} />
-                    <Metric
-                      label="Cobertura"
-                      value={`${number.format(data.summary.coveragePercent)}%`}
-                    />
-                  </div>
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    {tvGoals.map((goal) => (
-                      <div key={goal.operatorId} className={surface}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className={badge}>
-                              {goal.division === "maquinas" ? "Máquinas" : "Personnalité"}
-                            </p>
-                            <h3 className="mt-1 text-lg font-bold">{goal.name}</h3>
-                          </div>
-                          <strong className="text-2xl">
-                            {number.format(goal.coveragePercent)}%
-                          </strong>
+                <div className={surface}>
+                  <p className={badge}>Responsabilidades atuais</p>
+                  <h2 className="mt-1 text-xl font-bold">Prontas ou atrasadas</h2>
+                  <div className="mt-4 space-y-2">
+                    {data.maturity.cohorts
+                      .filter((item) => item.daysRemaining <= 0)
+                      .slice(0, 30)
+                      .map((item) => (
+                        <div
+                          key={item.dealId}
+                          className="flex w-full flex-wrap justify-between gap-2 rounded-xl border border-white/10 p-3 text-left hover:border-red-500/50"
+                        >
+                          <span className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              aria-label={`Pontuar responsabilidade de ${item.title}`}
+                              checked={selectedDealIds.includes(item.dealId)}
+                              onChange={() => toggleDeal(item)}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => openDeal(item.dealId)}
+                              className="text-left hover:underline"
+                            >
+                              <strong>{item.title}</strong>
+                            </button>
+                            <small className="ml-2 text-zinc-400">
+                              {item.operatorName} · {item.stageName} · {item.ageDays} dias
+                            </small>
+                          </span>
+                          <span className="font-bold">{money.format(item.value)}</span>
                         </div>
-                        <div className="mt-4 h-2 rounded-full bg-white/10">
-                          <div
-                            className="h-full rounded-full bg-red-500"
-                            style={{ width: `${Math.min(100, goal.coveragePercent)}%` }}
-                          />
-                        </div>
-                        <p className="mt-3 text-xs text-zinc-400">
-                          {money.format(goal.realizedValue)} de {money.format(goal.targetValue)} ·
-                          esperado hoje {number.format(goal.expectedPercent)}% · necessário/dia{" "}
-                          {money.format(goal.dailyRequired)}
-                        </p>
-                      </div>
-                    ))}
-                    {!tvGoals.length && (
-                      <Empty text="Configure consultores e metas em Gestão Comercial para exibir o ritmo." />
+                      ))}
+                    {!data.maturity.cohorts.some((item) => item.daysRemaining <= 0) && (
+                      <Empty text="Nenhuma responsabilidade madura agora." />
                     )}
                   </div>
                 </div>
-              )}
-              {module === 4 && (
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Metric
-                      label="Perdas no mês"
-                      value={String(data.losses.currentCount)}
-                      hint={money.format(data.losses.currentValue)}
-                    />
-                    <Metric
-                      label="Mês anterior"
-                      value={String(data.losses.previousCount)}
-                      hint={money.format(data.losses.previousValue)}
-                    />
-                    <Metric label="Histórico" value={String(data.losses.historicalCount)} />
-                  </div>
-                  <div className={surface}>
-                    <p className={badge}>Motivos de perda no mês</p>
-                    <div className="mt-4 space-y-2">
-                      {data.losses.reasons.length ? (
-                        data.losses.reasons.map((item) => (
-                          <div
-                            key={item.reason}
-                            className="flex justify-between gap-3 border-b border-white/10 py-2 text-sm"
-                          >
-                            <span>{item.reason}</span>
-                            <strong>
-                              {item.count} · {money.format(item.value)}
-                            </strong>
-                          </div>
-                        ))
-                      ) : (
-                        <Empty text="Nenhuma perda registrada neste mês." />
-                      )}
-                    </div>
+              </div>
+            )}
+
+            {/* ─── SLIDE 2: PREVISÃO & METAS / RITMO ─── */}
+            {module === 2 && (
+              <div className="space-y-4">
+                <CommercialForecastDrilldown
+                  division={division}
+                  onOpenDeal={openDeal}
+                  onPointed={() => void load()}
+                />
+              </div>
+            )}
+
+            {/* ─── SLIDE 3: PERDAS & SLA / TMA ─── */}
+            {module === 3 && data && (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <Metric
+                    label="TMA geral"
+                    value={
+                      data.tma.averageSeconds === null
+                        ? "—"
+                        : `${number.format(data.tma.averageSeconds / 60)} min`
+                    }
+                    hint="Transferência → primeira resposta"
+                  />
+                  <Metric
+                    label="Dentro do SLA"
+                    value={
+                      data.tma.slaPercent === null
+                        ? "—"
+                        : `${number.format(data.tma.slaPercent)}%`
+                    }
+                    hint={`Limite: ${data.settings.slaLimitMinutes} min`}
+                  />
+                  <Metric label="Respostas medidas" value={String(data.tma.answeredCount)} />
+                  <Metric label="Pendentes" value={String(data.tma.pendingCount)} />
+                </div>
+                <div className={surface}>
+                  <p className={badge}>Ranking de resposta</p>
+                  <div className="mt-4 space-y-2">
+                    {data.tma.byOperator
+                      .filter((item) => item.count || item.pending)
+                      .map((item, index) => (
+                        <div
+                          key={item.operatorId}
+                          className="flex justify-between gap-3 border-b border-white/10 py-2 text-sm"
+                        >
+                          <span>
+                            {index + 1}. {item.name}{" "}
+                            <small className="text-zinc-400">
+                              · {item.count} respostas · {item.pending} pendentes
+                            </small>
+                          </span>
+                          <strong>
+                            {item.averageSeconds === null
+                              ? "—"
+                              : `${number.format(item.averageSeconds / 60)} min`}
+                          </strong>
+                        </div>
+                      ))}
+                    {!data.tma.byOperator.some((item) => item.count || item.pending) && (
+                      <Empty text="O TMA começa quando um atendimento é atribuído a um consultor comercial." />
+                    )}
                   </div>
                 </div>
-              )}
-              {module === 5 && (
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-4">
-                    <Metric
-                      label="TMA geral"
-                      value={
-                        data.tma.averageSeconds === null
-                          ? "—"
-                          : `${number.format(data.tma.averageSeconds / 60)} min`
-                      }
-                      hint="Transferência → primeira resposta"
-                    />
-                    <Metric
-                      label="Dentro do SLA"
-                      value={
-                        data.tma.slaPercent === null
-                          ? "—"
-                          : `${number.format(data.tma.slaPercent)}%`
-                      }
-                      hint={`Limite: ${data.settings.slaLimitMinutes} min`}
-                    />
-                    <Metric label="Respostas medidas" value={String(data.tma.answeredCount)} />
-                    <Metric label="Pendentes" value={String(data.tma.pendingCount)} />
-                  </div>
-                  <div className={surface}>
-                    <p className={badge}>Ranking de resposta</p>
-                    <div className="mt-4 space-y-2">
-                      {data.tma.byOperator
-                        .filter((item) => item.count || item.pending)
-                        .map((item, index) => (
-                          <div
-                            key={item.operatorId}
-                            className="flex justify-between gap-3 border-b border-white/10 py-2 text-sm"
-                          >
-                            <span>
-                              {index + 1}. {item.name}{" "}
-                              <small className="text-zinc-400">
-                                · {item.count} respostas · {item.pending} pendentes
-                              </small>
-                            </span>
-                            <strong>
-                              {item.averageSeconds === null
-                                ? "—"
-                                : `${number.format(item.averageSeconds / 60)} min`}
-                            </strong>
-                          </div>
-                        ))}
-                      {!data.tma.byOperator.some((item) => item.count || item.pending) && (
-                        <Empty text="O TMA começa quando um atendimento é atribuído a um consultor comercial." />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {module === 6 && (
+              </div>
+            )}
+
+            {/* ─── SLIDE 4: RESPONSABILIDADES & SAFRAS ─── */}
+            {module === 4 && (
+              <div className="space-y-4">
                 <CommercialResponsibilitiesPanel division={division} onOpenDeal={openDeal} />
-              )}
-              {module === 7 && <CommercialCohortsPanel division={division} onOpenDeal={openDeal} />}
-            </>
-          )
+                <CommercialCohortsPanel division={division} onOpenDeal={openDeal} />
+              </div>
+            )}
+          </>
         )}
 
         {/* Rodapé com Aviso ao Vivo no BI TV */}
         {data?.settings?.tvSettings?.liveNotice && (
-          <div className="mt-4 flex items-center justify-center gap-3 rounded-2xl border border-red-500/40 bg-red-500/15 px-6 py-3.5 text-center shadow-lg animate-pulse">
+          <div className="mt-6 flex items-center justify-center gap-3 rounded-2xl border border-red-500/40 bg-red-500/15 px-6 py-3.5 text-center shadow-lg animate-pulse">
             <span className="text-lg">📢</span>
             <span className="text-sm font-extrabold tracking-wide text-white">
               {data.settings.tvSettings.liveNotice}
@@ -626,6 +661,24 @@ export function CommercialBiView() {
           </div>
         )}
       </div>
+
+      {/* ─── MODAL DETALHADO DE NEGOCIAÇÕES (FIEL À FOTO 2) ─── */}
+      <CommercialDealFilterModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        sellerName={
+          modalSeller?.sellerName ||
+          (modalDivision === "personnalite" ? "Time Personnalité" : "Time Semi (Máquinas)")
+        }
+        sellerId={modalSeller?.sellerId}
+        division={modalDivision}
+        initialStageKey={modalStageKey}
+        deals={activeModalDeals}
+        onOpenDeal={openDeal}
+        onOpenProfile={(id) => {
+          navigate({ to: "/commercial-management" });
+        }}
+      />
     </section>
   );
 }
