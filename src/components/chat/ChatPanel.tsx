@@ -60,6 +60,7 @@ import {
 import { ValentinaAssistantModal } from "./ValentinaAssistantModal";
 import { ProductCatalogPicker } from "./ProductCatalogPicker";
 import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 import { io as socketIO, type Socket } from "socket.io-client";
 import {
   Tooltip,
@@ -1482,15 +1483,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative"
     >
       {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
-      <header className="hidden md:flex flex-wrap items-center justify-between px-6 py-4 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10">
+      <header className="hidden md:flex items-center justify-between px-4 md:px-6 py-2.5 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[54px]">
         <div className="flex items-center gap-3">
           {/* Avatar & Channel Badge */}
           <div className="relative">
             {activeChat.id === "valentina" ? (
-              <img
-                src={aiPersona.avatarUrl}
-                alt={aiPersona.name}
-                className="h-10 w-10 rounded-full object-cover border border-border shadow-xs"
+              <AiAvatar
+                tenantId={tenant}
+                className="h-10 w-10 rounded-full border border-border shadow-xs"
               />
             ) : activeChat.avatar ? (
               <img
@@ -1585,7 +1585,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       </div>
 
         {/* Handover Operations Actions */}
-        <div className="flex items-center gap-2 relative">
+        <div className="flex items-center gap-1.5 md:gap-2 relative shrink-0">
           {activeChat.id !== "valentina" && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1863,8 +1863,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         <div className="absolute inset-0 z-50 flex items-center justify-center rounded-3xl bg-black/80 backdrop-blur-md">
           <div className="flex flex-col items-center gap-4 rounded-2xl bg-card border border-border p-8 shadow-2xl w-80 text-center">
             {/* Avatar */}
-            <div className="h-16 w-16 rounded-full bg-primary/10 border-2 border-primary/30 grid place-items-center text-2xl">
-              {activeChat?.avatar ? (
+            <div className="h-16 w-16 rounded-full bg-primary/10 border-2 border-primary/30 grid place-items-center text-2xl overflow-hidden">
+              {activeChat?.id === "valentina" ? (
+                <AiAvatar tenantId={tenant} className="h-full w-full rounded-full" />
+              ) : activeChat?.avatar ? (
                 <img src={activeChat.avatar} alt={activeChat.name} className="h-full w-full rounded-full object-cover" />
               ) : (
                 <span>{activeChat?.initials ?? "?"}</span>
@@ -2347,7 +2349,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               >
                 {/* Avatar — só na última mensagem do grupo */}
                 {isLast ? (
-                  activeChat.avatar ? (
+                  activeChat.id === "valentina" ? (
+                    <AiAvatar
+                      tenantId={tenant}
+                      className="h-7 w-7 shrink-0 rounded-full border border-border self-end cursor-pointer hover:opacity-90 transition-opacity"
+                      onClick={() => setActiveMedia({ type: "image", url: aiPersona.avatarUrl })}
+                    />
+                  ) : activeChat.avatar ? (
                     <img
                       src={activeChat.avatar}
                       alt=""
@@ -2600,10 +2608,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               transition={{ duration: 0.2 }}
               className="flex items-end gap-2 my-2.5 w-full"
             >
-              <img
-                src={aiPersona.avatarUrl}
-                alt={aiPersona.name}
-                className="h-7 w-7 rounded-full object-cover border border-border shrink-0 shadow-soft"
+              <AiAvatar
+                tenantId={tenant}
+                className="h-7 w-7 rounded-full border border-border shrink-0 shadow-soft"
               />
               <div className="rounded-2xl rounded-bl-[5px] bg-primary-soft border border-primary/20 px-4 py-2 text-xs font-bold text-primary shadow-soft flex items-center gap-2">
                 <span>{aiPersona.name} está digitando</span>
@@ -2741,7 +2748,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       {activeChat.queue !== "finalizados" ? (
         <div
           ref={composerRef}
-          className="hidden md:block px-5 pb-5"
+          className="hidden md:block px-3 pb-3 md:px-5 md:pb-5 shrink-0"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -2928,9 +2935,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               onClick={() => setShowValentinaModal(true)}
-              className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1 text-primary hover:opacity-85"
+              className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1.5 text-primary hover:opacity-85"
             >
-              <Sparkles className="h-3 w-3" />
+              <AiAvatar tenantId={tenant} className="h-3.5 w-3.5 rounded-full border border-primary/30" />
               <span>{aiPersona.name}</span>
             </button>
             {canSendInternalNotes && (

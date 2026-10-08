@@ -29,8 +29,20 @@ export function getInitialTheme(): ThemeMode {
   return "system";
 }
 
+/** Verifica se o modo escuro está ativo atualmente no DOM */
+export function isDarkMode(): boolean {
+  if (typeof window === "undefined") return false;
+  return document.documentElement.classList.contains("dark");
+}
+
 export function useTheme() {
   const [theme, setThemeState] = useState<ThemeMode>(getInitialTheme);
+
+  const isDark =
+    theme === "dark" ||
+    (theme === "system" &&
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   const setTheme = useCallback((newTheme: ThemeMode) => {
     setThemeState(newTheme);
@@ -52,6 +64,7 @@ export function useTheme() {
       const current = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
       if (current === "system" || !current) {
         applyTheme("system");
+        window.dispatchEvent(new CustomEvent("themechange", { detail: "system" }));
       }
     };
 
@@ -73,5 +86,5 @@ export function useTheme() {
     };
   }, [theme]);
 
-  return { theme, setTheme };
+  return { theme, setTheme, isDark };
 }

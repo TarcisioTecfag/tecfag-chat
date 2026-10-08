@@ -13,6 +13,7 @@ import {
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "@/components/chat/ChatList";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 import { toast } from "sonner";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
@@ -920,14 +921,13 @@ export function SdrTab() {
                       </div>
                       {msg.sender === "bot" && (
                         <button
-                          onClick={() => setPreviewModalImage({ url: persona.avatarUrl, title: `${persona.name} IA — ${persona.company}` })}
+                          onClick={() => setPreviewModalImage({ url: (document.documentElement.classList.contains("dark") ? persona.avatarDarkUrl : persona.avatarLightUrl) || persona.avatarUrl, title: `${persona.name} IA — ${persona.company}` })}
                           className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
                           title={`Clique para ver a foto ${persona.gender === "female" ? "da" : "do"} ${persona.name} em tela cheia`}
                         >
-                          <img
-                            src={persona.avatarUrl}
-                            alt={persona.name}
-                            className="h-7 w-7 rounded-full object-cover border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                          <AiAvatar
+                            tenantId={tenant}
+                            className="h-7 w-7 rounded-full border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
                           />
                         </button>
                       )}

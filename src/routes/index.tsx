@@ -114,7 +114,7 @@ export function Index() {
     }
     if (activeView === "chat") {
       return (
-        <div className="flex flex-1 gap-5 h-full w-full overflow-hidden">
+        <div className="flex flex-1 gap-3 md:gap-5 h-full w-full overflow-hidden">
           <ChatList />
           <ChatPanel />
           <AnimatePresence initial={false}>
@@ -132,7 +132,7 @@ export function Index() {
                   animate={{ x: 0, opacity: 1 }}
                   exit={{ x: 28, opacity: 0 }}
                   transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-                  className="h-full w-[400px] xl:w-[430px] 2xl:w-[460px] shrink-0"
+                  className="h-full w-[340px] md:w-[380px] xl:w-[430px] 2xl:w-[460px] shrink-0"
                 >
                   <SharedFiles />
                 </motion.div>
@@ -155,8 +155,8 @@ export function Index() {
   };
 
   return (
-    <div className="min-h-screen bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
-      <div className={`flex h-screen w-full gap-5 ${activeView === "crm" ? "pl-5 pt-5 pb-0 pr-0" : "p-5"} overflow-hidden`}>
+    <div className="fixed inset-0 h-screen h-[100dvh] w-screen overflow-hidden bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
+      <div className={`flex h-full w-full gap-3 md:gap-5 ${activeView === "crm" ? "pl-3 pt-3 md:pl-5 md:pt-5 pb-0 pr-0" : "p-3 md:p-5"} overflow-hidden`}>
         <Sidebar />
         <div className="flex flex-1 h-full overflow-hidden relative">
           <AnimatePresence mode="wait" initial={false}>

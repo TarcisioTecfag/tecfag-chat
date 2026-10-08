@@ -12,6 +12,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { SharedFiles } from "@/components/chat/SharedFiles";
 import { getAiPersona } from "@/lib/ai-persona";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 
 interface MobileActionsModalProps {
   isOpen: boolean;
@@ -102,7 +103,9 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary-soft text-primary font-bold flex items-center justify-center text-sm border border-primary/20 shrink-0 overflow-hidden">
-                  {activeChat.avatar ? (
+                  {isAiChat ? (
+                    <AiAvatar tenantId={tenant} className="w-full h-full rounded-full" />
+                  ) : activeChat.avatar ? (
                     <img
                       src={activeChat.avatar}
                       alt={activeChat.name}
@@ -294,7 +297,9 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
             <div className="flex items-center justify-between p-4 border-b border-border bg-muted/40 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary-soft text-primary font-bold flex items-center justify-center text-sm border border-primary/20 shrink-0 overflow-hidden">
-                  {activeChat.avatar ? (
+                  {isAiChat ? (
+                    <AiAvatar tenantId={tenant} className="w-full h-full rounded-full" />
+                  ) : activeChat.avatar ? (
                     <img
                       src={activeChat.avatar}
                       alt={activeChat.name}

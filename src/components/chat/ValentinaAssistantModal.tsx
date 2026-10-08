@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 
 interface ValentinaAssistantModalProps {
   isOpen: boolean;

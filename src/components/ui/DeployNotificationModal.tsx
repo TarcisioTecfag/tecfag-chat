@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { RotateCw, Sparkles } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 
 /**
  * Componente Modal Responsivo de Notificação de Novo Deploy (Railway)
@@ -117,10 +118,9 @@ export function DeployNotificationModal() {
         {/* Foto da IA em tamanho destacado */}
         <div className="relative mx-auto w-28 h-28 sm:w-32 sm:h-32">
           <div className={`absolute -inset-1.5 rounded-full bg-gradient-to-r from-primary ${gradientVia} to-primary opacity-75 blur-sm animate-pulse`} />
-          <img
-            src={persona.avatarUrl}
-            alt={`${persona.name} IA`}
-            className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-card shadow-2xl"
+          <AiAvatar
+            tenantId={tenant}
+            className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full border-4 border-card shadow-2xl"
           />
           {/* Status Indicator */}
           <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-emerald-500 ring-4 ring-card flex items-center justify-center shadow-md">

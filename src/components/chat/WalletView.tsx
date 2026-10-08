@@ -32,6 +32,7 @@ import {
 import { Conversation, OperatorTemplate } from "@/lib/mockData";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 
 export function WalletView() {
   const {
@@ -405,7 +406,12 @@ export function WalletView() {
                               <tr key={c.id} className="hover:bg-muted/20 transition-colors">
                                 <td className="p-4">
                                   <div className="flex items-center gap-3">
-                                    {c.avatar ? (
+                                    {isAiContact ? (
+                                      <AiAvatar
+                                        tenantId={tenant}
+                                        className="h-9 w-9 rounded-xl border border-border"
+                                      />
+                                    ) : c.avatar ? (
                                       <img
                                         src={c.avatar}
                                         alt={c.name}
@@ -513,7 +519,12 @@ export function WalletView() {
                           <div key={c.id} className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col gap-3">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                {c.avatar ? (
+                                {isAiContact ? (
+                                  <AiAvatar
+                                    tenantId={tenant}
+                                    className="h-10 w-10 rounded-xl border border-border"
+                                  />
+                                ) : c.avatar ? (
                                   <img src={c.avatar} alt="" className="h-10 w-10 rounded-xl object-cover border border-border" />
                                 ) : (
                                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-xs font-bold text-primary border border-border">

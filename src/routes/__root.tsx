@@ -18,8 +18,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { DeployNotificationModal } from "@/components/ui/DeployNotificationModal";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTheme } from "../hooks/useTheme";
+import { useDensity } from "../hooks/useDensity";
 
 import { getAiPersona } from "@/lib/ai-persona";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 import {
   installAssetRecovery,
   isMissingAssetError,
@@ -101,10 +103,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
       <div className="max-w-md w-full text-center bg-card rounded-3xl border border-border p-8 shadow-2xl space-y-6">
         {/* Foto da IA (Fagner para Tecfag / Valentina para Valem) */}
         <div className="relative mx-auto w-24 h-24">
-          <img
-            src={persona.avatarUrl}
-            alt={`${persona.name} IA`}
-            className="w-24 h-24 rounded-full object-cover border-4 border-primary/30 shadow-xl"
+          <AiAvatar
+            tenantId={tenant}
+            className="w-24 h-24 rounded-full border-4 border-primary/30 shadow-xl"
           />
           <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-primary ring-4 ring-card animate-pulse" />
         </div>
@@ -269,7 +270,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("chat_tenant");var isT=t==="tecfag";document.title=isT?"Tecfag Chat":"Valem Chat";var icon=isT?"/logo_tecfag.png":"/favicon.png";var l=document.querySelectorAll("link[rel='icon'], link[rel='shortcut icon']");l.forEach(function(el){el.href=icon;});}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_theme_mode");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("chat_tenant");var isT=t==="tecfag";document.title=isT?"Tecfag Chat":"Valem Chat";var icon=isT?"/logo_tecfag.png":"/favicon.png";var l=document.querySelectorAll("link[rel='icon'], link[rel='shortcut icon']");l.forEach(function(el){el.href=icon;});}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_theme_mode");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}}catch(e){}})();(function(){try{var d=localStorage.getItem("chat_ui_density");if(d&&d!=="auto"){document.documentElement.setAttribute("data-density",d);}}catch(e){}})();`,
           }}
         />
         <HeadContent />
@@ -285,6 +286,7 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   useTheme(); // Mantém ouvintes de matchMedia e sincronização de tema ativos
+  useDensity(); // Mantém ouvintes de densidade/escala de tela ativos
 
   return (
     <QueryClientProvider client={queryClient}>

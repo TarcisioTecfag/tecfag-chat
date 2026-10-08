@@ -1352,6 +1352,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     conversationsRef.current = conversations;
   }, [conversations]);
 
+  // Sincroniza o avatar da IA (Fagner tema claro/escuro) nas conversas quando o tema muda
+  useEffect(() => {
+    const handleThemeChange = () => {
+      const p = getAiPersona(tenant || undefined);
+      setTecfagConvs((prev) =>
+        prev.map((c) => (c.id === "valentina" ? { ...c, name: p.name, avatar: p.avatarUrl } : c))
+      );
+      setValemConvs((prev) =>
+        prev.map((c) => (c.id === "valentina" ? { ...c, name: p.name, avatar: p.avatarUrl } : c))
+      );
+    };
+
+    window.addEventListener("themechange", handleThemeChange);
+    return () => window.removeEventListener("themechange", handleThemeChange);
+  }, [tenant]);
+
   const activeChat = conversations.find((c) => c.id === selectedChatId) || null;
 
   // Actions

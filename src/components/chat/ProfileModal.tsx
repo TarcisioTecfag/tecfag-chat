@@ -20,8 +20,10 @@ import {
   Bot,
   Sparkles,
   LogOut,
+  Laptop,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
+import { useDensity } from "@/hooks/useDensity";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
@@ -152,6 +154,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
   } = useChat();
   const { canAccessView } = usePermissions();
   const { theme, setTheme } = useTheme();
+  const { density, setDensity } = useDensity();
 
   // Local Form States
   const [name, setName] = useState(operatorProfile.name);
@@ -509,6 +512,69 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
               >
                 <Monitor className="h-3.5 w-3.5" />
                 <span>Auto</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Escala da Interface / Densidade de Tela (Notebook vs Monitor) */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                Densidade da Tela
+              </label>
+              <span className="text-[9px] font-mono text-muted-foreground font-semibold">
+                {density === "auto" ? "Notebook 75% Auto" : `${density}%`}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-1">
+              <button
+                type="button"
+                onClick={() => setDensity("auto")}
+                title="Detecta telas de notebook automaticamente (75%) e monitores (100%)"
+                className={`flex h-7 items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                  density === "auto"
+                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
+                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <Laptop className="h-3 w-3" />
+                <span>Auto</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDensity("75")}
+                title="Proporção compacta 75% (ideal para notebook com espaço máximo)"
+                className={`flex h-7 items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                  density === "75"
+                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
+                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <span>75%</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDensity("85")}
+                title="Escala equilibrada intermediária (85%)"
+                className={`flex h-7 items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                  density === "85"
+                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
+                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <span>85%</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDensity("100")}
+                title="Escala padrão sem zoom (100% para monitores grandes)"
+                className={`flex h-7 items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                  density === "100"
+                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
+                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <span>100%</span>
               </button>
             </div>
           </div>

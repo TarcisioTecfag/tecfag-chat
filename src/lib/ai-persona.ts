@@ -29,6 +29,10 @@ export interface AiPersona {
   avatarHdUrl: string;
   /** URL da foto completa original */
   avatarFullUrl: string;
+  /** URL da foto oficial para tema claro */
+  avatarLightUrl?: string;
+  /** URL da foto oficial para tema escuro */
+  avatarDarkUrl?: string;
   /** Feature key usada no painel de Custos (ai_usage_logs.feature) */
   chatFeatureKey: string;
 }
@@ -45,6 +49,8 @@ const PERSONAS: Record<string, AiPersona> = {
     avatarUrl: "/valentina.png",
     avatarHdUrl: "/valentina-avatar-hd.png",
     avatarFullUrl: "/valentina.png",
+    avatarLightUrl: "/valentina.png",
+    avatarDarkUrl: "/valentina.png",
     chatFeatureKey: "valentina_chat",
   },
   tecfag: {
@@ -54,20 +60,44 @@ const PERSONAS: Record<string, AiPersona> = {
     tone: "técnico, masculino, consultivo e objetivo",
     gender: "male",
     avatar: "🤖",
-    avatarUrl: "/fagner.png",
-    avatarHdUrl: "/fagner-avatar-hd.png",
-    avatarFullUrl: "/fagner-full.png",
+    avatarUrl: "/fagner-dark.png",
+    avatarHdUrl: "/fagner-dark.png",
+    avatarFullUrl: "/fagner-dark.png",
+    avatarLightUrl: "/fagner-light.png",
+    avatarDarkUrl: "/fagner-dark.png",
     chatFeatureKey: "fagner_chat",
   },
 };
 
 /**
- * Retorna a persona de IA para o tenant informado.
+ * Retorna se o ambiente atual está no modo escuro.
+ */
+function resolveIsDark(themeOrIsDark?: boolean | "light" | "dark"): boolean {
+  if (typeof themeOrIsDark === "boolean") return themeOrIsDark;
+  if (themeOrIsDark === "dark") return true;
+  if (themeOrIsDark === "light") return false;
+  if (typeof window !== "undefined") {
+    if (document.documentElement.classList.contains("dark")) return true;
+    try {
+      const saved = localStorage.getItem("chat_theme_mode");
+      if (saved === "dark") return true;
+      if (saved === "light") return false;
+      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) return true;
+    } catch {}
+  }
+  return true; // Default dark
+}
+
+/**
+ * Retorna a persona de IA para o tenant informado com avatar calibrado ao tema ativo.
  * Se o tenant for desconhecido, retorna um fallback neutro — NUNCA deve acontecer em produção.
  */
-export function getAiPersona(tenantId: string): AiPersona {
-  const persona = PERSONAS[tenantId];
-  if (!persona) {
+export function getAiPersona(
+  tenantId: string = "valem",
+  themeOrIsDark?: boolean | "light" | "dark"
+): AiPersona {
+  const base = PERSONAS[tenantId];
+  if (!base) {
     console.warn(
       `[ai-persona] Tenant desconhecido: "${tenantId}". Usando persona fallback neutra. Verifique o tenantId.`
     );
@@ -81,10 +111,24 @@ export function getAiPersona(tenantId: string): AiPersona {
       avatarUrl: "/favicon.png",
       avatarHdUrl: "/favicon.png",
       avatarFullUrl: "/favicon.png",
+      avatarLightUrl: "/favicon.png",
+      avatarDarkUrl: "/favicon.png",
       chatFeatureKey: "general",
     };
   }
-  return persona;
+
+  const isDark = resolveIsDark(themeOrIsDark);
+  if (tenantId === "tecfag") {
+    const avatar = isDark ? "/fagner-dark.png" : "/fagner-light.png";
+    return {
+      ...base,
+      avatarUrl: avatar,
+      avatarHdUrl: avatar,
+      avatarFullUrl: avatar,
+    };
+  }
+
+  return base;
 }
 
 /**

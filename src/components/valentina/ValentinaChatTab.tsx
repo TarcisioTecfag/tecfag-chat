@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ValentinaBlockRenderer } from "./chat-blocks/ValentinaBlockRenderer";
 import { ValentinaThreadRail } from "./chat-blocks/ValentinaThreadRail";
 import type {
@@ -54,29 +55,11 @@ const SECONDARY_SUGGESTIONS = [
 ];
 
 /**
- * Avatar Oficial Padrão da IA (Renderiza a imagem oficial do sistema com fallback)
+ * Avatar Oficial Padrão da IA (Renderiza a imagem oficial do sistema com fallback e tema claro/escuro)
  */
 function ValentinaAvatar({ className = "h-8 w-8" }: { className?: string }) {
   const { tenant } = useChat();
-  const persona = getAiPersona(tenant || "valem");
-  const [hasError, setHasError] = useState(false);
-
-  if (hasError) {
-    return (
-      <div className={`relative flex items-center justify-center rounded-full bg-primary/10 border border-primary/20 shrink-0 overflow-hidden shadow-xs font-bold text-xs text-primary ${className}`}>
-        {persona.name.slice(0, 2).toUpperCase()}
-      </div>
-    );
-  }
-
-  return (
-    <img
-      src={persona.avatarUrl}
-      alt={persona.name}
-      onError={() => setHasError(true)}
-      className={`rounded-full object-cover border border-border shrink-0 ${className}`}
-    />
-  );
+  return <AiAvatar tenantId={tenant} className={className} />;
 }
 
 /**

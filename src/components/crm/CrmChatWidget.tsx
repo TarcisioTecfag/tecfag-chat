@@ -51,6 +51,7 @@ import { useChat } from "@/hooks/useChatState";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 import {
   MetaTemplateSelectModal,
   type ApprovedMetaTemplate,
@@ -1073,10 +1074,9 @@ export function CrmChatWidget() {
 
                         {selected.id === "valentina" ? (
                           <div className="relative shrink-0 select-none">
-                            <img
-                              src={aiPersona.avatarUrl}
-                              alt={aiPersona.name}
-                              className="h-9 w-9 rounded-full object-cover border border-primary/40 shadow-xs"
+                            <AiAvatar
+                              tenantId={tenant}
+                              className="h-9 w-9 rounded-full border border-primary/40 shadow-xs"
                             />
                             <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full border border-card bg-primary">
                               <span className="h-1.5 w-1.5 rounded-full bg-white" />
@@ -1419,10 +1419,9 @@ export function CrmChatWidget() {
                           className="group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition hover:bg-muted/70 active:scale-[0.99] cursor-pointer mb-1 border border-primary/20 bg-primary/5"
                         >
                           <div className="relative shrink-0 select-none">
-                            <img
-                              src={aiPersona.avatarUrl}
-                              alt={aiPersona.name}
-                              className="h-9 w-9 rounded-full object-cover border border-primary/40 shadow-xs"
+                            <AiAvatar
+                              tenantId={tenant}
+                              className="h-9 w-9 rounded-full border border-primary/40 shadow-xs"
                             />
                             <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card bg-primary text-primary-foreground shadow-soft">
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>

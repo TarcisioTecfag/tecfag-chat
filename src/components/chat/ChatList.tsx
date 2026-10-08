@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusWizardModal } from "./StatusWizardModal";
 import { ProfilePopover } from "./ProfileModal";
+import { AiAvatar } from "@/components/ui/AiAvatar";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -204,13 +205,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <>
-    <aside className="flex h-full w-full md:w-[260px] md:shrink-0 flex-col rounded-3xl bg-card px-4 py-6 shadow-soft select-none border border-border">
+    <aside className="flex h-full w-full md:w-[260px] md:shrink-0 flex-col rounded-3xl bg-card px-3.5 md:px-4 py-3.5 md:py-5 shadow-soft select-none border border-border">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-foreground tracking-tight">Atendimentos</h2>
+        <h2 className="text-lg md:text-xl font-bold text-foreground tracking-tight">Atendimentos</h2>
       </div>
 
-      <div className="my-4 h-px bg-line" />
+      <div className="my-2 md:my-3.5 h-px bg-line" />
 
       {/* Vendedor Info */}
       <div className="flex flex-col items-center relative">
@@ -222,9 +223,9 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             <img
               src={operatorProfile.avatar}
               alt="Atendente"
-              className="h-[80px] w-[80px] rounded-full object-cover ring-2 ring-primary/20"
+              className="h-14 w-14 md:h-[68px] md:w-[68px] rounded-full object-cover ring-2 ring-primary/20"
             />
-            <span className={`absolute bottom-0 right-1.5 h-3.5 w-3.5 rounded-full border-2 border-card ${
+            <span className={`absolute bottom-0 right-1 h-3 w-3 md:h-3.5 md:w-3.5 rounded-full border-2 border-card ${
               operatorProfile.status === "disponivel"
                 ? "bg-primary"
                 : operatorProfile.status === "pausa"
@@ -233,7 +234,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             }`} />
           </button>
         </ProfilePopover>
-        <h3 className="mt-2 text-[15px] font-bold text-foreground">{operatorProfile.name}</h3>
+        <h3 className="mt-1 md:mt-2 text-[13px] md:text-[15px] font-bold text-foreground">{operatorProfile.name}</h3>
         
         {/* Clickable Status Badge */}
         <div className="relative mt-1">
@@ -312,18 +313,18 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {/* Search Input */}
-      <div className="relative mt-4">
+      <div className="relative mt-2.5 md:mt-3.5">
         <Search className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
         <input
           placeholder="Buscar contato, CNPJ, tag..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="h-9 w-full rounded-xl bg-muted px-3 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+          className="h-8.5 md:h-9 w-full rounded-xl bg-muted px-3 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
         />
       </div>
 
       {/* Channels Filter Row */}
-      <div className="mt-4 flex items-center justify-between gap-1 border-b border-line pb-3">
+      <div className="mt-2 md:mt-3 flex items-center justify-between gap-1 border-b border-line pb-2 md:pb-2.5">
         <button
           onClick={() => setChannelFilter("all")}
           className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
@@ -376,7 +377,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {/* Queue Tabs */}
-      <div className="mt-4 flex items-center gap-1 rounded-xl bg-muted p-1 relative">
+      <div className="mt-2 md:mt-3 flex items-center gap-1 rounded-xl bg-muted p-1 relative">
         {queues.map((q) => {
           const isActive = activeQueue === q.id;
           return (
@@ -433,10 +434,9 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             >
               {/* Avatar da IA com indicador de canal/presença */}
               <div className="relative shrink-0">
-                <img
-                  src={aiPersona.avatarUrl}
-                  alt={aiPersona.name}
-                  className="h-8 w-8 rounded-full object-cover border border-border shadow-xs"
+                <AiAvatar
+                  tenantId={tenant}
+                  className="h-8 w-8 rounded-full border border-border shadow-xs"
                 />
                 
                 {/* Indicador Online Pulsante como Channel Badge */}
