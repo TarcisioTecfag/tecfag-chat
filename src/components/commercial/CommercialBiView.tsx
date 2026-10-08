@@ -168,13 +168,13 @@ const money = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 0,
 });
 const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
-const surface = "rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-4";
-const badge = "text-[10px] font-mono font-bold uppercase tracking-[.18em] text-red-400";
+const surface = "rounded-[4px] border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950/70 p-4 text-slate-900 dark:text-white";
+const badge = "text-[10px] font-mono font-bold uppercase tracking-[.18em] text-red-500 dark:text-red-400";
 const TOTAL_SLIDES = 9;
 
 function Empty({ text }: { text: string }) {
   return (
-    <p className="rounded-[4px] border border-dashed border-zinc-800 p-5 text-xs font-mono text-zinc-400">
+    <p className="rounded-[4px] border border-dashed border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-transparent p-5 text-xs font-mono text-slate-500 dark:text-zinc-400">
       {text}
     </p>
   );
@@ -482,13 +482,13 @@ export function CommercialBiView() {
   return (
     <section
       ref={panelRef}
-      className="flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden rounded-[4px] border border-zinc-800 bg-[#0c0d12] text-white shadow-sm select-none"
+      className="flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden rounded-[4px] border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-[#0c0d12] text-slate-900 dark:text-white shadow-sm select-none transition-colors duration-150"
     >
       {/* ─── CABEÇALHO SUPERIOR EXECUTIVO (FIEL À GESTÃO COMERCIAL & FOTO 1) ─── */}
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950/90 px-4 py-2 sm:px-6 shrink-0 backdrop-blur-sm">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/90 px-4 py-2 sm:px-6 shrink-0 backdrop-blur-sm transition-colors duration-150">
         {/* Esquerda: Logo Oficial e Nome da Empresa */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-[2px] bg-zinc-900 border border-zinc-800/80 px-2.5 py-1">
+          <div className="flex items-center gap-2 rounded-[2px] bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800/80 px-2.5 py-1">
             <img
               src={tenant === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg"}
               alt={tenant === "tecfag" ? "Tecfag" : "Valem"}
@@ -497,7 +497,7 @@ export function CommercialBiView() {
                 (e.target as HTMLElement).style.display = "none";
               }}
             />
-            <span className="font-mono text-sm font-black tracking-tight text-white">
+            <span className="font-mono text-sm font-black tracking-tight text-slate-900 dark:text-white">
               {tenant === "tecfag" ? "TECFAG" : "VALEM"}
             </span>
           </div>
@@ -505,21 +505,21 @@ export function CommercialBiView() {
 
         {/* Centro: Título do War Room */}
         <div className="hidden xl:block text-center">
-          <h1 className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400">
-            COMMERCIAL WAR ROOM & SLA • INTELIGÊNCIA OPERACIONAL
+          <h1 className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-zinc-400">
+            COMMERCIAL WAR ROOM &amp; SLA • INTELIGÊNCIA OPERACIONAL
           </h1>
         </div>
 
-        {/* Direita: Data + Relógio Digital + Controles + 5 Pontos de Slide */}
+        {/* Direita: Data + Relógio Digital + Controles + 9 Pontos de Slide */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Data */}
-          <span className="font-mono text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+          <span className="font-mono text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
             {formattedDate}
           </span>
 
           {/* Relógio Digital */}
-          <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-900 px-2 py-0.5 font-mono text-[11px] font-bold text-zinc-200">
-            <Clock className="h-3 w-3 text-zinc-400" />
+          <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-800 dark:text-zinc-200">
+            <Clock className="h-3 w-3 text-slate-500 dark:text-zinc-400" />
             <span>{formattedClock}</span>
           </div>
 
@@ -533,7 +533,7 @@ export function CommercialBiView() {
               onClick={() => {
                 setModule((current) => (current === 0 ? TOTAL_SLIDES - 1 : current - 1));
               }}
-              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white p-1 transition-colors cursor-pointer"
               title="Slide Anterior"
               aria-label="Slide Anterior"
             >
@@ -548,8 +548,8 @@ export function CommercialBiView() {
               onClick={() => setRotating((current) => !current)}
               className={`rounded-[2px] border p-1 transition-colors cursor-pointer ${
                 rotating
-                  ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400 hover:bg-emerald-900/40 hover:text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
-                  : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                  ? "border-emerald-500/50 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-900/40 dark:hover:text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+                  : "border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white"
               }`}
               title={rotating ? "Pausar rotação automática" : "Iniciar rotação automática"}
               aria-label={rotating ? "Pausar rotação" : "Iniciar rotação"}
@@ -569,7 +569,7 @@ export function CommercialBiView() {
               onClick={() => {
                 setModule((current) => (current + 1) % TOTAL_SLIDES);
               }}
-              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white p-1 transition-colors cursor-pointer"
               title="Próximo Slide"
               aria-label="Próximo Slide"
             >
@@ -582,7 +582,7 @@ export function CommercialBiView() {
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
               onClick={() => void panelRef.current?.requestFullscreen()}
-              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white p-1 transition-colors cursor-pointer"
               title="Tela Cheia"
             >
               <Expand className="h-3.5 w-3.5" />
@@ -594,7 +594,7 @@ export function CommercialBiView() {
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
               onClick={() => window.open(window.location.href, "_blank")}
-              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white p-1 transition-colors cursor-pointer"
               title="Abrir em Nova Aba"
             >
               <ExternalLink className="h-3.5 w-3.5" />
@@ -607,14 +607,14 @@ export function CommercialBiView() {
               whileTap={{ scale: 0.92 }}
               onClick={() => void load()}
               disabled={loading}
-              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white p-1 transition-colors cursor-pointer"
               title="Atualizar dados agora"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             </motion.button>
           </div>
 
-          {/* 8 Dots de Navegação Angular (Dashboard TV) */}
+          {/* 9 Dots de Navegação Angular (Dashboard TV) */}
           <div className="flex items-center gap-1 ml-1">
             {Array.from({ length: TOTAL_SLIDES }, (_, idx) => {
               const isActive = module === idx;
@@ -631,7 +631,7 @@ export function CommercialBiView() {
                   className={`transition-all duration-200 cursor-pointer ${
                     isActive
                       ? "h-1.5 w-5 rounded-[2px] bg-[#df3d3d] shadow-sm"
-                      : "h-1.5 w-2 rounded-[2px] bg-zinc-800 hover:bg-zinc-600"
+                      : "h-1.5 w-2 rounded-[2px] bg-slate-300 hover:bg-slate-400 dark:bg-zinc-800 dark:hover:bg-zinc-600"
                   }`}
                   title={`Slide ${idx + 1}`}
                   aria-label={`Ir para Slide ${idx + 1}`}

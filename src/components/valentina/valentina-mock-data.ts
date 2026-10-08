@@ -61,27 +61,27 @@ export const VALENTINA_WELCOME_MESSAGES: ValentinaChatMessage[] = [
   {
     id: "v-welcome-1",
     sender: "valentina",
-    content: "Olá! 👋 Sou a Valentina, sua assistente inteligente. Estou aqui para te ajudar com informações sobre leads, métricas, clientes e muito mais. O que você precisa?",
+    content: "Olá! Sou a Valentina, sua assistente inteligente. Estou aqui para te ajudar com informações sobre leads, métricas, clientes e muito mais. O que você precisa?",
     timestamp: new Date(Date.now() - 60_000 * 5).toISOString(),
     type: "text",
   },
 ];
 
 export const VALENTINA_MOCK_RESPONSES: string[] = [
-  "Claro! Vou buscar essas informações para você. Um momento... 🔍",
+  "Claro! Vou buscar essas informações para você. Um momento...",
   "Encontrei 12 leads qualificados hoje. Desses, 3 foram transferidos para vendedores e 2 aguardam follow-up. Quer que eu detalhe algum?",
-  "O tempo médio de resposta da equipe hoje está em 2min 34s — dentro do SLA. 🎯",
+  "O tempo médio de resposta da equipe hoje está em 2min 34s — dentro do SLA.",
   "O lead 'Carlos Mendes — Indústria SM' foi qualificado há 15 minutos pelo SDR. Score: 87/100. Deseja iniciar a transferência para um vendedor?",
-  "Entendido! Vou gerar um relatório consolidado com as métricas de ontem e enviar aqui. ⏳",
-  "A conversa com 'Maria Joaquina' teve sentiment negativo detectado às 14:23. Recomendo atenção especial nesse atendimento. ⚠️",
+  "Entendido! Vou gerar um relatório consolidado com as métricas de ontem e enviar aqui.",
+  "A conversa com 'Maria Joaquina' teve sentimento negativo detectado às 14:23. Recomendo atenção especial nesse atendimento.",
   "Atualmente temos 4 triagens SDR ativas e 2 aguardando resposta do cliente. O pipeline está fluindo bem!",
-  "Posso te ajudar com: 📊 Métricas de equipe, 👥 Status de leads, 🔔 Alertas SLA, 📋 Resumo do dia. É só pedir!",
-  "O operador Denys tem 8 conversas ativas e nenhum SLA estourado. Performance excelente hoje! ⭐",
+  "Posso te ajudar com: Métricas de equipe, Status de leads, Alertas SLA, Resumo do dia. É só pedir!",
+  "O operador Denys tem 8 conversas ativas e nenhum SLA estourado. Performance excelente hoje!",
   "Acabei de detectar um lead com alto potencial: 'Tech Solutions Ltda' — budget declarado de R$ 45.000/mês. Prioridade alta!",
-  "Seu resumo da tarde: 23 atendimentos finalizados, NPS médio de 8.7, 5 leads transferidos com sucesso. 📈",
+  "Seu resumo da tarde: 23 atendimentos finalizados, NPS médio de 8.7, 5 leads transferidos com sucesso.",
   "A triagem do lead 'Fernando Costa' foi concluída com sucesso. Todos os 6 campos obrigatórios preenchidos. Pronto para transferência!",
   "Detectei que o cliente 'Ana Oliveira' não responde há 48h. Deseja que eu agende um follow-up automático?",
-  "Análise de sentimento da última hora: 78% positivo, 15% neutro, 7% negativo. Tendência estável. 😊",
+  "Análise de sentimento da última hora: 78% positivo, 15% neutro, 7% negativo. Tendência estável.",
   "O Agente Vendedor ainda está em desenvolvimento, mas posso adiantar que ele vai automatizar propostas e follow-ups de vendas!",
 ];
 

@@ -14,7 +14,7 @@ import {
 export const SECTOR_CONFIGS: Record<string, SectorConfig> = {
   sdr: {
     key: "sdr",
-    label: "⭐ SDR / Análise",
+    label: "SDR / Análise",
     shortLabel: "SDR",
     color: "from-violet-500 to-purple-600",
     accent: "#8b5cf6",
@@ -27,7 +27,7 @@ export const SECTOR_CONFIGS: Record<string, SectorConfig> = {
   },
   personalite: {
     key: "personalite",
-    label: "✨ Personnalité",
+    label: "Personnalité",
     shortLabel: "Personnalité",
     color: "from-pink-500 to-rose-500",
     accent: "#ec4899",
@@ -40,7 +40,7 @@ export const SECTOR_CONFIGS: Record<string, SectorConfig> = {
   },
   maquinas: {
     key: "maquinas",
-    label: "🔧 Máquinas",
+    label: "Máquinas",
     shortLabel: "Máquinas",
     color: "from-blue-500 to-indigo-500",
     accent: "#3b82f6",
@@ -53,7 +53,7 @@ export const SECTOR_CONFIGS: Record<string, SectorConfig> = {
   },
   "pos venda": {
     key: "pos venda",
-    label: "📦 Pós Venda",
+    label: "Pós Venda",
     shortLabel: "Pós Venda",
     color: "from-amber-500 to-orange-500",
     accent: "#f59e0b",
@@ -66,7 +66,7 @@ export const SECTOR_CONFIGS: Record<string, SectorConfig> = {
   },
   financeiro: {
     key: "financeiro",
-    label: "💰 Financeiro",
+    label: "Financeiro",
     shortLabel: "Financeiro",
     color: "from-emerald-500 to-teal-500",
     accent: "#10b981",
@@ -79,7 +79,7 @@ export const SECTOR_CONFIGS: Record<string, SectorConfig> = {
   },
   pecas: {
     key: "pecas",
-    label: "⚙️ Peças",
+    label: "Peças",
     shortLabel: "Peças",
     color: "from-red-500 to-rose-500",
     accent: "#ef4444",

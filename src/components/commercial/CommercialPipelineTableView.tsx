@@ -91,11 +91,11 @@ export function CommercialPipelineTableView({
         transition={{ duration: 0.25 }}
         className="shrink-0 flex items-center gap-2 px-1 pt-0.5 pb-0.5"
       >
-        <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-red-950/40 border border-red-500/30 text-red-500 font-mono text-[10px] font-black">
+        <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-500 font-mono text-[10px] font-black">
           ⊞
         </span>
         <h2 className="text-[11px] sm:text-xs xl:text-sm font-black uppercase tracking-wider text-[#df3d3d] font-mono leading-normal">
-          OPORTUNIDADES & PIPELINE POR FASE (CRM)
+          {"OPORTUNIDADES & PIPELINE POR FASE (CRM)"}
         </h2>
       </motion.div>
 
@@ -103,45 +103,45 @@ export function CommercialPipelineTableView({
       <div className={density.tableSpace}>
         {/* Cabeçalho da Equipe */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <div className={`flex items-center gap-1.5 ${density.teamTitle} uppercase tracking-wider text-red-400 font-mono`}>
-            <Star className="h-3.5 w-3.5 fill-red-400 text-red-400" />
+          <div className={`flex items-center gap-1.5 ${density.teamTitle} uppercase tracking-wider text-red-600 dark:text-red-400 font-mono`}>
+            <Star className="h-3.5 w-3.5 fill-red-600 dark:fill-red-400 text-red-600 dark:text-red-400" />
             <span>TIME PERSONNALITÉ</span>
           </div>
 
           <div className={`flex items-center gap-2 font-mono ${density.teamSummary}`}>
-            <span className="text-zinc-400">{pSummary.cards}</span>
-            <span className="text-zinc-600">-</span>
-            <span className="font-bold text-emerald-400">{pSummary.value}</span>
+            <span className="text-slate-500 dark:text-zinc-400">{pSummary.cards}</span>
+            <span className="text-slate-300 dark:text-zinc-600">-</span>
+            <span className="font-bold text-emerald-700 dark:text-emerald-400">{pSummary.value}</span>
           </div>
         </div>
 
         {/* Tabela de Dados */}
-        <div className="overflow-x-auto rounded-[4px] border border-zinc-800 bg-zinc-950/70 shadow-sm scrollbar-none">
+        <div className="overflow-x-auto rounded-[4px] border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950/70 shadow-sm scrollbar-none">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/90 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
-                <th className={`${density.headerPy} px-3 sm:px-4 font-semibold text-zinc-300`}>VENDEDOR</th>
+              <tr className="border-b border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900/90 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                <th className={`${density.headerPy} px-3 sm:px-4 font-semibold text-slate-800 dark:text-zinc-300`}>VENDEDOR</th>
                 {PIPELINE_STAGES.map((stage) => (
                   <th
                     key={stage.key}
                     onClick={() => onHeaderStageClick(stage.key)}
-                    className={`${density.headerPy} px-2 text-center font-mono hover:text-white cursor-pointer transition-colors`}
+                    className={`${density.headerPy} px-2 text-center font-mono hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors`}
                   >
                     {stage.bracketLabel}
                   </th>
                 ))}
-                <th className={`${density.headerPy} px-3 text-center font-mono font-bold text-emerald-300 bg-emerald-950/25 border-l border-zinc-800`}>
+                <th className={`${density.headerPy} px-3 text-center font-mono font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/25 border-l border-slate-200 dark:border-zinc-800`}>
                   TOTAL FUNIL
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/60 font-mono">
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 font-mono">
               {personnaliteData.sellers.map((seller) => (
-                <tr key={seller.sellerId} className="hover:bg-zinc-900/40 transition-colors">
+                <tr key={seller.sellerId} className="hover:bg-slate-50 dark:hover:bg-zinc-900/40 transition-colors">
                   {/* Nome do Vendedor */}
                   <td
                     onClick={() => onCellClick(seller, "all", "personnalite")}
-                    className={`${density.rowPy} px-3 sm:px-4 font-sans ${density.sellerText} text-white hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap`}
+                    className={`${density.rowPy} px-3 sm:px-4 font-sans ${density.sellerText} text-slate-900 dark:text-white hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap`}
                   >
                     {seller.sellerName}
                   </td>
@@ -154,19 +154,19 @@ export function CommercialPipelineTableView({
                       <td
                         key={stage.key}
                         onClick={() => onCellClick(seller, stage.key, "personnalite")}
-                        className={`${density.stagePy} px-1.5 sm:px-2 text-center hover:bg-zinc-800/60 hover:ring-1 hover:ring-red-500/40 cursor-pointer transition-all rounded-[2px]`}
+                        className={`${density.stagePy} px-1.5 sm:px-2 text-center hover:bg-slate-100 dark:hover:bg-zinc-800/60 hover:ring-1 hover:ring-red-500/40 cursor-pointer transition-all rounded-[2px]`}
                       >
-                        <div className={`font-sans font-black ${density.countText} text-white leading-tight`}>
+                        <div className={`font-sans font-black ${density.countText} text-slate-900 dark:text-white leading-tight`}>
                           {data.count}
                         </div>
-                        <div className={`${density.subText} text-emerald-400 font-medium leading-none mt-0.5`}>
+                        <div className={`${density.subText} text-emerald-700 dark:text-emerald-400 font-medium leading-none mt-0.5`}>
                           {hasValue ? (
                             <span>
                               {formatAbbreviatedCurrency(data.value)}{" "}
-                              <span className="text-emerald-400/80">{formatPercentage(data.percent)}</span>
+                              <span className="text-emerald-800/80 dark:text-emerald-400/80">{formatPercentage(data.percent)}</span>
                             </span>
                           ) : (
-                            <span className="text-zinc-600">—</span>
+                            <span className="text-slate-400 dark:text-zinc-600">—</span>
                           )}
                         </div>
                       </td>
@@ -176,24 +176,24 @@ export function CommercialPipelineTableView({
                   {/* Coluna Total Funil do Vendedor */}
                   <td
                     onClick={() => onCellClick(seller, "all", "personnalite")}
-                    className={`${density.stagePy} px-2.5 text-center bg-emerald-950/15 border-l border-zinc-800 hover:bg-emerald-950/30 cursor-pointer transition-all`}
+                    className={`${density.stagePy} px-2.5 text-center bg-emerald-50/50 dark:bg-emerald-950/15 border-l border-slate-200 dark:border-zinc-800 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/30 cursor-pointer transition-all`}
                   >
-                    <div className={`font-sans font-black ${density.countText} text-white leading-tight`}>
+                    <div className={`font-sans font-black ${density.countText} text-slate-900 dark:text-white leading-tight`}>
                       {seller.totalCards}
                     </div>
-                    <div className={`${density.subText} text-emerald-400 font-bold leading-none mt-0.5`}>
+                    <div className={`${density.subText} text-emerald-700 dark:text-emerald-400 font-bold leading-none mt-0.5`}>
                       {formatAbbreviatedCurrency(seller.totalValue, true)}{" "}
-                      <span className="text-emerald-300">{seller.teamSharePercent}%</span>
+                      <span className="text-emerald-800 dark:text-emerald-300">{seller.teamSharePercent}%</span>
                     </div>
                   </td>
                 </tr>
               ))}
 
               {/* Linha Total da Equipe */}
-              <tr className="border-t-2 border-zinc-700 bg-zinc-900/90 font-bold">
+              <tr className="border-t-2 border-slate-300 dark:border-zinc-700 bg-slate-100/80 dark:bg-zinc-900/90 font-bold">
                 <td
                   onClick={() => onCellClick(null, "all", "personnalite")}
-                  className={`${density.rowPy} px-3 sm:px-4 font-sans font-black text-white uppercase ${density.sellerText} tracking-wider hover:text-red-400 cursor-pointer`}
+                  className={`${density.rowPy} px-3 sm:px-4 font-sans font-black text-slate-900 dark:text-white uppercase ${density.sellerText} tracking-wider hover:text-red-600 dark:hover:text-red-400 cursor-pointer`}
                 >
                   TOTAL PERSONNALITÉ
                 </td>
@@ -205,19 +205,19 @@ export function CommercialPipelineTableView({
                     <td
                       key={stage.key}
                       onClick={() => onCellClick(null, stage.key, "personnalite")}
-                      className={`${density.stagePy} px-1.5 sm:px-2 text-center hover:bg-zinc-800/60 cursor-pointer`}
+                      className={`${density.stagePy} px-1.5 sm:px-2 text-center hover:bg-slate-200/70 dark:hover:bg-zinc-800/60 cursor-pointer`}
                     >
-                      <div className={`font-sans font-black ${density.countText} text-white leading-tight`}>
+                      <div className={`font-sans font-black ${density.countText} text-slate-900 dark:text-white leading-tight`}>
                         {data.count}
                       </div>
-                      <div className={`${density.subText} text-emerald-400 font-bold leading-none mt-0.5`}>
+                      <div className={`${density.subText} text-emerald-700 dark:text-emerald-400 font-bold leading-none mt-0.5`}>
                         {hasValue ? (
                           <span>
                             {formatAbbreviatedCurrency(data.value)}{" "}
-                            <span className="text-emerald-300">{formatPercentage(data.percent)}</span>
+                            <span className="text-emerald-800 dark:text-emerald-300">{formatPercentage(data.percent)}</span>
                           </span>
                         ) : (
-                          <span className="text-zinc-600">—</span>
+                          <span className="text-slate-400 dark:text-zinc-600">—</span>
                         )}
                       </div>
                     </td>
@@ -227,12 +227,12 @@ export function CommercialPipelineTableView({
                 {/* Total Global da Equipe */}
                 <td
                   onClick={() => onCellClick(null, "all", "personnalite")}
-                  className={`${density.stagePy} px-2.5 text-center bg-emerald-950/30 border-l border-zinc-800 font-black hover:bg-emerald-950/50 cursor-pointer`}
+                  className={`${density.stagePy} px-2.5 text-center bg-emerald-100/70 dark:bg-emerald-950/30 border-l border-slate-200 dark:border-zinc-800 font-black hover:bg-emerald-200/70 dark:hover:bg-emerald-950/50 cursor-pointer`}
                 >
-                  <div className={`font-sans font-black ${density.countText} text-white leading-tight`}>
+                  <div className={`font-sans font-black ${density.countText} text-slate-900 dark:text-white leading-tight`}>
                     {personnaliteData.totalCards}
                   </div>
-                  <div className={`${density.subText} text-emerald-400 font-extrabold leading-none mt-0.5`}>
+                  <div className={`${density.subText} text-emerald-800 dark:text-emerald-400 font-extrabold leading-none mt-0.5`}>
                     {formatAbbreviatedCurrency(personnaliteData.totalValue, true)}
                   </div>
                 </td>
@@ -246,45 +246,45 @@ export function CommercialPipelineTableView({
       <div className={density.tableSpace}>
         {/* Cabeçalho da Equipe */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <div className={`flex items-center gap-1.5 ${density.teamTitle} uppercase tracking-wider text-red-400 font-mono`}>
-            <Flag className="h-3.5 w-3.5 fill-red-400 text-red-400" />
+          <div className={`flex items-center gap-1.5 ${density.teamTitle} uppercase tracking-wider text-red-600 dark:text-red-400 font-mono`}>
+            <Flag className="h-3.5 w-3.5 fill-red-600 dark:fill-red-400 text-red-600 dark:text-red-400" />
             <span>TIME SEMI (MÁQUINAS)</span>
           </div>
 
           <div className={`flex items-center gap-2 font-mono ${density.teamSummary}`}>
-            <span className="text-zinc-400">{mSummary.cards}</span>
-            <span className="text-zinc-600">-</span>
-            <span className="font-bold text-emerald-400">{mSummary.value}</span>
+            <span className="text-slate-500 dark:text-zinc-400">{mSummary.cards}</span>
+            <span className="text-slate-300 dark:text-zinc-600">-</span>
+            <span className="font-bold text-emerald-700 dark:text-emerald-400">{mSummary.value}</span>
           </div>
         </div>
 
         {/* Tabela de Dados */}
-        <div className="overflow-x-auto rounded-[4px] border border-zinc-800 bg-zinc-950/70 shadow-sm scrollbar-none">
+        <div className="overflow-x-auto rounded-[4px] border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950/70 shadow-sm scrollbar-none">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/90 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
-                <th className={`${density.headerPy} px-3 sm:px-4 font-semibold text-zinc-300`}>VENDEDOR</th>
+              <tr className="border-b border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900/90 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                <th className={`${density.headerPy} px-3 sm:px-4 font-semibold text-slate-800 dark:text-zinc-300`}>VENDEDOR</th>
                 {PIPELINE_STAGES.map((stage) => (
                   <th
                     key={stage.key}
                     onClick={() => onHeaderStageClick(stage.key)}
-                    className={`${density.headerPy} px-2 text-center font-mono hover:text-white cursor-pointer transition-colors`}
+                    className={`${density.headerPy} px-2 text-center font-mono hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors`}
                   >
                     {stage.bracketLabel}
                   </th>
                 ))}
-                <th className={`${density.headerPy} px-3 text-center font-mono font-bold text-emerald-300 bg-emerald-950/25 border-l border-zinc-800`}>
+                <th className={`${density.headerPy} px-3 text-center font-mono font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/25 border-l border-slate-200 dark:border-zinc-800`}>
                   TOTAL FUNIL
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/60 font-mono">
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 font-mono">
               {semiMaquinasData.sellers.map((seller) => (
-                <tr key={seller.sellerId} className="hover:bg-zinc-900/40 transition-colors">
+                <tr key={seller.sellerId} className="hover:bg-slate-50 dark:hover:bg-zinc-900/40 transition-colors">
                   {/* Nome do Vendedor */}
                   <td
                     onClick={() => onCellClick(seller, "all", "maquinas")}
-                    className={`${density.rowPy} px-3 sm:px-4 font-sans ${density.sellerText} text-white hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap`}
+                    className={`${density.rowPy} px-3 sm:px-4 font-sans ${density.sellerText} text-slate-900 dark:text-white hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap`}
                   >
                     {seller.sellerName}
                   </td>
@@ -297,19 +297,19 @@ export function CommercialPipelineTableView({
                       <td
                         key={stage.key}
                         onClick={() => onCellClick(seller, stage.key, "maquinas")}
-                        className={`${density.stagePy} px-1.5 sm:px-2 text-center hover:bg-zinc-800/60 hover:ring-1 hover:ring-red-500/40 cursor-pointer transition-all rounded-[2px]`}
+                        className={`${density.stagePy} px-1.5 sm:px-2 text-center hover:bg-slate-100 dark:hover:bg-zinc-800/60 hover:ring-1 hover:ring-red-500/40 cursor-pointer transition-all rounded-[2px]`}
                       >
-                        <div className={`font-sans font-black ${density.countText} text-white leading-tight`}>
+                        <div className={`font-sans font-black ${density.countText} text-slate-900 dark:text-white leading-tight`}>
                           {data.count}
                         </div>
-                        <div className={`${density.subText} text-emerald-400 font-medium leading-none mt-0.5`}>
+                        <div className={`${density.subText} text-emerald-700 dark:text-emerald-400 font-medium leading-none mt-0.5`}>
                           {hasValue ? (
                             <span>
                               {formatAbbreviatedCurrency(data.value)}{" "}
-                              <span className="text-emerald-400/80">{formatPercentage(data.percent)}</span>
+                              <span className="text-emerald-800/80 dark:text-emerald-400/80">{formatPercentage(data.percent)}</span>
                             </span>
                           ) : (
-                            <span className="text-zinc-600">—</span>
+                            <span className="text-slate-400 dark:text-zinc-600">—</span>
                           )}
                         </div>
                       </td>
@@ -319,24 +319,24 @@ export function CommercialPipelineTableView({
                   {/* Coluna Total Funil do Vendedor */}
                   <td
                     onClick={() => onCellClick(seller, "all", "maquinas")}
-                    className={`${density.stagePy} px-2.5 text-center bg-emerald-950/15 border-l border-zinc-800 hover:bg-emerald-950/30 cursor-pointer transition-all`}
+                    className={`${density.stagePy} px-2.5 text-center bg-emerald-50/50 dark:bg-emerald-950/15 border-l border-slate-200 dark:border-zinc-800 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/30 cursor-pointer transition-all`}
                   >
-                    <div className={`font-sans font-black ${density.countText} text-white leading-tight`}>
+                    <div className={`font-sans font-black ${density.countText} text-slate-900 dark:text-white leading-tight`}>
                       {seller.totalCards}
                     </div>
-                    <div className={`${density.subText} text-emerald-400 font-bold leading-none mt-0.5`}>
+                    <div className={`${density.subText} text-emerald-700 dark:text-emerald-400 font-bold leading-none mt-0.5`}>
                       {formatAbbreviatedCurrency(seller.totalValue, true)}{" "}
-                      <span className="text-emerald-300">{seller.teamSharePercent}%</span>
+                      <span className="text-emerald-800 dark:text-emerald-300">{seller.teamSharePercent}%</span>
                     </div>
                   </td>
                 </tr>
               ))}
 
               {/* Linha Total da Equipe */}
-              <tr className="border-t-2 border-zinc-700 bg-zinc-900/90 font-bold">
+              <tr className="border-t-2 border-slate-300 dark:border-zinc-700 bg-slate-100/80 dark:bg-zinc-900/90 font-bold">
                 <td
                   onClick={() => onCellClick(null, "all", "maquinas")}
-                  className={`${density.rowPy} px-3 sm:px-4 font-sans font-black text-white uppercase ${density.sellerText} tracking-wider hover:text-red-400 cursor-pointer`}
+                  className={`${density.rowPy} px-3 sm:px-4 font-sans font-black text-slate-900 dark:text-white uppercase ${density.sellerText} tracking-wider hover:text-red-600 dark:hover:text-red-400 cursor-pointer`}
                 >
                   TOTAL SEMI
                 </td>
@@ -348,19 +348,19 @@ export function CommercialPipelineTableView({
                     <td
                       key={stage.key}
                       onClick={() => onCellClick(null, stage.key, "maquinas")}
-                      className={`${density.stagePy} px-1.5 sm:px-2 text-center hover:bg-zinc-800/60 cursor-pointer`}
+                      className={`${density.stagePy} px-1.5 sm:px-2 text-center hover:bg-slate-200/70 dark:hover:bg-zinc-800/60 cursor-pointer`}
                     >
-                      <div className={`font-sans font-black ${density.countText} text-white leading-tight`}>
+                      <div className={`font-sans font-black ${density.countText} text-slate-900 dark:text-white leading-tight`}>
                         {data.count}
                       </div>
-                      <div className={`${density.subText} text-emerald-400 font-bold leading-none mt-0.5`}>
+                      <div className={`${density.subText} text-emerald-700 dark:text-emerald-400 font-bold leading-none mt-0.5`}>
                         {hasValue ? (
                           <span>
                             {formatAbbreviatedCurrency(data.value)}{" "}
-                            <span className="text-emerald-300">{formatPercentage(data.percent)}</span>
+                            <span className="text-emerald-800 dark:text-emerald-300">{formatPercentage(data.percent)}</span>
                           </span>
                         ) : (
-                          <span className="text-zinc-600">—</span>
+                          <span className="text-slate-400 dark:text-zinc-600">—</span>
                         )}
                       </div>
                     </td>
@@ -370,12 +370,12 @@ export function CommercialPipelineTableView({
                 {/* Total Global da Equipe */}
                 <td
                   onClick={() => onCellClick(null, "all", "maquinas")}
-                  className={`${density.stagePy} px-2.5 text-center bg-emerald-950/30 border-l border-zinc-800 font-black hover:bg-emerald-950/50 cursor-pointer`}
+                  className={`${density.stagePy} px-2.5 text-center bg-emerald-100/70 dark:bg-emerald-950/30 border-l border-slate-200 dark:border-zinc-800 font-black hover:bg-emerald-200/70 dark:hover:bg-emerald-950/50 cursor-pointer`}
                 >
-                  <div className={`font-sans font-black ${density.countText} text-white leading-tight`}>
+                  <div className={`font-sans font-black ${density.countText} text-slate-900 dark:text-white leading-tight`}>
                     {semiMaquinasData.totalCards}
                   </div>
-                  <div className={`${density.subText} text-emerald-400 font-extrabold leading-none mt-0.5`}>
+                  <div className={`${density.subText} text-emerald-800 dark:text-emerald-400 font-extrabold leading-none mt-0.5`}>
                     {formatAbbreviatedCurrency(semiMaquinasData.totalValue, true)}
                   </div>
                 </td>

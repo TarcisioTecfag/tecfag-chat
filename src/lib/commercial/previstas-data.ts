@@ -18,9 +18,9 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     subLabel: "Prontos / Atrasados",
     days: 0,
     colorClass:
-      "bg-red-950/20 hover:bg-red-950/40 border border-red-500/80 hover:border-red-400 text-white shadow-[0_0_10px_rgba(239,68,68,0.15)]",
+      "bg-red-50 hover:bg-red-100 text-red-900 border border-red-300 dark:bg-red-950/20 dark:hover:bg-red-950/40 dark:border-red-500/80 dark:hover:border-red-400 dark:text-white shadow-[0_0_10px_rgba(239,68,68,0.15)]",
     dotColor: "bg-red-500",
-    badgeBg: "border-red-500/40 text-red-400 bg-red-950/20",
+    badgeBg: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/40 dark:text-red-400 dark:bg-red-950/20",
     colWidth: "w-[10%]",
   },
   {
@@ -29,9 +29,9 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     subLabel: "A Faturar",
     days: 15,
     colorClass:
-      "bg-amber-950/20 hover:bg-amber-950/40 border border-amber-500/80 hover:border-amber-400 text-white shadow-[0_0_10px_rgba(245,158,11,0.15)]",
+      "bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/20 dark:hover:bg-amber-950/40 dark:border-amber-500/80 dark:hover:border-amber-400 dark:text-white shadow-[0_0_10px_rgba(245,158,11,0.15)]",
     dotColor: "bg-amber-500",
-    badgeBg: "border-amber-500/40 text-amber-400 bg-amber-950/20",
+    badgeBg: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:text-amber-400 dark:bg-amber-950/20",
     colWidth: "w-[13%]",
   },
   {
@@ -40,9 +40,9 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     subLabel: "A Faturar",
     days: 30,
     colorClass:
-      "bg-blue-950/20 hover:bg-blue-950/40 border border-blue-500/80 hover:border-blue-400 text-white shadow-[0_0_10px_rgba(59,130,246,0.15)]",
+      "bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 dark:border-blue-500/80 dark:hover:border-blue-400 dark:text-white shadow-[0_0_10px_rgba(59,130,246,0.15)]",
     dotColor: "bg-blue-500",
-    badgeBg: "border-blue-500/40 text-blue-400 bg-blue-950/20",
+    badgeBg: "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-500/40 dark:text-blue-400 dark:bg-blue-950/20",
     colWidth: "w-[16%]",
   },
   {
@@ -51,9 +51,9 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     subLabel: "A Faturar",
     days: 60,
     colorClass:
-      "bg-purple-950/20 hover:bg-purple-950/40 border border-purple-500/80 hover:border-purple-400 text-white shadow-[0_0_10px_rgba(168,85,247,0.15)]",
+      "bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 dark:bg-purple-950/20 dark:hover:bg-purple-950/40 dark:border-purple-500/80 dark:hover:border-purple-400 dark:text-white shadow-[0_0_10px_rgba(168,85,247,0.15)]",
     dotColor: "bg-purple-500",
-    badgeBg: "border-purple-500/40 text-purple-400 bg-purple-950/20",
+    badgeBg: "border-purple-200 bg-purple-50 text-purple-800 dark:border-purple-500/40 dark:text-purple-400 dark:bg-purple-950/20",
     colWidth: "w-[20%]",
   },
   {
@@ -62,9 +62,9 @@ export const PREVISTAS_TIERS: PrevistasTierDefinition[] = [
     subLabel: "A Faturar",
     days: 90,
     colorClass:
-      "bg-emerald-950/20 hover:bg-emerald-950/40 border border-emerald-500/80 hover:border-emerald-400 text-white shadow-[0_0_10px_rgba(16,185,129,0.15)]",
+      "bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 dark:border-emerald-500/80 dark:hover:border-emerald-400 dark:text-white shadow-[0_0_10px_rgba(16,185,129,0.15)]",
     dotColor: "bg-emerald-500",
-    badgeBg: "border-emerald-500/40 text-emerald-400 bg-emerald-950/20",
+    badgeBg: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:text-emerald-400 dark:bg-emerald-950/20",
     colWidth: "w-[24%]",
   },
 ];

@@ -83,4 +83,12 @@ describe("Dashboard de Rodízio de IA (Fagner / Valentina)", () => {
     expect(personaValem.name).toBe("Valentina");
     expect(personaValem.gender).toBe("female");
   });
+
+  it("não deve conter emojis nos rótulos dos setores (deve usar estritamente ícones vetoriais)", () => {
+    const emojiRegex = /(\p{Extended_Pictographic}|\p{Emoji_Presentation})/u;
+    for (const key of Object.keys(SECTOR_CONFIGS)) {
+      expect(emojiRegex.test(SECTOR_CONFIGS[key].label)).toBe(false);
+      expect(emojiRegex.test(SECTOR_CONFIGS[key].shortLabel)).toBe(false);
+    }
+  });
 });
