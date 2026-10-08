@@ -52,6 +52,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import {
   MetaTemplateSelectModal,
   type ApprovedMetaTemplate,
@@ -626,11 +627,12 @@ export function CrmChatWidget() {
     }
   };
 
-  const isChatView =
-    activeView === "chat" ||
-    location.pathname === "/chat" ||
-    location.pathname.startsWith("/chat/") ||
-    location.pathname.startsWith("/chat");
+  const isWidgetAllowed = shouldShowMiniChatWidget({
+    activeView,
+    pathname: location.pathname,
+    isAuthenticated,
+    isMobile,
+  });
 
   const [isSuppressed, setIsSuppressed] = useState(false);
 
@@ -662,9 +664,7 @@ export function CrmChatWidget() {
   }, []);
 
   const visible =
-    isAuthenticated &&
-    !isMobile &&
-    !isChatView &&
+    isWidgetAllowed &&
     canAccessView("chat") &&
     !isSuppressed;
 

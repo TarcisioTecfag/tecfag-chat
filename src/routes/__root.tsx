@@ -28,6 +28,8 @@ import {
   reloadForMissingAsset,
 } from "@/lib/asset-recovery";
 
+import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
+
 installAssetRecovery();
 
 const CrmChatWidget = lazy(() =>
@@ -38,16 +40,15 @@ function MaybeCrmChatWidget() {
   const { activeView, isAuthenticated } = useChat();
   const location = useLocation();
   const isMobile = useIsMobile();
-  const isChatView =
-    activeView === "chat" ||
-    location.pathname === "/chat" ||
-    location.pathname.startsWith("/chat/") ||
-    location.pathname.startsWith("/chat");
-  const isWarRoom =
-    activeView === "commercialBi" ||
-    location.pathname.includes("war-room") ||
-    location.pathname.includes("commercial-bi");
-  if (!isAuthenticated || isMobile || isChatView || isWarRoom) return null;
+
+  const shouldShow = shouldShowMiniChatWidget({
+    activeView,
+    pathname: location.pathname,
+    isAuthenticated,
+    isMobile,
+  });
+
+  if (!shouldShow) return null;
   return (
     <Suspense fallback={null}>
       <CrmChatWidget />
