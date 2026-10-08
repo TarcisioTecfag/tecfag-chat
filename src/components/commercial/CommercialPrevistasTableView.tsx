@@ -10,6 +10,7 @@ import {
   SellerPrevistasRow,
   TeamPrevistasData,
 } from "@/lib/commercial/previstas-data";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 interface CommercialPrevistasTableViewProps {
   personnaliteData: TeamPrevistasData;
@@ -135,20 +136,18 @@ export function CommercialPrevistasTableView({
                     <div className="flex items-center gap-2">
                       {/* Avatar Angular */}
                       <div className={`relative ${density.avatarSize} shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900`}>
-                        {seller.avatarUrl ? (
-                          <img
-                            src={seller.avatarUrl}
-                            alt={seller.sellerName}
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = "none";
-                            }}
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
-                            {seller.sellerName.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
+                        <img
+                          src={seller.avatarUrl || getDeterministicConsultantAvatar(seller.sellerName)}
+                          alt={seller.sellerName}
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            const fallback = getDeterministicConsultantAvatar(seller.sellerName);
+                            if (img.src !== fallback) {
+                              img.src = fallback;
+                            }
+                          }}
+                        />
                       </div>
 
                       {/* Nome e Metas */}

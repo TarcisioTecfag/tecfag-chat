@@ -15,8 +15,7 @@ export const Route = createFileRoute("/api/commercial/consultants")({
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
-        if (session.operator.role !== "admin")
-          return json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, 403);
+        // Leitura de consultores liberada para todos os operadores autenticados do tenant
         try {
           const consultants = await db
             .select({

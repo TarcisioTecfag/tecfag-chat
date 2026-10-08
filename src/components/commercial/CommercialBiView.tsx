@@ -178,7 +178,9 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
 
 export function CommercialBiView() {
   const navigate = useNavigate();
-  const { tenant, setActiveView } = useChat();
+  const { tenant, setActiveView, operators } = useChat();
+  const operatorsRef = useRef(operators);
+  operatorsRef.current = operators;
   const panelRef = useRef<HTMLElement>(null);
   const [division, setDivision] = useState("");
   const [module, setModule] = useState(0);
@@ -197,14 +199,19 @@ export function CommercialBiView() {
   const [lossData, setLossData] = useState<ReturnType<typeof toLossPresentation> | null>(null);
   const [cohortData, setCohortData] = useState<TVCohortsResponse | null>(null);
   const [avatarResolverState, setAvatarResolverState] = useState<
-    ((id?: string | null, name?: string | null) => string | undefined) | null
+    ((id?: string | null, name?: string | null) => string) | null
   >(null);
+  const fallbackAvatarResolver = useMemo(
+    () => buildConsultantAvatarResolver([operators]),
+    [operators],
+  );
+  const activeAvatarResolver = avatarResolverState || fallbackAvatarResolver.getAvatar;
   const maturityData = useMemo(
     () =>
       data
-        ? toMaturityPresentation(data, diretrizesData, avatarResolverState || undefined)
+        ? toMaturityPresentation(data, diretrizesData, activeAvatarResolver)
         : null,
-    [data, diretrizesData, avatarResolverState],
+    [data, diretrizesData, activeAvatarResolver],
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -372,6 +379,7 @@ export function CommercialBiView() {
         if (!signal?.aborted) {
           // Criar resolvedor consolidado e resiliente de avatares dos consultores
           const avatarResolver = buildConsultantAvatarResolver([
+            operatorsRef.current,
             consultantsBody?.consultants,
             body.goals,
             pipelineBody?.rows,

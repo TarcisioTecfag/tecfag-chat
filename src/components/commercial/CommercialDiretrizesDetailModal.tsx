@@ -4,6 +4,7 @@ import {
   DiretrizesConsultantRow,
   DiretrizDealDetail,
 } from "@/lib/commercial/diretrizes-crm-data";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 interface CommercialDiretrizesDetailModalProps {
   isOpen: boolean;
@@ -67,17 +68,18 @@ export function CommercialDiretrizesDetailModal({
         {/* ─── CABEÇALHO DO MODAL (FOTO 2) ─── */}
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800/80 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            {consultant.avatarUrl ? (
-              <img
-                src={consultant.avatarUrl}
-                alt={consultant.name}
-                className="h-9 w-9 rounded-[2px] border border-slate-200 dark:border-zinc-800 object-cover"
-              />
-            ) : (
-              <div className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-slate-200 bg-slate-100 dark:border-zinc-800 dark:bg-zinc-900 font-mono text-xs font-bold text-slate-700 dark:text-zinc-300">
-                {consultant.name.slice(0, 2).toUpperCase()}
-              </div>
-            )}
+            <img
+              src={consultant.avatarUrl || getDeterministicConsultantAvatar(consultant.name)}
+              alt={consultant.name}
+              className="h-9 w-9 rounded-[2px] border border-slate-200 dark:border-zinc-800 object-cover"
+              onError={(e) => {
+                const img = e.currentTarget;
+                const fallback = getDeterministicConsultantAvatar(consultant.name);
+                if (img.src !== fallback) {
+                  img.src = fallback;
+                }
+              }}
+            />
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="font-mono text-base font-bold text-slate-900 dark:text-white tracking-tight">

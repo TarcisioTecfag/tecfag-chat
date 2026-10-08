@@ -8,6 +8,7 @@ import {
   TmaTeamGroup,
   TmaWaitingChatItem,
 } from "@/lib/commercial/tma-whatsapp-data";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 interface CommercialTmaTableViewProps {
   kpis: TmaKpis;
@@ -126,17 +127,18 @@ export function CommercialTmaTableView({
       >
         {/* Esquerda: Avatar + Nome */}
         <div className="flex items-center gap-2.5 sm:gap-3 w-48 sm:w-56 xl:w-64 shrink-0">
-          {consultant.avatarUrl ? (
-            <img
-              src={consultant.avatarUrl}
-              alt={consultant.name}
-              className="h-8 w-8 sm:h-9 sm:w-9 xl:h-10 xl:w-10 rounded-[3px] border border-slate-200 dark:border-zinc-700/80 object-cover shrink-0 shadow-sm"
-            />
-          ) : (
-            <div className="flex h-8 w-8 sm:h-9 sm:w-9 xl:h-10 xl:w-10 shrink-0 items-center justify-center rounded-[3px] border border-slate-200 bg-slate-100 font-mono text-xs font-bold text-slate-700 dark:border-zinc-700/80 dark:bg-zinc-900 dark:text-zinc-300">
-              {consultant.name.slice(0, 2).toUpperCase()}
-            </div>
-          )}
+          <img
+            src={consultant.avatarUrl || getDeterministicConsultantAvatar(consultant.name)}
+            alt={consultant.name}
+            className="h-8 w-8 sm:h-9 sm:w-9 xl:h-10 xl:w-10 rounded-[3px] border border-slate-200 dark:border-zinc-700/80 object-cover shrink-0 shadow-sm"
+            onError={(e) => {
+              const img = e.currentTarget;
+              const fallback = getDeterministicConsultantAvatar(consultant.name);
+              if (img.src !== fallback) {
+                img.src = fallback;
+              }
+            }}
+          />
           <div className="truncate">
             <span className="block font-mono text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-tight truncate">
               {consultant.name}

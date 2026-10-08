@@ -35,7 +35,7 @@ import type {
   getTmaAnalysis,
 } from "./analysis-service";
 import { teamStages, type PipelineDivision } from "./pipeline-scope";
-import { buildConsultantAvatarResolver } from "./avatar-matcher";
+import { buildConsultantAvatarResolver, getDeterministicConsultantAvatar } from "./avatar-matcher";
 
 type ResponsibilityAnalysis = Awaited<ReturnType<typeof getResponsibilityAnalysis>>;
 type TmaAnalysis = Awaited<ReturnType<typeof getTmaAnalysis>>;
@@ -161,10 +161,11 @@ export function toMaturityPresentation(
     const resolvedAvatar = avatarResolver
       ? avatarResolver(goal.operatorId, goal.name)
       : goal.avatar || undefined;
+    const finalAvatar = resolvedAvatar || goal.avatar || getDeterministicConsultantAvatar(goal.name);
     const common = {
       sellerId: goal.operatorId,
       sellerName: goal.name,
-      avatarUrl: resolvedAvatar || goal.avatar || undefined,
+      avatarUrl: finalAvatar,
       division: goal.division as Division,
       metaValue: goal.targetValue,
       conversionPercent: goal.conversionRate,
@@ -280,7 +281,7 @@ export function toPacingPresentation(
           avatarResolver?.(consultant.operatorId, consultant.name) ||
           (consultant as any).avatar ||
           (consultant as any).avatarUrl ||
-          undefined,
+          getDeterministicConsultantAvatar(consultant.name),
         division: consultant.division,
         pacingStatus,
         statusLabel:
@@ -524,7 +525,7 @@ export function toPipelinePresentation(
         avatarResolver?.(row.operatorId, row.name) ||
         (row as any).avatar ||
         (row as any).avatarUrl ||
-        undefined;
+        getDeterministicConsultantAvatar(row.name);
       return {
         sellerId: row.operatorId,
         sellerName: row.name,
@@ -628,7 +629,7 @@ export function toDiretrizesPresentation(
           avatarResolver?.(consultant.operatorId, consultant.name) ||
           (consultant as any).avatar ||
           (consultant as any).avatarUrl ||
-          undefined,
+          getDeterministicConsultantAvatar(consultant.name),
         division: consultant.division,
         totalDirectives: consultant.totalCount,
         concluidas: consultant.completedCount,
@@ -688,7 +689,7 @@ export function toTmaPresentation(
         avatarResolver?.(consultant.operatorId, consultant.name) ||
         (consultant as any).avatar ||
         (consultant as any).avatarUrl ||
-        undefined,
+        getDeterministicConsultantAvatar(consultant.name),
       division: consultant.division,
       buckets: {
         under5m: consultant.buckets[0] || 0,
@@ -735,7 +736,7 @@ export function toTmaPresentation(
       avatarResolver?.(consultant.operatorId, consultant.name) ||
       (consultant as any).avatar ||
       (consultant as any).avatarUrl ||
-      undefined,
+      getDeterministicConsultantAvatar(consultant.name),
     division: consultant.division === "maquinas" ? "Máquinas" : "Personnalité",
     averageTime: formatSeconds(consultant.averageSeconds),
     slaPercent: consultant.withinSlaPercent ?? 0,

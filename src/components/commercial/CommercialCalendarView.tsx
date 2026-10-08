@@ -47,6 +47,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { saoPauloDay } from "@/lib/commercial/metrics";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 import { cn } from "@/lib/utils";
 
 export type CalendarDeal = {
@@ -780,7 +781,18 @@ export function CommercialCalendarView({
                 type="button"
                 className="flex items-center gap-2 rounded-[2px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900 px-3 py-1.5 text-xs font-mono font-bold text-foreground hover:bg-muted/40 dark:hover:bg-zinc-800 transition-colors cursor-pointer shadow-sm"
               >
-                <User className="h-3.5 w-3.5 text-primary" />
+                {selectedConsultantObj ? (
+                  <img
+                    src={selectedConsultantObj.avatar || getDeterministicConsultantAvatar(selectedConsultantObj.name)}
+                    alt=""
+                    className="h-4 w-4 rounded-full object-cover shrink-0 border border-primary/30"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = getDeterministicConsultantAvatar(selectedConsultantObj.name);
+                    }}
+                  />
+                ) : (
+                  <User className="h-3.5 w-3.5 text-primary" />
+                )}
                 <span className="max-w-[130px] truncate">
                   {selectedConsultantObj ? selectedConsultantObj.name : "Todos os Consultores"}
                 </span>
@@ -807,6 +819,7 @@ export function CommercialCalendarView({
                 </button>
                 {data?.consultants.map((c) => {
                   const isSel = selectedConsultantId === c.operatorId;
+                  const cAvatar = c.avatar || getDeterministicConsultantAvatar(c.name);
                   return (
                     <button
                       key={c.operatorId}
@@ -822,9 +835,14 @@ export function CommercialCalendarView({
                           : "text-foreground dark:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-900",
                       )}
                     >
-                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[2px] bg-primary/10 text-primary text-[9px] font-bold">
-                        {getInitials(c.name)}
-                      </div>
+                      <img
+                        src={cAvatar}
+                        alt={c.name}
+                        className="h-5 w-5 shrink-0 rounded-[2px] object-cover border border-border/60 bg-muted"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = getDeterministicConsultantAvatar(c.name);
+                        }}
+                      />
                       <span className="truncate flex-1">{c.name}</span>
                       {c.division && (
                         <span
@@ -1247,17 +1265,14 @@ export function CommercialCalendarView({
                       className="flex items-center justify-between gap-2 rounded-[2px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/50 p-3 transition-colors hover:border-primary/40 shadow-xs"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
-                        {deal.operatorAvatar ? (
-                          <img
-                            src={deal.operatorAvatar}
-                            alt=""
-                            className="h-8 w-8 rounded-[2px] object-cover shrink-0 border border-border/80 dark:border-zinc-800"
-                          />
-                        ) : (
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[2px] bg-primary/10 text-primary text-xs font-mono font-bold border border-primary/20">
-                            {getInitials(deal.operatorName || "ND")}
-                          </div>
-                        )}
+                        <img
+                          src={deal.operatorAvatar || getDeterministicConsultantAvatar(deal.operatorName)}
+                          alt={deal.operatorName || ""}
+                          className="h-8 w-8 rounded-[2px] object-cover shrink-0 border border-border/80 dark:border-zinc-800 bg-muted"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = getDeterministicConsultantAvatar(deal.operatorName);
+                          }}
+                        />
                         <div className="min-w-0">
                           <p className="truncate text-xs font-bold text-foreground dark:text-zinc-100">
                             {deal.title}

@@ -26,7 +26,7 @@ import { CommercialDiretrizesDetailModal } from "./CommercialDiretrizesDetailMod
 import { CommercialDiretrizesBreakdownModal } from "./CommercialDiretrizesBreakdownModal";
 import type { DiretrizesConsultantRow } from "@/lib/commercial/diretrizes-crm-data";
 import { toDiretrizesPresentation } from "@/lib/commercial/presentation-data";
-import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
+import { buildConsultantAvatarResolver, getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 const COMMERCIAL_TABS = [
   { id: "consultants", label: "Consultores", icon: Users },
@@ -138,7 +138,9 @@ async function getOpenCommercialDeals(): Promise<Deal[]> {
 }
 
 export function CommercialManagementView() {
-  const { setActiveView } = useChat();
+  const { setActiveView, operators } = useChat();
+  const operatorsRef = useRef(operators);
+  operatorsRef.current = operators;
   const navigate = useNavigate();
   const [tab, setTab] = useState<CommercialTab>("consultants");
   const tabIds = useMemo(() => COMMERCIAL_TABS.map((t) => t.id), []);
@@ -218,6 +220,7 @@ export function CommercialManagementView() {
 
       // Enriquecer responsibilityData com avatares carregados de consultants de forma resiliente
       const avatarResolver = buildConsultantAvatarResolver([
+        operatorsRef.current,
         consultantData.consultants,
         responsibilityData?.consultants,
       ]);
@@ -239,8 +242,8 @@ export function CommercialManagementView() {
   }, [load]);
 
   const avatarResolver = useMemo(
-    () => buildConsultantAvatarResolver([consultants]),
-    [consultants],
+    () => buildConsultantAvatarResolver([operators, consultants]),
+    [operators, consultants],
   );
 
   const consultantMap = useMemo(
@@ -594,22 +597,23 @@ export function CommercialManagementView() {
                                 </div>
                                 <div className="mt-1.5 flex items-center gap-2">
                                   <div className="relative h-5 w-5 shrink-0 overflow-hidden rounded-[2px] border border-border dark:border-zinc-800 bg-muted">
-                                    {consultantAvatarMap.get(item.assignedToOperatorId || "") ? (
-                                      <img
-                                        src={consultantAvatarMap.get(item.assignedToOperatorId || "")!}
-                                        alt={consultantMap.get(item.assignedToOperatorId || "") || "Consultor"}
-                                        className="h-full w-full object-cover"
-                                        onError={(e) => {
-                                          (e.target as HTMLElement).style.display = "none";
-                                        }}
-                                      />
-                                    ) : (
-                                      <div className="flex h-full w-full items-center justify-center font-mono text-[9px] font-bold text-muted-foreground">
-                                        {(consultantMap.get(item.assignedToOperatorId || "") || "C")
-                                          .slice(0, 2)
-                                          .toUpperCase()}
-                                      </div>
-                                    )}
+                                    <img
+                                      src={
+                                        consultantAvatarMap.get(item.assignedToOperatorId || "") ||
+                                        avatarResolver.getAvatar(
+                                          item.assignedToOperatorId,
+                                          consultantMap.get(item.assignedToOperatorId || ""),
+                                        )
+                                      }
+                                      alt={consultantMap.get(item.assignedToOperatorId || "") || "Consultor"}
+                                      className="h-full w-full object-cover"
+                                      onError={(e) => {
+                                        const img = e.currentTarget;
+                                        const name = consultantMap.get(item.assignedToOperatorId || "") || "Consultor";
+                                        const fallback = getDeterministicConsultantAvatar(name);
+                                        if (img.src !== fallback) img.src = fallback;
+                                      }}
+                                    />
                                   </div>
                                   <p className="text-xs text-muted-foreground dark:text-zinc-400">
                                     <strong className="text-foreground dark:text-zinc-200">
@@ -656,20 +660,16 @@ export function CommercialManagementView() {
                               </strong>
                               <div className="mt-1.5 flex items-center gap-2">
                                 <div className="relative h-5 w-5 shrink-0 overflow-hidden rounded-[2px] border border-border dark:border-zinc-800 bg-muted">
-                                  {avatarResolver.getAvatar(undefined, item.operatorName) ? (
-                                    <img
-                                      src={avatarResolver.getAvatar(undefined, item.operatorName)!}
-                                      alt={item.operatorName || "Operador"}
-                                      className="h-full w-full object-cover"
-                                      onError={(e) => {
-                                        (e.target as HTMLElement).style.display = "none";
-                                      }}
-                                    />
-                                  ) : (
-                                    <div className="flex h-full w-full items-center justify-center font-mono text-[9px] font-bold text-muted-foreground">
-                                      {(item.operatorName || "OP").slice(0, 2).toUpperCase()}
-                                    </div>
-                                  )}
+                                  <img
+                                    src={avatarResolver.getAvatar(undefined, item.operatorName)}
+                                    alt={item.operatorName || "Operador"}
+                                    className="h-full w-full object-cover"
+                                    onError={(e) => {
+                                      const img = e.currentTarget;
+                                      const fallback = getDeterministicConsultantAvatar(item.operatorName || "Operador");
+                                      if (img.src !== fallback) img.src = fallback;
+                                    }}
+                                  />
                                 </div>
                                 <p className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
                                   <strong className="text-foreground dark:text-zinc-200">

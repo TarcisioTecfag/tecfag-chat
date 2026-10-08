@@ -7,7 +7,7 @@ import {
   PipelineStageDef,
 } from "@/lib/commercial/pipeline-data";
 
-import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
+import { buildConsultantAvatarResolver, getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 interface CommercialDealFilterModalProps {
   stages: PipelineStageDef[];
@@ -103,25 +103,18 @@ export function CommercialDealFilterModal({
           <div className="flex items-center gap-3">
             {/* Avatar Angular */}
             <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
-              {effectiveSellerAvatar ? (
                 <img
-                  src={effectiveSellerAvatar}
+                  src={effectiveSellerAvatar || getDeterministicConsultantAvatar(sellerName)}
                   alt={sellerName}
                   className="h-full w-full object-cover"
                   onError={(e) => {
-                    (e.target as HTMLElement).style.display = "none";
+                    const img = e.currentTarget;
+                    const fallback = getDeterministicConsultantAvatar(sellerName);
+                    if (img.src !== fallback) {
+                      img.src = fallback;
+                    }
                   }}
                 />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center font-mono font-bold text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
-                  {sellerName
-                    .split(" ")
-                    .map((n) => n[0])
-                    .slice(0, 2)
-                    .join("")
-                    .toUpperCase()}
-                </div>
-              )}
             </div>
 
             {/* Informações do Consultor */}
@@ -284,24 +277,19 @@ export function CommercialDealFilterModal({
                             const rowAvatar =
                               effectiveAvatarResolver(undefined, deal.responsibleName) ||
                               (deal.responsibleName === sellerName ? effectiveSellerAvatar : undefined);
-                            return rowAvatar ? (
+                            return (
                               <img
-                                src={rowAvatar}
+                                src={rowAvatar || getDeterministicConsultantAvatar(deal.responsibleName)}
                                 alt={deal.responsibleName}
                                 className="h-full w-full object-cover"
                                 onError={(e) => {
-                                  (e.target as HTMLElement).style.display = "none";
+                                  const img = e.currentTarget;
+                                  const fallback = getDeterministicConsultantAvatar(deal.responsibleName);
+                                  if (img.src !== fallback) {
+                                    img.src = fallback;
+                                  }
                                 }}
                               />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[9px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
-                                {deal.responsibleName
-                                  .split(" ")
-                                  .map((n) => n[0])
-                                  .slice(0, 2)
-                                  .join("")
-                                  .toUpperCase()}
-                              </div>
                             );
                           })()}
                         </div>

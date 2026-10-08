@@ -31,6 +31,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 export type ConsultantRow = {
   operatorId: string;
@@ -550,17 +551,18 @@ export function CommercialConsultantsView({
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-3">
                           <div className="relative shrink-0">
-                            {consultant.avatar ? (
-                              <img
-                                src={consultant.avatar}
-                                alt={consultant.name}
-                                className="h-9 w-9 rounded-[2px] object-cover border border-border dark:border-zinc-700"
-                              />
-                            ) : (
-                              <div className="h-9 w-9 rounded-[2px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-mono font-bold text-xs">
-                                {initials || "C"}
-                              </div>
-                            )}
+                            <img
+                              src={consultant.avatar || getDeterministicConsultantAvatar(consultant.name)}
+                              alt={consultant.name}
+                              className="h-9 w-9 rounded-[2px] object-cover border border-border dark:border-zinc-700"
+                              onError={(e) => {
+                                const img = e.currentTarget;
+                                const fallback = getDeterministicConsultantAvatar(consultant.name);
+                                if (img.src !== fallback) {
+                                  img.src = fallback;
+                                }
+                              }}
+                            />
                             <span className="absolute bottom-0 right-0 h-2 w-2 rounded-[1px] bg-emerald-500 ring-1 ring-card" />
                           </div>
                           <div>

@@ -10,6 +10,7 @@ import {
   SellerPipelineRow,
   TeamPipelineData,
 } from "@/lib/commercial/pipeline-data";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 interface CommercialPipelineTableViewProps {
   stagesByDivision: { personnalite: PipelineStageDef[]; maquinas: PipelineStageDef[] };
@@ -186,20 +187,18 @@ export function CommercialPipelineTableView({
                   >
                     <div className="flex items-center gap-2">
                       <div className="relative h-6 w-6 sm:h-7 sm:w-7 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
-                        {seller.avatarUrl || seller.avatar ? (
-                          <img
-                            src={seller.avatarUrl || seller.avatar}
-                            alt={seller.sellerName}
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = "none";
-                            }}
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
-                            {seller.sellerName.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
+                        <img
+                          src={seller.avatarUrl || seller.avatar || getDeterministicConsultantAvatar(seller.sellerName)}
+                          alt={seller.sellerName}
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            const fallback = getDeterministicConsultantAvatar(seller.sellerName);
+                            if (img.src !== fallback) {
+                              img.src = fallback;
+                            }
+                          }}
+                        />
                       </div>
                       <span className="truncate">{seller.sellerName}</span>
                     </div>
@@ -398,20 +397,18 @@ export function CommercialPipelineTableView({
                   >
                     <div className="flex items-center gap-2">
                       <div className="relative h-6 w-6 sm:h-7 sm:w-7 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
-                        {seller.avatarUrl || seller.avatar ? (
-                          <img
-                            src={seller.avatarUrl || seller.avatar}
-                            alt={seller.sellerName}
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = "none";
-                            }}
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
-                            {seller.sellerName.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
+                        <img
+                          src={seller.avatarUrl || seller.avatar || getDeterministicConsultantAvatar(seller.sellerName)}
+                          alt={seller.sellerName}
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            const fallback = getDeterministicConsultantAvatar(seller.sellerName);
+                            if (img.src !== fallback) {
+                              img.src = fallback;
+                            }
+                          }}
+                        />
                       </div>
                       <span className="truncate">{seller.sellerName}</span>
                     </div>

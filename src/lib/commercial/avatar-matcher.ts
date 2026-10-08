@@ -51,6 +51,11 @@ export interface ConsultantAvatarSource {
   avatarUrl?: string | null;
 }
 
+export function getDeterministicConsultantAvatar(name?: string | null): string {
+  const clean = cleanConsultantName(name || "") || (name || "Consultor").trim();
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(clean)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`;
+}
+
 export interface ConsultantAvatarResolver {
   (idOrOperatorId?: string | null, name?: string | null): string | undefined;
   getAvatar: (idOrOperatorId?: string | null, name?: string | null) => string | undefined;
@@ -107,18 +112,22 @@ export function buildConsultantAvatarResolver(
   }
 
   const getAvatar = (idOrOperatorId?: string | null, name?: string | null): string | undefined => {
+    // 1. Busca por ID exato
     if (idOrOperatorId && avatarById.has(idOrOperatorId)) {
-      return avatarById.get(idOrOperatorId);
+      const found = avatarById.get(idOrOperatorId);
+      if (found) return found;
     }
+    // 2. Busca por nome limpo
     if (name) {
       const cleaned = cleanConsultantName(name);
       if (cleaned && avatarByName.has(cleaned)) {
-        return avatarByName.get(cleaned);
+        const found = avatarByName.get(cleaned);
+        if (found) return found;
       }
-      // Busca por correspondência flexível (ex: sufixo de ramal, inversão de prenome/sobrenome)
+      // 3. Busca por correspondência flexível (ex: sufixo de ramal, inversão de prenome/sobrenome)
       for (const entry of registeredEntries) {
         if (matchConsultantNames(name, entry.name)) {
-          return entry.avatar;
+          if (entry.avatar) return entry.avatar;
         }
       }
     }

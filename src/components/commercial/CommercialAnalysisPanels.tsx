@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 const money = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -172,20 +173,18 @@ export function CommercialResponsibilitiesPanel({
                     <td className="p-2.5 font-semibold">
                       <div className="flex items-center gap-2">
                         <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-[2px] border border-border/80 dark:border-zinc-800 bg-muted/40 dark:bg-zinc-900">
-                          {(consultant as any).avatar ? (
-                            <img
-                              src={(consultant as any).avatar}
-                              alt={consultant.name}
-                              className="h-full w-full object-cover"
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display = "none";
-                              }}
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
-                              {consultant.name.slice(0, 2).toUpperCase()}
-                            </div>
-                          )}
+                          <img
+                            src={(consultant as any).avatar || getDeterministicConsultantAvatar(consultant.name)}
+                            alt={consultant.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              const img = e.currentTarget;
+                              const fallback = getDeterministicConsultantAvatar(consultant.name);
+                              if (img.src !== fallback) {
+                                img.src = fallback;
+                              }
+                            }}
+                          />
                         </div>
                         <span>{consultant.name}</span>
                       </div>

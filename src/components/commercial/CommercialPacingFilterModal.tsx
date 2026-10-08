@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { PacingDealItem, formatPacingCurrency } from "@/lib/commercial/pacing-data";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 interface CommercialPacingFilterModalProps {
   isOpen: boolean;
@@ -122,13 +123,18 @@ export function CommercialPacingFilterModal({
           <div className="flex items-center gap-3 min-w-0">
             {/* Avatar Angular */}
             <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
-              {sellerAvatar ? (
-                <img src={sellerAvatar} alt={sellerName} className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center font-mono font-bold text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
-                  {sellerName.slice(0, 2).toUpperCase()}
-                </div>
-              )}
+                <img
+                  src={sellerAvatar || getDeterministicConsultantAvatar(sellerName)}
+                  alt={sellerName}
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    const fallback = getDeterministicConsultantAvatar(sellerName);
+                    if (img.src !== fallback) {
+                      img.src = fallback;
+                    }
+                  }}
+                />
             </div>
 
             {/* Informações do Consultor */}

@@ -16,6 +16,7 @@ import { motion } from "framer-motion";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { saoPauloDay } from "@/lib/commercial/metrics";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 export type ConsultantGoalItem = {
   operatorId: string;
@@ -553,17 +554,18 @@ export function CommercialGoalsView({
                         {/* Consultor (Avatar + Nome) */}
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-2.5">
-                            {consultant.avatar ? (
-                              <img
-                                src={consultant.avatar}
-                                alt={consultant.name}
-                                className="w-7 h-7 rounded-[2px] object-cover shrink-0 border border-border/80 dark:border-zinc-800"
-                              />
-                            ) : (
-                              <div className="w-7 h-7 rounded-[2px] bg-primary/10 text-primary font-mono font-bold text-[11px] flex items-center justify-center shrink-0 border border-primary/20">
-                                {getInitials(consultant.name)}
-                              </div>
-                            )}
+                            <img
+                              src={consultant.avatar || getDeterministicConsultantAvatar(consultant.name)}
+                              alt={consultant.name}
+                              className="w-7 h-7 rounded-[2px] object-cover shrink-0 border border-border/80 dark:border-zinc-800"
+                              onError={(e) => {
+                                const img = e.currentTarget;
+                                const fallback = getDeterministicConsultantAvatar(consultant.name);
+                                if (img.src !== fallback) {
+                                  img.src = fallback;
+                                }
+                              }}
+                            />
                             <span className="font-semibold text-foreground dark:text-zinc-100 truncate max-w-[200px]">
                               {consultant.name}
                             </span>

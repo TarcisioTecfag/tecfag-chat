@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
+import { buildConsultantAvatarResolver, getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 type ForecastCell = { tier: number; days: number; count: number; value: number };
 type ForecastRow = {
@@ -199,20 +199,23 @@ export function CommercialForecastDrilldown({
                   <div className="flex items-center gap-2">
                     <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-[2px] border border-white/10 bg-white/5">
                       {(() => {
-                        const avatar = row.avatar || avatarResolver(row.operatorId, row.name);
-                        return avatar ? (
+                        const avatar =
+                          row.avatar ||
+                          avatarResolver(row.operatorId, row.name) ||
+                          getDeterministicConsultantAvatar(row.name);
+                        return (
                           <img
                             src={avatar}
                             alt={row.name}
                             className="h-full w-full object-cover"
                             onError={(e) => {
-                              (e.target as HTMLElement).style.display = "none";
+                              const img = e.currentTarget;
+                              const fallback = getDeterministicConsultantAvatar(row.name);
+                              if (img.src !== fallback) {
+                                img.src = fallback;
+                              }
                             }}
                           />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-red-400 bg-red-950/30">
-                            {row.name.slice(0, 2).toUpperCase()}
-                          </div>
                         );
                       })()}
                     </div>

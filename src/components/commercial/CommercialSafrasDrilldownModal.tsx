@@ -12,7 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { TVUnclassifiedDeal } from "@/lib/commercial/safras-cohorts-data";
-import { buildConsultantAvatarResolver } from "@/lib/commercial/avatar-matcher";
+import { buildConsultantAvatarResolver, getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 interface CommercialSafrasDrilldownModalProps {
   isOpen: boolean;
@@ -230,18 +230,23 @@ export function CommercialSafrasDrilldownModal({
                               }`}
                             >
                               {(() => {
-                                const avatar = deal.userAvatar || avatarResolver(undefined, deal.userName);
-                                return avatar ? (
+                                const avatar =
+                                  deal.userAvatar ||
+                                  avatarResolver(undefined, deal.userName) ||
+                                  getDeterministicConsultantAvatar(deal.userName);
+                                return (
                                   <img
                                     src={avatar}
                                     alt={deal.userName}
                                     className="h-full w-full object-cover"
                                     onError={(e) => {
-                                      (e.target as HTMLElement).style.display = "none";
+                                      const img = e.currentTarget;
+                                      const fallback = getDeterministicConsultantAvatar(deal.userName);
+                                      if (img.src !== fallback) {
+                                        img.src = fallback;
+                                      }
                                     }}
                                   />
-                                ) : (
-                                  deal.userName.slice(0, 2).toUpperCase()
                                 );
                               })()}
                             </div>

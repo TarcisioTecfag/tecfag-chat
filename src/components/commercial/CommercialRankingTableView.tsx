@@ -2,6 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Zap, AlertTriangle, Trophy, Medal, Clock, ShieldCheck } from "lucide-react";
 import { RankingOperatorRow } from "@/lib/commercial/ranking-data";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
 export interface CommercialRankingTableViewProps {
   operators: RankingOperatorRow[];
@@ -83,20 +84,18 @@ export function CommercialRankingTableView({
         <div className="flex items-center gap-3 shrink-0 min-w-[150px] sm:min-w-[180px] xl:min-w-[210px]">
           {/* Avatar com badge de posição no topo esquerdo */}
           <div className="relative h-11 w-11 sm:h-12 sm:w-12 xl:h-13 xl:w-13 shrink-0 rounded-[4px] overflow-hidden border border-slate-200 bg-slate-100 dark:border-zinc-800 dark:bg-zinc-900 shadow-sm">
-            {op.avatarUrl ? (
-              <img
-                src={op.avatarUrl}
-                alt={op.name}
-                className="h-full w-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = "none";
-                }}
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center font-mono font-bold text-[10px] text-slate-600 bg-slate-200 dark:text-zinc-400 dark:bg-zinc-800">
-                {op.name.slice(0, 2).toUpperCase()}
-              </div>
-            )}
+            <img
+              src={op.avatarUrl || getDeterministicConsultantAvatar(op.name)}
+              alt={op.name}
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                const img = e.currentTarget;
+                const fallback = getDeterministicConsultantAvatar(op.name);
+                if (img.src !== fallback) {
+                  img.src = fallback;
+                }
+              }}
+            />
             <PositionBadge position={op.position} />
           </div>
 

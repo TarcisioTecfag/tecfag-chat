@@ -5,6 +5,7 @@ import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CommercialEvidenceDialog } from "./CommercialEvidenceDialog";
 import { CommercialHomeSkeleton } from "./CommercialHomeSkeleton";
+import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -545,17 +546,18 @@ export function CommercialHomeView() {
                 transition={{ duration: 0.15 }}
                 className="flex items-center gap-2 border border-border bg-card px-2.5 py-1.5 text-left rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950/70 shadow-sm cursor-default"
               >
-                {data?.consultant.avatar ? (
-                  <img
-                    src={data.consultant.avatar}
-                    alt={consultantName}
-                    className="size-6 rounded-[2px] object-cover border border-border dark:border-zinc-700"
-                  />
-                ) : (
-                  <span className="flex size-6 items-center justify-center bg-primary/10 text-[10px] font-bold text-primary rounded-[2px] dark:bg-rose-950 dark:text-rose-300">
-                    {getInitials(consultantName)}
-                  </span>
-                )}
+                <img
+                  src={data?.consultant.avatar || getDeterministicConsultantAvatar(consultantName)}
+                  alt={consultantName}
+                  className="size-6 rounded-[2px] object-cover border border-border dark:border-zinc-700"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    const fallback = getDeterministicConsultantAvatar(consultantName);
+                    if (img.src !== fallback) {
+                      img.src = fallback;
+                    }
+                  }}
+                />
                 <span className="hidden text-xs font-semibold text-foreground dark:text-zinc-300 sm:inline">
                   {consultantName}
                 </span>
