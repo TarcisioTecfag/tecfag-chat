@@ -44,6 +44,15 @@ import {
   PrevistasTierKey,
   SellerPrevistasRow,
 } from "@/lib/commercial/previstas-data";
+import { CommercialPacingTableView } from "./CommercialPacingTableView";
+import { CommercialPacingFilterModal } from "./CommercialPacingFilterModal";
+import {
+  BASELINE_PACING_PERSONNALITE,
+  BASELINE_PACING_SEMI_MAQUINAS,
+  getBaselinePacingDeals,
+  PacingSellerRow,
+  PacingViewMode,
+} from "@/lib/commercial/pacing-data";
 
 
 
@@ -185,6 +194,11 @@ export function CommercialBiView() {
   const [previstasModalOpen, setPrevistasModalOpen] = useState(false);
   const [previstasModalSeller, setPrevistasModalSeller] = useState<SellerPrevistasRow | null>(null);
   const [previstasModalHorizonKey, setPrevistasModalHorizonKey] = useState<PrevistasTierKey | "all">("all");
+
+  // Estados para o Modal de Pacing / Oportunidades do Dia (Slide 4 / Fotos 1, 2 e 3)
+  const [pacingModalOpen, setPacingModalOpen] = useState(false);
+  const [pacingModalSeller, setPacingModalSeller] = useState<PacingSellerRow | null>(null);
+  const [pacingViewMode, setPacingViewMode] = useState<PacingViewMode>("daily");
 
 
 
@@ -391,6 +405,19 @@ export function CommercialBiView() {
     }
     return getBaselinePrevistasDeals();
   }, [previstasModalSeller]);
+
+  // Handlers para o Modal de Pacing / Oportunidades do Dia (Slide 4)
+  const handlePacingSellerClick = (seller: PacingSellerRow) => {
+    setPacingModalSeller(seller);
+    setPacingModalOpen(true);
+  };
+
+  const activePacingModalDeals = useMemo(() => {
+    if (pacingModalSeller) {
+      return getBaselinePacingDeals(pacingModalSeller.sellerId);
+    }
+    return getBaselinePacingDeals();
+  }, [pacingModalSeller]);
 
   const aiPersonaName = tenant === "tecfag" ? "FAGNER" : "VALENTINA";
 
@@ -624,60 +651,16 @@ export function CommercialBiView() {
               )}
 
 
-              {/* ─── SLIDE 3: PERDAS & SLA / TMA ─── */}
-              {module === 3 && data && (
-                <div className="space-y-3 overflow-y-auto max-h-[85vh] scrollbar-thin">
-                  <div className="grid gap-2 sm:grid-cols-4">
-                    <Metric
-                      label="TMA geral"
-                      value={
-                        data.tma.averageSeconds === null
-                          ? "—"
-                          : `${number.format(data.tma.averageSeconds / 60)} min`
-                      }
-                      hint="Transferência → primeira resposta"
-                    />
-                    <Metric
-                      label="Dentro do SLA"
-                      value={
-                        data.tma.slaPercent === null
-                          ? "—"
-                          : `${number.format(data.tma.slaPercent)}%`
-                      }
-                      hint={`Limite: ${data.settings.slaLimitMinutes} min`}
-                    />
-                    <Metric label="Respostas medidas" value={String(data.tma.answeredCount)} />
-                    <Metric label="Pendentes" value={String(data.tma.pendingCount)} />
-                  </div>
-                  <div className={surface}>
-                    <p className={badge}>Ranking de resposta</p>
-                    <div className="mt-3 space-y-1">
-                      {data.tma.byOperator
-                        .filter((item) => item.count || item.pending)
-                        .map((item, index) => (
-                          <div
-                            key={item.operatorId}
-                            className="flex justify-between gap-3 border-b border-zinc-800 py-1.5 text-xs font-mono"
-                          >
-                            <span>
-                              {index + 1}. {item.name}{" "}
-                              <small className="text-zinc-400">
-                                · {item.count} respostas · {item.pending} pendentes
-                              </small>
-                            </span>
-                            <strong className="text-emerald-400">
-                              {item.averageSeconds === null
-                                ? "—"
-                                : `${number.format(item.averageSeconds / 60)} min`}
-                            </strong>
-                          </div>
-                        ))}
-                      {!data.tma.byOperator.some((item) => item.count || item.pending) && (
-                        <Empty text="O TMA começa quando um atendimento é atribuído a um consultor comercial." />
-                      )}
-                    </div>
-                  </div>
-                </div>
+              {/* ─── SLIDE 3: COCKPIT DE METAS & PACING DIÁRIO / SEMANAL (RÉPLICA FIEL) ─── */}
+              {module === 3 && (
+                <CommercialPacingTableView
+                  personnaliteData={BASELINE_PACING_PERSONNALITE}
+                  semiMaquinasData={BASELINE_PACING_SEMI_MAQUINAS}
+                  viewMode={pacingViewMode}
+                  onToggleViewMode={setPacingViewMode}
+                  onSellerClick={handlePacingSellerClick}
+                  tenantId={tenant}
+                />
               )}
 
               {/* ─── SLIDE 4: RESPONSABILIDADES & SAFRAS ─── */}
@@ -760,6 +743,25 @@ export function CommercialBiView() {
         }}
         onSaveDirectives={(dealIds) => {
           console.log(`[PREVISTAS] Salvando diretrizes para ${dealIds.length} oportunidades:`, dealIds);
+        }}
+      />
+
+      {/* ─── MODAL DETALHADO DE PACING / OPORTUNIDADES DO DIA (SLIDE 4 / FOTO 2) ─── */}
+      <CommercialPacingFilterModal
+        isOpen={pacingModalOpen}
+        onClose={() => setPacingModalOpen(false)}
+        sellerName={pacingModalSeller?.sellerName || "Marcelo Nardelli"}
+        sellerId={pacingModalSeller?.sellerId}
+        division={pacingModalSeller?.division || "personnalite"}
+        metaValue={pacingModalSeller?.metaMonthly || 880_000}
+        deals={activePacingModalDeals}
+        sellerAvatar={pacingModalSeller?.avatarUrl}
+        onOpenDeal={(dealId) => openDeal(dealId)}
+        onOpenProfile={() => {
+          navigate({ to: "/commercial-management" as any });
+        }}
+        onCallContact={(phone, dealTitle) => {
+          console.log(`[PACING] Contatando telefone: ${phone} (${dealTitle})`);
         }}
       />
     </section>
