@@ -53,6 +53,11 @@ import {
   PacingSellerRow,
   PacingViewMode,
 } from "@/lib/commercial/pacing-data";
+import { CommercialPerdasTableView } from "./CommercialPerdasTableView";
+import {
+  ALL_PERDAS_PERIODS,
+  PerdasPeriodKey,
+} from "@/lib/commercial/perdas-data";
 
 
 
@@ -199,6 +204,9 @@ export function CommercialBiView() {
   const [pacingModalOpen, setPacingModalOpen] = useState(false);
   const [pacingModalSeller, setPacingModalSeller] = useState<PacingSellerRow | null>(null);
   const [pacingViewMode, setPacingViewMode] = useState<PacingViewMode>("daily");
+
+  // Estado para o Slide 5 (Perdas do Mês & Motivos de Perda)
+  const [perdasPeriod, setPerdasPeriod] = useState<PerdasPeriodKey>("mes_atual");
 
 
 
@@ -663,12 +671,12 @@ export function CommercialBiView() {
                 />
               )}
 
-              {/* ─── SLIDE 4: RESPONSABILIDADES & SAFRAS ─── */}
+              {/* ─── SLIDE 4: PERDAS DO MÊS & MOTIVOS DE PERDA (RÉPLICA FIEL) ─── */}
               {module === 4 && (
-                <div className="space-y-3 overflow-y-auto max-h-[85vh] scrollbar-thin">
-                  <CommercialResponsibilitiesPanel division={division} onOpenDeal={openDeal} />
-                  <CommercialCohortsPanel division={division} onOpenDeal={openDeal} />
-                </div>
+                <CommercialPerdasTableView
+                  selectedPeriod={perdasPeriod}
+                  onSelectPeriod={setPerdasPeriod}
+                />
               )}
             </>
           )}
