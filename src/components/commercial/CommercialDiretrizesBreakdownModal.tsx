@@ -87,26 +87,26 @@ export function CommercialDiretrizesBreakdownModal({
                   </span>
 
                   {/* Barra de Progresso + Contadores */}
-                  <div className="flex-1 max-w-sm">
+                  <div className="flex-1 max-w-md mx-3">
                     {/* Barra */}
-                    <div className="h-2 w-full overflow-hidden rounded-[2px] bg-zinc-800/80">
+                    <div className="h-3 sm:h-3.5 w-full overflow-hidden rounded-full bg-zinc-800/80 border border-zinc-700/50">
                       {hasDirectives ? (
                         <div
-                          className="h-full bg-emerald-500 transition-all"
+                          className="h-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.35)] transition-all"
                           style={{ width: `${pct}%` }}
                         />
                       ) : null}
                     </div>
 
                     {/* Contadores sob a barra */}
-                    <div className="mt-1 flex items-center gap-3 font-mono text-[10px]">
-                      <span className={c.concluidas > 0 ? "text-emerald-400 font-bold" : "text-zinc-600"}>
+                    <div className="mt-1 flex items-center gap-3.5 font-mono text-[11px] sm:text-xs">
+                      <span className={c.concluidas > 0 ? "text-emerald-400 font-black" : "text-zinc-500 font-semibold"}>
                         {c.concluidas} conc.
                       </span>
-                      <span className={c.pendenteHoje > 0 ? "text-amber-400 font-bold" : "text-zinc-600"}>
+                      <span className={c.pendenteHoje > 0 ? "text-amber-400 font-black" : "text-zinc-500 font-semibold"}>
                         {c.pendenteHoje} hoje
                       </span>
-                      <span className={c.atrasadas > 0 ? "text-red-400 font-bold" : "text-zinc-600"}>
+                      <span className={c.atrasadas > 0 ? "text-red-400 font-black" : "text-zinc-500 font-semibold"}>
                         {c.atrasadas} atras.
                       </span>
                     </div>
