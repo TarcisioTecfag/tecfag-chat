@@ -58,6 +58,7 @@ import {
   ALL_PERDAS_PERIODS,
   PerdasPeriodKey,
 } from "@/lib/commercial/perdas-data";
+import { CommercialRankingTableView } from "./CommercialRankingTableView";
 
 
 
@@ -282,12 +283,12 @@ export function CommercialBiView() {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  // Rotação automática de slides (5 módulos TV)
+  // Rotação automática de slides (6 módulos TV)
   useEffect(() => {
     if (!rotating) return;
     const interval = window.setInterval(
       () => {
-        setModule((current) => (current + 1) % 5);
+        setModule((current) => (current + 1) % 6);
       },
       Math.max(10, data?.settings.tvSettings.rotationSeconds || 30) * 1000,
     );
@@ -512,7 +513,7 @@ export function CommercialBiView() {
               type="button"
               onClick={() => {
                 setRotating(false);
-                setModule((current) => (current === 0 ? 4 : current - 1));
+                setModule((current) => (current === 0 ? 5 : current - 1));
               }}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Slide Anterior"
@@ -535,7 +536,7 @@ export function CommercialBiView() {
               type="button"
               onClick={() => {
                 setRotating(false);
-                setModule((current) => (current + 1) % 5);
+                setModule((current) => (current + 1) % 6);
               }}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Próximo Slide"
@@ -575,9 +576,9 @@ export function CommercialBiView() {
             </button>
           </div>
 
-          {/* 5 Dots de Navegação Angular (Dashboard TV) */}
+          {/* 6 Dots de Navegação Angular (Dashboard TV) */}
           <div className="flex items-center gap-1 ml-1">
-            {[0, 1, 2, 3, 4].map((idx) => {
+            {[0, 1, 2, 3, 4, 5].map((idx) => {
               const isActive = module === idx;
               return (
                 <button
@@ -678,6 +679,9 @@ export function CommercialBiView() {
                   onSelectPeriod={setPerdasPeriod}
                 />
               )}
+
+              {/* ─── SLIDE 5: RANKING GERAL DE RESPOSTA & SLA (RÉPLICA FIEL) ─── */}
+              {module === 5 && <CommercialRankingTableView />}
             </>
           )}
 
