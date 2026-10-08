@@ -5,6 +5,7 @@ import { contacts, conversations, mediaFiles } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
+import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../audio-convert";
 
 export class BaileysAdapter implements WhatsAppAdapter {
   readonly provider = "baileys" as const;
@@ -109,7 +110,21 @@ export class BaileysAdapter implements WhatsAppAdapter {
             if (message.mediaType === "image") {
               sentMsg = await sock.sendMessage(jid, { image: mediaSource, caption }, options);
             } else if (message.mediaType === "audio") {
-              sentMsg = await sock.sendMessage(jid, { audio: mediaSource, mimetype: mimeType.startsWith("audio/") ? mimeType : "audio/mp4", ptt: true }, options);
+              let audioBuffer = mediaBuffer;
+              let audioMime = mimeType;
+              if (audioBuffer && (metaAudioNeedsConversion(audioMime) || audioMime.includes("webm"))) {
+                try {
+                  audioBuffer = await convertAudioToOggOpus(audioBuffer);
+                  audioMime = "audio/ogg; codecs=opus";
+                  console.log(`[BaileysAdapter] Áudio convertido com sucesso para OGG/Opus (${audioBuffer.length} bytes)`);
+                } catch (convErr) {
+                  console.warn("[BaileysAdapter] Falha ao converter áudio para OGG/Opus:", convErr);
+                }
+              }
+              const finalMime = audioMime.includes("ogg")
+                ? "audio/ogg; codecs=opus"
+                : audioMime.startsWith("audio/") ? audioMime : "audio/ogg; codecs=opus";
+              sentMsg = await sock.sendMessage(jid, { audio: audioBuffer || mediaSource, mimetype: finalMime, ptt: true }, options);
             } else if (message.mediaType === "video") {
               sentMsg = await sock.sendMessage(jid, { video: mediaSource, caption }, options);
             } else {

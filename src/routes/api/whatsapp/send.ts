@@ -6,6 +6,7 @@ import { conversations, contacts, mediaFiles, channelConfigs } from "../../../db
 import { eq, and } from "drizzle-orm";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
+import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
 import fs from "fs";
 import path from "path";
 
@@ -45,16 +46,30 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             const file = formData.get("file") as File | null;
             if (file) {
               const fileId = `media-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-              const mime = file.type || "application/octet-stream";
+              let mime = file.type || "application/octet-stream";
               fileName = file.name || "arquivo";
               const arrayBuffer = await file.arrayBuffer();
-              const buffer = Buffer.from(arrayBuffer);
+              let buffer: Buffer = Buffer.from(arrayBuffer) as any;
 
               const ext = fileName.split(".").pop()?.toLowerCase() || "";
               if (mime.startsWith("image/")) mediaType = "image";
               else if (mime.startsWith("audio/") || ["mp3","ogg","webm","m4a","aac","oga","opus","wav"].includes(ext)) mediaType = "audio";
               else if (mime.startsWith("video/")) mediaType = "video";
               else mediaType = "document";
+
+              // Converte áudios para OGG/Opus padrão WhatsApp (evita erro de reprodução no app do cliente)
+              if (mediaType === "audio" && (metaAudioNeedsConversion(mime) || ext === "webm" || mime.includes("webm"))) {
+                try {
+                  const converted = await convertAudioToOggOpus(buffer);
+                  buffer = converted as any;
+                  mime = "audio/ogg; codecs=opus";
+                  fileName = `${fileName.replace(/\.[^./\\]+$/, "") || "audio"}.ogg`;
+                  console.log(`[WhatsApp Send] Áudio convertido com sucesso para OGG/Opus (${buffer.length} bytes)`);
+                } catch (convErr) {
+                  console.warn("[WhatsApp Send] Conversão para OGG/Opus falhou, mantendo buffer original:", convErr);
+                }
+              }
+
               pendingFile = { id: fileId, buffer, mime, name: fileName };
               mediaUrl = `/api/baileys/media?messageId=${fileId}`;
             }

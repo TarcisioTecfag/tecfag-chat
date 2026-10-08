@@ -112,37 +112,114 @@ function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; i
       a.pause();
       setPlaying(false);
     } else {
-      a.play();
+      a.play().catch((err) => console.warn("[AudioBubble] Play error:", err));
       setPlaying(true);
     }
   };
 
   const fmt = (s: number) => {
-    if (!isFinite(s)) return "0:00";
+    if (!isFinite(s) || s < 0) return "0:00";
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const pct = duration > 0 ? (current / duration) * 100 : 0;
+  // Atualização robusta de duração (inclui blindagem do bug de Infinity do Chromium em OGG/WebM)
+  const updateDuration = React.useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (isFinite(a.duration) && a.duration > 0) {
+      setDuration(a.duration);
+    } else if (a.duration === Infinity) {
+      const onSeeked = () => {
+        a.removeEventListener("seeked", onSeeked);
+        if (isFinite(a.currentTime) && a.currentTime > 0) {
+          setDuration(a.currentTime);
+        }
+        a.currentTime = 0;
+      };
+      a.addEventListener("seeked", onSeeked, { once: true });
+      a.currentTime = 1e101;
+    }
+  }, []);
+
+  const handleTimeUpdate = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    const ct = a.currentTime || 0;
+    setCurrent(ct);
+
+    // Se duration ainda for 0 ou infinito durante a reprodução, tenta inferir
+    if (duration <= 0 || !isFinite(duration)) {
+      if (isFinite(a.duration) && a.duration > 0) {
+        setDuration(a.duration);
+      } else if (a.seekable && a.seekable.length > 0) {
+        const seekEnd = a.seekable.end(a.seekable.length - 1);
+        if (isFinite(seekEnd) && seekEnd > 0) {
+          setDuration(seekEnd);
+        }
+      } else if (ct > duration) {
+        setDuration(ct);
+      }
+    }
+  };
+
+  const handleEnded = () => {
+    const a = audioRef.current;
+    setPlaying(false);
+    setCurrent(0);
+    if (a && (duration <= 0 || !isFinite(duration)) && a.currentTime > 0) {
+      setDuration(a.currentTime);
+    }
+  };
+
+  const pct = duration > 0 && isFinite(duration)
+    ? Math.min(100, Math.max(0, (current / duration) * 100))
+    : 0;
+
+  // Estilos invertidos: operador (isMe) usa container bg-primary com botão branco; cliente usa bg-card com botão bg-primary
+  const containerClasses = isMe
+    ? "flex items-center gap-3 rounded-2xl bg-primary text-primary-foreground border border-primary/20 shadow-md px-4 py-3 w-[280px] sm:w-[320px] max-w-full"
+    : "flex items-center gap-3 rounded-2xl bg-card border border-border/80 shadow-soft px-4 py-3 w-[280px] sm:w-[320px] max-w-full";
+
+  const buttonClasses = isMe
+    ? "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-primary shadow-sm hover:bg-white/90 active:scale-95 transition cursor-pointer"
+    : "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft hover:opacity-90 active:scale-95 transition cursor-pointer";
+
+  const titleClasses = isMe
+    ? "truncate text-xs font-bold text-white leading-none"
+    : "truncate text-xs font-bold text-foreground leading-none";
+
+  const trackClasses = isMe
+    ? "relative h-1.5 w-full rounded-full bg-white/25 overflow-hidden"
+    : "relative h-1.5 w-full rounded-full bg-muted overflow-hidden";
+
+  const barClasses = isMe
+    ? "absolute inset-y-0 left-0 rounded-full bg-white transition-all duration-100"
+    : "absolute inset-y-0 left-0 rounded-full bg-primary transition-all duration-100";
+
+  const timeClasses = isMe
+    ? "flex justify-between text-[10px] text-white/80 font-medium tracking-tight"
+    : "flex justify-between text-[10px] text-muted-foreground font-medium tracking-tight";
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl bg-card border border-border/80 shadow-soft px-4 py-3 w-[280px] sm:w-[320px] max-w-full">
+    <div className={containerClasses}>
       <audio
         ref={audioRef}
         src={src}
-        preload="metadata"
-        onTimeUpdate={() => setCurrent(audioRef.current?.currentTime || 0)}
-        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
-        onEnded={() => {
-          setPlaying(false);
-          setCurrent(0);
-        }}
+        preload="auto"
+        onLoadedMetadata={updateDuration}
+        onDurationChange={updateDuration}
+        onCanPlayThrough={updateDuration}
+        onTimeUpdate={handleTimeUpdate}
+        onEnded={handleEnded}
       />
       {/* Play / Pause */}
       <button
+        type="button"
         onClick={toggle}
-        className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft hover:opacity-90 transition cursor-pointer"
+        className={buttonClasses}
+        aria-label={playing ? "Pausar áudio" : "Tocar áudio"}
       >
         {playing ? (
           <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
@@ -158,33 +235,35 @@ function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; i
 
       <div className="flex flex-1 flex-col gap-1.5 min-w-0">
         {/* Nome do arquivo padronizado */}
-        <p className="truncate text-xs font-bold text-foreground leading-none">
+        <p className={titleClasses}>
           {fileName}
         </p>
 
         {/* Barra de progresso */}
-        <div className="relative h-1.5 w-full rounded-full bg-muted overflow-hidden">
+        <div className={trackClasses}>
           <div
-            className="absolute inset-y-0 left-0 rounded-full bg-primary transition-all duration-100"
+            className={barClasses}
             style={{ width: `${pct}%` }}
           />
           <input
             type="range"
             min={0}
-            max={duration || 1}
-            step={0.1}
+            max={duration > 0 && isFinite(duration) ? duration : 1}
+            step={0.05}
             value={current}
             onChange={(e) => {
               const v = Number(e.target.value);
               setCurrent(v);
-              if (audioRef.current) audioRef.current.currentTime = v;
+              if (audioRef.current && isFinite(v)) {
+                audioRef.current.currentTime = v;
+              }
             }}
             className="absolute inset-0 w-full opacity-0 cursor-pointer h-full"
           />
         </div>
 
         {/* Tempo */}
-        <div className="flex justify-between text-[10px] text-muted-foreground font-medium">
+        <div className={timeClasses}>
           <span>{fmt(current)}</span>
           <span>{fmt(duration)}</span>
         </div>
@@ -1179,7 +1258,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
+      let recorderOptions: MediaRecorderOptions = {};
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          recorderOptions = { mimeType: "audio/webm;codecs=opus" };
+        } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+          recorderOptions = { mimeType: "audio/ogg;codecs=opus" };
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          recorderOptions = { mimeType: "audio/mp4" };
+        }
+      }
+      const mr = new MediaRecorder(stream, recorderOptions);
       chunksRef.current = [];
       mr.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -2983,7 +3072,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           {recordingState === "preview" && audioUrl && (
             <div className="flex items-center gap-3 mb-3 px-1 animate-in slide-in-from-bottom-2 duration-200">
               <div className="flex-1">
-                <AudioBubble src={audioUrl} fileName="Áudio gravado" />
+                <AudioBubble src={audioUrl} fileName="Áudio gravado" isMe={true} />
               </div>
               <Tooltip>
                 <TooltipTrigger asChild>

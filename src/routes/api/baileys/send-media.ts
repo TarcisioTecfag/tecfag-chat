@@ -5,6 +5,7 @@ import { messages, conversations, contacts, mediaFiles, channelConfigs } from ".
 import { eq, and } from "drizzle-orm";
 
 import { requireSession } from "../../../lib/auth-session";
+import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,17 +99,23 @@ export const Route = createFileRoute("/api/baileys/send-media")({
           const isImage = mime.startsWith("image/") && !isSticker;
           const isVideo = mime.startsWith("video/") && !isAudio;
 
-          // Normalizar MIME de áudio para o formato que o WhatsApp/Baileys aceita
+          // Normalizar e converter áudio para OGG/Opus (obrigatório para reprodução no WhatsApp)
           let audioMime = mime;
+          let audioBuffer: Buffer = buffer as any;
           if (isAudio) {
-            if (ext === "ogg" || ext === "oga" || mime.includes("ogg")) {
+            if (metaAudioNeedsConversion(mime) || ext === "webm" || mime.includes("webm")) {
+              try {
+                audioBuffer = (await convertAudioToOggOpus(buffer as any)) as any;
+                audioMime = "audio/ogg; codecs=opus";
+                console.log(`[Baileys SendMedia] Áudio convertido com sucesso para OGG/Opus (${audioBuffer.length} bytes)`);
+              } catch (convErr) {
+                console.warn("[Baileys SendMedia] Conversão para OGG/Opus falhou, mantendo buffer original:", convErr);
+                audioMime = "audio/ogg; codecs=opus";
+              }
+            } else if (ext === "ogg" || ext === "oga" || mime.includes("ogg")) {
               audioMime = "audio/ogg; codecs=opus";
-            } else if (ext === "webm" || mime.includes("webm")) {
-              audioMime = "audio/webm";
-            } else if (ext === "mp3" || mime.includes("mpeg")) {
-              audioMime = "audio/mpeg";
-            } else if (ext === "mp4" || ext === "m4a") {
-              audioMime = "audio/mp4";
+            } else {
+              audioMime = mime.startsWith("audio/") ? mime : "audio/mp4";
             }
           }
 
@@ -132,7 +139,7 @@ export const Route = createFileRoute("/api/baileys/send-media")({
             });
           } else if (isAudio) {
             sentMsg = await sock.sendMessage(jid, {
-              audio: buffer,
+              audio: audioBuffer,
               mimetype: audioMime,
               ptt: true, // true = mensagem de voz, false = arquivo de áudio
             });

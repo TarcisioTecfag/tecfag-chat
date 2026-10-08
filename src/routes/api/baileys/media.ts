@@ -108,10 +108,40 @@ export const Route = createFileRoute("/api/baileys/media")({
           }
         }
 
+        const totalSize = buffer.length;
+        const rangeHeader = request.headers.get("range");
+
+        if (rangeHeader && rangeHeader.startsWith("bytes=")) {
+          const parts = rangeHeader.replace(/bytes=/, "").split("-");
+          const start = parseInt(parts[0], 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+
+          if (!isNaN(start) && start < totalSize) {
+            const safeEnd = Math.min(end, totalSize - 1);
+            const chunkSize = safeEnd - start + 1;
+            const slice = buffer.subarray(start, safeEnd + 1);
+
+            return new Response(new Uint8Array(slice), {
+              status: 206,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": contentType,
+                "Content-Range": `bytes ${start}-${safeEnd}/${totalSize}`,
+                "Accept-Ranges": "bytes",
+                "Content-Length": String(chunkSize),
+                "Cache-Control": "private, max-age=31536000",
+              },
+            });
+          }
+        }
+
         return new Response(new Uint8Array(buffer), {
+          status: 200,
           headers: {
             ...corsHeaders,
             "Content-Type": contentType,
+            "Content-Length": String(totalSize),
+            "Accept-Ranges": "bytes",
             "Cache-Control": "private, max-age=31536000",
           },
         });

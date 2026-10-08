@@ -677,7 +677,7 @@ export function CommercialBiView() {
         deals={activeModalDeals}
         onOpenDeal={openDeal}
         onOpenProfile={() => {
-          navigate({ to: "/commercial-management" });
+          navigate({ to: "/commercial-management" as any });
         }}
       />
     </section>

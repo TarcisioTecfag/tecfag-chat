@@ -109,10 +109,11 @@ export class MetaAdapter implements WhatsAppAdapter {
     fileName: string,
     mimeType: string
   ): Promise<string> {
+    const cleanMime = (mimeType || "application/octet-stream").split(";")[0].trim().toLowerCase();
     const formData = new FormData();
-    const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
+    const blob = new Blob([new Uint8Array(buffer)], { type: cleanMime });
     formData.append("file", blob, fileName);
-    formData.append("type", mimeType);
+    formData.append("type", cleanMime);
     formData.append("messaging_product", "whatsapp");
 
     const uploadRes = await fetch(`${META_BASE_URL}/${phoneNumberId}/media`, {
