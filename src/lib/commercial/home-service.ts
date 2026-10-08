@@ -8,6 +8,7 @@ import {
   commercialGoals,
   crmDealActivities,
   crmDeals,
+  crmStages,
   operators,
 } from "../../db/schema";
 import { calculateBusinessPacing, saoPauloDay, type CommercialCalendarDay } from "./metrics";
@@ -130,6 +131,7 @@ export async function getCommercialHome(tenantId: string, operatorId: string, no
           dealId: commercialDirectives.dealId,
           dealTitle: crmDeals.title,
           dealValue: crmDeals.value,
+          stageName: crmStages.name,
           instruction: commercialDirectives.instruction,
           priority: commercialDirectives.priority,
           assignedDate: commercialDirectives.assignedDate,
@@ -143,6 +145,10 @@ export async function getCommercialHome(tenantId: string, operatorId: string, no
         .innerJoin(
           crmDeals,
           and(eq(crmDeals.id, commercialDirectives.dealId), eq(crmDeals.tenantId, tenantId)),
+        )
+        .leftJoin(
+          crmStages,
+          and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId)),
         )
         .leftJoin(
           commercialEvidence,

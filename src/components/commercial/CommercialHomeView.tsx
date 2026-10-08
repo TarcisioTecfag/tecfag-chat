@@ -6,6 +6,7 @@ import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CommercialEvidenceDialog } from "./CommercialEvidenceDialog";
 import { CommercialHomeSkeleton } from "./CommercialHomeSkeleton";
 import {
+  AlertTriangle,
   ArrowUpRight,
   Bell,
   BriefcaseBusiness,
@@ -18,8 +19,10 @@ import {
   Flame,
   ListFilter,
   Loader2,
+  Mail,
   MessageSquare,
   MessageSquareText,
+  Phone,
   RefreshCw,
   Target,
   TrendingUp,
@@ -68,6 +71,7 @@ type CommercialHome = {
     dealId: string;
     dealTitle: string;
     dealValue: number;
+    stageName?: string | null;
     instruction: string;
     priority: string;
     assignedDate: string;
@@ -964,17 +968,18 @@ export function CommercialHomeView() {
                                     {item.dealTitle}
                                   </h3>
                                   {item.overdue && !isDone && (
-                                    <span className="rounded-[2px] border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-bold font-mono uppercase tracking-[.12em] text-red-700 dark:border-red-700 dark:bg-red-950/80 dark:text-red-300 animate-pulse">
-                                      ⚠️ ATRASADA
+                                    <span className="inline-flex items-center gap-1 rounded-[2px] border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-bold font-mono uppercase tracking-[.12em] text-red-700 dark:border-red-700 dark:bg-red-950/80 dark:text-red-300 animate-pulse">
+                                      <AlertTriangle size={10} className="stroke-[2.5]" />
+                                      ATRASADA
                                     </span>
                                   )}
                                   <PriorityPill priority={item.priority} />
                                 </div>
                                 <p className="mt-1 text-xs font-medium text-muted-foreground dark:text-zinc-300">
-                                  Retornar proposta · Proposta Enviada
+                                  Executar diretriz - {item.stageName || "Leads Recebidos (Faltam 90d p/ maturar)"}
                                 </p>
-                                <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground dark:text-zinc-400 bg-muted/30 dark:bg-zinc-900/40 p-2 border border-border/40 dark:border-zinc-800/60 rounded-[4px] group-hover:border-primary/30 transition-colors">
-                                  {item.instruction}
+                                <p className="mt-1.5 max-w-2xl text-[11px] font-semibold uppercase tracking-wide text-zinc-400 bg-muted/30 dark:bg-zinc-900/40 p-2 border border-border/40 dark:border-zinc-800/60 rounded-[4px] group-hover:border-primary/30 transition-colors">
+                                  {item.instruction || "GESTOR PONTUOU ATENÇÃO E EXECUÇÃO NESSA NEGOCIAÇÃO"}
                                 </p>
                               </div>
                             </div>
@@ -990,14 +995,14 @@ export function CommercialHomeView() {
                                   }`}
                                 >
                                   {item.overdue && !isDone
-                                    ? `ATRASADA (DESDE ${item.assignedDate.slice(8, 10)}/${item.assignedDate.slice(5, 7)})`
-                                    : "HOJE"}
+                                    ? `ATRASADA · ${item.assignedDate ? `${item.assignedDate.slice(8, 10)}/${item.assignedDate.slice(5, 7)}` : "08/10"}`
+                                    : `HOJE · ${item.assignedDate ? `${item.assignedDate.slice(8, 10)}/${item.assignedDate.slice(5, 7)}` : "08/10"}`}
                                 </div>
                                 <div className="mt-1 font-mono text-sm font-semibold text-foreground dark:text-zinc-50">
                                   {formatBRL(item.dealValue)}
                                 </div>
                                 <div className="mt-1 text-[10px] text-muted-foreground dark:text-zinc-400">
-                                  Proposta Enviada
+                                  {item.stageName || "Leads Recebidos (Faltam 90d p/ maturar)"}
                                 </div>
                               </div>
 
@@ -1005,13 +1010,27 @@ export function CommercialHomeView() {
                                 {isDone ? (
                                   <>
                                     <span className="rounded-[4px] bg-muted dark:bg-zinc-800/80 border border-border dark:border-zinc-700 px-2 py-1 text-[10px] font-bold text-foreground dark:text-zinc-300 flex items-center gap-1">
-                                      {item.evidenceChannel === "whatsapp"
-                                        ? "💬 WhatsApp"
-                                        : item.evidenceChannel === "call"
-                                          ? "📞 Ligação"
-                                          : item.evidenceChannel === "email"
-                                            ? "✉️ Email"
-                                            : "✓ Concluído"}
+                                      {item.evidenceChannel === "whatsapp" ? (
+                                        <>
+                                          <MessageSquare size={12} className="text-emerald-400" />
+                                          <span>WhatsApp</span>
+                                        </>
+                                      ) : item.evidenceChannel === "call" ? (
+                                        <>
+                                          <Phone size={12} className="text-emerald-400" />
+                                          <span>Ligação</span>
+                                        </>
+                                      ) : item.evidenceChannel === "email" ? (
+                                        <>
+                                          <Mail size={12} className="text-emerald-400" />
+                                          <span>E-mail</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Check size={12} className="text-emerald-400" />
+                                          <span>Concluído</span>
+                                        </>
+                                      )}
                                     </span>
                                     <motion.button
                                       whileHover={{ scale: 1.05, y: -1 }}
@@ -1373,8 +1392,12 @@ export function CommercialHomeView() {
         <CommercialEvidenceDialog
           directive={{
             id: selectedDirective.id,
+            dealId: selectedDirective.dealId,
             dealTitle: selectedDirective.dealTitle,
+            dealValue: selectedDirective.dealValue,
+            stageName: selectedDirective.stageName,
             instruction: selectedDirective.instruction,
+            priority: selectedDirective.priority,
           }}
           onClose={() => setSelectedDirective(null)}
           onOpenDeal={() => {
