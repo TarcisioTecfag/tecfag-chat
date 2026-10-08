@@ -76,6 +76,8 @@ import {
   BASELINE_TMA_PERSONNALITE,
   BASELINE_TMA_MAQUINAS,
 } from "@/lib/commercial/tma-whatsapp-data";
+import { CommercialSafrasTableView } from "./CommercialSafrasTableView";
+import { MaturityCohortFullscreenModal } from "./MaturityCohortFullscreenModal";
 
 
 
@@ -168,6 +170,7 @@ const money = new Intl.NumberFormat("pt-BR", {
 const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 const surface = "rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-4";
 const badge = "text-[10px] font-mono font-bold uppercase tracking-[.18em] text-red-400";
+const TOTAL_SLIDES = 8;
 
 function Empty({ text }: { text: string }) {
   return (
@@ -194,13 +197,26 @@ export function CommercialBiView() {
   const panelRef = useRef<HTMLElement>(null);
   const [division, setDivision] = useState("");
   const [module, setModule] = useState(0);
-  const [rotating, setRotating] = useState(false);
+  const [rotating, setRotating] = useState(true);
   const [data, setData] = useState<BiData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
   const [pointing, setPointing] = useState(false);
   const [pointResult, setPointResult] = useState<string | null>(null);
+
+  // Monitorar visibilidade da aba para pausar timer em background
+  const [isTabVisible, setIsTabVisible] = useState(() =>
+    typeof document !== "undefined" ? !document.hidden : true,
+  );
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsTabVisible(!document.hidden);
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
 
   // Estados para o Modal de Detalhamento de Negociações (Foto 2)
   const [modalOpen, setModalOpen] = useState(false);
@@ -230,6 +246,9 @@ export function CommercialBiView() {
   const [diretrizesDetailOpen, setDiretrizesDetailOpen] = useState(false);
   const [diretrizesBreakdownOpen, setDiretrizesBreakdownOpen] = useState(false);
   const [diretrizesModalConsultant, setDiretrizesModalConsultant] = useState<DiretrizesConsultantRow | null>(null);
+
+  // Estado para o Slide 8 (Safras & Régua De-Para Fullscreen)
+  const [safrasFullscreenOpen, setSafrasFullscreenOpen] = useState(false);
 
 
 
@@ -305,17 +324,27 @@ export function CommercialBiView() {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  // Pausa a rotação enquanto o usuário estiver interagindo com qualquer modal de detalhamento
+  const isAnyModalOpen =
+    modalOpen ||
+    deparaModalOpen ||
+    previstasModalOpen ||
+    pacingModalOpen ||
+    diretrizesDetailOpen ||
+    diretrizesBreakdownOpen;
+
   // Rotação automática de slides (8 módulos TV)
   useEffect(() => {
-    if (!rotating) return;
-    const interval = window.setInterval(
-      () => {
-        setModule((current) => (current + 1) % 8);
-      },
-      Math.max(10, data?.settings.tvSettings.rotationSeconds || 30) * 1000,
+    if (!rotating || isAnyModalOpen || !isTabVisible) return;
+    const rotationSeconds = Math.max(
+      10,
+      data?.settings?.tvSettings?.rotationSeconds || 24,
     );
+    const interval = window.setInterval(() => {
+      setModule((current) => (current + 1) % TOTAL_SLIDES);
+    }, rotationSeconds * 1000);
     return () => window.clearInterval(interval);
-  }, [rotating, data?.settings.tvSettings.rotationSeconds]);
+  }, [rotating, module, isAnyModalOpen, isTabVisible, data?.settings?.tvSettings?.rotationSeconds]);
 
   const openDeal = (dealId: string) =>
     navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
@@ -450,10 +479,6 @@ export function CommercialBiView() {
     return getBaselinePacingDeals();
   }, [pacingModalSeller]);
 
-  const aiPersonaName = tenant === "tecfag" ? "FAGNER" : "VALENTINA";
-
-
-
   return (
     <section
       ref={panelRef}
@@ -461,10 +486,9 @@ export function CommercialBiView() {
     >
       {/* ─── CABEÇALHO SUPERIOR EXECUTIVO (FIEL À GESTÃO COMERCIAL & FOTO 1) ─── */}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950/90 px-4 py-2 sm:px-6 shrink-0 backdrop-blur-sm">
-        {/* Esquerda: Logo Oficial + Badge IA + Status Rotação */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Logo e Nome da Empresa */}
-          <div className="flex items-center gap-2 rounded-[2px] bg-zinc-900 border border-zinc-800/80 px-2 py-1">
+        {/* Esquerda: Logo Oficial e Nome da Empresa */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-[2px] bg-zinc-900 border border-zinc-800/80 px-2.5 py-1">
             <img
               src={tenant === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg"}
               alt={tenant === "tecfag" ? "Tecfag" : "Valem"}
@@ -477,35 +501,6 @@ export function CommercialBiView() {
               {tenant === "tecfag" ? "TECFAG" : "VALEM"}
             </span>
           </div>
-
-          {/* Badge IA Ao Vivo */}
-          <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-[10px] font-mono font-bold text-emerald-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>{aiPersonaName} I.A - AO VIVO</span>
-          </div>
-
-          {/* Badge Rotação TV */}
-          <button
-            type="button"
-            onClick={() => setRotating((current) => !current)}
-            className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 text-[10px] font-mono font-bold transition-colors cursor-pointer ${
-              rotating
-                ? "border-emerald-500/40 bg-zinc-900 text-emerald-300 hover:bg-zinc-800"
-                : "border-amber-500/40 bg-zinc-900 text-amber-400 hover:bg-zinc-800"
-            }`}
-          >
-            {rotating ? (
-              <>
-                <Play className="h-3 w-3 fill-emerald-300" />
-                <span>ROTAÇÃO ATIVA</span>
-              </>
-            ) : (
-              <>
-                <Pause className="h-3 w-3 fill-amber-400" />
-                <span>ROTAÇÃO PAUSADA</span>
-              </>
-            )}
-          </button>
         </div>
 
         {/* Centro: Título do War Room */}
@@ -536,11 +531,11 @@ export function CommercialBiView() {
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
               onClick={() => {
-                setRotating(false);
-                setModule((current) => (current === 0 ? 7 : current - 1));
+                setModule((current) => (current === 0 ? TOTAL_SLIDES - 1 : current - 1));
               }}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Slide Anterior"
+              aria-label="Slide Anterior"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </motion.button>
@@ -551,10 +546,19 @@ export function CommercialBiView() {
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
               onClick={() => setRotating((current) => !current)}
-              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
-              title={rotating ? "Pausar rotação" : "Iniciar rotação"}
+              className={`rounded-[2px] border p-1 transition-colors cursor-pointer ${
+                rotating
+                  ? "border-emerald-500/50 bg-emerald-950/40 text-emerald-400 hover:bg-emerald-900/40 hover:text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+                  : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              }`}
+              title={rotating ? "Pausar rotação automática" : "Iniciar rotação automática"}
+              aria-label={rotating ? "Pausar rotação" : "Iniciar rotação"}
             >
-              {rotating ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              {rotating ? (
+                <Pause className="h-3.5 w-3.5 fill-current" />
+              ) : (
+                <Play className="h-3.5 w-3.5 fill-current" />
+              )}
             </motion.button>
 
             {/* Próximo Slide */}
@@ -563,11 +567,11 @@ export function CommercialBiView() {
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
               onClick={() => {
-                setRotating(false);
-                setModule((current) => (current + 1) % 8);
+                setModule((current) => (current + 1) % TOTAL_SLIDES);
               }}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Próximo Slide"
+              aria-label="Próximo Slide"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </motion.button>
@@ -612,7 +616,7 @@ export function CommercialBiView() {
 
           {/* 8 Dots de Navegação Angular (Dashboard TV) */}
           <div className="flex items-center gap-1 ml-1">
-            {[0, 1, 2, 3, 4, 5, 6, 7].map((idx) => {
+            {Array.from({ length: TOTAL_SLIDES }, (_, idx) => {
               const isActive = module === idx;
               return (
                 <motion.button
@@ -622,7 +626,6 @@ export function CommercialBiView() {
                   whileTap={{ scale: 0.9 }}
                   transition={{ duration: 0.15 }}
                   onClick={() => {
-                    setRotating(false);
                     setModule(idx);
                   }}
                   className={`transition-all duration-200 cursor-pointer ${
@@ -631,6 +634,7 @@ export function CommercialBiView() {
                       : "h-1.5 w-2 rounded-[2px] bg-zinc-800 hover:bg-zinc-600"
                   }`}
                   title={`Slide ${idx + 1}`}
+                  aria-label={`Ir para Slide ${idx + 1}`}
                 />
               );
             })}
@@ -752,6 +756,15 @@ export function CommercialBiView() {
                     }}
                   />
                 )}
+
+                {/* ─── SLIDE 8: SAFRAS & RÉGUA DE-PARA (EVOLUÇÃO MENSAL POR FAIXA DE VALOR) ─── */}
+                {module === 8 && (
+                  <CommercialSafrasTableView
+                    tenantId={tenant}
+                    onOpenDeal={openDeal}
+                    onFullscreen={() => setSafrasFullscreenOpen(true)}
+                  />
+                )}
               </motion.div>
             </AnimatePresence>
           )}
@@ -870,6 +883,14 @@ export function CommercialBiView() {
           setDiretrizesModalConsultant(c);
           setDiretrizesDetailOpen(true);
         }}
+      />
+
+      {/* ─── MODAL FULLSCREEN DE SAFRAS & RÉGUA DE-PARA (SLIDE 8) ─── */}
+      <MaturityCohortFullscreenModal
+        isOpen={safrasFullscreenOpen}
+        onClose={() => setSafrasFullscreenOpen(false)}
+        tenantId={tenant}
+        onOpenDeal={openDeal}
       />
     </section>
   );
