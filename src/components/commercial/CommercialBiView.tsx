@@ -59,6 +59,16 @@ import {
   PerdasPeriodKey,
 } from "@/lib/commercial/perdas-data";
 import { CommercialRankingTableView } from "./CommercialRankingTableView";
+import { CommercialDiretrizesTableView } from "./CommercialDiretrizesTableView";
+import { CommercialDiretrizesDetailModal } from "./CommercialDiretrizesDetailModal";
+import { CommercialDiretrizesBreakdownModal } from "./CommercialDiretrizesBreakdownModal";
+import {
+  BASELINE_DIRETRIZES_KPIS,
+  BASELINE_DIRETRIZES_PERSONNALITE,
+  BASELINE_DIRETRIZES_MAQUINAS,
+  ALL_BASELINE_DIRETRIZES_CONSULTANTS,
+  DiretrizesConsultantRow,
+} from "@/lib/commercial/diretrizes-crm-data";
 
 
 
@@ -209,6 +219,11 @@ export function CommercialBiView() {
   // Estado para o Slide 5 (Perdas do Mês & Motivos de Perda)
   const [perdasPeriod, setPerdasPeriod] = useState<PerdasPeriodKey>("mes_atual");
 
+  // Estados para o Slide 6 (Diretrizes CRM / Fotos 1, 2, 3 e 4)
+  const [diretrizesDetailOpen, setDiretrizesDetailOpen] = useState(false);
+  const [diretrizesBreakdownOpen, setDiretrizesBreakdownOpen] = useState(false);
+  const [diretrizesModalConsultant, setDiretrizesModalConsultant] = useState<DiretrizesConsultantRow | null>(null);
+
 
 
   // Relógio digital e data ao vivo
@@ -283,12 +298,12 @@ export function CommercialBiView() {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  // Rotação automática de slides (6 módulos TV)
+  // Rotação automática de slides (7 módulos TV)
   useEffect(() => {
     if (!rotating) return;
     const interval = window.setInterval(
       () => {
-        setModule((current) => (current + 1) % 6);
+        setModule((current) => (current + 1) % 7);
       },
       Math.max(10, data?.settings.tvSettings.rotationSeconds || 30) * 1000,
     );
@@ -513,7 +528,7 @@ export function CommercialBiView() {
               type="button"
               onClick={() => {
                 setRotating(false);
-                setModule((current) => (current === 0 ? 5 : current - 1));
+                setModule((current) => (current === 0 ? 6 : current - 1));
               }}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Slide Anterior"
@@ -536,7 +551,7 @@ export function CommercialBiView() {
               type="button"
               onClick={() => {
                 setRotating(false);
-                setModule((current) => (current + 1) % 6);
+                setModule((current) => (current + 1) % 7);
               }}
               className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Próximo Slide"
@@ -576,9 +591,9 @@ export function CommercialBiView() {
             </button>
           </div>
 
-          {/* 6 Dots de Navegação Angular (Dashboard TV) */}
+          {/* 7 Dots de Navegação Angular (Dashboard TV) */}
           <div className="flex items-center gap-1 ml-1">
-            {[0, 1, 2, 3, 4, 5].map((idx) => {
+            {[0, 1, 2, 3, 4, 5, 6].map((idx) => {
               const isActive = module === idx;
               return (
                 <button
@@ -682,6 +697,20 @@ export function CommercialBiView() {
 
               {/* ─── SLIDE 5: RANKING GERAL DE RESPOSTA & SLA (RÉPLICA FIEL) ─── */}
               {module === 5 && <CommercialRankingTableView />}
+
+              {/* ─── SLIDE 6: DIRETRIZES CRM (RÉPLICA FIEL FOTOS 1 E 4) ─── */}
+              {module === 6 && (
+                <CommercialDiretrizesTableView
+                  kpis={BASELINE_DIRETRIZES_KPIS}
+                  personnaliteData={BASELINE_DIRETRIZES_PERSONNALITE}
+                  semiMaquinasData={BASELINE_DIRETRIZES_MAQUINAS}
+                  onConsultantClick={(consultant) => {
+                    setDiretrizesModalConsultant(consultant);
+                    setDiretrizesDetailOpen(true);
+                  }}
+                  onBreakdownClick={() => setDiretrizesBreakdownOpen(true)}
+                />
+              )}
             </>
           )}
 
@@ -774,6 +803,30 @@ export function CommercialBiView() {
         }}
         onCallContact={(phone, dealTitle) => {
           console.log(`[PACING] Contatando telefone: ${phone} (${dealTitle})`);
+        }}
+      />
+
+      {/* ─── MODAL DETALHADO DE TRATATIVAS POR CONSULTOR (DIRETRIZES CRM / FOTO 2) ─── */}
+      <CommercialDiretrizesDetailModal
+        isOpen={diretrizesDetailOpen}
+        onClose={() => setDiretrizesDetailOpen(false)}
+        consultant={diretrizesModalConsultant}
+        onOpenDeal={(dealId) => openDeal(dealId)}
+        onOpenProfile={() => {
+          navigate({ to: "/commercial-management" as any });
+        }}
+      />
+
+      {/* ─── MODAL BREAKDOWN DE TAXA DE EXECUÇÃO (DIRETRIZES CRM / FOTO 3) ─── */}
+      <CommercialDiretrizesBreakdownModal
+        isOpen={diretrizesBreakdownOpen}
+        onClose={() => setDiretrizesBreakdownOpen(false)}
+        kpis={BASELINE_DIRETRIZES_KPIS}
+        consultants={ALL_BASELINE_DIRETRIZES_CONSULTANTS}
+        onSelectConsultant={(c) => {
+          setDiretrizesBreakdownOpen(false);
+          setDiretrizesModalConsultant(c);
+          setDiretrizesDetailOpen(true);
         }}
       />
     </section>

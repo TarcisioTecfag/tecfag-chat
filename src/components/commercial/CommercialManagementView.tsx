@@ -21,6 +21,16 @@ import { CommercialConsultantsView, type ConsultantRow } from "./CommercialConsu
 import { CommercialCalendarView } from "./CommercialCalendarView";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { useNavigate } from "@tanstack/react-router";
+import { CommercialDiretrizesTableView } from "./CommercialDiretrizesTableView";
+import { CommercialDiretrizesDetailModal } from "./CommercialDiretrizesDetailModal";
+import { CommercialDiretrizesBreakdownModal } from "./CommercialDiretrizesBreakdownModal";
+import {
+  BASELINE_DIRETRIZES_KPIS,
+  BASELINE_DIRETRIZES_PERSONNALITE,
+  BASELINE_DIRETRIZES_MAQUINAS,
+  ALL_BASELINE_DIRETRIZES_CONSULTANTS,
+  DiretrizesConsultantRow,
+} from "@/lib/commercial/diretrizes-crm-data";
 
 const COMMERCIAL_TABS = [
   { id: "consultants", label: "Consultores", icon: Users },
@@ -145,6 +155,12 @@ export function CommercialManagementView() {
     description: "",
     affectsGoal: true,
   });
+
+  // Estados para o Cockpit de Diretrizes CRM (Fotos 1, 2, 3 e 4)
+  const [diretrizesModalConsultant, setDiretrizesModalConsultant] = useState<DiretrizesConsultantRow | null>(null);
+  const [diretrizesDetailOpen, setDiretrizesDetailOpen] = useState(false);
+  const [diretrizesBreakdownOpen, setDiretrizesBreakdownOpen] = useState(false);
+  const [showManualDirectiveForm, setShowManualDirectiveForm] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -356,146 +372,178 @@ export function CommercialManagementView() {
 
               {tab === "directives" && (
                 <div className="space-y-4">
-                  <form
-                    onSubmit={(event) => void saveDirective(event)}
-                    className="grid gap-3 rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 sm:grid-cols-2 shadow-sm"
-                  >
-                    <label className={labelClass}>
-                      Negociação aberta
-                      <select
-                        required
-                        value={directiveForm.dealId}
-                        onChange={(event) => {
-                          const dealId = event.target.value;
-                          const deal = deals.find((item) => item.id === dealId);
-                          setDirectiveForm((current) => ({
-                            ...current,
-                            dealId,
-                            assignedToOperatorId: deal?.operatorId || "",
-                          }));
-                        }}
-                        className={`${fieldClass} mt-1`}
-                      >
-                        <option value="">Selecionar negociação</option>
-                        {deals.map((deal) => (
-                          <option key={deal.id} value={deal.id}>
-                            {deal.title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className={labelClass}>
-                      Consultor responsável
-                      <select
-                        required
-                        value={directiveForm.assignedToOperatorId}
-                        onChange={(event) =>
-                          setDirectiveForm((current) => ({
-                            ...current,
-                            assignedToOperatorId: event.target.value,
-                          }))
-                        }
-                        className={`${fieldClass} mt-1`}
-                      >
-                        <option value="">Selecionar consultor</option>
-                        {consultants
-                          .filter(
-                            (item) =>
-                              item.division &&
-                              item.operatorId ===
-                                deals.find((deal) => deal.id === directiveForm.dealId)?.operatorId,
-                          )
-                          .map((item) => (
-                            <option key={item.operatorId} value={item.operatorId}>
-                              {item.name}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <label className={labelClass}>
-                      Data
-                      <input
-                        required
-                        type="date"
-                        value={directiveForm.assignedDate}
-                        onChange={(event) =>
-                          setDirectiveForm((current) => ({
-                            ...current,
-                            assignedDate: event.target.value,
-                          }))
-                        }
-                        className={`${fieldClass} mt-1`}
-                      />
-                    </label>
-                    <label className={labelClass}>
-                      Prioridade
-                      <select
-                        value={directiveForm.priority}
-                        onChange={(event) =>
-                          setDirectiveForm((current) => ({
-                            ...current,
-                            priority: event.target.value,
-                          }))
-                        }
-                        className={`${fieldClass} mt-1`}
-                      >
-                        <option value="normal">Normal</option>
-                        <option value="high">Alta</option>
-                        <option value="critical">Crítica</option>
-                      </select>
-                    </label>
-                    <label className={`${labelClass} sm:col-span-2`}>
-                      Instrução
-                      <textarea
-                        required
-                        maxLength={2000}
-                        rows={3}
-                        value={directiveForm.instruction}
-                        onChange={(event) =>
-                          setDirectiveForm((current) => ({
-                            ...current,
-                            instruction: event.target.value,
-                          }))
-                        }
-                        className={`${fieldClass} mt-1 resize-y`}
-                      />
-                    </label>
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="rounded-[4px] bg-primary px-4 py-2 text-xs font-mono font-bold text-white hover:opacity-95 disabled:opacity-50 sm:col-span-2 sm:justify-self-end shadow-sm cursor-pointer"
-                    >
-                      {saving ? "Atribuindo..." : "Atribuir diretriz"}
-                    </button>
-                  </form>
-                  <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 shadow-sm">
-                    <h2 className="mb-3 font-mono text-base font-bold text-foreground dark:text-zinc-50">
-                      Diretrizes recentes
-                    </h2>
-                    {directives.length === 0 ? (
-                      <p className="text-xs text-muted-foreground dark:text-zinc-400">Nenhuma diretriz criada.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {directives.map((item) => (
-                          <div key={item.id} className="border-b border-border/80 dark:border-zinc-800/80 py-3 last:border-0">
-                            <div className="flex flex-wrap justify-between gap-2">
-                              <strong className="text-xs font-bold text-foreground dark:text-zinc-100">{item.dealTitle}</strong>
-                              <span className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
-                                {item.assignedDate} · {item.status}
-                              </span>
-                            </div>
-                            <p className="mt-1 text-xs text-muted-foreground dark:text-zinc-400">
-                              {consultantMap.get(item.assignedToOperatorId || "") ||
-                                "Sem responsável"}{" "}
-                              · {item.instruction}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  {/* Cockpit Executivo Oficial de Diretrizes CRM (Fotos 1 e 4) */}
+                  <div className="rounded-[4px] border border-zinc-800 bg-[#0c0d12] p-4 text-white shadow-sm">
+                    <CommercialDiretrizesTableView
+                      kpis={BASELINE_DIRETRIZES_KPIS}
+                      personnaliteData={BASELINE_DIRETRIZES_PERSONNALITE}
+                      semiMaquinasData={BASELINE_DIRETRIZES_MAQUINAS}
+                      onConsultantClick={(consultant) => {
+                        setDiretrizesModalConsultant(consultant);
+                        setDiretrizesDetailOpen(true);
+                      }}
+                      onBreakdownClick={() => setDiretrizesBreakdownOpen(true)}
+                    />
                   </div>
+
+                  {/* Alternador para Atribuição Manual de Diretriz */}
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowManualDirectiveForm((prev) => !prev)}
+                      className="rounded-[3px] border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+                    >
+                      {showManualDirectiveForm
+                        ? "▲ Ocultar Atribuição Manual"
+                        : "➕ Atribuir Nova Diretriz Manualmente"}
+                    </button>
+                  </div>
+
+                  {showManualDirectiveForm && (
+                    <>
+                      <form
+                        onSubmit={(event) => void saveDirective(event)}
+                        className="grid gap-3 rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 sm:grid-cols-2 shadow-sm"
+                      >
+                        <label className={labelClass}>
+                          Negociação aberta
+                          <select
+                            required
+                            value={directiveForm.dealId}
+                            onChange={(event) => {
+                              const dealId = event.target.value;
+                              const deal = deals.find((item) => item.id === dealId);
+                              setDirectiveForm((current) => ({
+                                ...current,
+                                dealId,
+                                assignedToOperatorId: deal?.operatorId || "",
+                              }));
+                            }}
+                            className={`${fieldClass} mt-1`}
+                          >
+                            <option value="">Selecionar negociação</option>
+                            {deals.map((deal) => (
+                              <option key={deal.id} value={deal.id}>
+                                {deal.title}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className={labelClass}>
+                          Consultor responsável
+                          <select
+                            required
+                            value={directiveForm.assignedToOperatorId}
+                            onChange={(event) =>
+                              setDirectiveForm((current) => ({
+                                ...current,
+                                assignedToOperatorId: event.target.value,
+                              }))
+                            }
+                            className={`${fieldClass} mt-1`}
+                          >
+                            <option value="">Selecionar consultor</option>
+                            {consultants
+                              .filter(
+                                (item) =>
+                                  item.division &&
+                                  item.operatorId ===
+                                    deals.find((deal) => deal.id === directiveForm.dealId)?.operatorId,
+                              )
+                              .map((item) => (
+                                <option key={item.operatorId} value={item.operatorId}>
+                                  {item.name}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                        <label className={labelClass}>
+                          Data
+                          <input
+                            required
+                            type="date"
+                            value={directiveForm.assignedDate}
+                            onChange={(event) =>
+                              setDirectiveForm((current) => ({
+                                ...current,
+                                assignedDate: event.target.value,
+                              }))
+                            }
+                            className={`${fieldClass} mt-1`}
+                          />
+                        </label>
+                        <label className={labelClass}>
+                          Prioridade
+                          <select
+                            value={directiveForm.priority}
+                            onChange={(event) =>
+                              setDirectiveForm((current) => ({
+                                ...current,
+                                priority: event.target.value,
+                              }))
+                            }
+                            className={`${fieldClass} mt-1`}
+                          >
+                            <option value="normal">Normal</option>
+                            <option value="high">Alta</option>
+                            <option value="critical">Crítica</option>
+                          </select>
+                        </label>
+                        <label className={`${labelClass} sm:col-span-2`}>
+                          Instrução
+                          <textarea
+                            required
+                            maxLength={2000}
+                            rows={3}
+                            value={directiveForm.instruction}
+                            onChange={(event) =>
+                              setDirectiveForm((current) => ({
+                                ...current,
+                                instruction: event.target.value,
+                              }))
+                            }
+                            className={`${fieldClass} mt-1 resize-y`}
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          disabled={saving}
+                          className="rounded-[4px] bg-primary px-4 py-2 text-xs font-mono font-bold text-white hover:opacity-95 disabled:opacity-50 sm:col-span-2 sm:justify-self-end shadow-sm cursor-pointer"
+                        >
+                          {saving ? "Atribuindo..." : "Atribuir diretriz"}
+                        </button>
+                      </form>
+                      <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 shadow-sm">
+                        <h2 className="mb-3 font-mono text-base font-bold text-foreground dark:text-zinc-50">
+                          Diretrizes recentes
+                        </h2>
+                        {directives.length === 0 ? (
+                          <p className="text-xs text-muted-foreground dark:text-zinc-400">Nenhuma diretriz criada.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {directives.map((item) => (
+                              <div key={item.id} className="border-b border-border/80 dark:border-zinc-800/80 py-3 last:border-0">
+                                <div className="flex flex-wrap justify-between gap-2">
+                                  <strong className="text-xs font-bold text-foreground dark:text-zinc-100">{item.dealTitle}</strong>
+                                  <span className="text-[11px] font-mono text-muted-foreground dark:text-zinc-400">
+                                    {item.assignedDate} · {item.status}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground dark:text-zinc-400">
+                                  {consultantMap.get(item.assignedToOperatorId || "") ||
+                                    "Sem responsável"}{" "}
+                                  · {item.instruction}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
+
 
               {tab === "evidence" && (
                 <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 p-5 shadow-sm">
@@ -593,6 +641,30 @@ export function CommercialManagementView() {
           )}
         </div>
       </div>
+
+      {/* ─── MODAL DETALHADO DE TRATATIVAS POR CONSULTOR (DIRETRIZES CRM) ─── */}
+      <CommercialDiretrizesDetailModal
+        isOpen={diretrizesDetailOpen}
+        onClose={() => setDiretrizesDetailOpen(false)}
+        consultant={diretrizesModalConsultant}
+        onOpenDeal={(dealId) => {
+          navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
+        }}
+      />
+
+      {/* ─── MODAL BREAKDOWN DE TAXA DE EXECUÇÃO (DIRETRIZES CRM) ─── */}
+      <CommercialDiretrizesBreakdownModal
+        isOpen={diretrizesBreakdownOpen}
+        onClose={() => setDiretrizesBreakdownOpen(false)}
+        kpis={BASELINE_DIRETRIZES_KPIS}
+        consultants={ALL_BASELINE_DIRETRIZES_CONSULTANTS}
+        onSelectConsultant={(c) => {
+          setDiretrizesBreakdownOpen(false);
+          setDiretrizesModalConsultant(c);
+          setDiretrizesDetailOpen(true);
+        }}
+      />
     </div>
   );
 }
+
