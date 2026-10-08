@@ -936,7 +936,7 @@ export function CommercialBiView() {
         initialStageKey={modalStageKey}
         deals={pipelineModalDeals}
         loading={pipelineModalLoading}
-        stages={pipelineData?.stages}
+        stages={pipelineData?.stages || []}
         onOpenDeal={openDeal}
         onOpenProfile={() => {
           setActiveView("commercialManagement");
@@ -1062,27 +1062,16 @@ export function CommercialBiView() {
       )}
 
       {/* ─── MODAL FULLSCREEN DE SAFRAS & RÉGUA DE-PARA (SLIDE 8) ─── */}
-      <MaturityCohortFullscreenModal
-        isOpen={safrasFullscreenOpen}
-        onClose={() => setSafrasFullscreenOpen(false)}
-        data={
-          cohortData || {
-            success: true,
-            updatedAt: "",
-            tiersConfig: [],
-            months: [],
-            summary: {
-              totalCardsAllMonths: 0,
-              totalUnclassifiedAllMonths: 0,
-              totalClassifiedAllMonths: 0,
-              totalValueAllMonths: 0,
-            },
-          }
-        }
-        division={division}
-        tenantId={tenant}
-        onOpenDeal={openDeal}
-      />
+      {cohortData && (
+        <MaturityCohortFullscreenModal
+          isOpen={safrasFullscreenOpen}
+          onClose={() => setSafrasFullscreenOpen(false)}
+          data={cohortData}
+          division={division}
+          tenantId={tenant}
+          onOpenDeal={openDeal}
+        />
+      )}
     </section>
   );
 }

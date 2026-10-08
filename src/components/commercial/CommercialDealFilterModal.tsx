@@ -4,12 +4,11 @@ import {
   CommercialPipelineDeal,
   formatDealValue,
   PipelineStageKey,
-  PIPELINE_STAGES,
   PipelineStageDef,
 } from "@/lib/commercial/pipeline-data";
 
 interface CommercialDealFilterModalProps {
-  stages?: PipelineStageDef[];
+  stages: PipelineStageDef[];
   isOpen: boolean;
   onClose: () => void;
   sellerName?: string;
@@ -24,7 +23,7 @@ interface CommercialDealFilterModalProps {
 }
 
 export function CommercialDealFilterModal({
-  stages = PIPELINE_STAGES,
+  stages,
   isOpen,
   onClose,
   sellerName = "Equipe comercial",
@@ -301,13 +300,7 @@ export function CommercialDealFilterModal({
                     <td className="py-2 px-4 text-right">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (deal.rdDealUrl) {
-                            window.open(deal.rdDealUrl, "_blank", "noopener,noreferrer");
-                          } else {
-                            onOpenDeal?.(deal.id, deal.rdDealUrl);
-                          }
-                        }}
+                        onClick={() => onOpenDeal?.(deal.id)}
                         className="inline-flex items-center gap-1.5 rounded-[2px] border border-sky-400 dark:border-sky-600/50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-600/20 transition-colors cursor-pointer"
                       >
                         <ExternalLink className="h-3 w-3" />

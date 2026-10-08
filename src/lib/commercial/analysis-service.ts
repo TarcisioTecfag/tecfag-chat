@@ -33,9 +33,14 @@ import {
   type CommercialCalendarDay,
 } from "./metrics";
 
-type AnalysisOptions = { tenantId: string; division: CommercialDivision; now?: Date };
+type AnalysisOptions = {
+  tenantId: string;
+  division: CommercialDivision;
+  includeHidden?: boolean;
+  now?: Date;
+};
 
-async function getScope({ tenantId, division }: AnalysisOptions) {
+async function getScope({ tenantId, division, includeHidden }: AnalysisOptions) {
   const [consultants, settingsRows, stages] = await Promise.all([
     db
       .select({
@@ -54,7 +59,7 @@ async function getScope({ tenantId, division }: AnalysisOptions) {
       .where(
         and(
           eq(commercialConsultantProfiles.tenantId, tenantId),
-          eq(commercialConsultantProfiles.activeOnTv, true),
+          includeHidden ? undefined : eq(commercialConsultantProfiles.activeOnTv, true),
           division ? eq(commercialConsultantProfiles.division, division) : undefined,
         ),
       ),

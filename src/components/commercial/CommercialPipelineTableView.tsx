@@ -6,14 +6,13 @@ import {
   formatPercentage,
   formatTeamSummary,
   PipelineStageKey,
-  PIPELINE_STAGES,
   PipelineStageDef,
   SellerPipelineRow,
   TeamPipelineData,
 } from "@/lib/commercial/pipeline-data";
 
 interface CommercialPipelineTableViewProps {
-  stages?: PipelineStageDef[];
+  stages: PipelineStageDef[];
   personnaliteData: TeamPipelineData;
   semiMaquinasData: TeamPipelineData;
   onCellClick: (
@@ -25,7 +24,7 @@ interface CommercialPipelineTableViewProps {
 }
 
 export function CommercialPipelineTableView({
-  stages = PIPELINE_STAGES,
+  stages,
   personnaliteData,
   semiMaquinasData,
   onCellClick,

@@ -498,8 +498,7 @@ export function CommercialPrevistasFilterModal({
             <button
               type="button"
               onClick={handleExecuteSaveDirectives}
-              disabled={savingDirectives}
-              disabled={selectedDealIds.size === 0}
+              disabled={savingDirectives || selectedDealIds.size === 0}
               className={`rounded-[2px] px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
                 selectedDealIds.size > 0
                   ? "bg-[#059669] hover:bg-[#047857] text-white shadow-md cursor-pointer active:scale-95"

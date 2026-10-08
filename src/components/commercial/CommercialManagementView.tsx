@@ -120,9 +120,10 @@ async function getOpenCommercialDeals(): Promise<Deal[]> {
   let total = 0;
   do {
     const result = await getJson(
-      `/api/commercial/analysis?view=deals&mode=pipeline&page=${page}&limit=100`,
+      `/api/commercial/analysis?view=deals&mode=pipeline&includeHidden=true&page=${page}&limit=100`,
     );
     total = result.total;
+    if (!result.deals.length) break;
     deals.push(
       ...result.deals.map((deal: Deal) => ({
         id: deal.id,
@@ -203,7 +204,7 @@ export function CommercialManagementView() {
         getJson("/api/commercial/evidence"),
         getOpenCommercialDeals(),
         getJson(
-          `/api/commercial/analysis?view=responsibilities&month=${encodeURIComponent(month)}`,
+          `/api/commercial/analysis?view=responsibilities&includeHidden=true&month=${encodeURIComponent(month)}`,
         ),
       ]);
       setConsultants(consultantData.consultants || []);

@@ -45,7 +45,11 @@ export const Route = createFileRoute("/api/commercial/analysis")({
         if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
           return json({ error: "Mês inválido." }, 400);
         }
-        const options = { tenantId: session.tenantId, division };
+        const options = {
+          tenantId: session.tenantId,
+          division,
+          includeHidden: params.get("includeHidden") === "true",
+        };
         const page = Number(params.get("page") || 1);
         const limit = Number(params.get("limit") || 50);
         const search = params.get("search") || undefined;
