@@ -19,6 +19,8 @@ import {
 } from "./CommercialAnalysisPanels";
 import { CommercialPipelineTableView } from "./CommercialPipelineTableView";
 import { CommercialDealFilterModal } from "./CommercialDealFilterModal";
+import { CommercialDeparaTableView } from "./CommercialDeparaTableView";
+import { CommercialDeparaFilterModal } from "./CommercialDeparaFilterModal";
 import {
   BASELINE_PERSONNALITE,
   BASELINE_SEMI_MAQUINAS,
@@ -26,6 +28,14 @@ import {
   PipelineStageKey,
   SellerPipelineRow,
 } from "@/lib/commercial/pipeline-data";
+import {
+  BASELINE_DEPARA_PERSONNALITE,
+  BASELINE_DEPARA_SEMI_MAQUINAS,
+  getBaselineDeparaDeals,
+  DeparaTierKey,
+  SellerDeparaRow,
+} from "@/lib/commercial/depara-data";
+
 
 type Tier = {
   tier: number;
@@ -155,6 +165,12 @@ export function CommercialBiView() {
   const [modalSeller, setModalSeller] = useState<SellerPipelineRow | null>(null);
   const [modalStageKey, setModalStageKey] = useState<PipelineStageKey | "all">("all");
   const [modalDivision, setModalDivision] = useState<"personnalite" | "maquinas">("personnalite");
+
+  // Estados para o Modal de Detalhamento De-Para / Maturidade (Slide 2 / Fotos 2 e 3)
+  const [deparaModalOpen, setDeparaModalOpen] = useState(false);
+  const [deparaModalSeller, setDeparaModalSeller] = useState<SellerDeparaRow | null>(null);
+  const [deparaModalTierKey, setDeparaModalTierKey] = useState<DeparaTierKey | "all">("all");
+
 
   // Relógio digital e data ao vivo
   const [currentTime, setCurrentTime] = useState(() => new Date());
@@ -311,7 +327,34 @@ export function CommercialBiView() {
     return getBaselineDeals().filter((d) => d.division === modalDivision);
   }, [modalSeller, modalDivision]);
 
+  // Handlers para o Modal de De-Para / Maturidade (Slide 2)
+  const handleDeparaCellClick = (seller: SellerDeparaRow, tierKey: DeparaTierKey | "all") => {
+    setDeparaModalSeller(seller);
+    setDeparaModalTierKey(tierKey);
+    setDeparaModalOpen(true);
+  };
+
+  const handleDeparaTasksClick = (seller: SellerDeparaRow) => {
+    setDeparaModalSeller(seller);
+    setDeparaModalTierKey("all");
+    setDeparaModalOpen(true);
+  };
+
+  const handleDeparaHeaderTierClick = (tierKey: DeparaTierKey) => {
+    setDeparaModalSeller(BASELINE_DEPARA_PERSONNALITE.sellers[0]);
+    setDeparaModalTierKey(tierKey);
+    setDeparaModalOpen(true);
+  };
+
+  const activeDeparaModalDeals = useMemo(() => {
+    if (deparaModalSeller) {
+      return getBaselineDeparaDeals(deparaModalSeller.sellerId);
+    }
+    return getBaselineDeparaDeals();
+  }, [deparaModalSeller]);
+
   const aiPersonaName = tenant === "tecfag" ? "FAGNER" : "VALENTINA";
+
 
   return (
     <section
@@ -518,61 +561,17 @@ export function CommercialBiView() {
                 />
               )}
 
-              {/* ─── SLIDE 1: MATURIDADE ATUAL ─── */}
-              {module === 1 && data && (
-                <div className="space-y-3 overflow-y-auto max-h-[85vh] scrollbar-thin">
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-                    {data.maturity.tiers.map((tier) => (
-                      <Metric
-                        key={tier.tier}
-                        label={`Faixa ${tier.tier} · ${tier.days} dias`}
-                        value={money.format(tier.readyValue)}
-                        hint={`${tier.readyCount} negócio(s) maduros`}
-                      />
-                    ))}
-                  </div>
-                  <div className={surface}>
-                    <p className={badge}>Responsabilidades atuais</p>
-                    <h2 className="mt-1 text-base font-bold font-mono">Prontas ou atrasadas</h2>
-                    <div className="mt-3 space-y-1.5">
-                      {data.maturity.cohorts
-                        .filter((item) => item.daysRemaining <= 0)
-                        .slice(0, 20)
-                        .map((item) => (
-                          <div
-                            key={item.dealId}
-                            className="flex w-full flex-wrap justify-between gap-2 rounded-[4px] border border-zinc-800 bg-zinc-900/60 p-2 text-left hover:border-red-500/50"
-                          >
-                            <span className="flex items-center gap-2 font-mono text-xs">
-                              <input
-                                type="checkbox"
-                                aria-label={`Pontuar responsabilidade de ${item.title}`}
-                                checked={selectedDealIds.includes(item.dealId)}
-                                onChange={() => toggleDeal(item)}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => openDeal(item.dealId)}
-                                className="text-left hover:underline text-white font-bold"
-                              >
-                                {item.title}
-                              </button>
-                              <small className="ml-2 text-zinc-400">
-                                {item.operatorName} · {item.stageName} · {item.ageDays} dias
-                              </small>
-                            </span>
-                            <span className="font-bold font-mono text-xs text-emerald-400">
-                              {money.format(item.value)}
-                            </span>
-                          </div>
-                        ))}
-                      {!data.maturity.cohorts.some((item) => item.daysRemaining <= 0) && (
-                        <Empty text="Nenhuma responsabilidade madura agora." />
-                      )}
-                    </div>
-                  </div>
-                </div>
+              {/* ─── SLIDE 1: RESPONSABILIDADES POR DEPARA CWR (RÉPLICA FIEL) ─── */}
+              {module === 1 && (
+                <CommercialDeparaTableView
+                  personnaliteData={BASELINE_DEPARA_PERSONNALITE}
+                  semiMaquinasData={BASELINE_DEPARA_SEMI_MAQUINAS}
+                  onCellClick={handleDeparaCellClick}
+                  onTasksClick={handleDeparaTasksClick}
+                  onHeaderTierClick={handleDeparaHeaderTierClick}
+                />
               )}
+
 
               {/* ─── SLIDE 2: PREVISÃO & METAS / RITMO ─── */}
               {module === 2 && (
@@ -663,7 +662,7 @@ export function CommercialBiView() {
         </div>
       </div>
 
-      {/* ─── MODAL DETALHADO DE NEGOCIAÇÕES (FIEL À GESTÃO COMERCIAL & FOTO 2) ─── */}
+      {/* ─── MODAL DETALHADO DE NEGOCIAÇÕES PIPELINE (FOTO 2 SLIDE 1) ─── */}
       <CommercialDealFilterModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -680,6 +679,27 @@ export function CommercialBiView() {
           navigate({ to: "/commercial-management" as any });
         }}
       />
+
+      {/* ─── MODAL DETALHADO DE MATURIDADE DE-PARA (FOTOS 2 E 3 SLIDE 2) ─── */}
+      <CommercialDeparaFilterModal
+        isOpen={deparaModalOpen}
+        onClose={() => setDeparaModalOpen(false)}
+        sellerName={deparaModalSeller?.sellerName || "Diana Gimenes"}
+        sellerId={deparaModalSeller?.sellerId}
+        division={deparaModalSeller?.division || "personnalite"}
+        metaValue={deparaModalSeller?.metaValue || 1_000_000}
+        initialTierKey={deparaModalTierKey}
+        deals={activeDeparaModalDeals}
+        sellerAvatar={deparaModalSeller?.avatarUrl}
+        onOpenDeal={(dealId) => openDeal(dealId)}
+        onOpenProfile={() => {
+          navigate({ to: "/commercial-management" as any });
+        }}
+        onCallContact={(phone, dealTitle) => {
+          console.log(`[DE-PARA] Contatando telefone: ${phone} (${dealTitle})`);
+        }}
+      />
     </section>
   );
 }
+
