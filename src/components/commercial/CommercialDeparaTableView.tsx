@@ -30,15 +30,14 @@ export function CommercialDeparaTableView({
   const density = useMemo(() => {
     if (totalSellers <= 10) {
       return {
-        rowPy: "py-1.5 sm:py-2 xl:py-2.5",
-        tierPy: "py-1 sm:py-1.5 xl:py-2",
+        rowPy: "py-1 sm:py-1.5 xl:py-2",
+        tierPy: "py-0.5 sm:py-1 xl:py-1.5",
         headerPy: "py-1.5 sm:py-2 xl:py-2",
         sellerText: "text-xs sm:text-xs xl:text-sm font-bold",
-        metaSubText: "text-[9.5px] sm:text-[10px] xl:text-[10.5px]",
-        tierBtnText: "text-[11px] sm:text-xs xl:text-xs font-black",
-        tierBtnPy: "py-1 sm:py-1.5 xl:py-2 px-2.5 sm:px-3",
+        metaSubText: "text-[9px] sm:text-[9.5px] xl:text-[10px]",
+        tierBtnPy: "py-1.5 sm:py-2 xl:py-2.5 px-1 sm:px-2",
         totalText: "text-xs sm:text-sm xl:text-base font-black",
-        totalBadge: "text-[9.5px] sm:text-[10px] xl:text-[10.5px] px-1.5 py-0.5",
+        totalBadge: "text-[9px] sm:text-[9.5px] xl:text-[10px] px-1.5 py-0.5",
         teamTitle: "text-xs sm:text-xs xl:text-sm font-black",
         teamSummary: "text-[10px] sm:text-xs xl:text-sm",
         tableSpace: "space-y-1 sm:space-y-1.5",
@@ -47,15 +46,14 @@ export function CommercialDeparaTableView({
     }
     if (totalSellers <= 16) {
       return {
-        rowPy: "py-1 sm:py-1.5 xl:py-2",
-        tierPy: "py-0.5 sm:py-1 xl:py-1.5",
+        rowPy: "py-0.5 sm:py-1 xl:py-1.5",
+        tierPy: "py-0.5 sm:py-1",
         headerPy: "py-1 sm:py-1.5",
         sellerText: "text-xs font-bold",
-        metaSubText: "text-[9px] sm:text-[9.5px]",
-        tierBtnText: "text-[10px] sm:text-[11px] font-black",
-        tierBtnPy: "py-0.5 sm:py-1 px-2",
+        metaSubText: "text-[8.5px] sm:text-[9px]",
+        tierBtnPy: "py-1 sm:py-1.5 px-1",
         totalText: "text-xs sm:text-sm font-black",
-        totalBadge: "text-[9px] px-1 py-0.5",
+        totalBadge: "text-[8.5px] px-1 py-0.5",
         teamTitle: "text-xs font-bold",
         teamSummary: "text-[10px] sm:text-xs",
         tableSpace: "space-y-0.5 sm:space-y-1",
@@ -64,14 +62,13 @@ export function CommercialDeparaTableView({
     }
     return {
       rowPy: "py-0.5 px-2",
-      tierPy: "py-0.5 px-1.5",
+      tierPy: "py-0.5 px-1",
       headerPy: "py-1 px-2",
       sellerText: "text-[11px] font-semibold",
-      metaSubText: "text-[8.5px] leading-tight",
-      tierBtnText: "text-[10px] font-bold",
-      tierBtnPy: "py-0.5 px-1.5",
+      metaSubText: "text-[8px] leading-tight",
+      tierBtnPy: "py-0.5 px-1",
       totalText: "text-xs font-bold",
-      totalBadge: "text-[8.5px] px-1 py-0.5",
+      totalBadge: "text-[8px] px-1 py-0.5",
       teamTitle: "text-[11px] font-bold",
       teamSummary: "text-[10px]",
       tableSpace: "space-y-0.5",
@@ -101,27 +98,29 @@ export function CommercialDeparaTableView({
           </div>
         </div>
 
-        {/* Tabela de Dados De-Para */}
+        {/* Tabela de Dados De-Para com larguras proporcionais escalonadas por cor */}
         <div className="overflow-x-auto rounded-[4px] border border-zinc-800 bg-zinc-950/70 shadow-sm scrollbar-none">
-          <table className="w-full border-collapse text-left text-xs">
+          <table className="table-fixed w-full border-collapse text-left text-xs">
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/90 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
-                <th className={`${density.headerPy} px-3 sm:px-4 font-semibold text-zinc-300 w-[24%]`}>
+                <th className={`${density.headerPy} px-2 sm:px-3 font-semibold text-zinc-300 w-[11%] min-w-[120px]`}>
                   VENDEDOR / META
                 </th>
                 {DEPARA_TIERS.map((tier) => (
                   <th
                     key={tier.key}
                     onClick={() => onHeaderTierClick?.(tier.key)}
-                    className={`${density.headerPy} px-2 text-center font-mono hover:text-white cursor-pointer transition-colors`}
+                    className={`${density.headerPy} px-1 text-center font-mono hover:text-white cursor-pointer transition-colors ${tier.colWidth}`}
                   >
-                    <div className="font-bold text-zinc-200 tracking-wider">{tier.daysLabel}</div>
-                    <div className="text-[9px] font-medium text-zinc-400 tracking-normal mt-0.5">
+                    <div className="font-bold text-zinc-200 tracking-wider text-[10px] sm:text-[11px] xl:text-xs">
+                      {tier.daysLabel}
+                    </div>
+                    <div className="text-[8.5px] sm:text-[9px] font-medium text-zinc-400 tracking-normal mt-0.5">
                       {tier.thresholdLabel}
                     </div>
                   </th>
                 ))}
-                <th className={`${density.headerPy} px-3 text-center font-mono font-bold text-emerald-300 bg-emerald-950/25 border-l border-zinc-800 w-[12%]`}>
+                <th className={`${density.headerPy} px-1.5 sm:px-2 text-center font-mono font-bold text-emerald-300 bg-emerald-950/25 border-l border-zinc-800 w-[6%] min-w-[70px]`}>
                   TOTAL MADURO
                 </th>
               </tr>
@@ -132,9 +131,9 @@ export function CommercialDeparaTableView({
                   {/* Coluna Vendedor / Meta */}
                   <td
                     onClick={() => onCellClick(seller, "all")}
-                    className={`${density.rowPy} px-3 sm:px-4 cursor-pointer hover:bg-zinc-800/30 transition-colors`}
+                    className={`${density.rowPy} px-2 sm:px-3 cursor-pointer hover:bg-zinc-800/30 transition-colors w-[11%] min-w-[120px]`}
                   >
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2">
                       {/* Avatar Angular */}
                       <div className={`relative ${density.avatarSize} shrink-0 overflow-hidden rounded-[2px] border border-zinc-800 bg-zinc-900`}>
                         {seller.avatarUrl ? (
@@ -154,27 +153,27 @@ export function CommercialDeparaTableView({
                       </div>
 
                       {/* Nome e Metas */}
-                      <div className="min-w-0">
-                        <div className={`font-sans ${density.sellerText} text-white hover:text-red-400 transition-colors truncate`}>
-                          {seller.sellerName}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`font-sans ${density.sellerText} text-white hover:text-red-400 transition-colors truncate`}>
+                            {seller.sellerName}
+                          </span>
+                          <span className="font-mono text-[9px] text-zinc-400 bg-zinc-900 border border-zinc-800 px-1 py-0.2 rounded-[2px]">
+                            {formatDeparaMeta(seller.metaValue)}
+                          </span>
                         </div>
                         <div className={`font-mono ${density.metaSubText} text-zinc-400 truncate mt-0.5`}>
-                          <span>Meta: {formatDeparaMeta(seller.metaValue)}</span>
+                          <span>{seller.conversionPercent}%</span>
                           <span className="mx-1 text-zinc-600">·</span>
-                          <span>Conv: {seller.conversionPercent}%</span>
-                          <span className="mx-1 text-zinc-600">·</span>
-                          <span>
-                            Realizado:{" "}
-                            <span className="text-emerald-400 font-bold">
-                              {formatDeparaMeta(seller.realizedValue)} ({seller.realizedPercent}%)
-                            </span>
+                          <span className="text-emerald-400 font-bold">
+                            {formatDeparaMeta(seller.realizedValue)} ({seller.realizedPercent}%)
                           </span>
                         </div>
                       </div>
                     </div>
                   </td>
 
-                  {/* 5 Colunas de Faixas De-Para */}
+                  {/* 5 Colunas de Faixas De-Para com larguras progressivas (Vermelho menor -> Verde maior) */}
                   {DEPARA_TIERS.map((tier) => {
                     const tierData = seller.tiers[tier.key];
                     const is90d = tier.key === "tier_90d";
@@ -182,20 +181,19 @@ export function CommercialDeparaTableView({
                     return (
                       <td
                         key={tier.key}
-                        className={`${density.tierPy} px-1.5 sm:px-2 text-center align-middle`}
+                        className={`${density.tierPy} px-1 text-center align-middle ${tier.colWidth}`}
                       >
-                        <div className="flex items-center justify-center gap-1.5">
-                          {/* Botão sólido colorido da faixa de maturidade */}
-                          <button
-                            type="button"
-                            onClick={() => onCellClick(seller, tier.key)}
-                            className={`${tier.colorClass} ${density.tierBtnPy} ${density.tierBtnText} rounded-[2px] shadow-sm font-mono tracking-wide uppercase transition-transform active:scale-95 cursor-pointer min-w-[70px] sm:min-w-[85px] xl:min-w-[100px] text-center`}
-                          >
-                            {tierData.formatted}
-                          </button>
+                        {is90d ? (
+                          /* Célula 90D: Barra Verde Maior + Botão de Tarefas */
+                          <div className="flex items-center gap-1.5 w-full">
+                            <button
+                              type="button"
+                              onClick={() => onCellClick(seller, "tier_90d")}
+                              className={`flex-1 w-full bg-[#047857] hover:bg-[#059669] text-white ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase transition-transform active:scale-[0.98] cursor-pointer text-center flex items-center justify-center`}
+                            >
+                              {tierData.formatted}
+                            </button>
 
-                          {/* Botão de Tarefas (exibido na célula 90D conforme Foto 1) */}
-                          {is90d && (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -206,14 +204,23 @@ export function CommercialDeparaTableView({
                                   onCellClick(seller, "all");
                                 }
                               }}
-                              title={`${seller.tasksCount} tarefas / responsabilidades em aberto`}
-                              className="inline-flex items-center gap-1 rounded-[2px] border border-zinc-700/60 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 px-1.5 sm:px-2 py-1 sm:py-1.5 text-[10px] sm:text-xs font-mono font-bold transition-colors cursor-pointer shadow-sm"
+                              title={`${seller.tasksCount} tarefas em aberto`}
+                              className="shrink-0 inline-flex items-center justify-center gap-1 rounded-[2px] border border-zinc-700/60 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 px-2 py-1 sm:py-1.5 text-[10px] sm:text-xs font-mono font-bold transition-colors cursor-pointer shadow-sm"
                             >
                               <ClipboardList className="h-3 w-3 text-zinc-400" />
                               <span>{seller.tasksCount}</span>
                             </button>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          /* Células 3D, 15D, 30D, 60D: Barra proporcional ocupando 100% da largura da coluna */
+                          <button
+                            type="button"
+                            onClick={() => onCellClick(seller, tier.key)}
+                            className={`w-full ${tier.colorClass} ${density.tierBtnPy} rounded-[2px] shadow-sm font-mono font-bold text-xs xl:text-sm tracking-wide uppercase transition-transform active:scale-[0.98] cursor-pointer text-center flex items-center justify-center`}
+                          >
+                            {tierData.formatted}
+                          </button>
+                        )}
                       </td>
                     );
                   })}
@@ -221,12 +228,12 @@ export function CommercialDeparaTableView({
                   {/* Coluna Total Maduro */}
                   <td
                     onClick={() => onCellClick(seller, "all")}
-                    className={`${density.tierPy} px-2.5 text-center bg-emerald-950/15 border-l border-zinc-800 hover:bg-emerald-950/30 cursor-pointer transition-all align-middle`}
+                    className={`${density.tierPy} px-1.5 text-center bg-emerald-950/15 border-l border-zinc-800 hover:bg-emerald-950/30 cursor-pointer transition-all align-middle w-[6%] min-w-[70px]`}
                   >
                     <div className={`font-mono font-black ${density.totalText} text-emerald-400 leading-tight`}>
                       {formatDeparaMeta(seller.totalMaduroValue)}
                     </div>
-                    <div className="mt-1">
+                    <div className="mt-0.5">
                       <span className={`inline-block rounded-[2px] border border-emerald-500/40 bg-emerald-950/60 font-mono font-bold text-emerald-300 ${density.totalBadge}`}>
                         {seller.totalMaduroPercent}%
                       </span>

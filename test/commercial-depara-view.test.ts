@@ -23,15 +23,25 @@ describe("Commercial De-Para (Slide 2 - War Room)", () => {
 
     expect(DEPARA_TIERS[0].daysLabel).toBe("3 DIAS");
     expect(DEPARA_TIERS[0].thresholdLabel).toBe("≤ R$ 8.5k");
+    expect(DEPARA_TIERS[0].colWidth).toBe("w-[10%]");
+
     expect(DEPARA_TIERS[1].daysLabel).toBe("15 DIAS");
     expect(DEPARA_TIERS[1].thresholdLabel).toBe("≤ R$ 50k");
+    expect(DEPARA_TIERS[1].colWidth).toBe("w-[13%]");
+
     expect(DEPARA_TIERS[2].daysLabel).toBe("30 DIAS");
     expect(DEPARA_TIERS[2].thresholdLabel).toBe("≤ R$ 200k");
+    expect(DEPARA_TIERS[2].colWidth).toBe("w-[16%]");
+
     expect(DEPARA_TIERS[3].daysLabel).toBe("60 DIAS");
     expect(DEPARA_TIERS[3].thresholdLabel).toBe("≤ R$ 600k");
+    expect(DEPARA_TIERS[3].colWidth).toBe("w-[20%]");
+
     expect(DEPARA_TIERS[4].daysLabel).toBe("90 DIAS");
     expect(DEPARA_TIERS[4].thresholdLabel).toBe("> R$ 600k");
+    expect(DEPARA_TIERS[4].colWidth).toBe("w-[24%]");
   });
+
 
   it("deve conter os totais e consultores exatos do TIME PERSONNALITÉ (Foto 1)", () => {
     expect(BASELINE_DEPARA_PERSONNALITE.teamName).toBe("TIME PERSONNALITÉ");

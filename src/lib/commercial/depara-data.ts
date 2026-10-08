@@ -8,6 +8,7 @@ export interface DeparaTierDefinition {
   colorClass: string;
   dotColor: string;
   badgeBg: string;
+  colWidth: string;
 }
 
 export const DEPARA_TIERS: DeparaTierDefinition[] = [
@@ -19,6 +20,7 @@ export const DEPARA_TIERS: DeparaTierDefinition[] = [
     colorClass: "bg-[#8b1d1d] hover:bg-[#a12323] text-white",
     dotColor: "bg-red-500",
     badgeBg: "border-red-500/40 text-red-400 bg-red-950/20",
+    colWidth: "w-[10%]",
   },
   {
     key: "tier_15d",
@@ -28,6 +30,7 @@ export const DEPARA_TIERS: DeparaTierDefinition[] = [
     colorClass: "bg-[#b45309] hover:bg-[#d97706] text-white",
     dotColor: "bg-amber-500",
     badgeBg: "border-amber-500/40 text-amber-400 bg-amber-950/20",
+    colWidth: "w-[13%]",
   },
   {
     key: "tier_30d",
@@ -37,6 +40,7 @@ export const DEPARA_TIERS: DeparaTierDefinition[] = [
     colorClass: "bg-[#1d4ed8] hover:bg-[#2563eb] text-white",
     dotColor: "bg-blue-500",
     badgeBg: "border-blue-500/40 text-blue-400 bg-blue-950/20",
+    colWidth: "w-[16%]",
   },
   {
     key: "tier_60d",
@@ -46,6 +50,7 @@ export const DEPARA_TIERS: DeparaTierDefinition[] = [
     colorClass: "bg-[#6b21a8] hover:bg-[#7e22ce] text-white",
     dotColor: "bg-purple-500",
     badgeBg: "border-purple-500/40 text-purple-400 bg-purple-950/20",
+    colWidth: "w-[20%]",
   },
   {
     key: "tier_90d",
@@ -55,8 +60,10 @@ export const DEPARA_TIERS: DeparaTierDefinition[] = [
     colorClass: "bg-[#047857] hover:bg-[#059669] text-white",
     dotColor: "bg-emerald-500",
     badgeBg: "border-emerald-500/40 text-emerald-400 bg-emerald-950/20",
+    colWidth: "w-[24%]",
   },
 ];
+
 
 export interface SellerDeparaRow {
   sellerId: string;
