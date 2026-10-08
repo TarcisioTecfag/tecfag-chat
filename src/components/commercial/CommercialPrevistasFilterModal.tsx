@@ -30,7 +30,9 @@ interface CommercialPrevistasFilterModalProps {
   onOpenDeal?: (dealId: string) => void;
   onOpenProfile?: (sellerId?: string) => void;
   onCallContact?: (phone: string, dealTitle: string) => void;
-  onSaveDirectives?: (selectedDealIds: string[]) => Promise<{ createdCount: number; alreadyAssignedCount: number }>;
+  onSaveDirectives?: (
+    selectedDealIds: string[],
+  ) => Promise<{ createdCount: number; alreadyAssignedCount: number }>;
 }
 
 export function CommercialPrevistasFilterModal({
@@ -139,7 +141,9 @@ export function CommercialPrevistasFilterModal({
     try {
       if (!onSaveDirectives) throw new Error("Pontuação indisponível.");
       const result = await onSaveDirectives(Array.from(selectedDealIds));
-      setToastMessage(`✓ ${result.createdCount} pontuada(s); ${result.alreadyAssignedCount} já registrada(s) hoje.`);
+      setToastMessage(
+        `✓ ${result.createdCount} pontuada(s); ${result.alreadyAssignedCount} já registrada(s) hoje.`,
+      );
       setSelectedDealIds(new Set());
     } catch (cause) {
       setToastMessage(

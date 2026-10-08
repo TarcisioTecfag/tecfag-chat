@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  ExternalLink,
-  Phone,
-  Search,
-  X,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, ExternalLink, Phone, Search, X } from "lucide-react";
 import {
   DEPARA_TIERS,
   DeparaDealItem,
@@ -46,7 +38,7 @@ export function CommercialDeparaFilterModal({
   onCallContact,
 }: CommercialDeparaFilterModalProps) {
   const [selectedTier, setSelectedTier] = useState<DeparaTierKey | "all" | "out_of_rule">(
-    initialTierKey
+    initialTierKey,
   );
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -186,7 +178,9 @@ export function CommercialDeparaFilterModal({
             <span>Todas as Oportunidades Maduras</span>
             <span
               className={`rounded-[2px] px-1.5 py-0.2 text-[10px] font-mono ${
-                selectedTier === "all" ? "bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-400" : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-400"
+                selectedTier === "all"
+                  ? "bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-400"
+                  : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-400"
               }`}
             >
               {tierCounts.all}
@@ -213,7 +207,9 @@ export function CommercialDeparaFilterModal({
                 <span>{tier.daysLabel}</span>
                 <span
                   className={`rounded-[2px] px-1.5 py-0.2 text-[10px] font-mono ${
-                    isSelected ? "bg-slate-200 text-slate-900 dark:bg-zinc-700 dark:text-white" : "bg-slate-200/60 text-slate-600 dark:bg-zinc-800/80 dark:text-zinc-400"
+                    isSelected
+                      ? "bg-slate-200 text-slate-900 dark:bg-zinc-700 dark:text-white"
+                      : "bg-slate-200/60 text-slate-600 dark:bg-zinc-800/80 dark:text-zinc-400"
                   }`}
                 >
                   {count} negoc.
@@ -236,7 +232,9 @@ export function CommercialDeparaFilterModal({
             <span>FORA DA RÉGUA</span>
             <span
               className={`rounded-[2px] px-1.5 py-0.2 text-[10px] font-mono ${
-                selectedTier === "out_of_rule" ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400" : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-400"
+                selectedTier === "out_of_rule"
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400"
+                  : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-400"
               }`}
             >
               {tierCounts.out_of_rule || 0} negoc.

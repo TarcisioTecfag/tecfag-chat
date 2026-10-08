@@ -1003,7 +1003,8 @@ export function CommercialBiView() {
                 body: JSON.stringify({ operatorId, dealIds: ids.slice(start, start + 100) }),
               });
               const body = await response.json();
-              if (!response.ok) throw new Error(body.error || "Falha ao pontuar responsabilidades.");
+              if (!response.ok)
+                throw new Error(body.error || "Falha ao pontuar responsabilidades.");
               result.createdCount += body.createdCount;
               result.alreadyAssignedCount += body.alreadyAssignedCount;
             }

@@ -119,13 +119,17 @@ async function getOpenCommercialDeals(): Promise<Deal[]> {
   let page = 1;
   let total = 0;
   do {
-    const result = await getJson(`/api/commercial/analysis?view=deals&mode=pipeline&page=${page}&limit=100`);
+    const result = await getJson(
+      `/api/commercial/analysis?view=deals&mode=pipeline&page=${page}&limit=100`,
+    );
     total = result.total;
-    deals.push(...result.deals.map((deal: Deal) => ({
-      id: deal.id,
-      title: deal.title,
-      operatorId: deal.operatorId,
-    })));
+    deals.push(
+      ...result.deals.map((deal: Deal) => ({
+        id: deal.id,
+        title: deal.title,
+        operatorId: deal.operatorId,
+      })),
+    );
     page += 1;
   } while (deals.length < total);
   return deals;

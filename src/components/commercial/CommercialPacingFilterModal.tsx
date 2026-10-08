@@ -10,10 +10,7 @@ import {
   Sliders,
   X,
 } from "lucide-react";
-import {
-  PacingDealItem,
-  formatPacingCurrency,
-} from "@/lib/commercial/pacing-data";
+import { PacingDealItem, formatPacingCurrency } from "@/lib/commercial/pacing-data";
 
 interface CommercialPacingFilterModalProps {
   isOpen: boolean;
@@ -92,8 +89,7 @@ export function CommercialPacingFilterModal({
 
   if (!isOpen) return null;
 
-  const divisionBadge =
-    division === "personnalite" ? "PERSONNALITÉ" : "MÁQUINAS";
+  const divisionBadge = division === "personnalite" ? "PERSONNALITÉ" : "MÁQUINAS";
 
   const getTierColorBadge = (key: string) => {
     switch (key) {
@@ -127,11 +123,7 @@ export function CommercialPacingFilterModal({
             {/* Avatar Angular */}
             <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900">
               {sellerAvatar ? (
-                <img
-                  src={sellerAvatar}
-                  alt={sellerName}
-                  className="h-full w-full object-cover"
-                />
+                <img src={sellerAvatar} alt={sellerName} className="h-full w-full object-cover" />
               ) : (
                 <div className="flex h-full w-full items-center justify-center font-mono font-bold text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
                   {sellerName.slice(0, 2).toUpperCase()}
@@ -308,7 +300,9 @@ export function CommercialPacingFilterModal({
           </div>
 
           <div className="font-mono text-xs text-slate-500 dark:text-zinc-400">
-            Exibindo <span className="font-bold text-slate-900 dark:text-white">{filteredDeals.length}</span> negociações hábeis
+            Exibindo{" "}
+            <span className="font-bold text-slate-900 dark:text-white">{filteredDeals.length}</span>{" "}
+            negociações hábeis
           </div>
         </div>
 
@@ -386,7 +380,9 @@ export function CommercialPacingFilterModal({
 
                     {/* Faixa De-Para */}
                     <td className="py-2.5 px-1 text-center align-middle">
-                      <span className={`inline-block rounded-[2px] border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase ${tierBadge}`}>
+                      <span
+                        className={`inline-block rounded-[2px] border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase ${tierBadge}`}
+                      >
                         {deal.horizonLabel}
                       </span>
                     </td>
@@ -415,7 +411,10 @@ export function CommercialPacingFilterModal({
 
               {filteredDeals.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400 dark:text-zinc-500 font-sans text-xs">
+                  <td
+                    colSpan={7}
+                    className="py-12 text-center text-slate-400 dark:text-zinc-500 font-sans text-xs"
+                  >
                     Nenhuma oportunidade encontrada para este filtro.
                   </td>
                 </tr>
@@ -428,7 +427,9 @@ export function CommercialPacingFilterModal({
         <div className="shrink-0 border-t border-slate-200 dark:border-zinc-800 bg-slate-50/90 dark:bg-zinc-950/90 px-4 py-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 text-slate-600 dark:text-zinc-400 text-xs font-sans">
             <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span>Todas as negociações listadas atendem à regra de maturidade mínima para fechamento.</span>
+            <span>
+              Todas as negociações listadas atendem à regra de maturidade mínima para fechamento.
+            </span>
           </div>
 
           <button
