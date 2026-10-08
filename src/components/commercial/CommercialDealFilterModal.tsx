@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, ExternalLink, Search, X } from "lucide-react";
 import {
   CommercialPipelineDeal,
@@ -19,7 +19,7 @@ interface CommercialDealFilterModalProps {
   deals: CommercialPipelineDeal[];
   loading?: boolean;
   sellerAvatar?: string;
-  onOpenDeal?: (dealId: string, rdUrl?: string) => void;
+  onOpenDeal?: (dealId: string) => void;
   onOpenProfile?: (sellerId?: string) => void;
 }
 
@@ -27,7 +27,7 @@ export function CommercialDealFilterModal({
   stages = PIPELINE_STAGES,
   isOpen,
   onClose,
-  sellerName = "Diana Gimenes",
+  sellerName = "Equipe comercial",
   sellerId,
   division = "personnalite",
   initialStageKey = "all",
@@ -40,7 +40,7 @@ export function CommercialDealFilterModal({
   const [selectedStage, setSelectedStage] = useState<PipelineStageKey | "all">(initialStageKey);
   const [searchQuery, setSearchQuery] = useState("");
 
-  useMemo(() => {
+  useEffect(() => {
     setSelectedStage(initialStageKey);
   }, [initialStageKey]);
 

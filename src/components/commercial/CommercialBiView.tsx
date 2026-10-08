@@ -993,17 +993,23 @@ export function CommercialBiView() {
           const byOperator = new Map<string, string[]>();
           for (const deal of deals)
             byOperator.set(deal.sellerId, [...(byOperator.get(deal.sellerId) || []), deal.id]);
+          const result = { createdCount: 0, alreadyAssignedCount: 0 };
           for (const [operatorId, ids] of byOperator) {
-            const response = await fetch("/api/commercial/directives/point", {
-              method: "POST",
-              credentials: "same-origin",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ operatorId, dealIds: ids }),
-            });
-            const body = await response.json();
-            if (!response.ok) throw new Error(body.error || "Falha ao pontuar responsabilidades.");
+            for (let start = 0; start < ids.length; start += 100) {
+              const response = await fetch("/api/commercial/directives/point", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ operatorId, dealIds: ids.slice(start, start + 100) }),
+              });
+              const body = await response.json();
+              if (!response.ok) throw new Error(body.error || "Falha ao pontuar responsabilidades.");
+              result.createdCount += body.createdCount;
+              result.alreadyAssignedCount += body.alreadyAssignedCount;
+            }
           }
           await load();
+          return result;
         }}
       />
 

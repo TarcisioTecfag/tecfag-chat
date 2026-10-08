@@ -32,10 +32,10 @@ interface CommercialPacingFilterModalProps {
 export function CommercialPacingFilterModal({
   isOpen,
   onClose,
-  sellerName = "Marcelo Nardelli",
+  sellerName = "Equipe comercial",
   sellerId,
   division = "personnalite",
-  metaValue = 880_000,
+  metaValue = 0,
   deals: initialDeals,
   sellerAvatar,
   onOpenDeal,

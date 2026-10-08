@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -34,10 +34,10 @@ interface CommercialDeparaFilterModalProps {
 export function CommercialDeparaFilterModal({
   isOpen,
   onClose,
-  sellerName = "Diana Gimenes",
+  sellerName = "Equipe comercial",
   sellerId,
   division = "personnalite",
-  metaValue = 1_000_000,
+  metaValue = 0,
   initialTierKey = "all",
   deals,
   sellerAvatar,
@@ -51,7 +51,7 @@ export function CommercialDeparaFilterModal({
   const [searchQuery, setSearchQuery] = useState("");
 
   // Atualiza a aba inicial sempre que o modal abre ou initialTierKey muda
-  useMemo(() => {
+  useEffect(() => {
     setSelectedTier(initialTierKey);
   }, [initialTierKey]);
 

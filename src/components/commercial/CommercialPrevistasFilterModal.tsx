@@ -30,16 +30,16 @@ interface CommercialPrevistasFilterModalProps {
   onOpenDeal?: (dealId: string) => void;
   onOpenProfile?: (sellerId?: string) => void;
   onCallContact?: (phone: string, dealTitle: string) => void;
-  onSaveDirectives?: (selectedDealIds: string[]) => Promise<void>;
+  onSaveDirectives?: (selectedDealIds: string[]) => Promise<{ createdCount: number; alreadyAssignedCount: number }>;
 }
 
 export function CommercialPrevistasFilterModal({
   isOpen,
   onClose,
-  sellerName = "Diana Gimenes",
+  sellerName = "Equipe comercial",
   sellerId,
   division = "personnalite",
-  metaValue = 1_000_000,
+  metaValue = 0,
   initialHorizonKey = "all",
   deals: initialDeals,
   sellerAvatar,
@@ -55,6 +55,7 @@ export function CommercialPrevistasFilterModal({
   const [selectedDealIds, setSelectedDealIds] = useState<Set<string>>(new Set());
   const [dealsList, setDealsList] = useState<PrevistasDealItem[]>(initialDeals);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [savingDirectives, setSavingDirectives] = useState(false);
 
   // Sincroniza deals iniciais e aba
   useEffect(() => {
@@ -133,17 +134,19 @@ export function CommercialPrevistasFilterModal({
 
   // Ação de Salvar Diretrizes
   const handleExecuteSaveDirectives = async () => {
-    if (selectedDealIds.size === 0) return;
-    const count = selectedDealIds.size;
+    if (selectedDealIds.size === 0 || savingDirectives) return;
+    setSavingDirectives(true);
     try {
       if (!onSaveDirectives) throw new Error("Pontuação indisponível.");
-      await onSaveDirectives(Array.from(selectedDealIds));
-      setToastMessage(`✓ ${count} responsabilidade(s) pontuada(s).`);
+      const result = await onSaveDirectives(Array.from(selectedDealIds));
+      setToastMessage(`✓ ${result.createdCount} pontuada(s); ${result.alreadyAssignedCount} já registrada(s) hoje.`);
       setSelectedDealIds(new Set());
     } catch (cause) {
       setToastMessage(
         cause instanceof Error ? cause.message : "Falha ao pontuar responsabilidades.",
       );
+    } finally {
+      setSavingDirectives(false);
     }
     setTimeout(() => setToastMessage(null), 3500);
   };
@@ -491,6 +494,7 @@ export function CommercialPrevistasFilterModal({
             <button
               type="button"
               onClick={handleExecuteSaveDirectives}
+              disabled={savingDirectives}
               disabled={selectedDealIds.size === 0}
               className={`rounded-[2px] px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
                 selectedDealIds.size > 0
