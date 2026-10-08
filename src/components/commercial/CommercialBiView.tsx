@@ -114,12 +114,12 @@ const money = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 0,
 });
 const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
-const surface = "rounded-2xl border border-white/10 bg-white/[0.045] p-5";
-const badge = "text-[10px] font-extrabold uppercase tracking-[0.18em] text-red-400";
+const surface = "rounded-[4px] border border-zinc-800 bg-zinc-950/70 p-4";
+const badge = "text-[10px] font-mono font-bold uppercase tracking-[.18em] text-red-400";
 
 function Empty({ text }: { text: string }) {
   return (
-    <p className="rounded-xl border border-dashed border-white/15 p-6 text-sm text-zinc-400">
+    <p className="rounded-[4px] border border-dashed border-zinc-800 p-5 text-xs font-mono text-zinc-400">
       {text}
     </p>
   );
@@ -128,10 +128,10 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
   return (
     <div className={surface}>
       <p className={badge}>{label}</p>
-      <strong className="mt-3 block text-2xl font-extrabold tracking-tight text-white">
+      <strong className="mt-2 block text-xl font-bold font-mono tracking-tight text-white">
         {value}
       </strong>
-      {hint && <p className="mt-1 text-xs text-zinc-400">{hint}</p>}
+      {hint && <p className="mt-1 text-[11px] font-mono text-zinc-400">{hint}</p>}
     </div>
   );
 }
@@ -243,7 +243,6 @@ export function CommercialBiView() {
   const openDeal = (dealId: string) =>
     navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
 
-  const tvGoals = data?.goals.filter((goal) => goal.activeOnTv) || [];
   const selectedDeals =
     data?.maturity.cohorts.filter((item) => selectedDealIds.includes(item.dealId)) || [];
   const selectedOperatorId = selectedDeals[0]?.operatorId;
@@ -288,7 +287,6 @@ export function CommercialBiView() {
     }
   };
 
-  // Manipuladores de clique na tabela do Slide 1
   const handleCellClick = (
     seller: SellerPipelineRow | null,
     stageKey: PipelineStageKey | "all",
@@ -306,7 +304,6 @@ export function CommercialBiView() {
     setModalOpen(true);
   };
 
-  // Obtenção de negociações para o modal ativo
   const activeModalDeals = useMemo(() => {
     if (modalSeller) {
       return getBaselineDeals(modalSeller.sellerId);
@@ -319,29 +316,29 @@ export function CommercialBiView() {
   return (
     <section
       ref={panelRef}
-      className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-zinc-800 bg-[#0b0d13] text-white shadow-soft"
+      className="flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden rounded-[4px] border border-zinc-800 bg-[#0c0d12] text-white shadow-sm select-none"
     >
-      {/* ─── CABEÇALHO SUPERIOR EXECUTIVO (FIEL À FOTO 1) ─── */}
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 bg-[#0e1017] px-4 py-3 sm:px-6 shrink-0">
+      {/* ─── CABEÇALHO SUPERIOR EXECUTIVO (FIEL À GESTÃO COMERCIAL & FOTO 1) ─── */}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950/90 px-4 py-2 sm:px-6 shrink-0 backdrop-blur-sm">
         {/* Esquerda: Logo Oficial + Badge IA + Status Rotação */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Logo e Nome da Empresa */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-[2px] bg-zinc-900 border border-zinc-800/80 px-2 py-1">
             <img
               src={tenant === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg"}
               alt={tenant === "tecfag" ? "Tecfag" : "Valem"}
-              className="h-6 w-auto max-w-[90px] object-contain"
+              className="h-5 w-auto max-w-[80px] object-contain"
               onError={(e) => {
                 (e.target as HTMLElement).style.display = "none";
               }}
             />
-            <span className="font-mono text-base font-black tracking-tight text-white">
+            <span className="font-mono text-sm font-black tracking-tight text-white">
               {tenant === "tecfag" ? "TECFAG" : "VALEM"}
             </span>
           </div>
 
           {/* Badge IA Ao Vivo */}
-          <div className="inline-flex items-center gap-1.5 rounded border border-emerald-500/40 bg-emerald-950/40 px-2.5 py-1 text-[10px] font-mono font-bold text-emerald-400">
+          <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-[10px] font-mono font-bold text-emerald-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span>{aiPersonaName} I.A - AO VIVO</span>
           </div>
@@ -350,10 +347,10 @@ export function CommercialBiView() {
           <button
             type="button"
             onClick={() => setRotating((current) => !current)}
-            className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-[10px] font-mono font-bold transition-colors cursor-pointer ${
+            className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 text-[10px] font-mono font-bold transition-colors cursor-pointer ${
               rotating
-                ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-950/50"
-                : "border-amber-500/50 bg-amber-950/30 text-amber-400 hover:bg-amber-950/50"
+                ? "border-emerald-500/40 bg-zinc-900 text-emerald-300 hover:bg-zinc-800"
+                : "border-amber-500/40 bg-zinc-900 text-amber-400 hover:bg-zinc-800"
             }`}
           >
             {rotating ? (
@@ -372,21 +369,21 @@ export function CommercialBiView() {
 
         {/* Centro: Título do War Room */}
         <div className="hidden xl:block text-center">
-          <h1 className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-300">
+          <h1 className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400">
             COMMERCIAL WAR ROOM & SLA • INTELIGÊNCIA OPERACIONAL
           </h1>
         </div>
 
         {/* Direita: Data + Relógio Digital + Controles + 5 Pontos de Slide */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Data */}
-          <span className="font-mono text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+          <span className="font-mono text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
             {formattedDate}
           </span>
 
           {/* Relógio Digital */}
-          <div className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950/80 px-2.5 py-1 font-mono text-xs font-bold text-zinc-200">
-            <Clock className="h-3.5 w-3.5 text-zinc-400" />
+          <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-zinc-800 bg-zinc-900 px-2 py-0.5 font-mono text-[11px] font-bold text-zinc-200">
+            <Clock className="h-3 w-3 text-zinc-400" />
             <span>{formattedClock}</span>
           </div>
 
@@ -399,20 +396,20 @@ export function CommercialBiView() {
                 setRotating(false);
                 setModule((current) => (current === 0 ? 4 : current - 1));
               }}
-              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Slide Anterior"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-3.5 w-3.5" />
             </button>
 
             {/* Play / Pause */}
             <button
               type="button"
               onClick={() => setRotating((current) => !current)}
-              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title={rotating ? "Pausar rotação" : "Iniciar rotação"}
             >
-              {rotating ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              {rotating ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
             </button>
 
             {/* Próximo Slide */}
@@ -422,30 +419,30 @@ export function CommercialBiView() {
                 setRotating(false);
                 setModule((current) => (current + 1) % 5);
               }}
-              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Próximo Slide"
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-3.5 w-3.5" />
             </button>
 
             {/* Tela Cheia */}
             <button
               type="button"
               onClick={() => void panelRef.current?.requestFullscreen()}
-              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Tela Cheia"
             >
-              <Expand className="h-4 w-4" />
+              <Expand className="h-3.5 w-3.5" />
             </button>
 
             {/* Abrir Nova Aba */}
             <button
               type="button"
               onClick={() => window.open(window.location.href, "_blank")}
-              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Abrir em Nova Aba"
             >
-              <ExternalLink className="h-4 w-4" />
+              <ExternalLink className="h-3.5 w-3.5" />
             </button>
 
             {/* Atualizar */}
@@ -453,15 +450,15 @@ export function CommercialBiView() {
               type="button"
               onClick={() => void load()}
               disabled={loading}
-              className="rounded-lg border border-white/10 p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              className="rounded-[2px] border border-zinc-800 bg-zinc-900 p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
               title="Atualizar dados agora"
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             </button>
           </div>
 
-          {/* 5 Dots de Navegação (Dots do Slide) */}
-          <div className="flex items-center gap-1.5 ml-1">
+          {/* 5 Dots de Navegação Angular (Dashboard TV) */}
+          <div className="flex items-center gap-1 ml-1">
             {[0, 1, 2, 3, 4].map((idx) => {
               const isActive = module === idx;
               return (
@@ -474,8 +471,8 @@ export function CommercialBiView() {
                   }}
                   className={`transition-all cursor-pointer ${
                     isActive
-                      ? "h-2 w-6 rounded-full bg-[#df3d3d] shadow-sm"
-                      : "h-2 w-2 rounded-full bg-zinc-700 hover:bg-zinc-500"
+                      ? "h-1.5 w-5 rounded-[2px] bg-[#df3d3d] shadow-sm"
+                      : "h-1.5 w-2 rounded-[2px] bg-zinc-800 hover:bg-zinc-600"
                   }`}
                   title={`Slide ${idx + 1}`}
                 />
@@ -485,184 +482,188 @@ export function CommercialBiView() {
         </div>
       </header>
 
-      {/* ─── CORPO PRINCIPAL COM ROLAGEM SUAVE ─── */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">
-        {error && (
-          <p
-            role="alert"
-            className="mb-4 rounded-xl border border-red-800 bg-red-950/40 p-4 text-sm text-red-200"
-          >
-            {error}
-          </p>
-        )}
-        {pointResult && (
-          <p
-            role="status"
-            className="mb-4 rounded-xl border border-emerald-700 bg-emerald-950/30 p-3 text-sm text-emerald-200"
-          >
-            {pointResult}
-          </p>
-        )}
+      {/* ─── CORPO PRINCIPAL: FIXO E CENTRALIZADO NA TELA (ZERO SCROLLBAR) ─── */}
+      <div className="flex-1 w-full overflow-hidden flex flex-col justify-center items-center p-2 sm:p-3 xl:p-4">
+        <div className="w-full max-w-[1720px] h-full flex flex-col justify-center">
+          {error && (
+            <p
+              role="alert"
+              className="mb-2 rounded-[4px] border border-red-800 bg-red-950/40 p-3 text-xs text-red-200 font-mono"
+            >
+              {error}
+            </p>
+          )}
+          {pointResult && (
+            <p
+              role="status"
+              className="mb-2 rounded-[4px] border border-emerald-700 bg-emerald-950/30 p-2 text-xs text-emerald-200 font-mono"
+            >
+              {pointResult}
+            </p>
+          )}
 
-        {loading && !data ? (
-          <div className="flex h-72 items-center justify-center text-red-400">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
-        ) : (
-          <>
-            {/* ─── SLIDE 0 / MÓDULO 0: PIPELINE POR FASE RD CRM (RÉPLICA FIEL DA FOTO 1) ─── */}
-            {module === 0 && (
-              <CommercialPipelineTableView
-                personnaliteData={BASELINE_PERSONNALITE}
-                semiMaquinasData={BASELINE_SEMI_MAQUINAS}
-                onCellClick={handleCellClick}
-                onHeaderStageClick={handleHeaderStageClick}
-              />
-            )}
-
-            {/* ─── SLIDE 1: MATURIDADE ATUAL ─── */}
-            {module === 1 && data && (
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                  {data.maturity.tiers.map((tier) => (
-                    <Metric
-                      key={tier.tier}
-                      label={`Faixa ${tier.tier} · ${tier.days} dias`}
-                      value={money.format(tier.readyValue)}
-                      hint={`${tier.readyCount} negócio(s) maduros`}
-                    />
-                  ))}
-                </div>
-                <div className={surface}>
-                  <p className={badge}>Responsabilidades atuais</p>
-                  <h2 className="mt-1 text-xl font-bold">Prontas ou atrasadas</h2>
-                  <div className="mt-4 space-y-2">
-                    {data.maturity.cohorts
-                      .filter((item) => item.daysRemaining <= 0)
-                      .slice(0, 30)
-                      .map((item) => (
-                        <div
-                          key={item.dealId}
-                          className="flex w-full flex-wrap justify-between gap-2 rounded-xl border border-white/10 p-3 text-left hover:border-red-500/50"
-                        >
-                          <span className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              aria-label={`Pontuar responsabilidade de ${item.title}`}
-                              checked={selectedDealIds.includes(item.dealId)}
-                              onChange={() => toggleDeal(item)}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => openDeal(item.dealId)}
-                              className="text-left hover:underline"
-                            >
-                              <strong>{item.title}</strong>
-                            </button>
-                            <small className="ml-2 text-zinc-400">
-                              {item.operatorName} · {item.stageName} · {item.ageDays} dias
-                            </small>
-                          </span>
-                          <span className="font-bold">{money.format(item.value)}</span>
-                        </div>
-                      ))}
-                    {!data.maturity.cohorts.some((item) => item.daysRemaining <= 0) && (
-                      <Empty text="Nenhuma responsabilidade madura agora." />
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ─── SLIDE 2: PREVISÃO & METAS / RITMO ─── */}
-            {module === 2 && (
-              <div className="space-y-4">
-                <CommercialForecastDrilldown
-                  division={division}
-                  onOpenDeal={openDeal}
-                  onPointed={() => void load()}
+          {loading && !data ? (
+            <div className="flex h-72 items-center justify-center text-red-400">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : (
+            <>
+              {/* ─── SLIDE 0: PIPELINE POR FASE RD CRM (RÉPLICA FIEL) ─── */}
+              {module === 0 && (
+                <CommercialPipelineTableView
+                  personnaliteData={BASELINE_PERSONNALITE}
+                  semiMaquinasData={BASELINE_SEMI_MAQUINAS}
+                  onCellClick={handleCellClick}
+                  onHeaderStageClick={handleHeaderStageClick}
                 />
-              </div>
-            )}
+              )}
 
-            {/* ─── SLIDE 3: PERDAS & SLA / TMA ─── */}
-            {module === 3 && data && (
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-4">
-                  <Metric
-                    label="TMA geral"
-                    value={
-                      data.tma.averageSeconds === null
-                        ? "—"
-                        : `${number.format(data.tma.averageSeconds / 60)} min`
-                    }
-                    hint="Transferência → primeira resposta"
-                  />
-                  <Metric
-                    label="Dentro do SLA"
-                    value={
-                      data.tma.slaPercent === null
-                        ? "—"
-                        : `${number.format(data.tma.slaPercent)}%`
-                    }
-                    hint={`Limite: ${data.settings.slaLimitMinutes} min`}
-                  />
-                  <Metric label="Respostas medidas" value={String(data.tma.answeredCount)} />
-                  <Metric label="Pendentes" value={String(data.tma.pendingCount)} />
-                </div>
-                <div className={surface}>
-                  <p className={badge}>Ranking de resposta</p>
-                  <div className="mt-4 space-y-2">
-                    {data.tma.byOperator
-                      .filter((item) => item.count || item.pending)
-                      .map((item, index) => (
-                        <div
-                          key={item.operatorId}
-                          className="flex justify-between gap-3 border-b border-white/10 py-2 text-sm"
-                        >
-                          <span>
-                            {index + 1}. {item.name}{" "}
-                            <small className="text-zinc-400">
-                              · {item.count} respostas · {item.pending} pendentes
-                            </small>
-                          </span>
-                          <strong>
-                            {item.averageSeconds === null
-                              ? "—"
-                              : `${number.format(item.averageSeconds / 60)} min`}
-                          </strong>
-                        </div>
-                      ))}
-                    {!data.tma.byOperator.some((item) => item.count || item.pending) && (
-                      <Empty text="O TMA começa quando um atendimento é atribuído a um consultor comercial." />
-                    )}
+              {/* ─── SLIDE 1: MATURIDADE ATUAL ─── */}
+              {module === 1 && data && (
+                <div className="space-y-3 overflow-y-auto max-h-[85vh] scrollbar-thin">
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                    {data.maturity.tiers.map((tier) => (
+                      <Metric
+                        key={tier.tier}
+                        label={`Faixa ${tier.tier} · ${tier.days} dias`}
+                        value={money.format(tier.readyValue)}
+                        hint={`${tier.readyCount} negócio(s) maduros`}
+                      />
+                    ))}
+                  </div>
+                  <div className={surface}>
+                    <p className={badge}>Responsabilidades atuais</p>
+                    <h2 className="mt-1 text-base font-bold font-mono">Prontas ou atrasadas</h2>
+                    <div className="mt-3 space-y-1.5">
+                      {data.maturity.cohorts
+                        .filter((item) => item.daysRemaining <= 0)
+                        .slice(0, 20)
+                        .map((item) => (
+                          <div
+                            key={item.dealId}
+                            className="flex w-full flex-wrap justify-between gap-2 rounded-[4px] border border-zinc-800 bg-zinc-900/60 p-2 text-left hover:border-red-500/50"
+                          >
+                            <span className="flex items-center gap-2 font-mono text-xs">
+                              <input
+                                type="checkbox"
+                                aria-label={`Pontuar responsabilidade de ${item.title}`}
+                                checked={selectedDealIds.includes(item.dealId)}
+                                onChange={() => toggleDeal(item)}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => openDeal(item.dealId)}
+                                className="text-left hover:underline text-white font-bold"
+                              >
+                                {item.title}
+                              </button>
+                              <small className="ml-2 text-zinc-400">
+                                {item.operatorName} · {item.stageName} · {item.ageDays} dias
+                              </small>
+                            </span>
+                            <span className="font-bold font-mono text-xs text-emerald-400">
+                              {money.format(item.value)}
+                            </span>
+                          </div>
+                        ))}
+                      {!data.maturity.cohorts.some((item) => item.daysRemaining <= 0) && (
+                        <Empty text="Nenhuma responsabilidade madura agora." />
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* ─── SLIDE 4: RESPONSABILIDADES & SAFRAS ─── */}
-            {module === 4 && (
-              <div className="space-y-4">
-                <CommercialResponsibilitiesPanel division={division} onOpenDeal={openDeal} />
-                <CommercialCohortsPanel division={division} onOpenDeal={openDeal} />
-              </div>
-            )}
-          </>
-        )}
+              {/* ─── SLIDE 2: PREVISÃO & METAS / RITMO ─── */}
+              {module === 2 && (
+                <div className="space-y-3 overflow-y-auto max-h-[85vh] scrollbar-thin">
+                  <CommercialForecastDrilldown
+                    division={division}
+                    onOpenDeal={openDeal}
+                    onPointed={() => void load()}
+                  />
+                </div>
+              )}
 
-        {/* Rodapé com Aviso ao Vivo no BI TV */}
-        {data?.settings?.tvSettings?.liveNotice && (
-          <div className="mt-6 flex items-center justify-center gap-3 rounded-2xl border border-red-500/40 bg-red-500/15 px-6 py-3.5 text-center shadow-lg animate-pulse">
-            <span className="text-lg">📢</span>
-            <span className="text-sm font-extrabold tracking-wide text-white">
-              {data.settings.tvSettings.liveNotice}
-            </span>
-          </div>
-        )}
+              {/* ─── SLIDE 3: PERDAS & SLA / TMA ─── */}
+              {module === 3 && data && (
+                <div className="space-y-3 overflow-y-auto max-h-[85vh] scrollbar-thin">
+                  <div className="grid gap-2 sm:grid-cols-4">
+                    <Metric
+                      label="TMA geral"
+                      value={
+                        data.tma.averageSeconds === null
+                          ? "—"
+                          : `${number.format(data.tma.averageSeconds / 60)} min`
+                      }
+                      hint="Transferência → primeira resposta"
+                    />
+                    <Metric
+                      label="Dentro do SLA"
+                      value={
+                        data.tma.slaPercent === null
+                          ? "—"
+                          : `${number.format(data.tma.slaPercent)}%`
+                      }
+                      hint={`Limite: ${data.settings.slaLimitMinutes} min`}
+                    />
+                    <Metric label="Respostas medidas" value={String(data.tma.answeredCount)} />
+                    <Metric label="Pendentes" value={String(data.tma.pendingCount)} />
+                  </div>
+                  <div className={surface}>
+                    <p className={badge}>Ranking de resposta</p>
+                    <div className="mt-3 space-y-1">
+                      {data.tma.byOperator
+                        .filter((item) => item.count || item.pending)
+                        .map((item, index) => (
+                          <div
+                            key={item.operatorId}
+                            className="flex justify-between gap-3 border-b border-zinc-800 py-1.5 text-xs font-mono"
+                          >
+                            <span>
+                              {index + 1}. {item.name}{" "}
+                              <small className="text-zinc-400">
+                                · {item.count} respostas · {item.pending} pendentes
+                              </small>
+                            </span>
+                            <strong className="text-emerald-400">
+                              {item.averageSeconds === null
+                                ? "—"
+                                : `${number.format(item.averageSeconds / 60)} min`}
+                            </strong>
+                          </div>
+                        ))}
+                      {!data.tma.byOperator.some((item) => item.count || item.pending) && (
+                        <Empty text="O TMA começa quando um atendimento é atribuído a um consultor comercial." />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── SLIDE 4: RESPONSABILIDADES & SAFRAS ─── */}
+              {module === 4 && (
+                <div className="space-y-3 overflow-y-auto max-h-[85vh] scrollbar-thin">
+                  <CommercialResponsibilitiesPanel division={division} onOpenDeal={openDeal} />
+                  <CommercialCohortsPanel division={division} onOpenDeal={openDeal} />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Rodapé com Aviso ao Vivo no BI TV */}
+          {data?.settings?.tvSettings?.liveNotice && (
+            <div className="mt-2 flex items-center justify-center gap-2 rounded-[4px] border border-red-500/40 bg-red-950/20 px-4 py-2 text-center shadow-sm">
+              <span className="text-sm">📢</span>
+              <span className="text-xs font-bold font-mono tracking-wide text-white">
+                {data.settings.tvSettings.liveNotice}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ─── MODAL DETALHADO DE NEGOCIAÇÕES (FIEL À FOTO 2) ─── */}
+      {/* ─── MODAL DETALHADO DE NEGOCIAÇÕES (FIEL À GESTÃO COMERCIAL & FOTO 2) ─── */}
       <CommercialDealFilterModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -675,7 +676,7 @@ export function CommercialBiView() {
         initialStageKey={modalStageKey}
         deals={activeModalDeals}
         onOpenDeal={openDeal}
-        onOpenProfile={(id) => {
+        onOpenProfile={() => {
           navigate({ to: "/commercial-management" });
         }}
       />

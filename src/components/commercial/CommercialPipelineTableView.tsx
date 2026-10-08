@@ -13,7 +13,11 @@ import {
 interface CommercialPipelineTableViewProps {
   personnaliteData: TeamPipelineData;
   semiMaquinasData: TeamPipelineData;
-  onCellClick: (seller: SellerPipelineRow | null, stageKey: PipelineStageKey | "all", division?: "personnalite" | "maquinas") => void;
+  onCellClick: (
+    seller: SellerPipelineRow | null,
+    stageKey: PipelineStageKey | "all",
+    division?: "personnalite" | "maquinas",
+  ) => void;
   onHeaderStageClick: (stageKey: PipelineStageKey) => void;
 }
 
@@ -27,27 +31,27 @@ export function CommercialPipelineTableView({
   const mSummary = formatTeamSummary(semiMaquinasData.totalCards, semiMaquinasData.totalValue);
 
   return (
-    <div className="w-full space-y-6">
-      {/* Subtítulo / Tag da Tela 1 */}
-      <div className="flex items-center gap-2">
-        <span className="flex h-5 w-5 items-center justify-center rounded bg-red-600/20 text-red-500 font-mono text-xs font-black">
+    <div className="w-full h-full flex flex-col justify-around py-0.5 space-y-2 select-none">
+      {/* ─── TAG DA TELA 1 ─── */}
+      <div className="flex items-center gap-2 px-1">
+        <span className="flex h-4 w-4 items-center justify-center rounded-[2px] bg-red-950/40 border border-red-500/30 text-red-500 font-mono text-[10px] font-black">
           ⊞
         </span>
-        <h2 className="text-xs sm:text-sm font-black uppercase tracking-wider text-[#df3d3d]">
+        <h2 className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-[#df3d3d] font-mono">
           OPORTUNIDADES & PIPELINE POR FASE (RD CRM)
         </h2>
       </div>
 
       {/* ─── TABELA 1: TIME PERSONNALITÉ ─── */}
-      <div className="space-y-2">
+      <div className="space-y-1">
         {/* Cabeçalho da Equipe */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-red-400">
-            <Star className="h-3.5 w-3.5 fill-red-400 text-red-400" />
+          <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-red-400 font-mono">
+            <Star className="h-3 w-3 fill-red-400 text-red-400" />
             <span>TIME PERSONNALITÉ</span>
           </div>
 
-          <div className="flex items-center gap-2 font-mono text-[11px]">
+          <div className="flex items-center gap-2 font-mono text-[10px]">
             <span className="text-zinc-400">{pSummary.cards}</span>
             <span className="text-zinc-600">-</span>
             <span className="font-bold text-emerald-400">{pSummary.value}</span>
@@ -55,32 +59,32 @@ export function CommercialPipelineTableView({
         </div>
 
         {/* Tabela de Dados */}
-        <div className="overflow-x-auto rounded-xl border border-zinc-800/80 bg-[#12141c]/90 shadow-2xl scrollbar-thin">
+        <div className="overflow-x-auto rounded-[4px] border border-zinc-800 bg-zinc-950/70 shadow-sm scrollbar-none">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-zinc-800 bg-[#151822] text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
-                <th className="py-2.5 px-3 sm:px-4 font-semibold text-zinc-300">VENDEDOR</th>
+              <tr className="border-b border-zinc-800 bg-zinc-900/90 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
+                <th className="py-1.5 px-3 font-semibold text-zinc-300">VENDEDOR</th>
                 {PIPELINE_STAGES.map((stage) => (
                   <th
                     key={stage.key}
                     onClick={() => onHeaderStageClick(stage.key)}
-                    className="py-2.5 px-2.5 text-center font-mono hover:text-white cursor-pointer transition-colors"
+                    className="py-1.5 px-2 text-center font-mono hover:text-white cursor-pointer transition-colors"
                   >
                     {stage.bracketLabel}
                   </th>
                 ))}
-                <th className="py-2.5 px-3 text-center font-mono font-bold text-emerald-300 bg-emerald-950/30 border-l border-zinc-800/80">
+                <th className="py-1.5 px-3 text-center font-mono font-bold text-emerald-300 bg-emerald-950/25 border-l border-zinc-800">
                   TOTAL FUNIL
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-mono">
               {personnaliteData.sellers.map((seller) => (
-                <tr key={seller.sellerId} className="hover:bg-white/[0.02] transition-colors">
+                <tr key={seller.sellerId} className="hover:bg-zinc-900/40 transition-colors">
                   {/* Nome do Vendedor */}
                   <td
                     onClick={() => onCellClick(seller, "all", "personnalite")}
-                    className="py-3 px-3 sm:px-4 font-sans font-bold text-white hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap"
+                    className="py-1.5 px-3 font-sans font-bold text-xs text-white hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap"
                   >
                     {seller.sellerName}
                   </td>
@@ -93,12 +97,12 @@ export function CommercialPipelineTableView({
                       <td
                         key={stage.key}
                         onClick={() => onCellClick(seller, stage.key, "personnalite")}
-                        className="py-2 px-2.5 text-center hover:bg-white/[0.05] hover:ring-1 hover:ring-red-500/40 cursor-pointer transition-all rounded"
+                        className="py-1 px-1.5 text-center hover:bg-zinc-800/60 hover:ring-1 hover:ring-red-500/40 cursor-pointer transition-all rounded-[2px]"
                       >
-                        <div className="font-sans font-black text-xs sm:text-sm text-white">
+                        <div className="font-sans font-black text-xs text-white leading-tight">
                           {data.count}
                         </div>
-                        <div className="mt-0.5 text-[10px] text-emerald-400 font-medium">
+                        <div className="text-[9.5px] text-emerald-400 font-medium leading-none mt-0.5">
                           {hasValue ? (
                             <span>
                               {formatAbbreviatedCurrency(data.value)}{" "}
@@ -115,12 +119,12 @@ export function CommercialPipelineTableView({
                   {/* Coluna Total Funil do Vendedor */}
                   <td
                     onClick={() => onCellClick(seller, "all", "personnalite")}
-                    className="py-2 px-3 text-center bg-emerald-950/20 border-l border-zinc-800/80 hover:bg-emerald-950/40 cursor-pointer transition-all"
+                    className="py-1 px-2.5 text-center bg-emerald-950/15 border-l border-zinc-800 hover:bg-emerald-950/30 cursor-pointer transition-all"
                   >
-                    <div className="font-sans font-black text-xs sm:text-sm text-white">
+                    <div className="font-sans font-black text-xs text-white leading-tight">
                       {seller.totalCards}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-emerald-400 font-bold">
+                    <div className="text-[9.5px] text-emerald-400 font-bold leading-none mt-0.5">
                       {formatAbbreviatedCurrency(seller.totalValue, true)}{" "}
                       <span className="text-emerald-300">{seller.teamSharePercent}%</span>
                     </div>
@@ -129,10 +133,10 @@ export function CommercialPipelineTableView({
               ))}
 
               {/* Linha Total da Equipe */}
-              <tr className="border-t-2 border-zinc-700 bg-[#161924]/90 font-bold">
+              <tr className="border-t-2 border-zinc-700 bg-zinc-900/90 font-bold">
                 <td
                   onClick={() => onCellClick(null, "all", "personnalite")}
-                  className="py-3 px-3 sm:px-4 font-sans font-black text-white uppercase text-xs tracking-wider hover:text-red-400 cursor-pointer"
+                  className="py-1.5 px-3 font-sans font-black text-white uppercase text-[11px] tracking-wider hover:text-red-400 cursor-pointer"
                 >
                   TOTAL PERSONNALITÉ
                 </td>
@@ -144,12 +148,12 @@ export function CommercialPipelineTableView({
                     <td
                       key={stage.key}
                       onClick={() => onCellClick(null, stage.key, "personnalite")}
-                      className="py-2.5 px-2.5 text-center hover:bg-white/[0.05] cursor-pointer"
+                      className="py-1 px-1.5 text-center hover:bg-zinc-800/60 cursor-pointer"
                     >
-                      <div className="font-sans font-black text-xs sm:text-sm text-white">
+                      <div className="font-sans font-black text-xs text-white leading-tight">
                         {data.count}
                       </div>
-                      <div className="mt-0.5 text-[10px] text-emerald-400 font-bold">
+                      <div className="text-[9.5px] text-emerald-400 font-bold leading-none mt-0.5">
                         {hasValue ? (
                           <span>
                             {formatAbbreviatedCurrency(data.value)}{" "}
@@ -166,12 +170,12 @@ export function CommercialPipelineTableView({
                 {/* Total Global da Equipe */}
                 <td
                   onClick={() => onCellClick(null, "all", "personnalite")}
-                  className="py-2.5 px-3 text-center bg-emerald-950/40 border-l border-zinc-800 font-black hover:bg-emerald-950/60 cursor-pointer"
+                  className="py-1.5 px-2.5 text-center bg-emerald-950/30 border-l border-zinc-800 font-black hover:bg-emerald-950/50 cursor-pointer"
                 >
-                  <div className="font-sans font-black text-xs sm:text-sm text-white">
+                  <div className="font-sans font-black text-xs text-white leading-tight">
                     {personnaliteData.totalCards}
                   </div>
-                  <div className="mt-0.5 text-[10px] text-emerald-400 font-extrabold">
+                  <div className="text-[9.5px] text-emerald-400 font-extrabold leading-none mt-0.5">
                     {formatAbbreviatedCurrency(personnaliteData.totalValue, true)}
                   </div>
                 </td>
@@ -182,15 +186,15 @@ export function CommercialPipelineTableView({
       </div>
 
       {/* ─── TABELA 2: TIME SEMI (MÁQUINAS) ─── */}
-      <div className="space-y-2">
+      <div className="space-y-1">
         {/* Cabeçalho da Equipe */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-red-400">
-            <Flag className="h-3.5 w-3.5 fill-red-400 text-red-400" />
+          <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-red-400 font-mono">
+            <Flag className="h-3 w-3 fill-red-400 text-red-400" />
             <span>TIME SEMI (MÁQUINAS)</span>
           </div>
 
-          <div className="flex items-center gap-2 font-mono text-[11px]">
+          <div className="flex items-center gap-2 font-mono text-[10px]">
             <span className="text-zinc-400">{mSummary.cards}</span>
             <span className="text-zinc-600">-</span>
             <span className="font-bold text-emerald-400">{mSummary.value}</span>
@@ -198,32 +202,32 @@ export function CommercialPipelineTableView({
         </div>
 
         {/* Tabela de Dados */}
-        <div className="overflow-x-auto rounded-xl border border-zinc-800/80 bg-[#12141c]/90 shadow-2xl scrollbar-thin">
+        <div className="overflow-x-auto rounded-[4px] border border-zinc-800 bg-zinc-950/70 shadow-sm scrollbar-none">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-zinc-800 bg-[#151822] text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
-                <th className="py-2.5 px-3 sm:px-4 font-semibold text-zinc-300">VENDEDOR</th>
+              <tr className="border-b border-zinc-800 bg-zinc-900/90 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
+                <th className="py-1.5 px-3 font-semibold text-zinc-300">VENDEDOR</th>
                 {PIPELINE_STAGES.map((stage) => (
                   <th
                     key={stage.key}
                     onClick={() => onHeaderStageClick(stage.key)}
-                    className="py-2.5 px-2.5 text-center font-mono hover:text-white cursor-pointer transition-colors"
+                    className="py-1.5 px-2 text-center font-mono hover:text-white cursor-pointer transition-colors"
                   >
                     {stage.bracketLabel}
                   </th>
                 ))}
-                <th className="py-2.5 px-3 text-center font-mono font-bold text-emerald-300 bg-emerald-950/30 border-l border-zinc-800/80">
+                <th className="py-1.5 px-3 text-center font-mono font-bold text-emerald-300 bg-emerald-950/25 border-l border-zinc-800">
                   TOTAL FUNIL
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-mono">
               {semiMaquinasData.sellers.map((seller) => (
-                <tr key={seller.sellerId} className="hover:bg-white/[0.02] transition-colors">
+                <tr key={seller.sellerId} className="hover:bg-zinc-900/40 transition-colors">
                   {/* Nome do Vendedor */}
                   <td
                     onClick={() => onCellClick(seller, "all", "maquinas")}
-                    className="py-3 px-3 sm:px-4 font-sans font-bold text-white hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap"
+                    className="py-1.5 px-3 font-sans font-bold text-xs text-white hover:text-red-400 cursor-pointer transition-colors whitespace-nowrap"
                   >
                     {seller.sellerName}
                   </td>
@@ -236,12 +240,12 @@ export function CommercialPipelineTableView({
                       <td
                         key={stage.key}
                         onClick={() => onCellClick(seller, stage.key, "maquinas")}
-                        className="py-2 px-2.5 text-center hover:bg-white/[0.05] hover:ring-1 hover:ring-red-500/40 cursor-pointer transition-all rounded"
+                        className="py-1 px-1.5 text-center hover:bg-zinc-800/60 hover:ring-1 hover:ring-red-500/40 cursor-pointer transition-all rounded-[2px]"
                       >
-                        <div className="font-sans font-black text-xs sm:text-sm text-white">
+                        <div className="font-sans font-black text-xs text-white leading-tight">
                           {data.count}
                         </div>
-                        <div className="mt-0.5 text-[10px] text-emerald-400 font-medium">
+                        <div className="text-[9.5px] text-emerald-400 font-medium leading-none mt-0.5">
                           {hasValue ? (
                             <span>
                               {formatAbbreviatedCurrency(data.value)}{" "}
@@ -258,12 +262,12 @@ export function CommercialPipelineTableView({
                   {/* Coluna Total Funil do Vendedor */}
                   <td
                     onClick={() => onCellClick(seller, "all", "maquinas")}
-                    className="py-2 px-3 text-center bg-emerald-950/20 border-l border-zinc-800/80 hover:bg-emerald-950/40 cursor-pointer transition-all"
+                    className="py-1 px-2.5 text-center bg-emerald-950/15 border-l border-zinc-800 hover:bg-emerald-950/30 cursor-pointer transition-all"
                   >
-                    <div className="font-sans font-black text-xs sm:text-sm text-white">
+                    <div className="font-sans font-black text-xs text-white leading-tight">
                       {seller.totalCards}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-emerald-400 font-bold">
+                    <div className="text-[9.5px] text-emerald-400 font-bold leading-none mt-0.5">
                       {formatAbbreviatedCurrency(seller.totalValue, true)}{" "}
                       <span className="text-emerald-300">{seller.teamSharePercent}%</span>
                     </div>
@@ -272,10 +276,10 @@ export function CommercialPipelineTableView({
               ))}
 
               {/* Linha Total da Equipe */}
-              <tr className="border-t-2 border-zinc-700 bg-[#161924]/90 font-bold">
+              <tr className="border-t-2 border-zinc-700 bg-zinc-900/90 font-bold">
                 <td
                   onClick={() => onCellClick(null, "all", "maquinas")}
-                  className="py-3 px-3 sm:px-4 font-sans font-black text-white uppercase text-xs tracking-wider hover:text-red-400 cursor-pointer"
+                  className="py-1.5 px-3 font-sans font-black text-white uppercase text-[11px] tracking-wider hover:text-red-400 cursor-pointer"
                 >
                   TOTAL SEMI
                 </td>
@@ -287,12 +291,12 @@ export function CommercialPipelineTableView({
                     <td
                       key={stage.key}
                       onClick={() => onCellClick(null, stage.key, "maquinas")}
-                      className="py-2.5 px-2.5 text-center hover:bg-white/[0.05] cursor-pointer"
+                      className="py-1 px-1.5 text-center hover:bg-zinc-800/60 cursor-pointer"
                     >
-                      <div className="font-sans font-black text-xs sm:text-sm text-white">
+                      <div className="font-sans font-black text-xs text-white leading-tight">
                         {data.count}
                       </div>
-                      <div className="mt-0.5 text-[10px] text-emerald-400 font-bold">
+                      <div className="text-[9.5px] text-emerald-400 font-bold leading-none mt-0.5">
                         {hasValue ? (
                           <span>
                             {formatAbbreviatedCurrency(data.value)}{" "}
@@ -309,12 +313,12 @@ export function CommercialPipelineTableView({
                 {/* Total Global da Equipe */}
                 <td
                   onClick={() => onCellClick(null, "all", "maquinas")}
-                  className="py-2.5 px-3 text-center bg-emerald-950/40 border-l border-zinc-800 font-black hover:bg-emerald-950/60 cursor-pointer"
+                  className="py-1.5 px-2.5 text-center bg-emerald-950/30 border-l border-zinc-800 font-black hover:bg-emerald-950/50 cursor-pointer"
                 >
-                  <div className="font-sans font-black text-xs sm:text-sm text-white">
+                  <div className="font-sans font-black text-xs text-white leading-tight">
                     {semiMaquinasData.totalCards}
                   </div>
-                  <div className="mt-0.5 text-[10px] text-emerald-400 font-extrabold">
+                  <div className="text-[9.5px] text-emerald-400 font-extrabold leading-none mt-0.5">
                     {formatAbbreviatedCurrency(semiMaquinasData.totalValue, true)}
                   </div>
                 </td>
