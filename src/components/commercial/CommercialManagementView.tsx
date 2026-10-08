@@ -114,6 +114,23 @@ async function postJson(url: string, body: unknown) {
   return data;
 }
 
+async function getOpenCommercialDeals(): Promise<Deal[]> {
+  const deals: Deal[] = [];
+  let page = 1;
+  let total = 0;
+  do {
+    const result = await getJson(`/api/commercial/analysis?view=deals&mode=pipeline&page=${page}&limit=100`);
+    total = result.total;
+    deals.push(...result.deals.map((deal: Deal) => ({
+      id: deal.id,
+      title: deal.title,
+      operatorId: deal.operatorId,
+    })));
+    page += 1;
+  } while (deals.length < total);
+  return deals;
+}
+
 export function CommercialManagementView() {
   const { setActiveView } = useChat();
   const navigate = useNavigate();
@@ -180,7 +197,7 @@ export function CommercialManagementView() {
         getJson(`/api/commercial/calendar?month=${encodeURIComponent(month)}`),
         getJson("/api/commercial/directives"),
         getJson("/api/commercial/evidence"),
-        getJson("/api/crm/deals?status=open&limit=100&includeTotal=false"),
+        getOpenCommercialDeals(),
         getJson(
           `/api/commercial/analysis?view=responsibilities&month=${encodeURIComponent(month)}`,
         ),
@@ -191,7 +208,7 @@ export function CommercialManagementView() {
       setClosings(calendarData.closings || []);
       setDirectives(directiveData.directives || []);
       setEvidence(evidenceData.evidence || []);
-      setDeals(dealData.deals || []);
+      setDeals(dealData);
       setResponsibilities(toDiretrizesPresentation(responsibilityData));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Falha ao carregar gestão comercial.");
