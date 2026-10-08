@@ -35,6 +35,16 @@ import {
   DeparaTierKey,
   SellerDeparaRow,
 } from "@/lib/commercial/depara-data";
+import { CommercialPrevistasTableView } from "./CommercialPrevistasTableView";
+import { CommercialPrevistasFilterModal } from "./CommercialPrevistasFilterModal";
+import {
+  BASELINE_PREVISTAS_PERSONNALITE,
+  BASELINE_PREVISTAS_SEMI_MAQUINAS,
+  getBaselinePrevistasDeals,
+  PrevistasTierKey,
+  SellerPrevistasRow,
+} from "@/lib/commercial/previstas-data";
+
 
 
 type Tier = {
@@ -170,6 +180,12 @@ export function CommercialBiView() {
   const [deparaModalOpen, setDeparaModalOpen] = useState(false);
   const [deparaModalSeller, setDeparaModalSeller] = useState<SellerDeparaRow | null>(null);
   const [deparaModalTierKey, setDeparaModalTierKey] = useState<DeparaTierKey | "all">("all");
+
+  // Estados para o Modal de Previsão e Diretrizes Temporais (Slide 3 / Fotos 2 e 3)
+  const [previstasModalOpen, setPrevistasModalOpen] = useState(false);
+  const [previstasModalSeller, setPrevistasModalSeller] = useState<SellerPrevistasRow | null>(null);
+  const [previstasModalHorizonKey, setPrevistasModalHorizonKey] = useState<PrevistasTierKey | "all">("all");
+
 
 
   // Relógio digital e data ao vivo
@@ -353,7 +369,31 @@ export function CommercialBiView() {
     return getBaselineDeparaDeals();
   }, [deparaModalSeller]);
 
+  // Handlers para o Modal de Previsão e Diretrizes (Slide 3)
+  const handlePrevistasCellClick = (
+    seller: SellerPrevistasRow,
+    horizonKey: PrevistasTierKey | "all"
+  ) => {
+    setPrevistasModalSeller(seller);
+    setPrevistasModalHorizonKey(horizonKey);
+    setPrevistasModalOpen(true);
+  };
+
+  const handlePrevistasHeaderTierClick = (horizonKey: PrevistasTierKey) => {
+    setPrevistasModalSeller(BASELINE_PREVISTAS_PERSONNALITE.sellers[0]);
+    setPrevistasModalHorizonKey(horizonKey);
+    setPrevistasModalOpen(true);
+  };
+
+  const activePrevistasModalDeals = useMemo(() => {
+    if (previstasModalSeller) {
+      return getBaselinePrevistasDeals(previstasModalSeller.sellerId);
+    }
+    return getBaselinePrevistasDeals();
+  }, [previstasModalSeller]);
+
   const aiPersonaName = tenant === "tecfag" ? "FAGNER" : "VALENTINA";
+
 
 
   return (
@@ -573,16 +613,16 @@ export function CommercialBiView() {
               )}
 
 
-              {/* ─── SLIDE 2: PREVISÃO & METAS / RITMO ─── */}
+              {/* ─── SLIDE 2: RESPONSABILIDADES PREVISTAS CWR (RÉPLICA FIEL) ─── */}
               {module === 2 && (
-                <div className="space-y-3 overflow-y-auto max-h-[85vh] scrollbar-thin">
-                  <CommercialForecastDrilldown
-                    division={division}
-                    onOpenDeal={openDeal}
-                    onPointed={() => void load()}
-                  />
-                </div>
+                <CommercialPrevistasTableView
+                  personnaliteData={BASELINE_PREVISTAS_PERSONNALITE}
+                  semiMaquinasData={BASELINE_PREVISTAS_SEMI_MAQUINAS}
+                  onCellClick={handlePrevistasCellClick}
+                  onHeaderTierClick={handlePrevistasHeaderTierClick}
+                />
               )}
+
 
               {/* ─── SLIDE 3: PERDAS & SLA / TMA ─── */}
               {module === 3 && data && (
@@ -699,7 +739,31 @@ export function CommercialBiView() {
           console.log(`[DE-PARA] Contatando telefone: ${phone} (${dealTitle})`);
         }}
       />
+
+      {/* ─── MODAL DETALHADO DE PREVISÕES E DIRETRIZES (SLIDE 3 / FOTOS 2 E 3) ─── */}
+      <CommercialPrevistasFilterModal
+        isOpen={previstasModalOpen}
+        onClose={() => setPrevistasModalOpen(false)}
+        sellerName={previstasModalSeller?.sellerName || "Diana Gimenes"}
+        sellerId={previstasModalSeller?.sellerId}
+        division={previstasModalSeller?.division || "personnalite"}
+        metaValue={previstasModalSeller?.metaValue || 1_000_000}
+        initialHorizonKey={previstasModalHorizonKey}
+        deals={activePrevistasModalDeals}
+        sellerAvatar={previstasModalSeller?.avatarUrl}
+        onOpenDeal={(dealId) => openDeal(dealId)}
+        onOpenProfile={() => {
+          navigate({ to: "/commercial-management" as any });
+        }}
+        onCallContact={(phone, dealTitle) => {
+          console.log(`[PREVISTAS] Contatando telefone: ${phone} (${dealTitle})`);
+        }}
+        onSaveDirectives={(dealIds) => {
+          console.log(`[PREVISTAS] Salvando diretrizes para ${dealIds.length} oportunidades:`, dealIds);
+        }}
+      />
     </section>
   );
 }
+
 
