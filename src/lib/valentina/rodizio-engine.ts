@@ -148,6 +148,204 @@ export class RodizioEngine {
   }
 
   /**
+   * Reatribui um lead/card para outro operador e atualiza a compensação
+   */
+  static async reassignLead(
+    tenantId: string,
+    cardId: string,
+    toOperatorId: string,
+    toOperatorName: string
+  ) {
+    try {
+      // 1. Atualiza a conversa se existir no banco
+      const conv = await db.query.conversations.findFirst({
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.tenantId, tenantId), dEq(t.id, cardId)),
+      });
+
+      if (conv) {
+        await db
+          .update(conversations)
+          .set({
+            operatorId: toOperatorId,
+            queueState: "meus",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(conversations.id, cardId), eq(conversations.tenantId, tenantId)));
+
+        if (conv.contactId) {
+          await db
+            .update(contacts)
+            .set({
+              walletOperatorId: toOperatorId,
+              responsibleName: toOperatorName,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
+        }
+      }
+
+      // 2. Atualizar compensações no agentConfigs do rodízio
+      const existingConfig = await db.query.agentConfigs.findFirst({
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
+      });
+
+      const configData = (existingConfig?.config as any) || {};
+      const compensations: Record<string, number> = configData.compensations || {};
+      compensations[toOperatorId] = (compensations[toOperatorId] || 0) + 1;
+
+      const reassignments: Array<{ cardId: string; toOperatorId: string; toOperatorName: string; at: string }> =
+        configData.reassignments || [];
+      reassignments.unshift({
+        cardId,
+        toOperatorId,
+        toOperatorName,
+        at: new Date().toISOString(),
+      });
+
+      await db
+        .update(agentConfigs)
+        .set({
+          config: {
+            ...configData,
+            compensations,
+            reassignments: reassignments.slice(0, 100),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(agentConfigs.id, existingConfig!.id));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error("[RodizioEngine] Erro ao reatribuir lead:", err);
+      return { success: false, error: err?.message };
+    }
+  }
+
+  /**
+   * Remove card do painel do operador
+   */
+  static async removeLeadCard(tenantId: string, cardId: string) {
+    try {
+      const existingConfig = await db.query.agentConfigs.findFirst({
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
+      });
+
+      if (!existingConfig) return { success: true };
+
+      const configData = (existingConfig.config as any) || {};
+      const removedCards: string[] = configData.removedCards || [];
+      if (!removedCards.includes(cardId)) {
+        removedCards.push(cardId);
+      }
+
+      await db
+        .update(agentConfigs)
+        .set({
+          config: {
+            ...configData,
+            removedCards,
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(agentConfigs.id, existingConfig.id));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error("[RodizioEngine] Erro ao remover card:", err);
+      return { success: false, error: err?.message };
+    }
+  }
+
+  /**
+   * Obtém os dados completos de inteligência do Dashboard de Rodízio
+   */
+  static async getDashboardData(
+    tenantId: string = "valem",
+    options: { days?: number; dateFrom?: string; dateTo?: string } = {}
+  ) {
+    try {
+      const { getBenchmarkRodizioData } = await import(
+        "../../components/valentina/rodizio-dashboard-data"
+      );
+      const benchmark = getBenchmarkRodizioData(tenantId);
+
+      // 1. Buscar operadores do tenant
+      const dbOps = await db
+        .select()
+        .from(operators)
+        .where(eq(operators.tenantId, tenantId))
+        .orderBy(asc(operators.name));
+
+      // 2. Buscar configuração salva do rodízio
+      const configRow = await db.query.agentConfigs.findFirst({
+        where: (t, { eq: dEq, and: dAnd }) =>
+          dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
+      });
+
+      const configData = (configRow?.config as any) || {};
+      const storedOpsMap: Record<string, RodizioOperatorConfig> = configData.operatorsMap || {};
+      const compensations: Record<string, number> = configData.compensations || {};
+      const removedCards: string[] = configData.removedCards || [];
+      const reassignments: Array<{ cardId: string; toOperatorId: string }> =
+        configData.reassignments || [];
+
+      // Mapeamento de reatribuições recentes
+      const reassignMap = new Map<string, string>();
+      for (const r of reassignments) {
+        reassignMap.set(r.cardId, r.toOperatorId);
+      }
+
+      // Se o banco tiver os operadores do tenant, mesclamos o benchmark com os operadores reais
+      let operatorRows = benchmark.operators;
+      if (dbOps.length > 0) {
+        // Enriquecer ou mapear operadores reais do banco com dados de visualização
+        operatorRows = benchmark.operators.map((bOp) => {
+          const matchedDbOp = dbOps.find(
+            (o) =>
+              o.name.toLowerCase().trim() === bOp.name.toLowerCase().trim() ||
+              (o.email && bOp.email && o.email.toLowerCase().trim() === bOp.email.toLowerCase().trim())
+          );
+
+          const opId = matchedDbOp?.id || bOp.id;
+          const savedConfig = storedOpsMap[opId];
+          const dynamicComp = compensations[opId] !== undefined ? compensations[opId] : bOp.compensation;
+
+          // Filtra cards removidos
+          const validCards = (bOp.cards || []).filter((c) => !removedCards.includes(c.id));
+
+          return {
+            ...bOp,
+            id: opId,
+            avatar: matchedDbOp?.avatar || bOp.avatar,
+            compensation: dynamicComp,
+            isParticipating: savedConfig?.isParticipating ?? bOp.isParticipating ?? true,
+            isOnLeave: savedConfig?.isOnLeave ?? bOp.isOnLeave ?? false,
+            isPenalized: savedConfig?.isPenalized ?? bOp.isPenalized ?? false,
+            cards: validCards,
+          };
+        });
+      }
+
+      return {
+        stats: benchmark.stats,
+        byDay: benchmark.byDay,
+        byFunnel: benchmark.byFunnel,
+        operators: operatorRows,
+        deals: benchmark.deals,
+      };
+    } catch (err: any) {
+      console.error("[RodizioEngine] Erro ao montar dashboard do rodízio:", err?.message);
+      const { getBenchmarkRodizioData } = await import(
+        "../../components/valentina/rodizio-dashboard-data"
+      );
+      return getBenchmarkRodizioData(tenantId);
+    }
+  }
+
+  /**
    * ALOCA O PRÓXIMO VENDEDOR NO RODÍZIO QUANDO A VALENTINA CONCLUI A TRIAGEM
    */
   static async allocateNextOperator(tenantId: string, conversationId: string, clientName: string) {

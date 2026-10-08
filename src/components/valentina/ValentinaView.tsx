@@ -11,12 +11,14 @@ import { ValentinaTab } from "./valentina-mock-data";
 import { ValentinaChatTab } from "./ValentinaChatTab";
 import { SdrTab } from "./SdrTab";
 import { RodizioTab } from "./RodizioTab";
+import { FluxosTab } from "./FluxosTab";
 import { SupervisorTab } from "./SupervisorTab";
 import { VendedorTab } from "./VendedorTab";
 import { KnowledgeTab } from "./KnowledgeTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { Workflow } from "lucide-react";
 
 // ── Definição das tabs ──────────────────────────────────────────────────────
 
@@ -24,6 +26,7 @@ const allTabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = 
   { id: "chat", label: "Chat", icon: MessageCircle },
   { id: "sdr", label: "SDR", icon: UserPlus },
   { id: "rodizio", label: "Rodízio", icon: Shuffle },
+  { id: "fluxos", label: "Fluxos", icon: Workflow },
   { id: "supervisor", label: "Supervisor", icon: Eye },
   { id: "vendedor", label: "Vendedor", icon: ShoppingBag },
   { id: "knowledge", label: "Base de Conhecimento", icon: Database },
@@ -114,6 +117,7 @@ export function ValentinaView() {
             {activeTab === "chat" && <ValentinaChatTab />}
             {activeTab === "sdr" && <SdrTab />}
             {activeTab === "rodizio" && <RodizioTab />}
+            {activeTab === "fluxos" && <FluxosTab />}
             {activeTab === "supervisor" && <SupervisorTab />}
             {activeTab === "vendedor" && <VendedorTab />}
             {activeTab === "knowledge" && <KnowledgeTab />}

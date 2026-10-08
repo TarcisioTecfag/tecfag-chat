@@ -23,19 +23,46 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        try {
-          const operators = await RodizioEngine.getRodizioState(tenantId);
+        const url = new URL(request.url);
+        const days = parseInt(url.searchParams.get("days") || "30", 10);
+        const dateFrom = url.searchParams.get("dateFrom") || undefined;
+        const dateTo = url.searchParams.get("dateTo") || undefined;
 
-          return new Response(JSON.stringify({ operators }), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+        try {
+          const dashboardData = await RodizioEngine.getDashboardData(tenantId, {
+            days,
+            dateFrom,
+            dateTo,
           });
+
+          return new Response(
+            JSON.stringify({
+              operators: dashboardData.operators,
+              stats: dashboardData.stats,
+              byDay: dashboardData.byDay,
+              byFunnel: dashboardData.byFunnel,
+              deals: dashboardData.deals,
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
         } catch (e: any) {
           console.error("[api/valentina/rodizio] Erro ao buscar rodízio:", e);
-          return new Response(JSON.stringify({ operators: [] }), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              operators: [],
+              stats: null,
+              byDay: [],
+              byFunnel: [],
+              deals: [],
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
         }
       },
 
@@ -46,7 +73,10 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
 
         if (session.operator.role !== "admin") {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores podem gerenciar o rodízio.", code: "FORBIDDEN" }),
+            JSON.stringify({
+              error: "Permissão insuficiente. Apenas administradores podem gerenciar o rodízio.",
+              code: "FORBIDDEN",
+            }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -55,24 +85,45 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
 
         try {
           const body = await request.json();
-          const { action, operators: updatedOps } = body;
+          const { action, operators: updatedOps, cardId, toOperatorId, toOperatorName } = body;
+
+          if (action === "reassign" && cardId && toOperatorId) {
+            await RodizioEngine.reassignLead(tenantId, cardId, toOperatorId, toOperatorName || "Operador");
+            const dashboardData = await RodizioEngine.getDashboardData(tenantId);
+            return new Response(
+              JSON.stringify({ success: true, ...dashboardData }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          if (action === "remove_card" && cardId) {
+            await RodizioEngine.removeLeadCard(tenantId, cardId);
+            const dashboardData = await RodizioEngine.getDashboardData(tenantId);
+            return new Response(
+              JSON.stringify({ success: true, ...dashboardData }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
 
           if (action === "reset") {
             const resetOps = await RodizioEngine.resetRodizioCounters(tenantId);
-            return new Response(JSON.stringify({ success: true, operators: resetOps }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            const dashboardData = await RodizioEngine.getDashboardData(tenantId);
+            return new Response(
+              JSON.stringify({ success: true, operators: resetOps, ...dashboardData }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
           if (Array.isArray(updatedOps)) {
             await RodizioEngine.saveRodizioState(tenantId, updatedOps);
           }
 
-          const currentOps = await RodizioEngine.getRodizioState(tenantId);
+          const dashboardData = await RodizioEngine.getDashboardData(tenantId);
 
-          return new Response(JSON.stringify({ success: true, operators: currentOps }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ success: true, ...dashboardData }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         } catch (e: any) {
           console.error("[api/valentina/rodizio] Erro no POST do rodízio:", e);
           return new Response(JSON.stringify({ error: e.message }), {

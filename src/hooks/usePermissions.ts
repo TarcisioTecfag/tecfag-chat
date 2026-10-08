@@ -98,6 +98,7 @@ export function usePermissions() {
       case "chat": return v.canAccessChat;
       case "sdr": return v.canAccessSdr;
       case "rodizio": return v.canAccessRodizio;
+      case "fluxos": return v.canAccessRodizio;
       case "supervisor": return v.canAccessSupervisor;
       case "vendedor": return v.canAccessChat; // assistente do vendedor usa canAccessChat
       case "knowledge": return v.canAccessKnowledge;
