@@ -21,6 +21,7 @@ import {
   Sparkles,
   LogOut,
   Laptop,
+  Palette,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useDensity } from "@/hooks/useDensity";
@@ -157,6 +158,8 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
   const { density, setDensity } = useDensity();
 
   // Local Form States
+  const [activeTab, setActiveTab] = useState<"perfil" | "aparencia">("perfil");
+  const [showAvatarPicker, setShowAvatarPicker] = useState<boolean>(false);
   const [name, setName] = useState(operatorProfile.name);
   const [email, setEmail] = useState(operatorProfile.email);
   const [password, setPassword] = useState("********");
@@ -222,7 +225,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
   };
 
   return (
-    <div className="flex flex-col h-full w-full select-none">
+    <div className="flex flex-col h-full w-full select-none text-foreground">
       {/* Hidden input for local upload */}
       <input
         type="file"
@@ -232,14 +235,41 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
         className="hidden"
       />
 
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-border/70 px-4 py-3 bg-muted/20 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-          <h3 className="text-xs font-extrabold uppercase tracking-wider text-foreground">
-            Configurações de Perfil
-          </h3>
+      {/* Header com Segmented Control de Abas & Fechar */}
+      <header className="flex items-center justify-between border-b border-border/60 px-3.5 py-2.5 bg-muted/20 shrink-0">
+        <div className="flex items-center p-0.5 rounded-lg bg-muted/60 border border-border/50 text-xs">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("perfil");
+              setShowAvatarPicker(false);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+              activeTab === "perfil"
+                ? "bg-background text-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <User className="h-3.5 w-3.5" />
+            <span>Perfil</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("aparencia");
+              setShowAvatarPicker(false);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+              activeTab === "aparencia"
+                ? "bg-background text-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Palette className="h-3.5 w-3.5" />
+            <span>Aparência</span>
+          </button>
         </div>
+
         <button
           type="button"
           onClick={onClose}
@@ -250,392 +280,399 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
         </button>
       </header>
 
-      {/* Scrollable Form Body */}
-      <form onSubmit={handleSave} className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4 max-h-[calc(85vh-115px)]">
-        {/* Profile Card & Operational Status */}
-        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-3">
-          <div className="flex items-center gap-3">
-            {/* Main Avatar Display */}
-            <div
-              onClick={handleAvatarClick}
-              className="relative group cursor-pointer shrink-0"
-              title="Clique para trocar imagem do computador"
-            >
-              <img
-                src={avatar}
-                alt="Avatar Preview"
-                className="h-14 w-14 rounded-full object-cover border-2 border-primary/40 shadow-soft"
-              />
-              <span
-                className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card ${
-                  status === "disponivel"
-                    ? "bg-primary"
-                    : status === "pausa"
-                    ? "bg-amber-500"
-                    : "bg-gray-400"
-                }`}
-              />
-              <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Camera className="h-4 w-4 text-white" />
-              </div>
-            </div>
+      {/* Form Body */}
+      <form onSubmit={handleSave} className="flex-1 flex flex-col justify-between p-3.5 space-y-3">
+        {activeTab === "perfil" ? (
+          <div className="space-y-3">
+            {/* Profile Card & Operational Status */}
+            <div className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-2.5">
+              <div className="flex items-center gap-3">
+                {/* Main Avatar Display */}
+                <div
+                  onClick={() => setShowAvatarPicker((prev) => !prev)}
+                  className="relative group cursor-pointer shrink-0"
+                  title="Clique para alterar foto ou ícone"
+                >
+                  <img
+                    src={avatar}
+                    alt="Avatar Preview"
+                    className="h-12 w-12 rounded-full object-cover border-2 border-border/80 group-hover:border-primary/60 transition shadow-xs"
+                  />
+                  <span
+                    className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card ${
+                      status === "disponivel"
+                        ? "bg-emerald-500"
+                        : status === "pausa"
+                        ? "bg-amber-500"
+                        : "bg-zinc-400"
+                    }`}
+                  />
+                  <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="h-3.5 w-3.5 text-white" />
+                  </div>
+                </div>
 
-            {/* Operator Details */}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-bold text-foreground truncate">{name || "Operador"}</span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20 shrink-0">
-                  {sessionRole === "admin" ? "Admin" : "Atendente"}
-                </span>
-              </div>
-              <div className="text-[11px] text-muted-foreground truncate">{email}</div>
-            </div>
-          </div>
-
-          {/* Quick Status Select */}
-          <div className="space-y-1.5 pt-1">
-            <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
-              Status Operacional
-            </label>
-            <div className="grid grid-cols-3 gap-1.5">
-              <button
-                type="button"
-                onClick={() => setStatus("disponivel")}
-                className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border text-[11px] font-bold transition cursor-pointer ${
-                  status === "disponivel"
-                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
-                    : "bg-card border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    status === "disponivel" ? "bg-white" : "bg-primary"
-                  }`}
-                />
-                Disponível
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatus("pausa")}
-                className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border text-[11px] font-bold transition cursor-pointer ${
-                  status === "pausa"
-                    ? "bg-amber-500 border-amber-500 text-white shadow-xs"
-                    : "bg-card border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <span
-                  className={`h-2 w-2 rounded-full ${status === "pausa" ? "bg-white" : "bg-amber-500"}`}
-                />
-                Em Pausa
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatus("desconectado")}
-                className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border text-[11px] font-bold transition cursor-pointer ${
-                  status === "desconectado"
-                    ? "bg-gray-500 border-gray-500 text-white shadow-xs"
-                    : "bg-card border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    status === "desconectado" ? "bg-white" : "bg-gray-400"
-                  }`}
-                />
-                Desconectado
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Escolher Ícone na Paleta do Sistema */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider">
-              Ícone de Perfil
-            </label>
-            <span className="text-[10px] text-muted-foreground/80 font-medium">Paleta do sistema</span>
-          </div>
-
-          <div className="grid grid-cols-5 gap-2 pt-0.5">
-            {SYSTEM_AVATAR_PRESETS.map((preset) => {
-              const uri = generateSvgAvatarDataUri(preset);
-              const isSelected =
-                avatar === uri ||
-                (typeof avatar === "string" && avatar.includes(`glow-${preset.id}`));
-              const Icon = preset.IconComponent;
-
-              return (
-                <TooltipProvider key={preset.id} delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => setAvatar(uri)}
-                        className={`relative h-11 w-11 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                          isSelected
-                            ? "ring-2 ring-primary ring-offset-2 ring-offset-card scale-105"
-                            : "hover:scale-105 opacity-85 hover:opacity-100"
-                        }`}
-                        style={{
-                          backgroundColor: preset.bgColor,
-                          border: `1.5px solid ${preset.borderColor}`,
-                          boxShadow: isSelected ? `0 0 10px ${preset.borderColor}` : undefined,
-                        }}
-                      >
-                        <Icon className="h-5 w-5" style={{ color: preset.color }} />
-                        {isSelected && (
-                          <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-xs">
-                            <Check className="h-2.5 w-2.5 stroke-[3]" />
-                          </span>
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-[11px] font-medium">
-                      {preset.name} · {preset.colorName}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              );
-            })}
-
-            {/* Custom image upload button */}
-            <TooltipProvider delayDuration={150}>
-              <Tooltip>
-                <TooltipTrigger asChild>
+                {/* Operator Details */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-foreground truncate">{name || "Operador"}</span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-primary/10 text-primary border border-primary/20 shrink-0">
+                      {sessionRole === "admin" ? "Admin" : "Atendente"}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground truncate">{email}</div>
                   <button
                     type="button"
-                    onClick={handleAvatarClick}
-                    className="h-11 w-11 rounded-xl border-2 border-dashed border-border/80 bg-muted/30 hover:bg-muted hover:border-primary/50 text-muted-foreground hover:text-foreground flex flex-col items-center justify-center transition-all cursor-pointer group"
+                    onClick={() => setShowAvatarPicker((prev) => !prev)}
+                    className="text-[10px] font-medium text-primary hover:underline cursor-pointer flex items-center gap-1 mt-0.5"
                   >
-                    <Plus className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                    {showAvatarPicker ? "Fechar galeria" : "Alterar foto / ícone"}
                   </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-[11px] font-medium">
-                  Subir foto do PC
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-        </div>
-
-        {/* User Fields */}
-        <div className="space-y-2.5">
-          {/* Nome de usuário */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider">
-              Nome de Usuário
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="h-8.5 w-full rounded-lg bg-muted/60 px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border/50"
-            />
-          </div>
-
-          {/* Email do usuário */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider">
-              E-mail do Usuário
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="h-8.5 w-full rounded-lg bg-muted/60 px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border/50"
-            />
-          </div>
-
-          {/* Senha do usuário */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider">
-              Senha do Usuário
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="h-8.5 w-full rounded-lg bg-muted/60 px-3 pr-9 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border/50"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </button>
-            </div>
-          </div>
-
-          {/* Tema do Sistema / Aparência */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
-              Tema / Aparência
-            </label>
-            <div className="grid grid-cols-3 gap-1.5">
-              <button
-                type="button"
-                onClick={() => setTheme("light")}
-                className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
-                  theme === "light"
-                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
-                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <Sun className="h-3.5 w-3.5" />
-                <span>Claro</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTheme("dark")}
-                className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
-                  theme === "dark"
-                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
-                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <Moon className="h-3.5 w-3.5" />
-                <span>Escuro</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTheme("system")}
-                className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
-                  theme === "system"
-                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
-                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <Monitor className="h-3.5 w-3.5" />
-                <span>Auto</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Escala da Interface / Densidade de Tela (Notebook vs Monitor) */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
-                Densidade da Tela
-              </label>
-              <span className="text-[9px] font-mono text-muted-foreground font-semibold">
-                {density === "auto" ? "Notebook 75% Auto" : `${density}%`}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-1">
-              <button
-                type="button"
-                onClick={() => setDensity("auto")}
-                title="Detecta telas de notebook automaticamente (75%) e monitores (100%)"
-                className={`flex h-7 items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
-                  density === "auto"
-                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
-                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <Laptop className="h-3 w-3" />
-                <span>Auto</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDensity("75")}
-                title="Proporção compacta 75% (ideal para notebook com espaço máximo)"
-                className={`flex h-7 items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
-                  density === "75"
-                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
-                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <span>75%</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDensity("85")}
-                title="Escala equilibrada intermediária (85%)"
-                className={`flex h-7 items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
-                  density === "85"
-                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
-                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <span>85%</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDensity("100")}
-                title="Escala padrão sem zoom (100% para monitores grandes)"
-                className={`flex h-7 items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
-                  density === "100"
-                    ? "bg-primary border-primary text-primary-foreground shadow-xs"
-                    : "bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <span>100%</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Grupo de Acesso & Permissões */}
-          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                <Shield className="h-3.5 w-3.5" />
-              </div>
-              <div>
-                <div className="text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider">
-                  Grupo de Acesso
                 </div>
-                <div className="text-xs font-bold text-foreground">
-                  {currentGroup?.name || "Administradores"}
+              </div>
+
+              {/* Progressive Avatar Picker */}
+              {showAvatarPicker && (
+                <div className="pt-2 border-t border-border/50 space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-muted-foreground">
+                    <span>Ícones do Sistema</span>
+                    <button
+                      type="button"
+                      onClick={handleAvatarClick}
+                      className="text-primary hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <Plus className="h-3 w-3" />
+                      <span>Subir do PC</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {SYSTEM_AVATAR_PRESETS.map((preset) => {
+                      const uri = generateSvgAvatarDataUri(preset);
+                      const isSelected =
+                        avatar === uri ||
+                        (typeof avatar === "string" && avatar.includes(`glow-${preset.id}`));
+                      const Icon = preset.IconComponent;
+
+                      return (
+                        <TooltipProvider key={preset.id} delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAvatar(uri);
+                                  setShowAvatarPicker(false);
+                                }}
+                                className={`relative h-9 w-9 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                                  isSelected
+                                    ? "ring-2 ring-primary ring-offset-1 ring-offset-card scale-105"
+                                    : "hover:scale-105 opacity-85 hover:opacity-100"
+                                }`}
+                                style={{
+                                  backgroundColor: preset.bgColor,
+                                  border: `1.5px solid ${preset.borderColor}`,
+                                }}
+                              >
+                                <Icon className="h-4 w-4" style={{ color: preset.color }} />
+                                {isSelected && (
+                                  <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                                    <Check className="h-2 w-2 stroke-[3]" />
+                                  </span>
+                                )}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-[11px] font-medium">
+                              {preset.name} · {preset.colorName}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      onClick={handleAvatarClick}
+                      className="h-9 w-9 rounded-lg border border-dashed border-border/80 bg-muted/30 hover:bg-muted hover:border-primary/50 text-muted-foreground hover:text-foreground flex items-center justify-center transition cursor-pointer"
+                      title="Subir foto do PC"
+                    >
+                      <Camera className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Status Operacional Minimalista */}
+              <div className="pt-1.5 border-t border-border/40 space-y-1">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider block">
+                  Status Operacional
+                </label>
+                <div className="grid grid-cols-3 gap-1 bg-muted/40 p-1 rounded-lg border border-border/40">
+                  <button
+                    type="button"
+                    onClick={() => setStatus("disponivel")}
+                    className={`flex h-7 items-center justify-center gap-1.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+                      status === "disponivel"
+                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-xs"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
+                    }`}
+                  >
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    Disponível
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatus("pausa")}
+                    className={`flex h-7 items-center justify-center gap-1.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+                      status === "pausa"
+                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
+                    }`}
+                  >
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    Pausa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatus("desconectado")}
+                    className={`flex h-7 items-center justify-center gap-1.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+                      status === "desconectado"
+                        ? "bg-zinc-500/15 text-zinc-600 dark:text-zinc-400 border border-zinc-500/30 shadow-xs"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
+                    }`}
+                  >
+                    <span className="h-2 w-2 rounded-full bg-zinc-400" />
+                    Offline
+                  </button>
                 </div>
               </div>
             </div>
-            {canAccessView("groups") && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  setActiveView("groups");
-                }}
-                className="text-[11px] font-bold text-primary hover:underline cursor-pointer px-2 py-0.5 rounded-md hover:bg-primary/10 transition"
-              >
-                Gerenciar →
-              </button>
-            )}
+
+            {/* Inputs de Edição */}
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">
+                  Nome de Usuário
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="h-8 w-full rounded-lg bg-muted/40 px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border/50"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">
+                  E-mail de Acesso
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-8 w-full rounded-lg bg-muted/40 px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border/50"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">
+                  Senha
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-8 w-full rounded-lg bg-muted/40 px-2.5 pr-8 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Grupo de Acesso */}
+              <div className="rounded-lg border border-border/50 bg-muted/20 px-2.5 py-1.5 flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Shield className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-[9px] uppercase font-bold text-muted-foreground">Grupo de Acesso</div>
+                    <div className="text-xs font-semibold text-foreground truncate">
+                      {currentGroup?.name || "Administradores"}
+                    </div>
+                  </div>
+                </div>
+                {canAccessView("groups") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      setActiveView("groups");
+                    }}
+                    className="text-[11px] font-medium text-primary hover:underline cursor-pointer shrink-0"
+                  >
+                    Gerenciar →
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-3.5 py-1">
+            {/* Tema / Aparência */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">
+                  Tema / Aparência
+                </label>
+                <span className="text-[10px] text-muted-foreground capitalize">
+                  {theme === "light" ? "Modo Claro" : theme === "dark" ? "Modo Escuro" : "Automático"}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 bg-muted/40 p-1 rounded-xl border border-border/40">
+                <button
+                  type="button"
+                  onClick={() => setTheme("light")}
+                  className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    theme === "light"
+                      ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                  }`}
+                >
+                  <Sun className="h-3.5 w-3.5" />
+                  <span>Claro</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme("dark")}
+                  className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    theme === "dark"
+                      ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                  }`}
+                >
+                  <Moon className="h-3.5 w-3.5" />
+                  <span>Escuro</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme("system")}
+                  className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    theme === "system"
+                      ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                  }`}
+                >
+                  <Monitor className="h-3.5 w-3.5" />
+                  <span>Auto</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Sincroniza automaticamente com o seu sistema operacional ou fixa o contraste preferido.
+              </p>
+            </div>
+
+            {/* Densidade da Tela */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">
+                  Densidade da Tela
+                </label>
+                <span className="text-[10px] font-mono text-muted-foreground font-semibold">
+                  {density === "auto" ? "Notebook 75% Auto" : `${density}%`}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-1 bg-muted/40 p-1 rounded-xl border border-border/40">
+                <button
+                  type="button"
+                  onClick={() => setDensity("auto")}
+                  title="Detecta telas de notebook automaticamente (75%) e monitores (100%)"
+                  className={`flex h-7 items-center justify-center gap-1 rounded-lg text-[11px] transition cursor-pointer ${
+                    density === "auto"
+                      ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                  }`}
+                >
+                  <Laptop className="h-3 w-3" />
+                  <span>Auto</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDensity("75")}
+                  title="Proporção compacta 75% (ideal para notebook com espaço máximo)"
+                  className={`flex h-7 items-center justify-center rounded-lg text-[11px] transition cursor-pointer ${
+                    density === "75"
+                      ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                  }`}
+                >
+                  <span>75%</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDensity("85")}
+                  title="Escala equilibrada intermediária (85%)"
+                  className={`flex h-7 items-center justify-center rounded-lg text-[11px] transition cursor-pointer ${
+                    density === "85"
+                      ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                  }`}
+                >
+                  <span>85%</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDensity("100")}
+                  title="Escala padrão sem zoom (100% para monitores grandes)"
+                  className={`flex h-7 items-center justify-center rounded-lg text-[11px] transition cursor-pointer ${
+                    density === "100"
+                      ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                  }`}
+                >
+                  <span>100%</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Recomendamos <strong>Auto</strong> ou <strong>75%</strong> para notebooks corporativos, aumentando a área visível do CRM e chat.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Footer Actions */}
-        <div className="pt-3 border-t border-border/70 flex items-center justify-between shrink-0">
+        <div className="pt-2.5 border-t border-border/60 flex items-center justify-between shrink-0">
           <button
             type="button"
             onClick={() => {
               logout();
               onClose();
             }}
-            className="flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-600 transition-colors cursor-pointer hover:underline"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-red-500 hover:bg-red-500/10 px-2 py-1 rounded-md transition-colors cursor-pointer"
           >
             <LogOut className="h-3.5 w-3.5" />
-            <span>Fazer Logout</span>
+            <span>Sair</span>
           </button>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="h-8.5 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+              className="h-8 rounded-lg border border-border/60 bg-muted/30 px-3 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="h-8.5 rounded-lg bg-primary px-3.5 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition cursor-pointer shadow-xs"
+              className="h-8 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition cursor-pointer shadow-xs"
             >
-              {isSubmitting ? "Salvando..." : "Salvar Alterações"}
+              {isSubmitting ? "Salvando..." : "Salvar"}
             </button>
           </div>
         </div>
