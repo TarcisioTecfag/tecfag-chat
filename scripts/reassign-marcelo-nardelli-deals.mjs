@@ -183,7 +183,6 @@ export async function reassignMarceloNardelliDeals(externalSql = null) {
       contactsUpdated: 0,
       activitiesUpdated: 0,
       eventsUpdated: 0,
-      actionHistoryUpdated: 0,
     };
 
     await sql.begin(async (tx) => {
@@ -242,16 +241,7 @@ export async function reassignMarceloNardelliDeals(externalSql = null) {
       `;
       result.eventsUpdated = evRes.count;
 
-      // 6. Atualizar histórico de ações
-      const histRes = await tx`
-        UPDATE crm_action_history
-        SET operator_id = ${marceloOp.id}
-        WHERE tenant_id = ${tenantId}
-          AND deal_id = ANY(${allDealLookupIds})
-      `;
-      result.actionHistoryUpdated = histRes.count;
-
-      // 7. Registrar migração no app_deploy_migrations
+      // 6. Registrar migração no app_deploy_migrations
       await tx`
         INSERT INTO app_deploy_migrations (name, applied_at)
         VALUES ('0035_reassign_marcelo_nardelli_deals', NOW())
