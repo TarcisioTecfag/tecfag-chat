@@ -124,10 +124,10 @@ export const PipelineColumn = React.memo(function PipelineColumn({
   return (
     <div
       data-stage-column={stage.id}
-      className={`flex flex-col h-full min-w-[330px] max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-colors duration-150 ${
+      className={`group/column flex flex-col h-full min-w-[330px] max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-colors duration-150 border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs data-[is-target=true]:border-primary data-[is-target=true]:ring-2 data-[is-target=true]:ring-primary/40 data-[is-target=true]:bg-primary/[0.04] data-[is-target=true]:shadow-lg ${
         isTarget
           ? "border-primary ring-2 ring-primary/40 bg-primary/[0.04] shadow-lg"
-          : "border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs"
+          : ""
       }`}
     >
       {/* Cabeçalho da Coluna com sólido aprimorado e cursor-grab para pan scroll do quadro */}
@@ -177,15 +177,18 @@ export const PipelineColumn = React.memo(function PipelineColumn({
         data-column-card-list="true"
         className="min-h-0 flex-1 overflow-y-auto p-2.5 pb-6 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
       >
-        {/* Indicador visual de soltura quando arrastando para esta coluna */}
-        {isTarget && draggedDealId && !isSourceStage && (
-          <div className="shrink-0 h-[196px] min-h-[196px] rounded-xl border-2 border-dashed border-primary/70 bg-primary/[0.08] flex flex-col items-center justify-center gap-2.5 text-primary p-4 animate-in fade-in zoom-in-95 duration-150 shadow-inner select-none pointer-events-none">
-            <div className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary">
-              <ArrowDown className="h-5 w-5 animate-bounce" />
-            </div>
-            <span className="text-xs font-bold tracking-wide">Mover para {stage.name}</span>
+        {/* Indicador visual de soltura quando arrastando para esta coluna (suporta DOM direto e estado) */}
+        <div
+          data-drop-zone="true"
+          className={`${
+            isTarget && draggedDealId && !isSourceStage ? "flex" : "hidden"
+          } group-data-[is-target=true]/column:flex shrink-0 h-[196px] min-h-[196px] rounded-xl border-2 border-dashed border-primary/70 bg-primary/[0.08] flex-col items-center justify-center gap-2.5 text-primary p-4 shadow-inner select-none pointer-events-none`}
+        >
+          <div className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+            <ArrowDown className="h-5 w-5 animate-bounce" />
           </div>
-        )}
+          <span className="text-xs font-bold tracking-wide">Mover para {stage.name}</span>
+        </div>
 
         {deals.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center px-4 space-y-2.5 select-none">

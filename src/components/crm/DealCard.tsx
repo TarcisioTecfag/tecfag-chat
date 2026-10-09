@@ -269,18 +269,18 @@ export const DealCard = React.memo(function DealCard({
       onPointerDown={handlePointerDown}
       onClick={handleCardClick}
       onMouseEnter={() => prefetchDealDetail(deal.id)}
-      className={`group relative flex flex-col justify-between h-[196px] min-h-[196px] max-h-[196px] rounded-xl border p-3 select-none overflow-hidden transition-all duration-150 ${
+      className={`group relative flex flex-col justify-between h-[196px] min-h-[196px] max-h-[196px] rounded-xl border p-3 select-none overflow-hidden data-[is-ghost=true]:opacity-25 data-[is-ghost=true]:border-dashed data-[is-ghost=true]:border-2 data-[is-ghost=true]:border-primary/50 data-[is-ghost=true]:bg-primary/[0.04] data-[is-ghost=true]:scale-[0.98] data-[is-ghost=true]:pointer-events-none ${
         isOverlay
-          ? "border-primary bg-card/95 shadow-2xl ring-2 ring-primary/80 cursor-grabbing pointer-events-none"
+          ? "border-primary bg-card shadow-2xl ring-2 ring-primary/80 cursor-grabbing pointer-events-none transition-none"
           : isDragging
           ? "opacity-25 border-dashed border-2 border-primary/50 bg-primary/[0.04] scale-[0.98] pointer-events-none"
           : isCooling
-          ? "border-amber-400/70 dark:border-amber-500/50 bg-amber-500/[0.04] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50"
+          ? "border-amber-400/70 dark:border-amber-500/50 bg-amber-500/[0.04] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 transition-all duration-150"
           : deal.status === "won"
-          ? "border-emerald-500/40 bg-emerald-500/[0.02] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50"
+          ? "border-emerald-500/40 bg-emerald-500/[0.02] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 transition-all duration-150"
           : deal.status === "lost"
-          ? "border-destructive/30 bg-destructive/[0.02] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50"
-          : "border-border/80 bg-card shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50"
+          ? "border-destructive/30 bg-destructive/[0.02] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 transition-all duration-150"
+          : "border-border/80 bg-card shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 transition-all duration-150"
       }`}
     >
       {/* ── 1. TOPO: Título (altura fixa 36px) + Chip de Esfriamento + Menu ── */}
