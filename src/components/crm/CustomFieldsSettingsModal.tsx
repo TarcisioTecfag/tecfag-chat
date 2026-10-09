@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Plus, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import type { CustomFieldEntity, CustomFieldType } from "@/lib/crm/custom-fields";
-import type { FieldDefinition, FieldOption } from "./CustomFieldsEditor";
+import {
+  type FieldDefinition,
+  type FieldOption,
+  normalizeFieldOptions,
+  normalizePipelineIds,
+} from "./CustomFieldsEditor";
 import { ProductCatalogManager } from "./ProductCatalogManager";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -131,7 +136,14 @@ export function CustomFieldsSettingsModal({
       ]);
       if (!fieldsResponse.ok) throw new Error("Não foi possível carregar os campos.");
       const data = await fieldsResponse.json();
-      setFields(data.fields || []);
+      const raw: any[] = data.fields || [];
+      setFields(
+        raw.map((f) => ({
+          ...f,
+          options: normalizeFieldOptions(f.options),
+          pipelineIds: normalizePipelineIds(f.pipelineIds),
+        })),
+      );
       setIsAdmin(data.isAdmin === true);
       if (pipelinesResponse.ok) {
         const pData = await pipelinesResponse.json();
@@ -152,9 +164,10 @@ export function CustomFieldsSettingsModal({
   }, [entity]);
 
   const availableStages = useMemo(() => {
+    const draftPipelines = draft?.pipelineIds || [];
     const relevantPipelines =
-      !draft?.allPipelines && draft?.pipelineIds?.length
-        ? pipelines.filter((p) => draft.pipelineIds.includes(p.id))
+      !draft?.allPipelines && draftPipelines.length
+        ? pipelines.filter((p) => draftPipelines.includes(p.id))
         : pipelines;
 
     return relevantPipelines.flatMap((p) =>
@@ -176,9 +189,10 @@ export function CustomFieldsSettingsModal({
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!draft) return;
+    const safeOptions = draft.options || [];
     if (
       (draft.fieldType === "single" || draft.fieldType === "multiple") &&
-      draft.options.some((option) => !option.label.trim())
+      safeOptions.some((option) => !option.label.trim())
     ) {
       toast.error("Preencha o nome de todas as opções.");
       return;
@@ -192,7 +206,7 @@ export function CustomFieldsSettingsModal({
       toast.error("Selecione a partir de qual etapa o campo é obrigatório.");
       return;
     }
-    if (entity === "deal" && !draft.allPipelines && draft.pipelineIds.length === 0) {
+    if (entity === "deal" && !draft.allPipelines && (draft.pipelineIds || []).length === 0) {
       toast.error("Selecione ao menos um funil para a visibilidade do campo.");
       return;
     }
@@ -255,14 +269,14 @@ export function CustomFieldsSettingsModal({
       id: field.id,
       name: field.name,
       fieldType: field.fieldType,
-      options: field.options,
+      options: normalizeFieldOptions(field.options),
       required: field.required,
       requiredRule: field.requiredRule || "always",
       requiredFromStageId: field.requiredFromStageId || "",
       isUnique: field.isUnique === true,
       visibleOnCreate: field.visibleOnCreate,
       allPipelines: field.allPipelines,
-      pipelineIds: field.pipelineIds || [],
+      pipelineIds: normalizePipelineIds(field.pipelineIds),
     });
   };
 
@@ -535,14 +549,14 @@ export function CustomFieldsSettingsModal({
                 {(draft.fieldType === "single" || draft.fieldType === "multiple") && (
                   <div className="space-y-2">
                     <b>Opções *</b>
-                    {draft.options.map((option, index) => (
+                    {(draft.options || []).map((option, index) => (
                       <div key={option.id} className="flex gap-2">
                         <input
                           value={option.label}
                           onChange={(event) =>
                             setDraft({
                               ...draft,
-                              options: draft.options.map((entry, entryIndex) =>
+                              options: (draft.options || []).map((entry, entryIndex) =>
                                 entryIndex === index
                                   ? { ...entry, label: event.target.value }
                                   : entry,
@@ -552,16 +566,16 @@ export function CustomFieldsSettingsModal({
                           placeholder={`Opção ${index + 1}`}
                           className="h-9 w-full rounded-lg border border-border bg-background px-3"
                         />
-                        {!fields
-                          .find((field) => field.id === draft.id)
-                          ?.options.some((saved) => saved.id === option.id) && (
+                        {!(
+                          fields.find((field) => field.id === draft.id)?.options || []
+                        ).some((saved) => saved.id === option.id) && (
                           <button
                             type="button"
                             aria-label={`Remover opção ${index + 1}`}
                             onClick={() =>
                               setDraft({
                                 ...draft,
-                                options: draft.options.filter((entry) => entry.id !== option.id),
+                                options: (draft.options || []).filter((entry) => entry.id !== option.id),
                               })
                             }
                             className="text-muted-foreground hover:text-destructive"
@@ -577,7 +591,7 @@ export function CustomFieldsSettingsModal({
                         setDraft({
                           ...draft,
                           options: [
-                            ...draft.options,
+                            ...(draft.options || []),
                             { id: `opt-${crypto.randomUUID()}`, label: "" },
                           ],
                         })
@@ -789,13 +803,13 @@ export function CustomFieldsSettingsModal({
                                 className="flex items-center gap-2 cursor-pointer text-xs select-none hover:bg-muted/40 p-1.5 rounded-md transition-colors"
                               >
                                 <Checkbox
-                                  checked={draft.pipelineIds.includes(pipeline.id)}
+                                  checked={(draft.pipelineIds || []).includes(pipeline.id)}
                                   onCheckedChange={(checked) =>
                                     setDraft({
                                       ...draft,
                                       pipelineIds: checked
-                                        ? [...draft.pipelineIds, pipeline.id]
-                                        : draft.pipelineIds.filter((id) => id !== pipeline.id),
+                                        ? [...(draft.pipelineIds || []), pipeline.id]
+                                        : (draft.pipelineIds || []).filter((id) => id !== pipeline.id),
                                     })
                                   }
                                 />

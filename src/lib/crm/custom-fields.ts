@@ -77,11 +77,37 @@ export async function listCustomFields(
     .orderBy(asc(crmCustomFieldDefinitions.sortOrder), asc(crmCustomFieldDefinitions.createdAt));
 }
 
+export function normalizePipelineId(id?: string | null): string {
+  if (!id) return "";
+  return id
+    .toLowerCase()
+    .trim()
+    .replace(/-2-0$/, "")
+    .replace(/^pipe-(tecfag-)?/, "");
+}
+
 export function fieldAppliesToPipeline(field: CustomFieldDefinition, pipelineId?: string | null) {
-  return (
-    field.entityType !== "deal" ||
-    field.allPipelines ||
-    (pipelineId != null && field.pipelineIds.includes(pipelineId))
+  if (field.entityType !== "deal" || field.allPipelines) return true;
+  const pIds: string[] = Array.isArray(field.pipelineIds)
+    ? field.pipelineIds
+    : typeof (field as any).pipelineIds === "string"
+      ? (() => {
+          try {
+            const parsed = JSON.parse((field as any).pipelineIds);
+            return Array.isArray(parsed) ? parsed : [(field as any).pipelineIds];
+          } catch {
+            return [(field as any).pipelineIds];
+          }
+        })()
+      : [];
+  if (!pIds.length) return true;
+  if (!pipelineId) return false;
+  const currentNorm = normalizePipelineId(pipelineId);
+  return pIds.some(
+    (id) =>
+      id === pipelineId ||
+      (currentNorm && normalizePipelineId(id) === currentNorm) ||
+      (typeof id === "string" && typeof pipelineId === "string" && (id.includes(pipelineId) || pipelineId.includes(id))),
   );
 }
 

@@ -79,8 +79,13 @@ export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
               new Set(options.map((option: { id: string }) => option.id)).size !== options.length
             )
               throw new Error("Opções inválidas.");
+            const currentOptions: Array<{ id: string; label: string }> = Array.isArray(current.options)
+              ? current.options
+              : typeof current.options === "string"
+                ? (() => { try { const p = JSON.parse(current.options); return Array.isArray(p) ? p : []; } catch { return []; } })()
+                : [];
             if (
-              current.options.some(
+              currentOptions.some(
                 (option) => !options.some((next: { id: string }) => next.id === option.id),
               )
             )
@@ -143,7 +148,12 @@ export const Route = createFileRoute("/api/crm/custom-fields/$fieldId")({
             updates.allPipelines = allPipelines;
             if (allPipelines) updates.pipelineIds = [];
             else {
-              const ids = body.pipelineIds ?? current.pipelineIds;
+              const currentPids: string[] = Array.isArray(current.pipelineIds)
+                ? current.pipelineIds
+                : typeof (current as any).pipelineIds === "string"
+                  ? (() => { try { const p = JSON.parse((current as any).pipelineIds); return Array.isArray(p) ? p : []; } catch { return []; } })()
+                  : [];
+              const ids = body.pipelineIds ?? currentPids;
               if (!Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== "string"))
                 throw new Error("Selecione ao menos um funil.");
               const pipelines = await db

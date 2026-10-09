@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import { applyTecfagCrmSeed } from "./apply-tecfag-crm-seed.mjs";
 import { cleanupSyntheticOperators } from "./cleanup-synthetic-operators.mjs";
+import { reassignMarceloNardelliDeals } from "./reassign-marcelo-nardelli-deals.mjs";
 
 
 // Carrega .env nativamente se existir no ambiente de execução
@@ -171,7 +172,14 @@ if (!databaseUrl) {
       console.error("[platform migration] Falha na limpeza de operadores sintéticos:", cleanErr);
     }
 
-    // 3. Carga atômica do seed de produção Tecfag CRM (se ainda não aplicado)
+    // 3. Reatribuição dos cards de Marcelo Nardelli para sua conta legítima existente
+    try {
+      await reassignMarceloNardelliDeals(sql);
+    } catch (marceloErr) {
+      console.error("[platform migration] Falha na reatribuição dos cards de Marcelo Nardelli:", marceloErr);
+    }
+
+    // 4. Carga atômica do seed de produção Tecfag CRM (se ainda não aplicado)
     try {
       await applyTecfagCrmSeed(sql);
     } catch (seedErr) {

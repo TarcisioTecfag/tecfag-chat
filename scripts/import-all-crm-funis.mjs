@@ -158,6 +158,10 @@ async function main() {
     function matchOperator(name) {
       if (!name || !name.trim()) return tarcisio;
       const norm = normalizeName(name);
+      if (norm.includes("marcelo nardelli")) {
+        const marceloOp = dbOperators.find(o => normalizeName(o.name).includes("marcelo nardelli"));
+        if (marceloOp) return marceloOp;
+      }
       if (opMap.has(norm)) return opMap.get(norm);
       const clean = norm.replace(/\b\d+\b/g, "").replace(/\s+/g, " ").trim();
       if (opMap.has(clean)) return opMap.get(clean);

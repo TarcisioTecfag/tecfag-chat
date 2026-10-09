@@ -5,8 +5,8 @@ import { client } from "../../../../db";
 import { applyTecfagCrmSeed } from "../../../../../scripts/apply-tecfag-crm-seed.mjs";
 // @ts-ignore
 import { cleanupSyntheticOperators } from "../../../../../scripts/cleanup-synthetic-operators.mjs";
-
-
+// @ts-ignore
+import { reassignMarceloNardelliDeals } from "../../../../../scripts/reassign-marcelo-nardelli-deals.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,8 +34,11 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
             tenantId = auth.session.tenantId;
           }
 
-          const [migrationCheck] = await client`
+          const [seedMigrationCheck] = await client`
             SELECT name, applied_at FROM app_deploy_migrations WHERE name = '0033_tecfag_crm_complete_seed'
+          `;
+          const [marceloMigrationCheck] = await client`
+            SELECT name, applied_at FROM app_deploy_migrations WHERE name = '0035_reassign_marcelo_nardelli_deals'
           `;
 
           const [deals] = await client`SELECT count(*)::int as count FROM crm_deals WHERE tenant_id = ${tenantId}`;
@@ -45,6 +48,8 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
           const [pipelines] = await client`SELECT count(*)::int as count FROM crm_pipelines WHERE tenant_id = ${tenantId}`;
           const [stages] = await client`SELECT count(*)::int as count FROM crm_stages WHERE tenant_id = ${tenantId}`;
           const [customFields] = await client`SELECT count(*)::int as count FROM crm_custom_field_definitions WHERE tenant_id = ${tenantId}`;
+          const [marceloDeals] = await client`SELECT count(*)::int as count FROM crm_deals WHERE tenant_id = ${tenantId} AND operator_id = 'op-1791376825772'`;
+          const [tarcisioDeals] = await client`SELECT count(*)::int as count FROM crm_deals WHERE tenant_id = ${tenantId} AND operator_id = '38306207-265e-4cd1-b702-a78805526b94'`;
           const allOperators = await client`SELECT id, name, email, role FROM operators WHERE tenant_id = ${tenantId}`;
           const realOperators = allOperators.filter((o: any) => !o.id.startsWith("op-tf-"));
           const syntheticCount = allOperators.length - realOperators.length;
@@ -53,7 +58,8 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
             JSON.stringify({
               success: true,
               tenantId,
-              seedMigration: migrationCheck ? { name: migrationCheck.name, appliedAt: migrationCheck.applied_at } : null,
+              seedMigration: seedMigrationCheck ? { name: seedMigrationCheck.name, appliedAt: seedMigrationCheck.applied_at } : null,
+              marceloMigration: marceloMigrationCheck ? { name: marceloMigrationCheck.name, appliedAt: marceloMigrationCheck.applied_at } : null,
               counts: {
                 deals: deals.count,
                 contacts: contacts.count,
@@ -64,6 +70,8 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
                 customFields: customFields.count,
                 operators: realOperators.length,
                 syntheticOperators: syntheticCount,
+                marceloDeals: marceloDeals.count,
+                tarcisioDeals: tarcisioDeals.count,
               },
               operators: realOperators,
             }),
@@ -98,6 +106,19 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
 
           const url = new URL(request.url);
           const action = url.searchParams.get("action");
+
+          if (action === "reassign-marcelo") {
+            console.log("[Sync Status API] Disparando reatribuição das negociações de Marcelo Nardelli...");
+            const marceloResult = await reassignMarceloNardelliDeals(client);
+            return new Response(
+              JSON.stringify({
+                success: true,
+                action: "reassign-marcelo",
+                result: marceloResult,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
 
           if (action === "cleanup-operators" || !action) {
             console.log("[Sync Status API] Disparando limpeza e remapeamento de operadores sintéticos...");

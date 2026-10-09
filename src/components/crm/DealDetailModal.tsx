@@ -61,6 +61,7 @@ import { useChat } from "@/hooks/useChatState";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { CreateTaskModal } from "./CreateTaskModal";
 import { CustomFieldsEditor, CustomFieldsSummary, changedCustomFieldValues } from "./CustomFieldsEditor";
+import { CrmDatePicker } from "./CrmDatePicker";
 import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
 import { DealEmailTab } from "./DealEmailTab";
 import { CatalogSelect } from "./CatalogSelect";
@@ -220,6 +221,15 @@ function getVigosPhoneLink(phone?: string | null) {
   if (n.startsWith("0")) n = n.substring(1);
   if (n.startsWith("14")) n = n.substring(2);
   return `tel:${n}`;
+}
+
+function getAccountNameScaleStyle(name?: string | null): React.CSSProperties {
+  if (!name) return { fontSize: "0.75rem", lineHeight: "1rem" };
+  const len = name.trim().length;
+  if (len > 38) return { fontSize: "0.625rem", lineHeight: "0.75rem" }; // 10px
+  if (len > 26) return { fontSize: "0.6875rem", lineHeight: "0.85rem" }; // 11px
+  if (len > 18) return { fontSize: "0.71875rem", lineHeight: "0.9rem" }; // 11.5px
+  return { fontSize: "0.75rem", lineHeight: "1rem" }; // 12px
 }
 
 interface DealDetailModalProps {
@@ -1927,14 +1937,13 @@ export function DealDetailModal({
                   {/* Previsão de Fechamento */}
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground font-semibold block">Previsão de Fechamento</label>
-                    <input
-                      type="date"
-                      value={deal?.expectedCloseDate ? String(deal.expectedCloseDate).substring(0, 10) : ""}
-                      onChange={(e) => {
-                        const val = e.target.value;
+                    <CrmDatePicker
+                      value={deal?.expectedCloseDate ? String(deal.expectedCloseDate).substring(0, 10) : null}
+                      onChange={(val) => {
                         updateDeal({ expectedCloseDate: val ? new Date(val + "T12:00:00Z").toISOString() : null });
                       }}
-                      className="w-full h-7 rounded-lg border border-border bg-card px-2 text-xs text-foreground outline-none focus:border-primary cursor-pointer"
+                      placeholder="Sem previsão definida"
+                      tooltipText="Definir previsão de fechamento no calendário"
                     />
                   </div>
 
@@ -2097,24 +2106,25 @@ export function DealDetailModal({
 
                 {deal?.account ? (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 min-w-0 flex-1">
                         {deal.account.type === "company" ? (
-                          <Building2 className="h-4 w-4 text-primary shrink-0" />
+                          <Building2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                         ) : (
-                          <User className="h-4 w-4 text-primary shrink-0" />
+                          <User className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                         )}
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <SystemTooltip content="Ver ficha completa do cliente">
                             <button
                               type="button"
                               onClick={() => setIsAccountDetailOpen(true)}
-                              className="text-xs font-bold text-primary hover:underline block truncate text-left"
+                              style={getAccountNameScaleStyle(deal.account.name)}
+                              className="font-bold text-primary hover:underline block text-left break-words max-w-full"
                             >
                               {deal.account.name}
                             </button>
                           </SystemTooltip>
-                          <span className="text-[10px] text-muted-foreground block">
+                          <span className="text-[10px] text-muted-foreground block mt-0.5">
                             {deal.account.type === "company" ? "Pessoa Jurídica (PJ)" : "Pessoa Física (PF)"}
                           </span>
                         </div>
@@ -2123,7 +2133,7 @@ export function DealDetailModal({
                         <button
                           type="button"
                           onClick={() => setIsAccountDetailOpen(true)}
-                          className="p-1 text-muted-foreground hover:text-primary rounded-md transition-colors"
+                          className="p-1 text-muted-foreground hover:text-primary rounded-md transition-colors shrink-0 self-start cursor-pointer"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
                         </button>
@@ -2184,7 +2194,7 @@ export function DealDetailModal({
                   Campos Personalizados
                 </span>
 
-                <CustomFieldsEditor entity="deal" pipelineId={deal?.pipelineId} values={customFieldDraft} onChange={setCustomFieldDraft} hideTitle />
+                <CustomFieldsEditor entity="deal" pipelineId={deal?.pipelineId || deal?.pipeline?.id} values={customFieldDraft} onChange={setCustomFieldDraft} hideTitle />
 
                 {JSON.stringify(customFieldDraft) !== JSON.stringify(deal?.customFields || {}) && (
                   <button
