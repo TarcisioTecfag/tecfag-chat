@@ -221,7 +221,17 @@ function StatCard({
   );
 }
 
-export function CommercialHomeView() {
+export interface CommercialHomeViewProps {
+  operatorId?: string;
+  isManagementPreview?: boolean;
+  onBack?: () => void;
+}
+
+export function CommercialHomeView({
+  operatorId,
+  isManagementPreview = false,
+  onBack,
+}: CommercialHomeViewProps = {}) {
   const { tenant, setActiveView } = useChat();
   const navigate = useNavigate();
   const [data, setData] = useState<CommercialHome | null>(null);
@@ -238,13 +248,19 @@ export function CommercialHomeView() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/commercial/home", { credentials: "same-origin", signal });
-      if (!response.ok)
+      const url = operatorId
+        ? `/api/commercial/home?operatorId=${encodeURIComponent(operatorId)}`
+        : "/api/commercial/home";
+      const response = await fetch(url, { credentials: "same-origin", signal });
+      if (!response.ok) {
+        const errPayload = await response.json().catch(() => ({}));
         throw new Error(
-          response.status === 403
-            ? "Você não tem acesso ao Início Comercial."
-            : "Falha ao carregar seus indicadores comerciais.",
+          errPayload.error ||
+            (response.status === 403
+              ? "Você não tem acesso ao Início Comercial."
+              : "Falha ao carregar seus indicadores comerciais."),
         );
+      }
       const home = (await response.json()) as CommercialHome;
       if (!signal?.aborted) {
         setData(home);
@@ -260,13 +276,13 @@ export function CommercialHomeView() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [selectedCalendarDate]);
+  }, [operatorId, selectedCalendarDate]);
 
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
-  }, [load, tenant]);
+  }, [load, tenant, operatorId]);
 
   const openDeal = (dealId: string) =>
     navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });

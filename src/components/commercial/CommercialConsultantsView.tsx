@@ -49,6 +49,7 @@ interface CommercialConsultantsViewProps {
   consultants: ConsultantRow[];
   loading?: boolean;
   onRefresh?: () => Promise<void> | void;
+  onSelectProfile?: (operatorId: string) => void;
 }
 
 const PAGE_SIZE = 10;
@@ -57,6 +58,7 @@ export function CommercialConsultantsView({
   consultants,
   loading = false,
   onRefresh,
+  onSelectProfile,
 }: CommercialConsultantsViewProps) {
   // Estados de busca e filtro
   const [searchTerm, setSearchTerm] = useState("");
@@ -662,6 +664,18 @@ export function CommercialConsultantsView({
                               <Link2 className="h-3.5 w-3.5" />
                             </button>
                           </SystemTooltip>
+
+                          {/* Botão Ver Início / Perfil */}
+                          {Boolean(consultant.division) && onSelectProfile && (
+                            <SystemTooltip content="Acessar tela de Início do consultor">
+                              <button
+                                onClick={() => onSelectProfile(consultant.operatorId)}
+                                className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-emerald-400 hover:border-emerald-500/50 transition cursor-pointer shadow-sm"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                          )}
 
                           {/* Botão Editar */}
                           <SystemTooltip content="Editar dados e equipe do consultor">

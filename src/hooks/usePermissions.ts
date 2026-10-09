@@ -16,7 +16,7 @@ import {
 } from "@/lib/rbac";
 
 export function usePermissions() {
-  const { currentGroup, operatorProfile, tenant, sessionPermissions, sessionRole } = useChat();
+  const { currentGroup, operatorProfile, tenant, sessionPermissions, sessionRole, isCommercialConsultant } = useChat();
 
   // Proteção Master: Dono da conta / Suporte Tecfag nunca pode ser trancado fora das telas de gestão
   const isMasterAccount = Boolean(
@@ -85,6 +85,9 @@ export function usePermissions() {
 
   // Checagem de Módulos (Menu Lateral)
   const canAccessView = (viewId: ViewId): boolean => {
+    if (viewId === "commercialHome") {
+      return tenant === "tecfag" && Boolean(isCommercialConsultant);
+    }
     if (!permissions?.views) return true;
     return !!permissions.views[viewId];
   };

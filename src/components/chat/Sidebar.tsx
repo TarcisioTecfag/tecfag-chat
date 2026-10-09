@@ -27,13 +27,13 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { ProfilePopover } from "@/components/chat/ProfileModal";
 
 export function Sidebar() {
-  const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, sessionRole, setIsProfileModalOpen, currentGroup } = useChat();
+  const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, sessionRole, setIsProfileModalOpen, currentGroup, isCommercialConsultant } = useChat();
   const { canAccessView } = usePermissions();
   const [showDropdown, setShowDropdown] = useState(false);
   const persona = getAiPersona(tenant || "valem");
 
   const navItems = [
-    ...(tenant === "tecfag" ? [{ id: "commercialHome", icon: House, label: "Início" }] : []),
+    ...(tenant === "tecfag" && isCommercialConsultant ? [{ id: "commercialHome", icon: House, label: "Início" }] : []),
     { id: "chat", icon: Users, label: "Chat" },
     { id: "crm", icon: Columns3, label: "Negociações" },
     { id: "tasks", icon: ClipboardCheck, label: "Tarefas" },
@@ -56,7 +56,11 @@ export function Sidebar() {
 
   // Redirecionamento automático caso a view atual não seja permitida
   useEffect(() => {
-    if ((activeView === "commercialHome" || activeView === "commercialManagement" || activeView === "commercialBi") && tenant !== "tecfag") {
+    if (activeView === "commercialHome" && (tenant !== "tecfag" || !isCommercialConsultant)) {
+      setActiveView("chat");
+      return;
+    }
+    if ((activeView === "commercialManagement" || activeView === "commercialBi") && tenant !== "tecfag") {
       setActiveView("chat");
       return;
     }
@@ -66,7 +70,7 @@ export function Sidebar() {
         setActiveView(firstAllowed as any);
       }
     }
-  }, [activeView, currentGroup, tenant]);
+  }, [activeView, currentGroup, isCommercialConsultant, tenant]);
 
 
   return (

@@ -108,6 +108,8 @@ type ChatContextType = {
   currentGroup: AccessGroup;
   sessionPermissions: GroupPermissions | null;
   sessionRole: string | null;
+  isCommercialConsultant: boolean;
+  commercialDivision: string | null;
   impersonateOperator: (id: string) => void;
   createOperator: (operator: Omit<Operator, "id" | "status" | "avatar">) => void;
   updateOperator: (id: string, fields: Partial<Operator>) => void;
@@ -306,6 +308,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentOperatorId, setCurrentOperatorId] = useState("");
   const [sessionPermissions, setSessionPermissions] = useState<GroupPermissions | null>(null);
   const [sessionRole, setSessionRole] = useState<string | null>(null);
+  const [isCommercialConsultant, setIsCommercialConsultant] = useState(false);
+  const [commercialDivision, setCommercialDivision] = useState<string | null>(null);
 
   // Refs to avoid stale closures in SSE event listener
   const selectedChatIdRef = useRef(selectedChatId);
@@ -408,8 +412,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setCurrentOperatorId(data.operator.id);
             setSessionPermissions(data.permissions || null);
             setSessionRole(data.operator.role || null);
+            setIsCommercialConsultant(Boolean(data.isCommercialConsultant));
+            setCommercialDivision(data.commercialDivision || null);
             if (activeTenant === "tecfag" && !localStorage.getItem("chat_active_view") &&
-              (data.operator.role === "admin" || data.permissions?.views?.commercialHome === true)) {
+              Boolean(data.isCommercialConsultant)) {
               setActiveView("commercialHome");
             }
 
@@ -422,6 +428,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthenticated(false);
             setSessionPermissions(null);
             setSessionRole(null);
+            setIsCommercialConsultant(false);
+            setCommercialDivision(null);
             localStorage.removeItem("chat_is_authenticated");
             localStorage.removeItem("rbac_operators");
           }
@@ -430,6 +438,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setIsAuthenticated(false);
           setSessionPermissions(null);
           setSessionRole(null);
+          setIsCommercialConsultant(false);
+          setCommercialDivision(null);
           localStorage.removeItem("chat_is_authenticated");
           localStorage.removeItem("rbac_operators");
         })
@@ -3217,8 +3227,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentOperatorId(confirmedSession.operator.id);
           setSessionRole(confirmedSession.operator.role || null);
           setSessionPermissions(confirmedSession.permissions || null);
-          if (confirmedSession.tenantId === "tecfag" &&
-            (confirmedSession.operator.role === "admin" || confirmedSession.permissions?.views?.commercialHome === true)) {
+          setIsCommercialConsultant(Boolean(confirmedSession.isCommercialConsultant));
+          setCommercialDivision(confirmedSession.commercialDivision || null);
+          if (confirmedSession.tenantId === "tecfag" && Boolean(confirmedSession.isCommercialConsultant)) {
             setActiveView("commercialHome");
           }
           if (confirmedSession.channelConfig?.activeProvider) {
@@ -3251,6 +3262,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthenticated(false);
       setSessionPermissions(null);
       setSessionRole(null);
+      setIsCommercialConsultant(false);
+      setCommercialDivision(null);
       setTenantState(null);
       setAvailableTenants([]);
       setCurrentOperatorId("");
@@ -3309,6 +3322,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentGroup,
         sessionPermissions,
         sessionRole,
+        isCommercialConsultant,
+        commercialDivision,
         impersonateOperator,
         createOperator,
         updateOperator,

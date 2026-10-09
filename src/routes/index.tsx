@@ -14,7 +14,7 @@ import { PushNotificationPrompt } from "@/components/chat/PushNotificationPrompt
 import { getChatLinkKey } from "@/lib/chat-link";
 import { useGlobalKeyboardNavigation } from "@/hooks/useGlobalKeyboardNavigation";
 import { usePermissions } from "@/hooks/usePermissions";
-import { Loader2 } from "lucide-react";
+import { BriefcaseBusiness, Loader2 } from "lucide-react";
 
 import { ProfileModal } from "@/components/chat/ProfileModal";
 import { lazyWithRetry } from "@/lib/lazy-retry";
@@ -50,7 +50,7 @@ export const Route = createFileRoute("/")({
 });
 
 export function Index() {
-  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations } = useChat();
+  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations, isCommercialConsultant } = useChat();
   const { canAccessView } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
@@ -104,6 +104,21 @@ export function Index() {
 
   const renderActiveView = () => {
     if (activeView === "commercialHome" && tenant === "tecfag") {
+      if (!isCommercialConsultant) {
+        return (
+          <div className="flex h-full w-full flex-col items-center justify-center p-8 text-center bg-background">
+            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 text-primary">
+              <BriefcaseBusiness className="w-8 h-8" />
+            </div>
+            <h2 className="text-xl font-bold font-mono text-foreground mb-2">
+              Acesso Restrito a Consultores Comerciais
+            </h2>
+            <p className="text-sm text-muted-foreground max-w-md">
+              A tela de Início é exclusiva para consultores cadastrados e ativos no Gestão Comercial.
+            </p>
+          </div>
+        );
+      }
       return <CommercialHomeView />;
     }
     if (activeView === "commercialManagement" && tenant === "tecfag") {

@@ -5,7 +5,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { motion } from "framer-motion";
 
 export const MobileBottomNav: React.FC = () => {
-  const { activeView, setActiveView, setSelectedChatId, operatorProfile, sessionRole, tenant } = useChat();
+  const { activeView, setActiveView, setSelectedChatId, operatorProfile, sessionRole, tenant, isCommercialConsultant } = useChat();
   const { canAccessView } = usePermissions();
 
   const handleTabClick = (viewId: string) => {
@@ -14,28 +14,36 @@ export const MobileBottomNav: React.FC = () => {
   };
 
   const navItems = [
-    tenant === "tecfag" ? {
-      id: "commercialHome",
-      label: "Início",
-      icon: <House className="w-5 h-5 stroke-[2.2]" />,
-    } : {
-      id: "valentina",
-      label: "Início",
-      icon: (
-        <div className="relative w-5.5 h-5.5">
-          <img
-            src={operatorProfile?.avatar || "/vendedor.png"}
-            alt={operatorProfile?.name || "Usuário"}
-            className="w-5.5 h-5.5 rounded-full object-cover border border-primary/30"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src =
-                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80";
-            }}
-          />
-          <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-1 ring-white" />
-        </div>
-      ),
-    },
+    ...(tenant === "tecfag" && isCommercialConsultant
+      ? [
+          {
+            id: "commercialHome",
+            label: "Início",
+            icon: <House className="w-5 h-5 stroke-[2.2]" />,
+          },
+        ]
+      : tenant !== "tecfag"
+      ? [
+          {
+            id: "valentina",
+            label: "Início",
+            icon: (
+              <div className="relative w-5.5 h-5.5">
+                <img
+                  src={operatorProfile?.avatar || "/vendedor.png"}
+                  alt={operatorProfile?.name || "Usuário"}
+                  className="w-5.5 h-5.5 rounded-full object-cover border border-primary/30"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src =
+                      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80";
+                  }}
+                />
+                <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-1 ring-white" />
+              </div>
+            ),
+          },
+        ]
+      : []),
     {
       id: "chat",
       label: "Atendimentos",

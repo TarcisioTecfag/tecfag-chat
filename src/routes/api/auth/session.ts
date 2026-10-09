@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getAuthSession } from "../../../lib/auth-session.js";
 import { db } from "../../../db/index.js";
-import { channelConfigs } from "../../../db/schema.js";
-import { eq } from "drizzle-orm";
+import { channelConfigs, commercialConsultantProfiles } from "../../../db/schema.js";
+import { and, eq, isNotNull, ne } from "drizzle-orm";
 import { canManagePlatformAccess } from "../../../lib/platform-access.js";
 
 export const Route = createFileRoute("/api/auth/session")({
@@ -38,6 +38,25 @@ export const Route = createFileRoute("/api/auth/session")({
               }
             : null;
 
+          // Verificar se o operador é consultor cadastrado no Gestão Comercial
+          const [consultantProfile] = await db
+            .select({
+              division: commercialConsultantProfiles.division,
+            })
+            .from(commercialConsultantProfiles)
+            .where(
+              and(
+                eq(commercialConsultantProfiles.tenantId, session.tenantId),
+                eq(commercialConsultantProfiles.operatorId, session.operator.id),
+                isNotNull(commercialConsultantProfiles.division),
+                ne(commercialConsultantProfiles.division, ""),
+              ),
+            )
+            .limit(1);
+
+          const isCommercialConsultant = Boolean(consultantProfile?.division);
+          const commercialDivision = consultantProfile?.division ?? null;
+
           return new Response(
             JSON.stringify({
               success: true,
@@ -45,6 +64,8 @@ export const Route = createFileRoute("/api/auth/session")({
               availableTenants: session.availableTenants,
               canManagePlatformAccess: await canManagePlatformAccess(session.operator).catch(() => false),
               operator: session.operator,
+              isCommercialConsultant,
+              commercialDivision,
               permissions: session.permissions,
               accessGroup: {
                 id: session.accessGroup.id,

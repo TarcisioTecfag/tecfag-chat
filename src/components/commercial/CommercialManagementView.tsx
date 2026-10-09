@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Settings2,
   Target,
+  UserCheck,
   Users,
 } from "lucide-react";
 import { saoPauloDay } from "@/lib/commercial/metrics";
@@ -18,6 +19,7 @@ import { CommercialSettingsPanel } from "./CommercialSettingsPanel";
 import { CommercialOperationalPanel } from "./CommercialAnalysisPanels";
 import { CommercialGoalsView } from "./CommercialGoalsView";
 import { CommercialConsultantsView, type ConsultantRow } from "./CommercialConsultantsView";
+import { CommercialProfilesView } from "./CommercialProfilesView";
 import { CommercialCalendarView } from "./CommercialCalendarView";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { useNavigate } from "@tanstack/react-router";
@@ -30,6 +32,7 @@ import { buildConsultantAvatarResolver, getDeterministicConsultantAvatar } from 
 
 const COMMERCIAL_TABS = [
   { id: "consultants", label: "Consultores", icon: Users },
+  { id: "profiles", label: "Perfis", icon: UserCheck },
   { id: "goals", label: "Metas", icon: Target },
   { id: "calendar", label: "Calendário", icon: CalendarDays },
   { id: "directives", label: "Diretrizes", icon: ClipboardCheck },
@@ -151,6 +154,7 @@ export function CommercialManagementView() {
     onChange: setTab,
   });
   const [month, setMonth] = useState(() => saoPauloDay().slice(0, 7));
+  const [activeProfileOperatorId, setActiveProfileOperatorId] = useState<string | null>(null);
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [directives, setDirectives] = useState<Directive[]>([]);
@@ -419,6 +423,18 @@ export function CommercialManagementView() {
                   consultants={consultants}
                   loading={loading}
                   onRefresh={load}
+                  onSelectProfile={(opId) => {
+                    setActiveProfileOperatorId(opId);
+                    setTab("profiles");
+                  }}
+                />
+              )}
+
+              {tab === "profiles" && (
+                <CommercialProfilesView
+                  consultants={consultants}
+                  onRefresh={load}
+                  initialOperatorId={activeProfileOperatorId}
                 />
               )}
 
