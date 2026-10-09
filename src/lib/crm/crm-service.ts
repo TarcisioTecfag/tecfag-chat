@@ -2286,8 +2286,6 @@ export class CrmService {
           documentType: crmAccounts.documentType,
           email: crmAccounts.email,
           phone: crmAccounts.phone,
-          city: crmAccounts.city,
-          state: crmAccounts.state,
           createdAt: crmAccounts.createdAt,
           updatedAt: crmAccounts.updatedAt,
         }
@@ -2323,16 +2321,7 @@ export class CrmService {
         eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, dealIds),
       )).groupBy(crmDealContacts.dealId),
       db.select({
-        activity: {
-          id: crmDealActivities.id,
-          dealId: crmDealActivities.dealId,
-          title: crmDealActivities.title,
-          type: crmDealActivities.type,
-          dueDate: crmDealActivities.dueDate,
-          assignedToOperatorId: crmDealActivities.assignedToOperatorId,
-          description: crmDealActivities.description,
-          status: crmDealActivities.status,
-        },
+        activity: crmDealActivities,
         assignedOperatorName: taskAssignedOp.name,
       }).from(crmDealActivities)
         .leftJoin(taskAssignedOp, and(
