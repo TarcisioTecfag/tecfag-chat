@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { client } from "../../../../db";
+import { applyTecfagCrmSeed } from "../../../../../scripts/apply-tecfag-crm-seed.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, x-migration-key",
 };
 
@@ -39,6 +40,7 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
           const [pipelines] = await client`SELECT count(*)::int as count FROM crm_pipelines WHERE tenant_id = ${tenantId}`;
           const [stages] = await client`SELECT count(*)::int as count FROM crm_stages WHERE tenant_id = ${tenantId}`;
           const [customFields] = await client`SELECT count(*)::int as count FROM crm_custom_field_definitions WHERE tenant_id = ${tenantId}`;
+          const operators = await client`SELECT id, name, email, role FROM operators WHERE tenant_id = ${tenantId}`;
 
           return new Response(
             JSON.stringify({
@@ -53,7 +55,9 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
                 pipelines: pipelines.count,
                 stages: stages.count,
                 customFields: customFields.count,
+                operators: operators.length,
               },
+              operators,
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
@@ -61,6 +65,43 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
           console.error("[Sync Status API] Erro:", err);
           return new Response(
             JSON.stringify({ error: err.message || "Erro interno." }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      },
+
+      /**
+       * POST /api/crm/import/sync-status
+       * Aciona manualmente a aplicação atômica do seed de produção Tecfag CRM.
+       */
+      POST: async ({ request }) => {
+        try {
+          const migrationKey = request.headers.get("x-migration-key");
+          if (migrationKey !== "tecfag-crm-migration-2026") {
+            const auth = await requireSession(request);
+            if ("response" in auth) return auth.response;
+            if (auth.session.operator.role !== "admin") {
+              return new Response(JSON.stringify({ error: "Apenas administradores podem acionar o seed." }), {
+                status: 403,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+          }
+
+          console.log("[Sync Status API] Disparando aplicação do seed Tecfag CRM via API...");
+          const result = await applyTecfagCrmSeed(client);
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              result,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        } catch (err: any) {
+          console.error("[Sync Status API] Erro no POST:", err);
+          return new Response(
+            JSON.stringify({ error: err.message || "Erro interno na aplicação do seed." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }

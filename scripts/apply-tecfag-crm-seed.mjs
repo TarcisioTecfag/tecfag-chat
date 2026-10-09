@@ -62,7 +62,7 @@ export async function applyTecfagCrmSeed(externalSql = null) {
 
     console.log(`[tecfag crm seed] Dados carregados:`, payload.counts);
 
-    const { pipelines, stages, customFields, accounts, contacts, deals, links } = payload;
+    const { operators, pipelines, stages, customFields, accounts, contacts, deals, links } = payload;
     const tenantId = payload.tenantId || "tecfag";
 
     console.log(`[tecfag crm seed] Iniciando transação no PostgreSQL para tenant '${tenantId}'...`);
@@ -74,8 +74,35 @@ export async function applyTecfagCrmSeed(externalSql = null) {
         await tx.unsafe("ALTER TABLE contacts DISABLE TRIGGER trg_contact_phone_identity");
         await tx.unsafe("ALTER TABLE crm_accounts DISABLE TRIGGER trg_account_document_identity");
       } catch (e) {
-        console.warn("[tecfag crm seed] Aviso: não foi possível alterar triggers (não-superusuário), prosseguindo com triggers ativas:", e.message);
+        console.warn("[tecfag crm seed] Aviso: não foi possível alterar triggers, prosseguindo com triggers ativas:", e.message);
       }
+
+      // 0. OPERATORS (Operadores do Tenant)
+      if (operators && operators.length > 0) {
+        console.log(`[tecfag crm seed] Sincronizando ${operators.length} operadores...`);
+        for (const op of operators) {
+          await tx`
+            INSERT INTO operators (
+              id, tenant_id, name, email, password_hash, role, status, is_online, created_at
+            ) VALUES (
+              ${op.id}, ${tenantId}, ${op.name}, ${op.email},
+              ${op.password_hash || "$2a$10$placeholderpasswordhashforseed1234567890"},
+              ${op.role || "agent"}, ${op.status || "disponivel"},
+              ${op.is_online ?? true}, ${op.created_at ?? new Date()}
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              email = EXCLUDED.email
+          `;
+        }
+      }
+
+      // Obter conjunto de IDs de operadores válidos e definir Tarcísio Pereira como fallback
+      const dbOps = await tx`SELECT id, name FROM operators WHERE tenant_id = ${tenantId}`;
+      const validOpIds = new Set(dbOps.map(o => o.id));
+      const tarcisio = dbOps.find(o => o.id.includes("tarcisio") || o.name.toLowerCase().includes("tarcisio")) || dbOps[0];
+      const fallbackOpId = tarcisio?.id || null;
+      console.log(`[tecfag crm seed] Operador fallback validado: [${fallbackOpId}] ${tarcisio?.name}`);
 
       // 1. PIPELINES (Funis)
       console.log(`[tecfag crm seed] Inserindo ${pipelines.length} funis...`);
@@ -200,33 +227,38 @@ export async function applyTecfagCrmSeed(externalSql = null) {
         }
       }
 
-      // 5. CONTACTS (Contatos) em BULK
+      // 5. CONTACTS (Contatos) em BULK com Fallback Seguro de Operador
       console.log(`[tecfag crm seed] Inserindo ${contacts.length} contatos em blocos otimizados...`);
       for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
         const chunk = contacts.slice(i, i + BATCH_SIZE);
-        const formattedContacts = chunk.map(c => ({
-          id: c.id,
-          tenant_id: tenantId,
-          account_id: c.account_id ?? c.accountId ?? null,
-          name: c.name,
-          phone: c.phone ?? null,
-          whatsapp_jid: c.whatsapp_jid ?? c.whatsappJid ?? null,
-          whatsapp_user_id: c.whatsapp_user_id ?? c.whatsappUserId ?? null,
-          whatsapp_username: c.whatsapp_username ?? c.whatsappUsername ?? null,
-          email: c.email ?? null,
-          cnpj: c.cnpj ?? null,
-          cpf: c.cpf ?? null,
-          avatar: c.avatar ?? null,
-          tags: c.tags ?? [],
-          main_channel: c.main_channel ?? c.mainChannel ?? "whatsapp",
-          wallet_operator_id: c.wallet_operator_id ?? c.walletOperatorId ?? null,
-          responsible_name: c.responsible_name ?? c.responsibleName ?? "Na Fila",
-          rd_crm_deal_id: c.rd_crm_deal_id ?? c.rdCrmDealId ?? null,
-          rd_crm_deal_link: c.rd_crm_deal_link ?? c.rdCrmDealLink ?? null,
-          cnpj_details: c.cnpj_details ?? c.cnpjDetails ?? {},
-          custom_fields: c.custom_fields ?? c.customFields ?? {},
-          created_at: c.created_at ?? c.createdAt ?? new Date()
-        }));
+        const formattedContacts = chunk.map(c => {
+          const rawWalletOpId = c.wallet_operator_id ?? c.walletOperatorId ?? null;
+          const safeWalletOpId = rawWalletOpId && validOpIds.has(rawWalletOpId) ? rawWalletOpId : fallbackOpId;
+
+          return {
+            id: c.id,
+            tenant_id: tenantId,
+            account_id: c.account_id ?? c.accountId ?? null,
+            name: c.name,
+            phone: c.phone ?? null,
+            whatsapp_jid: c.whatsapp_jid ?? c.whatsappJid ?? null,
+            whatsapp_user_id: c.whatsapp_user_id ?? c.whatsappUserId ?? null,
+            whatsapp_username: c.whatsapp_username ?? c.whatsappUsername ?? null,
+            email: c.email ?? null,
+            cnpj: c.cnpj ?? null,
+            cpf: c.cpf ?? null,
+            avatar: c.avatar ?? null,
+            tags: c.tags ?? [],
+            main_channel: c.main_channel ?? c.mainChannel ?? "whatsapp",
+            wallet_operator_id: safeWalletOpId,
+            responsible_name: c.responsible_name ?? c.responsibleName ?? "Na Fila",
+            rd_crm_deal_id: c.rd_crm_deal_id ?? c.rdCrmDealId ?? null,
+            rd_crm_deal_link: c.rd_crm_deal_link ?? c.rdCrmDealLink ?? null,
+            cnpj_details: c.cnpj_details ?? c.cnpjDetails ?? {},
+            custom_fields: c.custom_fields ?? c.customFields ?? {},
+            created_at: c.created_at ?? c.createdAt ?? new Date()
+          };
+        });
 
         await tx`
           INSERT INTO contacts ${tx(formattedContacts,
@@ -248,40 +280,45 @@ export async function applyTecfagCrmSeed(externalSql = null) {
         }
       }
 
-      // 6. DEALS (Negociações) em BULK
+      // 6. DEALS (Negociações) em BULK com Fallback Seguro de Operador
       console.log(`[tecfag crm seed] Inserindo ${deals.length} negociações em blocos otimizados...`);
       for (let i = 0; i < deals.length; i += BATCH_SIZE) {
         const chunk = deals.slice(i, i + BATCH_SIZE);
-        const formattedDeals = chunk.map(d => ({
-          id: d.id,
-          tenant_id: tenantId,
-          title: d.title,
-          account_id: d.account_id ?? d.accountId ?? null,
-          pipeline_id: d.pipeline_id ?? d.pipelineId,
-          stage_id: d.stage_id ?? d.stageId,
-          status: d.status || "open",
-          value: d.value ?? null,
-          currency: d.currency || "BRL",
-          expected_close_date: d.expected_close_date ?? d.expectedCloseDate ?? null,
-          operator_id: d.operator_id ?? d.operatorId ?? null,
-          source: d.source ?? null,
-          campaign: d.campaign ?? null,
-          rating: d.rating ?? 0,
-          loss_reason: d.loss_reason ?? d.lossReason ?? null,
-          paused_reason: d.paused_reason ?? d.pausedReason ?? null,
-          rd_deal_id: d.rd_deal_id ?? d.rdDealId ?? null,
-          rd_deal_url: d.rd_deal_url ?? d.rdDealUrl ?? null,
-          custom_fields: d.custom_fields ?? d.customFields ?? {},
-          version: d.version ?? 1,
-          ai_priority_score: d.ai_priority_score ?? d.aiPriorityScore ?? null,
-          ai_priority_level: d.ai_priority_level ?? d.aiPriorityLevel ?? null,
-          ai_priority_reason: d.ai_priority_reason ?? d.aiPriorityReason ?? null,
-          ai_priority_updated_at: d.ai_priority_updated_at ?? d.aiPriorityUpdatedAt ?? null,
-          last_activity_at: d.last_activity_at ?? d.lastActivityAt ?? new Date(),
-          closed_at: d.closed_at ?? d.closedAt ?? null,
-          created_at: d.created_at ?? d.createdAt ?? new Date(),
-          updated_at: d.updated_at ?? d.updatedAt ?? new Date()
-        }));
+        const formattedDeals = chunk.map(d => {
+          const rawOpId = d.operator_id ?? d.operatorId ?? null;
+          const safeOpId = rawOpId && validOpIds.has(rawOpId) ? rawOpId : fallbackOpId;
+
+          return {
+            id: d.id,
+            tenant_id: tenantId,
+            title: d.title,
+            account_id: d.account_id ?? d.accountId ?? null,
+            pipeline_id: d.pipeline_id ?? d.pipelineId,
+            stage_id: d.stage_id ?? d.stageId,
+            status: d.status || "open",
+            value: d.value ?? null,
+            currency: d.currency || "BRL",
+            expected_close_date: d.expected_close_date ?? d.expectedCloseDate ?? null,
+            operator_id: safeOpId,
+            source: d.source ?? null,
+            campaign: d.campaign ?? null,
+            rating: d.rating ?? 0,
+            loss_reason: d.loss_reason ?? d.lossReason ?? null,
+            paused_reason: d.paused_reason ?? d.pausedReason ?? null,
+            rd_deal_id: d.rd_deal_id ?? d.rdDealId ?? null,
+            rd_deal_url: d.rd_deal_url ?? d.rdDealUrl ?? null,
+            custom_fields: d.custom_fields ?? d.customFields ?? {},
+            version: d.version ?? 1,
+            ai_priority_score: d.ai_priority_score ?? d.aiPriorityScore ?? null,
+            ai_priority_level: d.ai_priority_level ?? d.aiPriorityLevel ?? null,
+            ai_priority_reason: d.ai_priority_reason ?? d.aiPriorityReason ?? null,
+            ai_priority_updated_at: d.ai_priority_updated_at ?? d.aiPriorityUpdatedAt ?? null,
+            last_activity_at: d.last_activity_at ?? d.lastActivityAt ?? new Date(),
+            closed_at: d.closed_at ?? d.closedAt ?? null,
+            created_at: d.created_at ?? d.createdAt ?? new Date(),
+            updated_at: d.updated_at ?? d.updatedAt ?? new Date()
+          };
+        });
 
         await tx`
           INSERT INTO crm_deals ${tx(formattedDeals,
@@ -353,10 +390,23 @@ export async function applyTecfagCrmSeed(externalSql = null) {
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`\n✅ [tecfag crm seed] Sincronização concluída com 100% de sucesso em ${elapsed}s!`);
+    console.log(`   - Operadores: ${operators?.length || 0}`);
     console.log(`   - Negociações: ${deals.length}`);
     console.log(`   - Contatos: ${contacts.length}`);
     console.log(`   - Empresas: ${accounts.length}`);
     console.log(`   - Vínculos: ${links.length}`);
+
+    return {
+      success: true,
+      elapsedSeconds: parseFloat(elapsed),
+      counts: {
+        operators: operators?.length || 0,
+        deals: deals.length,
+        contacts: contacts.length,
+        accounts: accounts.length,
+        links: links.length
+      }
+    };
   } catch (error) {
     console.error(`❌ [tecfag crm seed] Falha durante a aplicação do seed:`, error);
     throw error;
