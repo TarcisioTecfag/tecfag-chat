@@ -470,3 +470,31 @@ body,
   }
 }
 
+/* ── Hardware Compositing para GPUs Integradas (Intel UHD / Iris Xe) ── */
+@utility gpu-layer {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  will-change: transform, opacity;
+}
+
+@utility gpu-transform {
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
+/* ── Content-Visibility & CSS Containment para Alívio de CPU em Listas e Telas Extensas ── */
+@utility content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 350px;
+}
+
+@utility contain-paint {
+  contain: layout paint style;
+}
+
+@utility contain-strict {
+  contain: strict;
+}
+
+

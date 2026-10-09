@@ -494,7 +494,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.96 }}
                     transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                    className="relative"
+                    className="relative content-visibility-auto"
                     onContextMenu={(e) => {
                       if (c.queue !== "meus") return;
                       e.preventDefault();
