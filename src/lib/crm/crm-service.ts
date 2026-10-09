@@ -2089,6 +2089,7 @@ export class CrmService {
       limit?: number;
       offset?: number;
       includeTotal?: boolean;
+      previewOnly?: boolean;
       sortBy?:
         | "name_asc"
         | "name_desc"
@@ -2190,7 +2191,33 @@ export class CrmService {
         break;
     }
 
-    let rawDeals: (typeof crmDeals.$inferSelect)[];
+    let rawDeals: any[];
+    const dealPreviewFields = params.previewOnly
+      ? {
+          id: crmDeals.id,
+          tenantId: crmDeals.tenantId,
+          title: crmDeals.title,
+          accountId: crmDeals.accountId,
+          pipelineId: crmDeals.pipelineId,
+          stageId: crmDeals.stageId,
+          status: crmDeals.status,
+          value: crmDeals.value,
+          currency: crmDeals.currency,
+          expectedCloseDate: crmDeals.expectedCloseDate,
+          operatorId: crmDeals.operatorId,
+          source: crmDeals.source,
+          campaign: crmDeals.campaign,
+          rating: crmDeals.rating,
+          version: crmDeals.version,
+          aiPriorityScore: crmDeals.aiPriorityScore,
+          aiPriorityLevel: crmDeals.aiPriorityLevel,
+          lastActivityAt: crmDeals.lastActivityAt,
+          closedAt: crmDeals.closedAt,
+          createdAt: crmDeals.createdAt,
+          updatedAt: crmDeals.updatedAt,
+        }
+      : undefined;
+
     if (params.perStageLimit && !params.stageId) {
       const perStageLimit = Math.min(Math.max(params.perStageLimit, 1), 100);
       const rankedIdsSubquery = db
@@ -2212,19 +2239,33 @@ export class CrmService {
       }
 
       const idList = topIds.map((t) => t.id);
-      rawDeals = await db
-        .select()
-        .from(crmDeals)
-        .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, idList)))
-        .orderBy(...orderClause);
+      rawDeals = dealPreviewFields
+        ? await db
+            .select(dealPreviewFields)
+            .from(crmDeals)
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, idList)))
+            .orderBy(...orderClause)
+        : await db
+            .select()
+            .from(crmDeals)
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, idList)))
+            .orderBy(...orderClause);
     } else {
-      rawDeals = await db
-        .select()
-        .from(crmDeals)
-        .where(whereClause)
-        .orderBy(...orderClause)
-        .limit(limit)
-        .offset(offset);
+      rawDeals = dealPreviewFields
+        ? await db
+            .select(dealPreviewFields)
+            .from(crmDeals)
+            .where(whereClause)
+            .orderBy(...orderClause)
+            .limit(limit)
+            .offset(offset)
+        : await db
+            .select()
+            .from(crmDeals)
+            .where(whereClause)
+            .orderBy(...orderClause)
+            .limit(limit)
+            .offset(offset);
     }
 
     if (rawDeals.length === 0) {
@@ -2234,15 +2275,37 @@ export class CrmService {
     const dealIds = rawDeals.map((d) => d.id);
     const accountIds = Array.from(new Set(rawDeals.map((d) => d.accountId).filter(Boolean))) as string[];
 
+    const accountPreviewFields = params.previewOnly
+      ? {
+          id: crmAccounts.id,
+          tenantId: crmAccounts.tenantId,
+          name: crmAccounts.name,
+          tradeName: crmAccounts.tradeName,
+          type: crmAccounts.type,
+          document: crmAccounts.document,
+          documentType: crmAccounts.documentType,
+          email: crmAccounts.email,
+          phone: crmAccounts.phone,
+          city: crmAccounts.city,
+          state: crmAccounts.state,
+          createdAt: crmAccounts.createdAt,
+          updatedAt: crmAccounts.updatedAt,
+        }
+      : undefined;
+
     // As quatro consultas de enriquecimento usam os mesmos IDs, sem depender
     // umas das outras. Executá-las juntas evita quatro viagens sequenciais ao DB.
     const taskAssignedOp = alias(operators, "task_assigned_op");
     const [accList, convCounts, contactCounts, pendingActivities] = await Promise.all([
       accountIds.length > 0
-        ? db.select().from(crmAccounts).where(and(
-            eq(crmAccounts.tenantId, tenantId), inArray(crmAccounts.id, accountIds),
-          ))
-        : Promise.resolve([] as CrmAccount[]),
+        ? (accountPreviewFields
+            ? db.select(accountPreviewFields).from(crmAccounts).where(and(
+                eq(crmAccounts.tenantId, tenantId), inArray(crmAccounts.id, accountIds),
+              ))
+            : db.select().from(crmAccounts).where(and(
+                eq(crmAccounts.tenantId, tenantId), inArray(crmAccounts.id, accountIds),
+              )))
+        : Promise.resolve([] as any[]),
       db.select({
         dealId: crmConversationDeals.dealId,
         count: sql<number>`count(distinct ${crmConversationDeals.conversationId})::int`,
@@ -2260,7 +2323,16 @@ export class CrmService {
         eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, dealIds),
       )).groupBy(crmDealContacts.dealId),
       db.select({
-        activity: crmDealActivities,
+        activity: {
+          id: crmDealActivities.id,
+          dealId: crmDealActivities.dealId,
+          title: crmDealActivities.title,
+          type: crmDealActivities.type,
+          dueDate: crmDealActivities.dueDate,
+          assignedToOperatorId: crmDealActivities.assignedToOperatorId,
+          description: crmDealActivities.description,
+          status: crmDealActivities.status,
+        },
         assignedOperatorName: taskAssignedOp.name,
       }).from(crmDealActivities)
         .leftJoin(taskAssignedOp, and(
@@ -2276,7 +2348,7 @@ export class CrmService {
         .orderBy(sql`${crmDealActivities.dueDate} ASC NULLS LAST`, asc(crmDealActivities.createdAt)),
     ]);
 
-    const accountsMap = new Map<string, CrmAccount>();
+    const accountsMap = new Map<string, any>();
     for (const account of accList) accountsMap.set(account.id, account);
 
     const convCountMap = new Map<string, number>();
@@ -2331,6 +2403,7 @@ export class CrmService {
 
     const enrichedDeals = rawDeals.map((deal) => ({
       ...deal,
+      customFields: (deal as any).customFields || {},
       ownerId: deal.operatorId,
       account: deal.accountId ? accountsMap.get(deal.accountId) || null : null,
       conversationsCount: convCountMap.get(deal.id) || 0,

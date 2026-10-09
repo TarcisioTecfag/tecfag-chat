@@ -56,6 +56,7 @@ export const Route = createFileRoute("/api/crm/deals")({
           const coolingOnly = url.searchParams.get("coolingOnly") === "true";
           const coolingDaysRaw = url.searchParams.get("coolingDays");
           const coolingDays = coolingDaysRaw ? parseInt(coolingDaysRaw, 10) : undefined;
+          const previewOnly = url.searchParams.get("previewOnly") === "true" || !!perStageLimitRaw;
 
           // Restrição de escopo e multi-vendedor
           let operatorIds: string[] | undefined = undefined;
@@ -98,6 +99,7 @@ export const Route = createFileRoute("/api/crm/deals")({
             offset,
             perStageLimit,
             includeTotal,
+            previewOnly,
           });
 
           return new Response(JSON.stringify(result), {

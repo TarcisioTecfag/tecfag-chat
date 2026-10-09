@@ -134,21 +134,7 @@ export async function cleanupSyntheticOperators(sql) {
         SET operator_id = ${targetId} 
         WHERE tenant_id = ${tenantId} AND operator_id = ${sourceId}
       `;
-      await tx`
-        UPDATE crm_deal_events 
-        SET assigned_to_operator_id = ${targetId} 
-        WHERE tenant_id = ${tenantId} AND assigned_to_operator_id = ${sourceId}
-      `;
-      await tx`
-        UPDATE crm_deal_contacts 
-        SET created_by_operator_id = ${targetId} 
-        WHERE tenant_id = ${tenantId} AND created_by_operator_id = ${sourceId}
-      `;
-      await tx`
-        UPDATE crm_deal_contacts 
-        SET unlinked_by_operator_id = ${targetId} 
-        WHERE tenant_id = ${tenantId} AND unlinked_by_operator_id = ${sourceId}
-      `;
+
       await tx`
         UPDATE crm_contact_account_history 
         SET changed_by_operator_id = ${targetId} 

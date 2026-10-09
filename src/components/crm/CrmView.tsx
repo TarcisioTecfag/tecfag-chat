@@ -346,9 +346,11 @@ export function CrmView() {
       if (viewMode === "list") {
         params.set("limit", String(listLimit));
         params.set("offset", String(listOffset));
+        params.set("previewOnly", "true");
       } else {
-        // No modo kanban traz fatia equilibrada particionada por etapa (até 50 cards/etapa)
-        params.set("perStageLimit", "50");
+        // No modo kanban traz fatia equilibrada particionada por etapa (20 cards/etapa para alta performance)
+        params.set("perStageLimit", "20");
+        params.set("previewOnly", "true");
         params.set("includeTotal", "false");
       }
 
@@ -379,8 +381,9 @@ export function CrmView() {
         const stageDealsCount = dealsRef.current.filter((d) => d.stageId === stageId).length;
         const params = buildFilterQueryParams();
         params.set("stageId", stageId);
-        params.set("limit", "50");
+        params.set("limit", "20");
         params.set("offset", String(stageDealsCount));
+        params.set("previewOnly", "true");
         params.set("includeTotal", "false");
 
         const res = await fetch(`/api/crm/deals?${params.toString()}`);
