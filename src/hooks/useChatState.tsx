@@ -2588,14 +2588,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return last8Presence === last8Phone || c.id === presenceId;
           });
 
-          if (targetConv) {
-            if (lastState === "composing" || lastState === "recording") {
-              return { ...prev, [targetConv.id]: { status: lastState as "composing" | "recording", timestamp: Date.now() } };
-            } else {
-              return { ...prev, [targetConv.id]: null };
-            }
+          if (!targetConv) return prev;
+
+          const isTyping = lastState === "composing" || lastState === "recording";
+          const currentTyping = prev[targetConv.id];
+
+          // Se já está nulo e não está digitando, não re-renderiza
+          if (!isTyping && !currentTyping) return prev;
+
+          // Se já está com o mesmo status há menos de 2 segundos, não re-renderiza
+          if (isTyping && currentTyping && currentTyping.status === lastState && Date.now() - currentTyping.timestamp < 2000) {
+            return prev;
           }
-          return prev;
+
+          if (isTyping) {
+            return { ...prev, [targetConv.id]: { status: lastState as "composing" | "recording", timestamp: Date.now() } };
+          } else {
+            return { ...prev, [targetConv.id]: null };
+          }
         });
       } else if (data.type === "contact_updated") {
         const contactId = data.contact?.id || data.contactId;
@@ -2918,14 +2928,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
       } else if (data.type === "operator_typing" && data.conversationId) {
         if (data.operatorId && data.operatorId === currentOperatorIdRef.current) return;
-        setOperatorTypingStatus((prev) => ({
-          ...prev,
-          [data.conversationId]: {
-            operatorId: data.operatorId,
-            operatorName: data.operatorName || "Operador",
-            timestamp: Date.now(),
-          },
-        }));
+        setOperatorTypingStatus((prev) => {
+          const current = prev[data.conversationId];
+          if (current && current.operatorId === data.operatorId && Date.now() - current.timestamp < 2000) {
+            return prev; // sem mudança relevante de estado
+          }
+          return {
+            ...prev,
+            [data.conversationId]: {
+              operatorId: data.operatorId,
+              operatorName: data.operatorName || "Operador",
+              timestamp: Date.now(),
+            },
+          };
+        });
       } else if (data.type === "queue_update") {
         const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
 
