@@ -28,16 +28,13 @@ interface PipelineBoardProps {
   loadingMoreStages?: Record<string, boolean>;
 }
 
-interface DragState {
+interface ActiveDragInfo {
   deal: DealCardData;
   originStageId: string;
   cardWidth: number;
   cardHeight: number;
-  grabOffsetX: number;
-  grabOffsetY: number;
-  currentX: number;
-  currentY: number;
-  hoveredStageId: string | null;
+  initialX: number;
+  initialY: number;
 }
 
 export function PipelineBoard({
@@ -71,10 +68,16 @@ export function PipelineBoard({
     hasMoved: boolean;
   } | null>(null);
 
-  // ── ESTADO 2: DRAG & DROP DE CARDS ULTRA FLUIDO E SEM DELAY ──
-  const [dragState, setDragState] = useState<DragState | null>(null);
-  const dragStateRef = useRef<DragState | null>(null);
-  dragStateRef.current = dragState;
+  // ── ESTADO 2: DRAG & DROP ZERO-RERENDER (120 FPS DIRETO NO DOM VIA REF) ──
+  const [activeDrag, setActiveDrag] = useState<ActiveDragInfo | null>(null);
+  const activeDragRef = useRef<ActiveDragInfo | null>(null);
+  activeDragRef.current = activeDrag;
+
+  const [hoveredStageId, setHoveredStageId] = useState<string | null>(null);
+  const hoveredStageIdRef = useRef<string | null>(null);
+  hoveredStageIdRef.current = hoveredStageId;
+
+  const overlayRef = useRef<HTMLDivElement>(null);
   const autoScrollRafRef = useRef<number | null>(null);
 
   // Estado para diálogo de confirmação em etapa terminal (Ganho/Perda)
@@ -107,39 +110,42 @@ export function PipelineBoard({
   }
 
   // Intercepta movimentação para verificar etapa terminal
-  const handleInterceptMove = (dealId: string, newStageId: string, version: number) => {
-    const targetStage = sortedStages.find((s) => s.id === newStageId);
-    const deal = deals.find((d) => d.id === dealId);
+  const handleInterceptMove = useCallback(
+    (dealId: string, newStageId: string, version: number) => {
+      const targetStage = sortedStages.find((s) => s.id === newStageId);
+      const deal = deals.find((d) => d.id === dealId);
 
-    if (targetStage?.isWinStage) {
-      setTerminalConfirm({
-        dealId,
-        version,
-        targetStageId: newStageId,
-        targetStageName: targetStage.name,
-        dealTitle: deal?.title || "Negociação",
-        currentValue: deal?.value,
-        type: "win",
-      });
-      return;
-    }
+      if (targetStage?.isWinStage) {
+        setTerminalConfirm({
+          dealId,
+          version,
+          targetStageId: newStageId,
+          targetStageName: targetStage.name,
+          dealTitle: deal?.title || "Negociação",
+          currentValue: deal?.value,
+          type: "win",
+        });
+        return;
+      }
 
-    if (targetStage?.isLossStage) {
-      setTerminalConfirm({
-        dealId,
-        version,
-        targetStageId: newStageId,
-        targetStageName: targetStage.name,
-        dealTitle: deal?.title || "Negociação",
-        currentValue: deal?.value,
-        type: "loss",
-      });
-      return;
-    }
+      if (targetStage?.isLossStage) {
+        setTerminalConfirm({
+          dealId,
+          version,
+          targetStageId: newStageId,
+          targetStageName: targetStage.name,
+          dealTitle: deal?.title || "Negociação",
+          currentValue: deal?.value,
+          type: "loss",
+        });
+        return;
+      }
 
-    // Etapa padrão não terminal
-    onMoveDeal(dealId, newStageId, version);
-  };
+      // Etapa padrão não terminal
+      onMoveDeal(dealId, newStageId, version);
+    },
+    [sortedStages, deals, onMoveDeal]
+  );
 
   // ── MOTOR DE AUTO-SCROLL HORIZONTAL AO ARRASTAR PRÓXIMO DAS BORDAS ──
   const stopEdgeScroll = useCallback(() => {
@@ -166,18 +172,20 @@ export function PipelineBoard({
   // Cancelamento via tecla ESC
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && dragState) {
+      if (e.key === "Escape" && activeDrag) {
         stopEdgeScroll();
         document.body.style.userSelect = "";
         document.body.style.cursor = "";
-        setDragState(null);
+        setActiveDrag(null);
+        setHoveredStageId(null);
+        hoveredStageIdRef.current = null;
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [dragState, stopEdgeScroll]);
+  }, [activeDrag, stopEdgeScroll]);
 
-  // ── INÍCIO DO ARRASTO DE CARD (POINTER DOWN NO DEALCARD) ──
+  // ── INÍCIO DO ARRASTO DE CARD ZERO-RERENDER (POINTER DOWN NO DEALCARD) ──
   const handleStartCardDrag = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => {
       if (e.button !== 0) return; // apenas clique primário
@@ -207,39 +215,49 @@ export function PipelineBoard({
           candidate.isDragging = true;
           document.body.style.userSelect = "none";
           document.body.style.cursor = "grabbing";
+
+          setActiveDrag({
+            deal: candidate.deal,
+            originStageId: candidate.originStageId,
+            cardWidth: candidate.cardWidth,
+            cardHeight: candidate.cardHeight,
+            initialX: ev.clientX - candidate.grabOffsetX,
+            initialY: ev.clientY - candidate.grabOffsetY,
+          });
         }
 
         if (!candidate.isDragging) return;
 
-        // Detecção em tempo real da coluna alvo sob o cursor
-        const elements = document.elementsFromPoint(ev.clientX, ev.clientY);
-        let foundStageId: string | null = null;
-        for (const el of elements) {
-          const col = el.closest("[data-stage-column]") as HTMLElement | null;
-          if (col) {
-            foundStageId = col.getAttribute("data-stage-column");
-            break;
-          }
+        // 🚀 ATUALIZAÇÃO DIRETA NO DOM (ZERO RE-RENDERS NO REACT ENQUANTO MOVE O MOUSE)
+        const curX = ev.clientX - candidate.grabOffsetX;
+        const curY = ev.clientY - candidate.grabOffsetY;
+        if (overlayRef.current) {
+          overlayRef.current.style.transform = `translate3d(${curX}px, ${curY}px, 0) rotate(1.8deg) scale(1.02)`;
         }
 
-        const nextX = ev.clientX - candidate.grabOffsetX;
-        const nextY = ev.clientY - candidate.grabOffsetY;
-
-        setDragState({
-          deal: candidate.deal,
-          originStageId: candidate.originStageId,
-          cardWidth: candidate.cardWidth,
-          cardHeight: candidate.cardHeight,
-          grabOffsetX: candidate.grabOffsetX,
-          grabOffsetY: candidate.grabOffsetY,
-          currentX: nextX,
-          currentY: nextY,
-          hoveredStageId: foundStageId,
-        });
-
-        // Verificação de proximidade das bordas para auto-scroll suave
+        // 🚀 DETECÇÃO RÁPIDA DE COLUNA ALVO (Apenas limites das colunas do Kanban, sem elementsFromPoint)
         const container = boardContainerRef.current;
         if (container) {
+          const cols = container.children;
+          let foundStageId: string | null = null;
+          for (let i = 0; i < cols.length; i++) {
+            const col = cols[i] as HTMLElement;
+            const stageId = col.getAttribute("data-stage-column");
+            if (!stageId) continue;
+            const cRect = col.getBoundingClientRect();
+            if (ev.clientX >= cRect.left && ev.clientX <= cRect.right) {
+              foundStageId = stageId;
+              break;
+            }
+          }
+
+          // Atualiza estado do React SOMENTE se a coluna alvo realmente mudou!
+          if (foundStageId !== hoveredStageIdRef.current) {
+            hoveredStageIdRef.current = foundStageId;
+            setHoveredStageId(foundStageId);
+          }
+
+          // Verificação de proximidade das bordas para auto-scroll suave
           const cRect = container.getBoundingClientRect();
           const edgeMargin = 110;
           const leftDist = ev.clientX - cRect.left;
@@ -278,11 +296,13 @@ export function PipelineBoard({
           };
           window.addEventListener("click", suppressClick, true);
 
-          const currentHoveredStage = dragStateRef.current?.hoveredStageId;
-          if (currentHoveredStage && currentHoveredStage !== candidate.originStageId) {
-            handleInterceptMove(candidate.deal.id, currentHoveredStage, candidate.deal.version);
+          const targetStage = hoveredStageIdRef.current;
+          if (targetStage && targetStage !== candidate.originStageId) {
+            handleInterceptMove(candidate.deal.id, targetStage, candidate.deal.version);
           }
-          setDragState(null);
+          setActiveDrag(null);
+          setHoveredStageId(null);
+          hoveredStageIdRef.current = null;
         } else {
           // Movimento menor que 5px: clique intencional para abrir modal do deal
           onDealClick(candidate.deal);
@@ -293,7 +313,7 @@ export function PipelineBoard({
       window.addEventListener("pointerup", handleCardPointerUp);
       window.addEventListener("pointercancel", handleCardPointerUp);
     },
-    [onDealClick, startEdgeScroll, stopEdgeScroll]
+    [onDealClick, startEdgeScroll, stopEdgeScroll, handleInterceptMove]
   );
 
   // ── MOTOR DE PAN SCROLL HORIZONTAL (CLICAR E ARRASTAR O FUNDO OU TOPO DA TELA) ──
@@ -409,43 +429,44 @@ export function PipelineBoard({
               onCreateTaskClick={onCreateTaskClick}
               onLoadMore={onLoadMoreStage ? () => onLoadMoreStage(stage.id) : undefined}
               loadingMore={!!loadingMoreStages?.[stage.id]}
-              draggedDealId={dragState?.deal.id}
-              targetStageId={dragState?.hoveredStageId}
+              draggedDealId={activeDrag?.deal.id}
+              targetStageId={hoveredStageId}
               onStartCardDrag={handleStartCardDrag}
             />
           ))
         )}
       </div>
 
-      {/* ── DRAG OVERLAY FLUTUANTE EM ALTA DEFINIÇÃO (REACT PORTAL NO BODY) ── */}
-      {dragState &&
+      {/* ── DRAG OVERLAY FLUTUANTE EM ALTA DEFINIÇÃO E 120 FPS DIRETO NO DOM (ZERO LAG) ── */}
+      {activeDrag &&
         typeof document !== "undefined" &&
         createPortal(
           <div
+            ref={overlayRef}
             style={{
               position: "fixed",
               top: 0,
               left: 0,
-              width: `${dragState.cardWidth}px`,
-              height: `${dragState.cardHeight}px`,
-              transform: `translate3d(${dragState.currentX}px, ${dragState.currentY}px, 0) rotate(2deg) scale(1.02)`,
+              width: `${activeDrag.cardWidth}px`,
+              height: `${activeDrag.cardHeight}px`,
+              transform: `translate3d(${activeDrag.initialX}px, ${activeDrag.initialY}px, 0) rotate(1.8deg) scale(1.02)`,
               zIndex: 999999,
               pointerEvents: "none",
               willChange: "transform",
             }}
-            className="select-none shadow-2xl shadow-black/80 ring-2 ring-primary border border-primary/90 rounded-xl bg-card/95 backdrop-blur-md overflow-hidden"
+            className="select-none shadow-2xl shadow-black/90 ring-2 ring-primary border border-primary/90 rounded-xl bg-card overflow-hidden"
           >
             <DealCard
-              deal={dragState.deal}
+              deal={activeDrag.deal}
               coolingDays={
-                stageSettings?.[dragState.deal.stageId]?.coolingDays ??
+                stageSettings?.[activeDrag.deal.stageId]?.coolingDays ??
                 pipeline.coolingDays ??
                 10
               }
-              coolingEnabled={stageSettings?.[dragState.deal.stageId]?.coolingEnabled ?? true}
+              coolingEnabled={stageSettings?.[activeDrag.deal.stageId]?.coolingEnabled ?? true}
               operatorName={
-                dragState.deal.operatorId || dragState.deal.ownerId
-                  ? operatorsMap.get((dragState.deal.operatorId || dragState.deal.ownerId)!)
+                activeDrag.deal.operatorId || activeDrag.deal.ownerId
+                  ? operatorsMap.get((activeDrag.deal.operatorId || activeDrag.deal.ownerId)!)
                   : undefined
               }
               allStages={allStages}

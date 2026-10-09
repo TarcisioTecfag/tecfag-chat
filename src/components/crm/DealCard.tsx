@@ -82,7 +82,7 @@ export interface DealCardProps {
   onStartDrag?: (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => void;
 }
 
-export function DealCard({
+export const DealCard = React.memo(function DealCard({
   deal,
   coolingDays = 10,
   coolingEnabled = true,
@@ -558,4 +558,4 @@ export function DealCard({
       </div>
     </div>
   );
-}
+});

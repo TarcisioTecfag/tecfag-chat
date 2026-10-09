@@ -38,7 +38,7 @@ interface PipelineColumnProps {
   onStartCardDrag?: (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => void;
 }
 
-export function PipelineColumn({
+export const PipelineColumn = React.memo(function PipelineColumn({
   stage,
   deals,
   summary,
@@ -260,4 +260,4 @@ export function PipelineColumn({
       </div>
     </div>
   );
-}
+});
