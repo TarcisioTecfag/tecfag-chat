@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   UserPlus, CheckCircle, Clock, XCircle, Bot, User as UserIcon,
-  ChevronRight, ChevronDown, Circle, Search, ExternalLink, ShieldCheck, Smartphone,
+  ChevronRight, ChevronDown, ChevronUp, Circle, Search, ExternalLink, ShieldCheck, Smartphone,
   Power, Save, RefreshCw, MessageSquare, Square, UserCheck, Calendar, Filter, X,
   Play, Pause, FileText, Download, Globe, PanelRightOpen, PanelRightClose
 } from "lucide-react";
@@ -16,6 +16,8 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { toast } from "sonner";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+import { SdrKanbanBoard } from "./SdrKanbanBoard";
+import { BENCHMARK_SDR_SESSIONS } from "./sdr-kanban-data";
 
 export interface SdrTriageMessage {
   id?: string;
@@ -236,12 +238,28 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
   // Modal de visualização em tela cheia da foto de perfil
   const [previewModalImage, setPreviewModalImage] = useState<{ url: string; title: string } | null>(null);
 
-  // ESTADOS REAIS — Sem Mocks!
-  const [sessions, setSessions] = useState<SdrTriageSession[]>([]);
-  const [selectedSession, setSelectedSession] = useState<SdrTriageSession | null>(null);
+  // SESSÕES DE TRIAGEM (Reais do banco + Benchmark das fotos para preenchimento de funis)
+  const [sessions, setSessions] = useState<SdrTriageSession[]>(BENCHMARK_SDR_SESSIONS);
+  const [selectedSession, setSelectedSession] = useState<SdrTriageSession | null>(() => BENCHMARK_SDR_SESSIONS[0] || null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isChatHighlighted, setIsChatHighlighted] = useState(false);
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+  // Manipulação de seleção via card do Kanban com scroll suave para a área de chat
+  const handleSelectSessionFromKanban = (session: SdrTriageSession) => {
+    setSelectedSession(session);
+    setSelectedChatId(session.conversationId);
+    setIsChatHighlighted(true);
+    setTimeout(() => setIsChatHighlighted(false), 1400);
+
+    setTimeout(() => {
+      const el = document.getElementById("sdr-live-chat-section");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 60);
+  };
 
   // Carregar dados e configurações REAIS do SDR via API
   const fetchSdrData = useCallback(async () => {
@@ -272,11 +290,22 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
             messages: s.messages || [],
           }));
 
-          setSessions(formattedLiveSessions);
+          const liveIds = new Set(formattedLiveSessions.map((s) => s.id));
+          const liveConvIds = new Set(formattedLiveSessions.map((s) => s.conversationId));
+          const mergedSessions = [
+            ...formattedLiveSessions,
+            ...BENCHMARK_SDR_SESSIONS.filter(
+              (b) => !liveIds.has(b.id) && !liveConvIds.has(b.conversationId)
+            ),
+          ];
+
+          setSessions(mergedSessions);
           setSelectedSession((prev) => {
-            if (!prev) return formattedLiveSessions[0] || null;
-            const match = formattedLiveSessions.find((s) => s.id === prev.id || (s.conversationId && s.conversationId === prev.conversationId));
-            return match || formattedLiveSessions[0] || null;
+            if (!prev) return mergedSessions[0] || null;
+            const match = mergedSessions.find(
+              (s) => s.id === prev.id || (s.conversationId && s.conversationId === prev.conversationId)
+            );
+            return match || mergedSessions[0] || null;
           });
         }
       }
@@ -285,7 +314,7 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
     } finally {
       setIsLoading(false);
     }
-  }, [tenant, BACKEND_URL]);
+  }, [tenant, BACKEND_URL, onSdrConfigChange]);
 
   // Polling a cada 3 segundos para atualização ao vivo da triagem no WhatsApp
   useEffect(() => {
@@ -412,9 +441,63 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
   });
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* ── PAINÉIS DE CONTEÚDO AO VIVO REAIS ───────────────────────────────── */}
-      <div className="flex gap-4 flex-1 overflow-hidden min-h-0">
+    <div className="flex flex-col h-full overflow-y-auto scrollbar-thin space-y-4 pr-1">
+      {/* ── PARTE SUPERIOR: KANBAN DE TRIAGEM (ORGANIZADOR DO FUNIL) ────────── */}
+      <SdrKanbanBoard
+        sessions={sessions}
+        selectedSessionId={selectedSession?.id}
+        onSelectSession={handleSelectSessionFromKanban}
+        sdrEnabled={sdrEnabled}
+        onToggleSdr={handleToggleSdr}
+        onRefresh={fetchSdrData}
+        isLoading={isLoading}
+      />
+
+      {/* ── DIVISOR E HEADER DA SEÇÃO AO VIVO (CHAT DE CLIENTES) ───────────── */}
+      <div
+        id="sdr-live-chat-section"
+        className={`flex items-center justify-between px-5 py-3 bg-card rounded-2xl border transition-all duration-300 shadow-xs shrink-0 scroll-mt-2 ${
+          isChatHighlighted ? "border-primary ring-2 ring-primary/40 bg-primary-soft/10" : "border-border"
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+          <div>
+            <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
+              <span>Triagens SDR ao Vivo</span>
+              {selectedSession && (
+                <span className="text-[10px] font-bold text-primary bg-primary-soft px-2 py-0.5 rounded-lg border border-primary/20">
+                  Conversa em foco: {selectedSession.contactName}
+                </span>
+              )}
+            </h3>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Diálogo em tempo real com {persona.name}, histórico completo, áudios e conferência dos dados coletados.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            const container = document.querySelector(".overflow-y-auto");
+            if (container) {
+              container.scrollTo({ top: 0, behavior: "smooth" });
+            }
+          }}
+          className="px-3 py-1.5 rounded-xl text-xs font-bold border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+        >
+          <ChevronUp className="h-3.5 w-3.5" />
+          <span>Subir para o Kanban</span>
+        </button>
+      </div>
+
+      {/* ── PAINÉIS DE CONTEÚDO AO VIVO REAIS (3 COLUNAS) ────────────────────── */}
+      <div className={`flex gap-4 min-h-[640px] h-[700px] overflow-hidden shrink-0 transition-all duration-300 rounded-2xl ${
+        isChatHighlighted ? "ring-2 ring-primary/40" : ""
+      }`}>
         {/* ── PAINEL ESQUERDO — Lista de sessões reais (30%) ────────────────── */}
         <div className="w-[30%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
           <div className="px-4 py-3 border-b border-line shrink-0 flex flex-col gap-2.5">
