@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useRef, useEffect } from "react";
 import { DealCard, DealCardData } from "./DealCard";
-import { Plus, ChevronDown, Loader2 } from "lucide-react";
+import { Plus, ChevronDown, Loader2, ArrowDown } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
 export interface PipelineStageData {
@@ -33,6 +33,9 @@ interface PipelineColumnProps {
   onCreateTaskClick?: (deal: DealCardData) => void;
   onLoadMore?: () => void;
   loadingMore?: boolean;
+  draggedDealId?: string | null;
+  targetStageId?: string | null;
+  onStartCardDrag?: (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => void;
 }
 
 export function PipelineColumn({
@@ -49,8 +52,12 @@ export function PipelineColumn({
   onCreateTaskClick,
   onLoadMore,
   loadingMore = false,
+  draggedDealId,
+  targetStageId,
+  onStartCardDrag,
 }: PipelineColumnProps) {
-  const [isOver, setIsOver] = useState(false);
+  const isTarget = targetStageId === stage.id;
+  const isSourceStage = deals.some((d) => d.id === draggedDealId);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -114,55 +121,26 @@ export function PipelineColumn({
   const displayCount = summary ? summary.dealsCount : deals.length;
   const displayFormattedTotal = summary ? summary.formattedTotalValue : localFormattedTotal;
 
-  // Drag over / drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (!isOver) setIsOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsOver(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsOver(false);
-    try {
-      const dataStr = e.dataTransfer.getData("text/plain");
-      if (!dataStr) return;
-      const data = JSON.parse(dataStr);
-      if (data.dealId && data.fromStageId !== stage.id) {
-        onDropDeal(data.dealId, stage.id, data.version);
-      }
-    } catch (err) {
-      console.error("[PipelineColumn] Falha ao processar drop:", err);
-    }
-  };
-
   return (
     <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={`flex flex-col h-full min-w-[330px] max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-all duration-200 ${
-        isOver
-          ? "border-primary/80 ring-2 ring-primary/30 bg-primary/[0.06] scale-[1.008]"
+      data-stage-column={stage.id}
+      className={`flex flex-col h-full min-w-[330px] max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-colors duration-150 ${
+        isTarget
+          ? "border-primary ring-2 ring-primary/40 bg-primary/[0.04] shadow-lg"
           : "border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs"
       }`}
     >
-      {/* Cabeçalho da Coluna com sólido aprimorado */}
-      <div className="shrink-0 px-3.5 py-3 border-b border-border/70 bg-muted/85 dark:bg-muted/45 rounded-t-2xl">
+      {/* Cabeçalho da Coluna com sólido aprimorado e cursor-grab para pan scroll do quadro */}
+      <div className="shrink-0 px-3.5 py-3 border-b border-border/70 bg-muted/85 dark:bg-muted/45 rounded-t-2xl cursor-grab active:cursor-grabbing select-none">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <SystemTooltip content={stage.name}>
-              <h3 className="text-sm font-bold text-foreground line-clamp-2 break-words cursor-default">
+              <h3 className="text-sm font-bold text-foreground line-clamp-2 break-words">
                 {stage.name}
               </h3>
             </SystemTooltip>
             <SystemTooltip content={`${displayCount} negociações no total nesta etapa`}>
-              <span className="flex h-6 shrink-0 items-center justify-center rounded-md bg-background/90 border border-border/70 px-2 text-xs font-semibold tabular-nums text-foreground/80 cursor-default">
+              <span className="flex h-6 shrink-0 items-center justify-center rounded-md bg-background/90 border border-border/70 px-2 text-xs font-semibold tabular-nums text-foreground/80">
                 {displayCount}
               </span>
             </SystemTooltip>
@@ -171,7 +149,10 @@ export function PipelineColumn({
           {onNewDealAtStage && (
             <SystemTooltip content={`Nova negociação em ${stage.name}`}>
               <button
-                onClick={() => onNewDealAtStage(stage.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNewDealAtStage(stage.id);
+                }}
                 type="button"
                 aria-label={`Nova negociação em ${stage.name}`}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -189,14 +170,25 @@ export function PipelineColumn({
         </div>
       </div>
 
-      {/* Lista de Cards da Etapa com scroll vertical */}
+      {/* Lista de Cards da Etapa com scroll vertical e isolamento do mouse wheel */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
+        data-column-card-list="true"
         className="min-h-0 flex-1 overflow-y-auto p-2.5 pb-6 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
       >
+        {/* Indicador visual de soltura quando arrastando para esta coluna */}
+        {isTarget && draggedDealId && !isSourceStage && (
+          <div className="shrink-0 h-[196px] min-h-[196px] rounded-xl border-2 border-dashed border-primary/70 bg-primary/[0.08] flex flex-col items-center justify-center gap-2.5 text-primary p-4 animate-in fade-in zoom-in-95 duration-150 shadow-inner select-none pointer-events-none">
+            <div className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+              <ArrowDown className="h-5 w-5 animate-bounce" />
+            </div>
+            <span className="text-xs font-bold tracking-wide">Mover para {stage.name}</span>
+          </div>
+        )}
+
         {deals.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center px-4 space-y-2.5">
+          <div className="flex flex-col items-center justify-center py-10 text-center px-4 space-y-2.5 select-none">
             <p className="text-xs text-muted-foreground">
               Nenhuma negociação nesta etapa
             </p>
@@ -231,6 +223,8 @@ export function PipelineColumn({
                 onQuickMove={onDropDeal}
                 allStages={allStages}
                 onCreateTaskClick={onCreateTaskClick}
+                isDragging={deal.id === draggedDealId}
+                onStartDrag={onStartCardDrag}
               />
             ))}
 

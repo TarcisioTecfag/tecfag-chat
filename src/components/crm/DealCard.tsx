@@ -66,16 +66,19 @@ export interface DealCardData {
   } | null;
 }
 
-interface DealCardProps {
+export interface DealCardProps {
   deal: DealCardData;
   coolingDays?: number;
   coolingEnabled?: boolean;
   operatorName?: string;
-  onClick: (deal: DealCardData) => void;
+  onClick?: (deal: DealCardData) => void;
   onQuickMove?: (dealId: string, newStageId: string, currentVersion: number) => void;
   onTaskCompleted?: (dealId: string, activityId: string) => void;
   onCreateTaskClick?: (deal: DealCardData) => void;
   allStages?: Array<{ id: string; name: string }>;
+  isDragging?: boolean;
+  isOverlay?: boolean;
+  onStartDrag?: (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => void;
 }
 
 export function DealCard({
@@ -88,6 +91,9 @@ export function DealCard({
   onTaskCompleted,
   onCreateTaskClick,
   allStages = [],
+  isDragging = false,
+  isOverlay = false,
+  onStartDrag,
 }: DealCardProps) {
   const navigate = useNavigate();
   const [completingTask, setCompletingTask] = useState(false);
@@ -132,13 +138,31 @@ export function DealCard({
     },
   }[deal.status];
 
-  // Drag start
-  const handleDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData(
-      "text/plain",
-      JSON.stringify({ dealId: deal.id, version: deal.version, fromStageId: deal.stageId })
-    );
-    e.dataTransfer.effectAllowed = "move";
+  // Pointer Down para Drag customizado fluido sem delay
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isOverlay || isDragging) return;
+    if (e.button !== 0) return; // apenas clique esquerdo
+    const target = e.target as HTMLElement;
+    // Não iniciar drag se clicou em botões, links ou menus internos
+    if (target.closest('button, a, input, select, textarea, [role="button"], [data-no-drag]')) {
+      return;
+    }
+    if (onStartDrag) {
+      onStartDrag(e, deal);
+    }
+  };
+
+  const handleCardClick = () => {
+    if (isOverlay || isDragging) return;
+    if (!onStartDrag && onClick) {
+      onClick(deal);
+    }
+  };
+
+  // Helper de Tooltip condicional: desativa no Overlay para evitar glitches de popover ao arrastar
+  const CardTooltip = ({ content, children }: { content: React.ReactNode; children: React.ReactElement }) => {
+    if (isOverlay || !content) return children;
+    return <SystemTooltip content={content}>{children}</SystemTooltip>;
   };
 
   // Concluir tarefa rapidamente
@@ -239,41 +263,46 @@ export function DealCard({
 
   return (
     <div
-      draggable
-      onDragStart={handleDragStart}
-      onClick={() => onClick(deal)}
-      className={`group relative flex flex-col justify-between h-[196px] min-h-[196px] max-h-[196px] rounded-xl border p-3 shadow-xs transition-all duration-200 ease-out cursor-grab active:cursor-grabbing bg-card hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 select-none overflow-hidden ${
-        isCooling
-          ? "border-amber-400/70 dark:border-amber-500/50 bg-amber-500/[0.04]"
+      data-deal-card={deal.id}
+      data-stage-id={deal.stageId}
+      onPointerDown={handlePointerDown}
+      onClick={handleCardClick}
+      className={`group relative flex flex-col justify-between h-[196px] min-h-[196px] max-h-[196px] rounded-xl border p-3 select-none overflow-hidden transition-all duration-150 ${
+        isOverlay
+          ? "border-primary bg-card/95 shadow-2xl ring-2 ring-primary/80 cursor-grabbing pointer-events-none"
+          : isDragging
+          ? "opacity-25 border-dashed border-2 border-primary/50 bg-primary/[0.04] scale-[0.98] pointer-events-none"
+          : isCooling
+          ? "border-amber-400/70 dark:border-amber-500/50 bg-amber-500/[0.04] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50"
           : deal.status === "won"
-          ? "border-emerald-500/40 bg-emerald-500/[0.02]"
+          ? "border-emerald-500/40 bg-emerald-500/[0.02] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50"
           : deal.status === "lost"
-          ? "border-destructive/30 bg-destructive/[0.02]"
-          : "border-border/80"
+          ? "border-destructive/30 bg-destructive/[0.02] shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50"
+          : "border-border/80 bg-card shadow-xs cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50"
       }`}
     >
       {/* ── 1. TOPO: Título (altura fixa 36px) + Chip de Esfriamento + Menu ── */}
       <div className="flex items-start justify-between gap-1.5 min-h-[36px] max-h-[36px]">
-        <SystemTooltip content={deal.title}>
+        <CardTooltip content={deal.title}>
           <h4 className="min-w-0 flex-1 break-words text-xs font-bold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors cursor-pointer">
             {deal.title}
           </h4>
-        </SystemTooltip>
+        </CardTooltip>
 
         <div className="flex items-center gap-1 shrink-0">
           {/* Chip compacto de Esfriamento: mesmo tamanho de card sem distorcer altura */}
           {isCooling && (
-            <SystemTooltip content={`Esfriando há ${diffDays} ${diffDays === 1 ? "dia" : "dias"} sem atividade recente`}>
+            <CardTooltip content={`Esfriando há ${diffDays} ${diffDays === 1 ? "dia" : "dias"} sem atividade recente`}>
               <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/35 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
                 <AlertTriangle className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
                 <span>{diffDays}d</span>
               </span>
-            </SystemTooltip>
+            </CardTooltip>
           )}
 
           {/* Menu Rápido de Ações */}
           <div className="relative">
-            <SystemTooltip content="Ações rápidas">
+            <CardTooltip content="Ações rápidas">
               <button
                 type="button"
                 aria-label={`Ações da negociação ${deal.title}`}
@@ -285,7 +314,7 @@ export function DealCard({
               >
                 <MoreVertical className="h-3.5 w-3.5" />
               </button>
-            </SystemTooltip>
+            </CardTooltip>
 
             {showQuickMenu && (
               <div
@@ -296,7 +325,7 @@ export function DealCard({
                   type="button"
                   onClick={() => {
                     setShowQuickMenu(false);
-                    onClick(deal);
+                    onClick?.(deal);
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
                 >
@@ -308,7 +337,7 @@ export function DealCard({
                   type="button"
                   onClick={() => {
                     setShowQuickMenu(false);
-                    onCreateTaskClick ? onCreateTaskClick(deal) : onClick(deal);
+                    onCreateTaskClick ? onCreateTaskClick(deal) : onClick?.(deal);
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
                 >
@@ -355,11 +384,11 @@ export function DealCard({
             ) : (
               <User className="h-3 w-3 text-primary/70 shrink-0" />
             )}
-            <SystemTooltip content={deal.account.name || deal.account.tradeName}>
+            <CardTooltip content={deal.account.name || deal.account.tradeName}>
               <span className="truncate font-medium text-foreground/80 cursor-default">
                 {deal.account.name || deal.account.tradeName}
               </span>
-            </SystemTooltip>
+            </CardTooltip>
           </>
         ) : (
           <span className="text-[11px] text-muted-foreground/60 italic truncate">
@@ -376,38 +405,38 @@ export function DealCard({
               {formattedValue}
             </span>
           ) : (
-            <SystemTooltip content="Clique para adicionar valor">
+            <CardTooltip content="Clique para adicionar valor">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onClick(deal);
+                  onClick?.(deal);
                 }}
                 className="text-[11px] font-medium text-primary hover:underline transition-colors cursor-pointer"
               >
                 + Adicionar valor
               </button>
-            </SystemTooltip>
+            </CardTooltip>
           )}
         </div>
 
         <div className="flex items-center gap-1.5 min-w-0 justify-end">
           {(deal.conversationsCount || 0) > 0 && (
-            <SystemTooltip content={`${deal.conversationsCount} conversa(s) vinculada(s)`}>
+            <CardTooltip content={`${deal.conversationsCount} conversa(s) vinculada(s)`}>
               <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-bold text-primary">
                 <MessageSquare className="h-2.5 w-2.5" />
                 {deal.conversationsCount}
               </span>
-            </SystemTooltip>
+            </CardTooltip>
           )}
 
           {operatorName ? (
-            <SystemTooltip content={`Responsável: ${operatorName}`}>
+            <CardTooltip content={`Responsável: ${operatorName}`}>
               <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
                 <User className="h-3 w-3 shrink-0" />
                 <span className="truncate max-w-[120px]">{operatorName}</span>
               </span>
-            </SystemTooltip>
+            </CardTooltip>
           ) : (
             <span className="text-[11px] text-muted-foreground/60 truncate">
               Sem responsável
@@ -430,7 +459,7 @@ export function DealCard({
                     : "text-muted-foreground"
                 }`}
               />
-              <SystemTooltip content={deal.nextTask.title}>
+              <CardTooltip content={deal.nextTask.title}>
                 <span className="truncate text-foreground/80 cursor-default text-[11px]">
                   {deal.nextTask.isOverdue && (
                     <strong className="text-red-600 dark:text-red-400 mr-1 font-bold">
@@ -444,7 +473,7 @@ export function DealCard({
                   )}
                   {deal.nextTask.title}
                 </span>
-              </SystemTooltip>
+              </CardTooltip>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 flex-1 text-[11px] text-muted-foreground">
@@ -461,7 +490,7 @@ export function DealCard({
           {/* Ícones de ação à direita: Checkmark de tarefa + Mini Chat + Chat Completo */}
           <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
             {deal.nextTask?.id && (
-              <SystemTooltip content="Concluir tarefa rapidamente">
+              <CardTooltip content="Concluir tarefa rapidamente">
                 <button
                   type="button"
                   aria-label={`Concluir tarefa: ${deal.nextTask.title}`}
@@ -471,11 +500,11 @@ export function DealCard({
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </button>
-              </SystemTooltip>
+              </CardTooltip>
             )}
 
             {/* Abrir no Mini Chat */}
-            <SystemTooltip content="Abrir no Mini Chat">
+            <CardTooltip content="Abrir no Mini Chat">
               <button
                 type="button"
                 aria-label="Abrir no Mini Chat"
@@ -484,10 +513,10 @@ export function DealCard({
               >
                 <MessageCircle className="h-3.5 w-3.5" />
               </button>
-            </SystemTooltip>
+            </CardTooltip>
 
             {/* Abrir conversa no Chat */}
-            <SystemTooltip content="Abrir conversa no Chat">
+            <CardTooltip content="Abrir conversa no Chat">
               <button
                 type="button"
                 aria-label="Abrir conversa no Chat"
@@ -496,7 +525,7 @@ export function DealCard({
               >
                 <MessageSquare className="h-3.5 w-3.5" />
               </button>
-            </SystemTooltip>
+            </CardTooltip>
           </div>
         </div>
       </div>
