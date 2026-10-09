@@ -87,6 +87,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { formatDealEvent } from "@/lib/crm/deal-event-format";
+import {
+  fetchDealDetailWithCache,
+  fetchPipelinesCached,
+  invalidateDealCache,
+} from "@/lib/crm/deal-prefetch";
 
 function renderInlineMarkdown(text: string): React.ReactNode {
   if (!text) return "";
@@ -493,11 +498,8 @@ export function DealDetailModal({
 
   const loadPipelines = async () => {
     try {
-      const res = await fetch("/api/crm/pipelines");
-      if (res.ok) {
-        const data = await res.json();
-        setAvailablePipelines(data.pipelines || []);
-      }
+      const pipelines = await fetchPipelinesCached();
+      setAvailablePipelines(pipelines);
     } catch (err: any) {
       console.warn("[DealDetailModal] Falha ao carregar funis:", err);
     }
@@ -591,18 +593,16 @@ export function DealDetailModal({
     }
   };
 
-  // Carrega detalhes do Deal
-  const loadDealDetail = async () => {
+  // Carrega detalhes do Deal (com cache em memória e suporte a prefetch)
+  const loadDealDetail = async (bypassCache = false) => {
     if (!dealId) return;
+    if (bypassCache) {
+      invalidateDealCache(dealId);
+    }
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`/api/crm/deals/${dealId}`);
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || "Não foi possível carregar a negociação.");
-      }
-      const data = await res.json();
+      const data = await fetchDealDetailWithCache(dealId);
       setDeal(data.deal);
       setEditTitle(data.deal.title);
       setEditValue(data.deal.value ? String(data.deal.value) : "");
@@ -951,6 +951,7 @@ export function DealDetailModal({
       }
 
       const data = await res.json();
+      invalidateDealCache(deal.id);
       setDeal((prev: any) => ({ ...prev, ...data.deal }));
       onDealUpdated(data.deal);
       toast.success("Negociação atualizada com sucesso.");

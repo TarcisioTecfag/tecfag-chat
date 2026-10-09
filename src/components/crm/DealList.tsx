@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { BulkActionsSuite } from "./BulkActionsSuite";
+import { prefetchDealDetail } from "@/lib/crm/deal-prefetch";
 
 interface DealListProps {
   deals: DealCardData[];
@@ -333,6 +334,7 @@ export function DealList({
                     <tr
                       key={deal.id}
                       onClick={() => onDealClick(deal)}
+                      onMouseEnter={() => prefetchDealDetail(deal.id)}
                       className={`transition-colors cursor-pointer group ${
                         isSelected
                           ? "bg-primary/5 dark:bg-primary/10 hover:bg-primary/10 dark:hover:bg-primary/15"

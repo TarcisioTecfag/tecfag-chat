@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { DealDetailModal } from "@/components/crm/DealDetailModal";
+import { fetchPipelinesCached } from "@/lib/crm/deal-prefetch";
 
 export const Route = createFileRoute("/crm/deals/$dealId")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -48,9 +49,7 @@ function DealPage() {
   useEffect(() => {
     if (!authorized && !isAuthenticated) return;
     Promise.all([
-      fetch("/api/crm/pipelines").then((response) =>
-        response.ok ? response.json() : { pipelines: [] },
-      ),
+      fetchPipelinesCached().then((pipelines) => ({ pipelines })),
       fetch("/api/operators").then((response) =>
         response.ok ? response.json() : { operators: [] },
       ),

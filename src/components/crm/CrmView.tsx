@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { CrmKanbanSkeleton } from "./CrmKanbanSkeleton";
+import { invalidateDealCache } from "@/lib/crm/deal-prefetch";
 
 type CrmViewSnapshot = {
   savedAt: number;
@@ -514,6 +515,7 @@ export function CrmView() {
       }
 
       const data = await res.json();
+      invalidateDealCache(dealId);
       setDeals((prev) => prev.map((d) => (d.id === dealId ? { ...d, ...data.deal } : d)));
       fetchStagesSummary();
       toast.success("Negociação movida com sucesso!");

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { prefetchDealDetail } from "@/lib/crm/deal-prefetch";
 
 export interface DealCardData {
   id: string;
@@ -267,6 +268,7 @@ export function DealCard({
       data-stage-id={deal.stageId}
       onPointerDown={handlePointerDown}
       onClick={handleCardClick}
+      onMouseEnter={() => prefetchDealDetail(deal.id)}
       className={`group relative flex flex-col justify-between h-[196px] min-h-[196px] max-h-[196px] rounded-xl border p-3 select-none overflow-hidden transition-all duration-150 ${
         isOverlay
           ? "border-primary bg-card/95 shadow-2xl ring-2 ring-primary/80 cursor-grabbing pointer-events-none"
