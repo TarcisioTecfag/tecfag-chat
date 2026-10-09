@@ -687,23 +687,33 @@ export const Route = createFileRoute("/api/commercial/directives/$directiveId/ev
                   continue;
                 }
 
-                const localMatch = m.content.match(
-                  /^\[LOCAL_MEDIA:([^:]+):(.+?):([^\]\n]+)\]/,
-                );
-                if (localMatch) {
-                  const [, type, urlVal, fileName] = localMatch;
-                  preservedMedia.push({
-                    messageId: m.id,
-                    mediaType: type,
-                    mediaIdentifier: m.id,
-                    fileName: fileName ? fileName.trim() : undefined,
-                    downloadUrl: urlVal,
-                    sentAt: m.sentAt ? new Date(m.sentAt).toISOString() : null,
-                    senderName: m.senderName,
-                    senderType: m.senderType,
-                    metaDetails: m.metaDetails as Record<string, unknown>,
-                  });
-                  continue;
+                if (m.content.startsWith("[LOCAL_MEDIA:")) {
+                  const rest = m.content.slice("[LOCAL_MEDIA:".length);
+                  const firstColon = rest.indexOf(":");
+                  if (firstColon !== -1) {
+                    const type = rest.slice(0, firstColon);
+                    const remainder = rest.slice(firstColon + 1);
+                    const endBracket = remainder.lastIndexOf("]");
+                    const cleanRemainder =
+                      endBracket !== -1 ? remainder.slice(0, endBracket) : remainder;
+                    const lastColon = cleanRemainder.lastIndexOf(":");
+                    const urlVal =
+                      lastColon !== -1 ? cleanRemainder.slice(0, lastColon) : cleanRemainder;
+                    const fileName =
+                      lastColon !== -1 ? cleanRemainder.slice(lastColon + 1) : undefined;
+                    preservedMedia.push({
+                      messageId: m.id,
+                      mediaType: type,
+                      mediaIdentifier: m.id,
+                      fileName: fileName?.trim(),
+                      downloadUrl: urlVal,
+                      sentAt: m.sentAt ? new Date(m.sentAt).toISOString() : null,
+                      senderName: m.senderName,
+                      senderType: m.senderType,
+                      metaDetails: m.metaDetails as Record<string, unknown>,
+                    });
+                    continue;
+                  }
                 }
 
                 if (m.metaDetails && typeof m.metaDetails === "object") {

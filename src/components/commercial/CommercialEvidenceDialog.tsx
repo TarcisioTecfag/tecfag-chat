@@ -329,9 +329,6 @@ export function CommercialEvidenceDialog({
     }
   }
 
-  const contactsList = apiData?.contacts || [];
-  const whatsappMessages = apiData?.whatsapp || [];
-
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xs p-3 sm:p-4"
