@@ -1,7 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { client } from "../../../../db";
+// @ts-ignore
 import { applyTecfagCrmSeed } from "../../../../../scripts/apply-tecfag-crm-seed.mjs";
+// @ts-ignore
+import { cleanupSyntheticOperators } from "../../../../../scripts/cleanup-synthetic-operators.mjs";
+
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +45,9 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
           const [pipelines] = await client`SELECT count(*)::int as count FROM crm_pipelines WHERE tenant_id = ${tenantId}`;
           const [stages] = await client`SELECT count(*)::int as count FROM crm_stages WHERE tenant_id = ${tenantId}`;
           const [customFields] = await client`SELECT count(*)::int as count FROM crm_custom_field_definitions WHERE tenant_id = ${tenantId}`;
-          const operators = await client`SELECT id, name, email, role FROM operators WHERE tenant_id = ${tenantId}`;
+          const allOperators = await client`SELECT id, name, email, role FROM operators WHERE tenant_id = ${tenantId}`;
+          const realOperators = allOperators.filter((o: any) => !o.id.startsWith("op-tf-"));
+          const syntheticCount = allOperators.length - realOperators.length;
 
           return new Response(
             JSON.stringify({
@@ -55,9 +62,10 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
                 pipelines: pipelines.count,
                 stages: stages.count,
                 customFields: customFields.count,
-                operators: operators.length,
+                operators: realOperators.length,
+                syntheticOperators: syntheticCount,
               },
-              operators,
+              operators: realOperators,
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
@@ -72,7 +80,7 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
 
       /**
        * POST /api/crm/import/sync-status
-       * Aciona manualmente a aplicação atômica do seed de produção Tecfag CRM.
+       * Aciona manualmente a limpeza de operadores sintéticos ou aplicação do seed Tecfag CRM.
        */
       POST: async ({ request }) => {
         try {
@@ -81,11 +89,27 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
             const auth = await requireSession(request);
             if ("response" in auth) return auth.response;
             if (auth.session.operator.role !== "admin") {
-              return new Response(JSON.stringify({ error: "Apenas administradores podem acionar o seed." }), {
+              return new Response(JSON.stringify({ error: "Apenas administradores podem acionar a migração." }), {
                 status: 403,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
               });
             }
+          }
+
+          const url = new URL(request.url);
+          const action = url.searchParams.get("action");
+
+          if (action === "cleanup-operators" || !action) {
+            console.log("[Sync Status API] Disparando limpeza e remapeamento de operadores sintéticos...");
+            const cleanupResult = await cleanupSyntheticOperators(client);
+            return new Response(
+              JSON.stringify({
+                success: true,
+                action: "cleanup-operators",
+                result: cleanupResult,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
           console.log("[Sync Status API] Disparando aplicação do seed Tecfag CRM via API...");
@@ -94,6 +118,7 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
           return new Response(
             JSON.stringify({
               success: true,
+              action: "seed",
               result,
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -101,11 +126,12 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
         } catch (err: any) {
           console.error("[Sync Status API] Erro no POST:", err);
           return new Response(
-            JSON.stringify({ error: err.message || "Erro interno na aplicação do seed." }),
+            JSON.stringify({ error: err.message || "Erro interno na execução da migração." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
       },
+
     },
   },
 });

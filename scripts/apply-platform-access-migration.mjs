@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import { applyTecfagCrmSeed } from "./apply-tecfag-crm-seed.mjs";
+import { cleanupSyntheticOperators } from "./cleanup-synthetic-operators.mjs";
+
 
 // Carrega .env nativamente se existir no ambiente de execução
 if (typeof process.loadEnvFile === "function") {
@@ -162,12 +164,20 @@ if (!databaseUrl) {
       }
     });
 
-    // 2. Carga atômica do seed de produção Tecfag CRM (se ainda não aplicado)
+    // 2. Limpeza e remapeamento obrigatório de operadores sintéticos (restaurar estritamente operadores legítimos)
+    try {
+      await cleanupSyntheticOperators(sql);
+    } catch (cleanErr) {
+      console.error("[platform migration] Falha na limpeza de operadores sintéticos:", cleanErr);
+    }
+
+    // 3. Carga atômica do seed de produção Tecfag CRM (se ainda não aplicado)
     try {
       await applyTecfagCrmSeed(sql);
     } catch (seedErr) {
       console.error("[platform migration] Falha na aplicação do seed Tecfag CRM:", seedErr);
     }
+
 
   } catch (error) {
     console.error("[platform migration] Falha crítica ao aplicar migrações estruturais DDL:", error);

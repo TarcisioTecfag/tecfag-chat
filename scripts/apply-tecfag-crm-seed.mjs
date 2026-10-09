@@ -77,32 +77,20 @@ export async function applyTecfagCrmSeed(externalSql = null) {
         console.warn("[tecfag crm seed] Aviso: não foi possível alterar triggers, prosseguindo com triggers ativas:", e.message);
       }
 
-      // 0. OPERATORS (Operadores do Tenant)
-      if (operators && operators.length > 0) {
-        console.log(`[tecfag crm seed] Sincronizando ${operators.length} operadores...`);
-        for (const op of operators) {
-          await tx`
-            INSERT INTO operators (
-              id, tenant_id, name, email, password_hash, role, status, is_online, created_at
-            ) VALUES (
-              ${op.id}, ${tenantId}, ${op.name}, ${op.email},
-              ${op.password_hash || "$2a$10$placeholderpasswordhashforseed1234567890"},
-              ${op.role || "agent"}, ${op.status || "disponivel"},
-              ${op.is_online ?? true}, ${op.created_at ?? new Date()}
-            )
-            ON CONFLICT (id) DO UPDATE SET
-              name = EXCLUDED.name,
-              email = EXCLUDED.email
-          `;
-        }
-      }
-
-      // Obter conjunto de IDs de operadores válidos e definir Tarcísio Pereira como fallback
-      const dbOps = await tx`SELECT id, name FROM operators WHERE tenant_id = ${tenantId}`;
+      // 0. OPERADORES: Não criar nem alterar operadores no seed.
+      // O sistema deve estritamente usar os operadores reais já cadastrados na plataforma.
+      const dbOps = await tx`
+        SELECT id, name FROM operators 
+        WHERE tenant_id = ${tenantId} AND id NOT LIKE 'op-tf-%'
+      `;
       const validOpIds = new Set(dbOps.map(o => o.id));
-      const tarcisio = dbOps.find(o => o.id.includes("tarcisio") || o.name.toLowerCase().includes("tarcisio")) || dbOps[0];
-      const fallbackOpId = tarcisio?.id || null;
-      console.log(`[tecfag crm seed] Operador fallback validado: [${fallbackOpId}] ${tarcisio?.name}`);
+      const tarcisio = dbOps.find(o => 
+        o.id === "38306207-265e-4cd1-b702-a78805526b94" || 
+        o.name.toLowerCase().includes("tarcisio")
+      ) || dbOps[0];
+      const fallbackOpId = tarcisio?.id || "38306207-265e-4cd1-b702-a78805526b94";
+      console.log(`[tecfag crm seed] Operadores legítimos validados no banco (${dbOps.length}). Fallback oficial: [${fallbackOpId}] ${tarcisio?.name}`);
+
 
       // 1. PIPELINES (Funis)
       console.log(`[tecfag crm seed] Inserindo ${pipelines.length} funis...`);
