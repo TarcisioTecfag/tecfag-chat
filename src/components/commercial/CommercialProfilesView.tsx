@@ -183,7 +183,7 @@ export function CommercialProfilesView({
             })}
 
             {onRefresh && (
-              <SystemTooltip text="Recarregar dados" side="bottom">
+              <SystemTooltip content="Recarregar dados" side="bottom">
                 <button
                   type="button"
                   onClick={() => void handleManualRefresh()}

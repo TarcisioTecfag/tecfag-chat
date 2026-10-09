@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { ExternalLink, Bot, Clock } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
 
@@ -56,6 +58,24 @@ type CohortDeal = {
   status: string;
 };
 type CohortDeals = { total: number; page: number; limit: number; deals: CohortDeal[] };
+
+export type RecentCrmEventItem = {
+  id?: string;
+  createdAt: string;
+  eventType: string;
+  dealId: string;
+  dealTitle?: string;
+  dealValue?: number | null;
+  accountName?: string | null;
+  operatorId?: string | null;
+  operatorName?: string;
+  operatorAvatar?: string | null;
+  actionTitle?: string;
+  actionDescription?: string | null;
+  badgeLabel?: string;
+  badgeVariant?: "default" | "stage" | "pipeline" | "note" | "activity" | "won" | "lost" | "created" | "deal";
+};
+
 type Operational = {
   asOf: string;
   consultants: {
@@ -71,7 +91,7 @@ type Operational = {
     }>;
   };
   alerts: { pendingTransferResponses: number; overdueResponsibilities: number; openDeals: number };
-  recentCrmEvents: Array<{ createdAt: string; eventType: string; dealId: string }>;
+  recentCrmEvents: RecentCrmEventItem[];
 };
 
 function useAnalysis<T>(view: string, division: string) {
@@ -432,8 +452,45 @@ export function CommercialCohortsPanel({
   );
 }
 
-export function CommercialOperationalPanel() {
+export function CommercialOperationalPanel({
+  onOpenDeal,
+}: {
+  onOpenDeal?: (id: string) => void;
+} = {}) {
+  const navigate = useNavigate();
   const { data, error } = useAnalysis<Operational>("operational", "");
+
+  const handleOpenDeal = (dealId: string) => {
+    if (onOpenDeal) {
+      onOpenDeal(dealId);
+    } else {
+      navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
+    }
+  };
+
+  const getBadgeStyle = (variant?: string) => {
+    switch (variant) {
+      case "stage":
+        return "border-blue-500/30 bg-blue-500/10 text-blue-400 dark:border-blue-500/25 dark:bg-blue-950/40 dark:text-blue-300";
+      case "pipeline":
+        return "border-purple-500/30 bg-purple-500/10 text-purple-400 dark:border-purple-500/25 dark:bg-purple-950/40 dark:text-purple-300";
+      case "note":
+        return "border-amber-500/30 bg-amber-500/10 text-amber-400 dark:border-amber-500/25 dark:bg-amber-950/40 dark:text-amber-300";
+      case "activity":
+        return "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 dark:border-emerald-500/25 dark:bg-emerald-950/40 dark:text-emerald-300";
+      case "won":
+        return "border-emerald-500/50 bg-emerald-500/20 text-emerald-300 dark:border-emerald-400/40 dark:bg-emerald-900/50 dark:text-emerald-200 font-bold";
+      case "lost":
+        return "border-rose-500/30 bg-rose-500/10 text-rose-400 dark:border-rose-500/25 dark:bg-rose-950/40 dark:text-rose-300";
+      case "created":
+        return "border-cyan-500/30 bg-cyan-500/10 text-cyan-400 dark:border-cyan-500/25 dark:bg-cyan-950/40 dark:text-cyan-300";
+      case "deal":
+        return "border-indigo-500/30 bg-indigo-500/10 text-indigo-400 dark:border-indigo-500/25 dark:bg-indigo-950/40 dark:text-indigo-300";
+      default:
+        return "border-border/60 bg-muted/60 text-muted-foreground";
+    }
+  };
+
   return (
     <section className="rounded-[4px] border border-border/80 bg-card p-5 sm:p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70 text-foreground">
       <p className="text-[10px] font-mono font-bold uppercase tracking-[.18em] text-primary">
@@ -481,25 +538,150 @@ export function CommercialOperationalPanel() {
               <strong className="text-sm font-bold text-destructive">{data.alerts.overdueResponsibilities}</strong>
             </div>
           </div>
-          <h3 className="mt-5 text-xs font-mono font-bold uppercase tracking-wider text-foreground">
-            Últimas alterações do CRM
-          </h3>
-          <div className="mt-2 space-y-1 text-xs font-mono">
-            {data.recentCrmEvents.map((event, index) => (
-              <div
-                key={`${event.dealId}-${index}`}
-                className="flex items-center gap-3 border-b border-border/60 dark:border-zinc-800/60 py-2"
-              >
-                <span className="text-muted-foreground">{new Date(event.createdAt).toLocaleString("pt-BR")}</span>
-                <span className="rounded-[2px] bg-muted/60 dark:bg-zinc-800 px-2 py-0.5 text-[10px] text-foreground font-semibold">
-                  {event.eventType}
-                </span>
-                <span className="truncate text-muted-foreground">{event.dealId}</span>
-              </div>
-            ))}
-            {!data.recentCrmEvents.length && (
-              <p className="text-xs font-mono text-muted-foreground italic">Ainda não há alterações de negociações.</p>
-            )}
+
+          <div className="mt-6">
+            <div className="flex items-center justify-between pb-2 border-b border-border/80 dark:border-zinc-800">
+              <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-foreground">
+                Últimas alterações do CRM
+              </h3>
+              <span className="text-[11px] font-mono text-muted-foreground">
+                {data.recentCrmEvents.length} alteração(ões) recente(s)
+              </span>
+            </div>
+
+            {/* Cabeçalho da grade de logs */}
+            <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground border-b border-border/40 dark:border-zinc-800/60 mt-1">
+              <span className="col-span-2">Data / Hora</span>
+              <span className="col-span-3">Usuário</span>
+              <span className="col-span-4">Ação Tomada</span>
+              <span className="col-span-3">Card / Negociação</span>
+            </div>
+
+            <div className="divide-y divide-border/40 dark:divide-zinc-800/50 text-xs font-mono">
+              {data.recentCrmEvents.map((event, index) => {
+                const operatorDisplayName = event.operatorName || "Sistema";
+                const isSystem = operatorDisplayName.toLowerCase() === "sistema";
+                const cardTitle = event.dealTitle || event.dealId;
+                const dateFormatted = new Date(event.createdAt).toLocaleString("pt-BR", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                });
+
+                return (
+                  <div
+                    key={`${event.dealId}-${event.id || index}`}
+                    className="flex flex-col lg:grid lg:grid-cols-12 gap-2 lg:gap-3 px-3 py-2.5 hover:bg-muted/20 dark:hover:bg-zinc-900/30 transition-colors rounded-[2px] items-start lg:items-center"
+                  >
+                    {/* 1. Data e Hora */}
+                    <div className="col-span-2 flex items-center gap-1.5 text-muted-foreground text-[11px] shrink-0">
+                      <Clock className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+                      <span className="whitespace-nowrap">{dateFormatted}</span>
+                    </div>
+
+                    {/* 2. Usuário que tomou a ação */}
+                    <div className="col-span-3 flex items-center gap-2 min-w-0">
+                      <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-full border border-border/80 dark:border-zinc-800 bg-muted/40 dark:bg-zinc-900 flex items-center justify-center">
+                        {isSystem ? (
+                          <Bot className="h-3.5 w-3.5 text-primary" />
+                        ) : (
+                          <img
+                            src={event.operatorAvatar || getDeterministicConsultantAvatar(operatorDisplayName)}
+                            alt={operatorDisplayName}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              const img = e.currentTarget;
+                              const fallback = getDeterministicConsultantAvatar(operatorDisplayName);
+                              if (img.src !== fallback) {
+                                img.src = fallback;
+                              }
+                            }}
+                          />
+                        )}
+                      </div>
+                      <span className="font-semibold text-foreground truncate text-xs" title={operatorDisplayName}>
+                        {operatorDisplayName}
+                      </span>
+                    </div>
+
+                    {/* 3. Ação Tomada */}
+                    <div className="col-span-4 min-w-0 flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                      <span
+                        className={`rounded-[2px] border px-2 py-0.5 text-[10px] font-semibold shrink-0 uppercase tracking-wide ${getBadgeStyle(
+                          event.badgeVariant,
+                        )}`}
+                      >
+                        {event.badgeLabel || event.eventType}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium text-foreground text-xs truncate block" title={event.actionTitle || event.eventType}>
+                          {event.actionTitle || event.eventType}
+                        </span>
+                        {event.actionDescription && (
+                          <span
+                            className="text-[10px] text-muted-foreground truncate block"
+                            title={event.actionDescription}
+                          >
+                            {event.actionDescription}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 4. Card / Negociação & Ícone discreto para abrir */}
+                    <div className="col-span-3 min-w-0 flex items-center justify-between gap-2 w-full">
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDeal(event.dealId)}
+                          className="font-bold text-foreground hover:text-primary transition-colors text-xs truncate block text-left underline-offset-2 hover:underline cursor-pointer"
+                          title={cardTitle}
+                        >
+                          {cardTitle}
+                        </button>
+                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground truncate">
+                          {event.accountName && (
+                            <span className="truncate" title={event.accountName}>
+                              {event.accountName}
+                            </span>
+                          )}
+                          {event.dealValue !== null && event.dealValue !== undefined && event.dealValue > 0 && (
+                            <>
+                              {event.accountName && <span>·</span>}
+                              <span className="font-semibold text-foreground/80">{money.format(event.dealValue)}</span>
+                            </>
+                          )}
+                          <span className="text-zinc-500 font-mono text-[9px] shrink-0">
+                            #{event.dealId.slice(-6)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Ícone bem discreto para abrir o card */}
+                      <SystemTooltip content={`Abrir negociação no CRM: ${cardTitle}`}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDeal(event.dealId)}
+                          className="inline-flex items-center justify-center h-6 w-6 rounded-[2px] border border-border/40 dark:border-zinc-800 text-muted-foreground/60 hover:text-primary hover:border-primary/50 hover:bg-primary/10 transition-colors cursor-pointer shrink-0 ml-1.5"
+                          aria-label={`Abrir negociação ${cardTitle}`}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </button>
+                      </SystemTooltip>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!data.recentCrmEvents.length && (
+                <div className="py-6 text-center text-xs font-mono text-muted-foreground italic">
+                  Ainda não há alterações recentes registradas no CRM.
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

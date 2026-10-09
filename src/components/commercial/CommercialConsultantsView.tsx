@@ -20,6 +20,7 @@ import {
   Loader2,
   ShieldCheck,
   CheckCircle2,
+  Eye,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import {

@@ -387,7 +387,7 @@ export function CommercialBiView() {
             tmaBody?.consultants,
             goalsBody?.consultants,
           ]);
-          setAvatarResolverState(() => avatarResolver.getAvatar);
+          setAvatarResolverState(() => (id?: string | null, name?: string | null) => avatarResolver.getAvatar(id, name) || "");
 
           // Enriquecer todos os arrays brutos com os avatares resolvidos
           for (const g of body.goals || []) {

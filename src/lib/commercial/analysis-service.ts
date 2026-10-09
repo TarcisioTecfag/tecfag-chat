@@ -1,4 +1,5 @@
 import { and, count, desc, eq, gt, gte, ilike, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "../../db";
 import {
   commercialCalendarDays,
@@ -213,6 +214,23 @@ export async function getPipelineAnalysis(options: AnalysisOptions) {
   };
 }
 
+export type RecentCrmEventItem = {
+  id: string;
+  createdAt: string;
+  eventType: string;
+  dealId: string;
+  dealTitle: string;
+  dealValue: number | null;
+  accountName: string | null;
+  operatorId: string | null;
+  operatorName: string;
+  operatorAvatar: string | null;
+  actionTitle: string;
+  actionDescription: string | null;
+  badgeLabel: string;
+  badgeVariant: "default" | "stage" | "pipeline" | "note" | "activity" | "won" | "lost" | "created" | "deal";
+};
+
 export async function getOperationalAnalysis(options: AnalysisOptions) {
   const now = options.now || new Date();
   const today = saoPauloDay(now);
@@ -240,7 +258,11 @@ export async function getOperationalAnalysis(options: AnalysisOptions) {
       ),
     );
   const ids = profiles.map((profile) => profile.operatorId);
-  const [openRows, pendingRows, overdueRows, recentCrm] = await Promise.all([
+
+  const eventOperators = alias(operators, "event_operators");
+  const dealOperators = alias(operators, "deal_operators");
+
+  const [openRows, pendingRows, overdueRows, rawEvents, stagesList, pipelinesList] = await Promise.all([
     ids.length
       ? db
           .select({ total: count() })
@@ -278,25 +300,237 @@ export async function getOperationalAnalysis(options: AnalysisOptions) {
             ),
           )
       : Promise.resolve([{ total: 0 }]),
-    ids.length
-      ? db
-          .select({
-            createdAt: crmDealEvents.createdAt,
-            eventType: crmDealEvents.eventType,
-            dealId: crmDealEvents.dealId,
-          })
-          .from(crmDealEvents)
-          .innerJoin(
-            crmDeals,
-            and(eq(crmDeals.id, crmDealEvents.dealId), eq(crmDeals.tenantId, options.tenantId)),
-          )
-          .where(
-            and(eq(crmDealEvents.tenantId, options.tenantId), inArray(crmDeals.operatorId, ids)),
-          )
-          .orderBy(desc(crmDealEvents.createdAt))
-          .limit(10)
-      : Promise.resolve([]),
+    db
+      .select({
+        id: crmDealEvents.id,
+        createdAt: crmDealEvents.createdAt,
+        eventType: crmDealEvents.eventType,
+        dealId: crmDealEvents.dealId,
+        fromStageId: crmDealEvents.fromStageId,
+        toStageId: crmDealEvents.toStageId,
+        fromStatus: crmDealEvents.fromStatus,
+        toStatus: crmDealEvents.toStatus,
+        metadata: crmDealEvents.metadata,
+        dealTitle: crmDeals.title,
+        dealValue: crmDeals.value,
+        accountName: crmAccounts.name,
+        operatorId: crmDealEvents.operatorId,
+        eventOpName: eventOperators.name,
+        eventOpAvatar: eventOperators.avatar,
+        dealOpName: dealOperators.name,
+        dealOpAvatar: dealOperators.avatar,
+      })
+      .from(crmDealEvents)
+      .innerJoin(
+        crmDeals,
+        and(eq(crmDeals.id, crmDealEvents.dealId), eq(crmDeals.tenantId, options.tenantId)),
+      )
+      .leftJoin(
+        eventOperators,
+        and(eq(eventOperators.id, crmDealEvents.operatorId), eq(eventOperators.tenantId, options.tenantId)),
+      )
+      .leftJoin(
+        dealOperators,
+        and(eq(dealOperators.id, crmDeals.operatorId), eq(dealOperators.tenantId, options.tenantId)),
+      )
+      .leftJoin(
+        crmAccounts,
+        and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, options.tenantId)),
+      )
+      .where(
+        and(
+          eq(crmDealEvents.tenantId, options.tenantId),
+          options.division && ids.length ? inArray(crmDeals.operatorId, ids) : undefined,
+        ),
+      )
+      .orderBy(desc(crmDealEvents.createdAt))
+      .limit(20),
+    db
+      .select({ id: crmStages.id, name: crmStages.name })
+      .from(crmStages)
+      .where(eq(crmStages.tenantId, options.tenantId)),
+    db
+      .select({ id: crmPipelines.id, name: crmPipelines.name })
+      .from(crmPipelines)
+      .where(eq(crmPipelines.tenantId, options.tenantId)),
   ]);
+
+  const stageMap = new Map(stagesList.map((s) => [s.id, s.name]));
+  const pipelineMap = new Map(pipelinesList.map((p) => [p.id, p.name]));
+
+  const formatBrl = (val: unknown) => {
+    const num = Number(val);
+    return Number.isFinite(num)
+      ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(num)
+      : null;
+  };
+
+  const enrichedEvents: RecentCrmEventItem[] = rawEvents.map((row) => {
+    const meta = (row.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, any>;
+    const operatorName = row.eventOpName || row.dealOpName || "Sistema";
+    const operatorAvatar = row.eventOpAvatar || row.dealOpAvatar || null;
+    const dealTitle = row.dealTitle || "Negociação sem título";
+    const accountName = row.accountName || null;
+    const dealValue = row.dealValue ? Number(row.dealValue) : null;
+
+    let actionTitle = "Alteração registrada";
+    let actionDescription: string | null = null;
+    let badgeLabel = "Evento";
+    let badgeVariant: RecentCrmEventItem["badgeVariant"] = "default";
+
+    switch (row.eventType) {
+      case "created":
+        badgeLabel = "Criado";
+        badgeVariant = "created";
+        actionTitle = "Negociação criada";
+        break;
+
+      case "stage_changed":
+      case "stage_change": {
+        badgeLabel = "Etapa";
+        badgeVariant = "stage";
+        const toStage =
+          (row.toStageId ? stageMap.get(row.toStageId) : null) ||
+          meta.stageName ||
+          meta.toStageName ||
+          null;
+        const fromStage =
+          (row.fromStageId ? stageMap.get(row.fromStageId) : null) ||
+          meta.fromStageName ||
+          meta.oldStageName ||
+          null;
+        actionTitle = toStage ? `Etapa alterada para "${toStage}"` : "Etapa da negociação alterada";
+        actionDescription = fromStage ? `Etapa anterior: ${fromStage}` : null;
+        break;
+      }
+
+      case "pipeline_changed":
+      case "pipeline_change": {
+        badgeLabel = "Funil";
+        badgeVariant = "pipeline";
+        const toPipeline =
+          (meta.toPipelineId ? pipelineMap.get(meta.toPipelineId) : null) ||
+          meta.pipelineName ||
+          null;
+        const fromPipeline =
+          (meta.fromPipelineId ? pipelineMap.get(meta.fromPipelineId) : null) ||
+          null;
+        actionTitle = toPipeline ? `Funil alterado para "${toPipeline}"` : "Funil da negociação alterado";
+        actionDescription = fromPipeline ? `Funil anterior: ${fromPipeline}` : null;
+        break;
+      }
+
+      case "note_created":
+        badgeLabel = "Nota";
+        badgeVariant = "note";
+        actionTitle = "Anotação comercial registrada";
+        if (meta.content || meta.preview || meta.note) {
+          const noteText = String(meta.content || meta.preview || meta.note).trim();
+          actionDescription = noteText.length > 90 ? noteText.slice(0, 90) + "..." : noteText;
+        }
+        break;
+
+      case "activity_completed":
+        badgeLabel = "Concluída";
+        badgeVariant = "activity";
+        actionTitle = meta.activityTitle
+          ? `Tarefa concluída: "${meta.activityTitle}"`
+          : "Tarefa comercial concluída";
+        if (meta.notes) {
+          actionDescription = String(meta.notes).trim();
+        }
+        break;
+
+      case "activity_created":
+        badgeLabel = "Tarefa";
+        badgeVariant = "activity";
+        actionTitle = meta.activityTitle
+          ? `Tarefa agendada: "${meta.activityTitle}"`
+          : "Tarefa agendada na negociação";
+        break;
+
+      case "status_changed":
+      case "status_change": {
+        const toSt = row.toStatus || meta.toStatus || meta.status;
+        if (toSt === "won") {
+          badgeLabel = "Ganho";
+          badgeVariant = "won";
+          actionTitle = "Negociação marcada como Ganha";
+        } else if (toSt === "lost") {
+          badgeLabel = "Perdido";
+          badgeVariant = "lost";
+          actionTitle = "Negociação marcada como Perdida";
+          if (meta.lossReason || meta.reason) {
+            actionDescription = `Motivo: ${meta.lossReason || meta.reason}`;
+          }
+        } else if (toSt === "paused") {
+          badgeLabel = "Pausada";
+          badgeVariant = "default";
+          actionTitle = "Negociação pausada";
+          if (meta.pausedReason) {
+            actionDescription = `Motivo: ${meta.pausedReason}`;
+          }
+        } else {
+          badgeLabel = "Status";
+          badgeVariant = "default";
+          actionTitle = `Status alterado para "${toSt || "novo status"}"`;
+        }
+        break;
+      }
+
+      case "value_changed":
+      case "value_change": {
+        badgeLabel = "Valor";
+        badgeVariant = "deal";
+        const formatted = formatBrl(meta.newValue);
+        actionTitle = formatted ? `Valor alterado para ${formatted}` : "Valor da negociação alterado";
+        break;
+      }
+
+      case "product_added":
+        badgeLabel = "Produto";
+        badgeVariant = "deal";
+        actionTitle = `Produto adicionado: ${meta.name || "Item"}`;
+        break;
+
+      case "product_removed":
+        badgeLabel = "Produto";
+        badgeVariant = "deal";
+        actionTitle = `Produto removido: ${meta.name || "Item"}`;
+        break;
+
+      case "proposal_created":
+        badgeLabel = "Proposta";
+        badgeVariant = "deal";
+        actionTitle = `Proposta criada: ${meta.proposalNumber || "Nº —"}`;
+        break;
+
+      default: {
+        const cleanType = (row.eventType || "evento").replace(/_/g, " ");
+        badgeLabel = cleanType.charAt(0).toUpperCase() + cleanType.slice(1);
+        actionTitle = `Ação registrada: ${cleanType}`;
+        break;
+      }
+    }
+
+    return {
+      id: row.id,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+      eventType: row.eventType,
+      dealId: row.dealId,
+      dealTitle,
+      dealValue,
+      accountName,
+      operatorId: row.operatorId,
+      operatorName,
+      operatorAvatar,
+      actionTitle,
+      actionDescription,
+      badgeLabel,
+      badgeVariant,
+    };
+  });
+
   return {
     asOf: now.toISOString(),
     consultants: {
@@ -310,7 +544,7 @@ export async function getOperationalAnalysis(options: AnalysisOptions) {
       overdueResponsibilities: overdueRows[0]?.total || 0,
       openDeals: openRows[0]?.total || 0,
     },
-    recentCrmEvents: recentCrm,
+    recentCrmEvents: enrichedEvents,
     source: "local_crm",
   };
 }

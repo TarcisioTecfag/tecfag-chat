@@ -767,7 +767,13 @@ export function CommercialManagementView() {
               )}
 
               {tab === "settings" && <CommercialSettingsPanel />}
-              {tab === "operation" && <CommercialOperationalPanel />}
+              {tab === "operation" && (
+                <CommercialOperationalPanel
+                  onOpenDeal={(dealId) => {
+                    navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
+                  }}
+                />
+              )}
             </>
           )}
         </div>
