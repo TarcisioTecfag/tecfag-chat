@@ -128,6 +128,10 @@ const migrations = [
     name: "0032_commercial_pipeline_by_division",
     url: new URL("../src/db/migrations/0032_commercial_pipeline_by_division.sql", import.meta.url),
   },
+  {
+    name: "0034_performance_indexes",
+    url: new URL("../src/db/migrations/0034_performance_indexes.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

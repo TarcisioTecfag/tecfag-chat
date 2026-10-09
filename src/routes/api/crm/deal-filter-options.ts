@@ -4,6 +4,7 @@ import { db } from "../../../db";
 import { crmDeals } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
+import { handleConditionalResponse } from "../../../lib/http-cache";
 
 export const Route = createFileRoute("/api/crm/deal-filter-options")({
   server: {
@@ -29,7 +30,7 @@ export const Route = createFileRoute("/api/crm/deal-filter-options")({
             .from(crmDeals)
             .where(and(eq(crmDeals.tenantId, tenantId), scope, isNotNull(crmDeals.campaign))),
         ]);
-        return Response.json({
+        return handleConditionalResponse(request, {
           sources: sources.map((item) => item.value?.trim()).filter(Boolean),
           campaigns: campaigns.map((item) => item.value?.trim()).filter(Boolean),
         });

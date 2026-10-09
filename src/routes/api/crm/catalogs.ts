@@ -11,6 +11,7 @@ import {
   normalizeCatalogName,
   STANDARD_CATALOG_ITEMS,
 } from "../../../lib/crm/catalogs";
+import { handleConditionalResponse } from "../../../lib/http-cache";
 
 export const Route = createFileRoute("/api/crm/catalogs")({
   server: {
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/api/crm/catalogs")({
         const policy = await getCatalogPolicy(tenantId, kind);
         const items = await listCatalogItems(tenantId, kind);
         const options = await listAvailableCatalogOptions(tenantId, kind);
-        return Response.json({
+        return handleConditionalResponse(request, {
           items,
           options,
           allowUserCreate: policy.allowUserCreate,

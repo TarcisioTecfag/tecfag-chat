@@ -199,7 +199,11 @@ export const contacts = pgTable("contacts", {
   cnpjDetails: jsonb("cnpj_details").default({}).notNull(),
   customFields: jsonb("custom_fields").$type<Record<string, unknown>>().default({}).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  tenantPhoneIdx: index("idx_contacts_tenant_phone").on(table.tenantId, table.phone),
+  tenantWalletIdx: index("idx_contacts_tenant_wallet").on(table.tenantId, table.walletOperatorId),
+  tenantAccountIdx: index("idx_contacts_tenant_account").on(table.tenantId, table.accountId),
+}));
 
 // ─── 5. CONVERSAS (Atendimentos / Filas) ─────────────────────────────────────
 export const conversations = pgTable("conversations", {
@@ -221,6 +225,7 @@ export const conversations = pgTable("conversations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   tenantContactUniqIdx: uniqueIndex("idx_conversations_tenant_contact_uniq").on(table.tenantId, table.contactId),
+  tenantOpQueueTimeIdx: index("idx_conversations_tenant_op_queue_msg_time").on(table.tenantId, table.operatorId, table.queueState, table.lastMessageTime),
 }));
 
 // ─── 6. MENSAGENS (Histórico de Chat & Notas Internas) ───────────────────────
@@ -256,7 +261,10 @@ export const messages = pgTable("messages", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 
   sentAt: timestamp("sent_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  tenantConvSentIdx: index("idx_messages_tenant_conv_sent").on(table.tenantId, table.conversationId, table.sentAt),
+  tenantExternalIdx: index("idx_messages_tenant_external").on(table.tenantId, table.externalId),
+}));
 
 // ─── 7. RESPOSTAS RÁPIDAS (Templates por Tenant) ────────────────────────────
 export const quickResponses = pgTable("quick_responses", {
@@ -606,6 +614,10 @@ export const crmDeals = pgTable("crm_deals", {
   tenantAccountIdx: index("idx_crm_deals_tenant_account").on(table.tenantId, table.accountId),
   tenantRdDealIdx: index("idx_crm_deals_tenant_rd_deal").on(table.tenantId, table.rdDealId),
   tenantIdUniqIdx: uniqueIndex("idx_crm_deals_tenant_id_uniq").on(table.tenantId, table.id),
+  tenantOpStatusIdx: index("idx_crm_deals_tenant_op_status").on(table.tenantId, table.operatorId, table.status),
+  tenantStatusClosedIdx: index("idx_crm_deals_tenant_status_closed").on(table.tenantId, table.status, table.closedAt),
+  tenantPipeStageUpdatedIdx: index("idx_crm_deals_tenant_pipe_stage_updated").on(table.tenantId, table.pipelineId, table.stageId, table.updatedAt),
+  tenantStatusUpdatedIdx: index("idx_crm_deals_tenant_status_updated").on(table.tenantId, table.status, table.updatedAt),
 }));
 
 // ─── 14.6. PARTICIPANTES DA NEGOCIAÇÃO (Contatos N:N) ────────────────────────
@@ -660,6 +672,7 @@ export const crmDealActivities = pgTable("crm_deal_activities", {
 }, (table) => ({
   tenantDealIdx: index("idx_crm_deal_activities_tenant_deal").on(table.tenantId, table.dealId),
   tenantStatusDueIdx: index("idx_crm_deal_activities_tenant_status_due").on(table.tenantId, table.status, table.dueDate),
+  tenantAssigneeStatusDueIdx: index("idx_crm_activities_tenant_assignee_status_due").on(table.tenantId, table.assignedToOperatorId, table.status, table.dueDate),
 }));
 
 // ─── 14.9. EVIDÊNCIAS DE MENSAGENS EM ATIVIDADES/DEALS ──────────────────────

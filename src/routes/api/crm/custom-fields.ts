@@ -11,6 +11,7 @@ import {
   listCustomFields,
   type CustomFieldEntity,
 } from "../../../lib/crm/custom-fields";
+import { handleConditionalResponse } from "../../../lib/http-cache";
 
 async function checkPipelines(tenantId: string, pipelineIds: unknown): Promise<string[]> {
   if (
@@ -73,7 +74,7 @@ export const Route = createFileRoute("/api/crm/custom-fields")({
         if (!isCustomFieldEntity(entity))
           return Response.json({ error: "Cadastro inválido." }, { status: 400 });
         const fields = await listCustomFields(session.tenantId, entity);
-        return Response.json({ fields, isAdmin: session.operator.role === "admin" });
+        return handleConditionalResponse(request, { fields, isAdmin: session.operator.role === "admin" });
       },
       POST: async ({ request }) => {
         const auth = await requireSession(request);

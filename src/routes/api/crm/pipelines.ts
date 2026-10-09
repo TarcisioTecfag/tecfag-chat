@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../lib/crm/crm-service";
+import { handleConditionalResponse } from "../../../lib/http-cache";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,13 +32,7 @@ export const Route = createFileRoute("/api/crm/pipelines")({
 
           const pipelines = await crmService.getPipelines(tenantId);
 
-          return new Response(JSON.stringify({ pipelines }), {
-            headers: {
-              ...corsHeaders,
-              "Content-Type": "application/json",
-              "Cache-Control": "no-store, no-cache, must-revalidate",
-            },
-          });
+          return handleConditionalResponse(request, { pipelines }, { headers: corsHeaders });
         } catch (err: any) {
           console.error("[CRM Pipelines API] Erro no GET:", err);
           return handleCrmError(err, corsHeaders);

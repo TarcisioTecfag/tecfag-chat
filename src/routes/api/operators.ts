@@ -19,6 +19,7 @@ import {
 } from "../../lib/auth-session.js";
 import { hashPassword, needsPasswordMigration } from "../../lib/auth-crypto.js";
 import { revokeAccountSessions } from "../../lib/platform-access.js";
+import { handleConditionalResponse } from "../../lib/http-cache.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -152,9 +153,7 @@ export const Route = createFileRoute("/api/operators")({
           // NUNCA expor passwordHash em respostas da API!
           const sanitizedList = list.map((op) => sanitizeOperator(op));
 
-          return new Response(JSON.stringify(sanitizedList), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleConditionalResponse(request, sanitizedList, { headers: corsHeaders });
         } catch (e: any) {
           console.error("[GET /api/operators] Erro ao listar operadores:", e);
           return new Response(JSON.stringify({ error: e.message }), {

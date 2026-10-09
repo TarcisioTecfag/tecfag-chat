@@ -4,6 +4,7 @@ import { db } from "../../db/index.js";
 import { quickResponses } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { requirePermission, requireSession } from "../../lib/auth-session.js";
+import { handleConditionalResponse } from "../../lib/http-cache.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,9 +30,7 @@ export const Route = createFileRoute("/api/quick-responses")({
             .from(quickResponses)
             .where(eq(quickResponses.tenantId, tenantId));
 
-          return new Response(JSON.stringify(list), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return handleConditionalResponse(request, list, { headers: corsHeaders });
         } catch (e: any) {
           console.error("[GET /api/quick-responses] Erro ao listar respostas rápidas:", e);
           return new Response(JSON.stringify({ error: e.message }), {
