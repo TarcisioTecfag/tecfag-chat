@@ -554,7 +554,7 @@ interface CommercialSafrasTableViewProps {
   onFullscreen?: () => void;
 }
 
-export function CommercialSafrasTableView({
+export const CommercialSafrasTableView = React.memo(function CommercialSafrasTableView({
   data,
   division = "",
   tenantId = "tecfag",
@@ -1105,4 +1105,4 @@ export function CommercialSafrasTableView({
       )}
     </div>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { motion } from "framer-motion";
 import { Users, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import {
@@ -16,7 +16,7 @@ interface CommercialDiretrizesTableViewProps {
   onBreakdownClick?: () => void;
 }
 
-export function CommercialDiretrizesTableView({
+export const CommercialDiretrizesTableView = memo(function CommercialDiretrizesTableView({
   kpis,
   personnaliteData,
   semiMaquinasData,
@@ -373,4 +373,4 @@ export function CommercialDiretrizesTableView({
       )}
     </div>
   );
-}
+});

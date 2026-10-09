@@ -154,8 +154,8 @@ function PerformanceTab({ volumes, channels, sectors }: {
                 <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
                 <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: 12, fontSize: 11 }} />
-                <Area type="monotone" dataKey="chats" name="Recebidas" stroke="var(--primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorChats)" />
-                <Area type="monotone" dataKey="atendidos" name="Finalizadas" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorAtendidos)" />
+                <Area type="monotone" dataKey="chats" name="Recebidas" stroke="var(--primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorChats)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="atendidos" name="Finalizadas" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorAtendidos)" isAnimationActive={false} />
                 <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: 10 }} />
               </AreaChart>
             </ResponsiveContainer>
@@ -184,6 +184,7 @@ function PerformanceTab({ volumes, channels, sectors }: {
                 outerRadius={60}
                 paddingAngle={4}
                 dataKey="value"
+                isAnimationActive={false}
               >
                 {channels.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
@@ -330,7 +331,7 @@ function SlaTab({
                 <XAxis type="number" stroke="#94a3b8" fontSize={9} domain={[0, 100]} />
                 <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={9} width={90} tickLine={false} />
                 <Tooltip contentStyle={{ fontSize: 11 }} />
-                <Bar dataKey="slaPct" name="SLA %" radius={[0, 4, 4, 0]}>
+                <Bar dataKey="slaPct" name="SLA %" radius={[0, 4, 4, 0]} isAnimationActive={false}>
                   {operators.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.slaPct >= 90 ? "var(--primary)" : "#f59e0b"} />
                   ))}
@@ -429,8 +430,8 @@ function ContactsTab({
                 <YAxis stroke="#94a3b8" fontSize={9} />
                 <Tooltip contentStyle={{ fontSize: 11 }} />
                 <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" />
-                <Bar dataKey="novos" name="Novos Clientes" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="recorrentes" name="Recorrentes" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="novos" name="Novos Clientes" fill="var(--primary)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                <Bar dataKey="recorrentes" name="Recorrentes" fill="#6366f1" radius={[4, 4, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           ) : (

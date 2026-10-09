@@ -70,7 +70,7 @@ function ChartRender({ block }: { block: ChartBlock }) {
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
               <Tooltip cursor={{ fill: "#f8fafc" }} {...tooltipStyle} />
-              <Bar dataKey="value" radius={[6, 6, 2, 2]} fill="#10b981" maxBarSize={40} />
+              <Bar dataKey="value" radius={[6, 6, 2, 2]} fill="#10b981" maxBarSize={40} isAnimationActive={false} />
             </BarChart>
           ) : block.chart === "line" ? (
             <LineChart data={block.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
@@ -78,15 +78,15 @@ function ChartRender({ block }: { block: ChartBlock }) {
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
               <Tooltip {...tooltipStyle} />
-              <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2.5} dot={false} isAnimationActive={false} />
               {block.data.some((d) => d.value2 !== undefined) && (
-                <Line type="monotone" dataKey="value2" stroke="#3b82f6" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                <Line type="monotone" dataKey="value2" stroke="#3b82f6" strokeWidth={2} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
               )}
             </LineChart>
           ) : (
             <PieChart>
               <Tooltip {...tooltipStyle} />
-              <Pie data={block.data} dataKey="value" nameKey="label" innerRadius={42} outerRadius={72} paddingAngle={3} stroke="#ffffff">
+              <Pie data={block.data} dataKey="value" nameKey="label" innerRadius={42} outerRadius={72} paddingAngle={3} stroke="#ffffff" isAnimationActive={false}>
                 {block.data.map((entry, index) => (
                   <Cell key={entry.label} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}

@@ -447,8 +447,8 @@ export function OverviewTab({
                   contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px" }}
                 />
                 <Legend verticalAlign="top" height={36} iconSize={8} wrapperStyle={{ fontSize: "11px" }} />
-                <Bar yAxisId="left" dataKey="score" name="Score de Qualidade" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={16} />
-                <Line yAxisId="right" type="monotone" dataKey="tmr" name="TMR Médio (min)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+                <Bar yAxisId="left" dataKey="score" name="Score de Qualidade" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={16} isAnimationActive={false} />
+                <Line yAxisId="right" type="monotone" dataKey="tmr" name="TMR Médio (min)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -472,7 +472,7 @@ export function OverviewTab({
                   <XAxis type="number" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} unit=" min" />
                   <YAxis dataKey="cliente" type="category" stroke="var(--muted-foreground)" fontSize={9} tickLine={false} width={80} />
                   <RechartsTooltip contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px" }} />
-                  <Bar dataKey="espera" name="Minutos de Espera" radius={[0, 4, 4, 0]} barSize={10}>
+                  <Bar dataKey="espera" name="Minutos de Espera" radius={[0, 4, 4, 0]} barSize={10} isAnimationActive={false}>
                     {chartDataAlertas.map((entry, index) => {
                       const color = entry.espera >= 20 ? "#dc2626" : entry.espera >= 15 ? "#f97316" : "#f59e0b";
                       return <Cell key={`cell-${index}`} fill={color} />;
@@ -3352,8 +3352,8 @@ export function CostsTab({ tenant }: { tenant: string }) {
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "5px" }} />
-                  <Bar yAxisId="left" dataKey="costBrl" name="Custo (R$)" fill="#10b981" radius={[6, 6, 0, 0]} barSize={22} />
-                  <Line yAxisId="right" type="monotone" dataKey="tokens" name="Tokens" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3 }} />
+                  <Bar yAxisId="left" dataKey="costBrl" name="Custo (R$)" fill="#10b981" radius={[6, 6, 0, 0]} barSize={22} isAnimationActive={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="tokens" name="Tokens" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (

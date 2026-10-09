@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/hooks/useChatState";
@@ -176,6 +176,71 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
   );
 }
 
+interface BiDataCacheEntry {
+  body: BiData;
+  pipelineData: ReturnType<typeof toPipelinePresentation>;
+  diretrizesData: ReturnType<typeof toDiretrizesPresentation>;
+  tmaData: ReturnType<typeof toTmaPresentation>;
+  pacingData: ReturnType<typeof toPacingPresentation>;
+  lossData: ReturnType<typeof toLossPresentation>;
+  cohortData: TVCohortsResponse;
+  avatarResolverState: (id?: string | null, name?: string | null) => string;
+  timestamp: number;
+}
+
+const biMemoryCache = new Map<string, BiDataCacheEntry>();
+const BI_CACHE_TTL_MS = 60_000;
+
+export const LiveClockHeader = memo(function LiveClockHeader() {
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const formattedDate = useMemo(() => {
+    const day = String(currentTime.getDate()).padStart(2, "0");
+    const months = [
+      "JAN",
+      "FEV",
+      "MAR",
+      "ABR",
+      "MAI",
+      "JUN",
+      "JUL",
+      "AGO",
+      "SET",
+      "OUT",
+      "NOV",
+      "DEZ",
+    ];
+    const m = months[currentTime.getMonth()];
+    const y = currentTime.getFullYear();
+    return `${day} DE ${m}. DE ${y}`;
+  }, [currentTime]);
+
+  const formattedClock = useMemo(() => {
+    const h = String(currentTime.getHours()).padStart(2, "0");
+    const m = String(currentTime.getMinutes()).padStart(2, "0");
+    const s = String(currentTime.getSeconds()).padStart(2, "0");
+    return `${h} : ${m} : ${s}`;
+  }, [currentTime]);
+
+  return (
+    <>
+      <span className="font-mono text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+        {formattedDate}
+      </span>
+      <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-800 dark:text-zinc-200">
+        <Clock className="h-3 w-3 text-slate-500 dark:text-zinc-400" />
+        <span>{formattedClock}</span>
+      </div>
+    </>
+  );
+});
+
 export function CommercialBiView() {
   const navigate = useNavigate();
   const { tenant, setActiveView, operators } = useChat();
@@ -270,45 +335,25 @@ export function CommercialBiView() {
   // Estado para o Slide 8 (Safras & Régua De-Para Fullscreen)
   const [safrasFullscreenOpen, setSafrasFullscreenOpen] = useState(false);
 
-  // Relógio digital e data ao vivo
-  const [currentTime, setCurrentTime] = useState(() => new Date());
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const formattedDate = useMemo(() => {
-    const day = String(currentTime.getDate()).padStart(2, "0");
-    const months = [
-      "JAN",
-      "FEV",
-      "MAR",
-      "ABR",
-      "MAI",
-      "JUN",
-      "JUL",
-      "AGO",
-      "SET",
-      "OUT",
-      "NOV",
-      "DEZ",
-    ];
-    const m = months[currentTime.getMonth()];
-    const y = currentTime.getFullYear();
-    return `${day} DE ${m}. DE ${y}`;
-  }, [currentTime]);
-
-  const formattedClock = useMemo(() => {
-    const h = String(currentTime.getHours()).padStart(2, "0");
-    const m = String(currentTime.getMinutes()).padStart(2, "0");
-    const s = String(currentTime.getSeconds()).padStart(2, "0");
-    return `${h} : ${m} : ${s}`;
-  }, [currentTime]);
-
   const load = useCallback(
-    async (signal?: AbortSignal) => {
+    async (signal?: AbortSignal, forceRefresh = false) => {
+      // 1. Tentar servir do cache em memória para resposta instantânea (0ms)
+      if (!forceRefresh) {
+        const cached = biMemoryCache.get(division);
+        if (cached && Date.now() - cached.timestamp < BI_CACHE_TTL_MS) {
+          setData(cached.body);
+          setPipelineData(cached.pipelineData);
+          setDiretrizesData(cached.diretrizesData);
+          setTmaData(cached.tmaData);
+          setPacingData(cached.pacingData);
+          setLossData(cached.lossData);
+          setCohortData(cached.cohortData);
+          setAvatarResolverState(() => cached.avatarResolverState);
+          setLoading(false);
+          return;
+        }
+      }
+
       setLoading(true);
       setError(null);
       try {
@@ -387,7 +432,8 @@ export function CommercialBiView() {
             tmaBody?.consultants,
             goalsBody?.consultants,
           ]);
-          setAvatarResolverState(() => (id?: string | null, name?: string | null) => avatarResolver.getAvatar(id, name) || "");
+          const resolvedResolverFn = (id?: string | null, name?: string | null) => avatarResolver.getAvatar(id, name) || "";
+          setAvatarResolverState(() => resolvedResolverFn);
 
           // Enriquecer todos os arrays brutos com os avatares resolvidos
           for (const g of body.goals || []) {
@@ -414,13 +460,33 @@ export function CommercialBiView() {
             }
           }
 
+          const computedPipeline = toPipelinePresentation(pipelineBody, avatarResolver.getAvatar);
+          const computedDiretrizes = toDiretrizesPresentation(directiveBody, avatarResolver.getAvatar);
+          const computedTma = toTmaPresentation(tmaBody, avatarResolver.getAvatar);
+          const computedPacing = toPacingPresentation(goalsBody, body, avatarResolver.getAvatar);
+          const computedLoss = toLossPresentation(lossesBody);
+          const computedCohort = toCohortPresentation(cohortsBody, body.today);
+
+          // Salvar no cache em memória
+          biMemoryCache.set(division, {
+            body,
+            pipelineData: computedPipeline,
+            diretrizesData: computedDiretrizes,
+            tmaData: computedTma,
+            pacingData: computedPacing,
+            lossData: computedLoss,
+            cohortData: computedCohort,
+            avatarResolverState: resolvedResolverFn,
+            timestamp: Date.now(),
+          });
+
           setData(body);
-          setPipelineData(toPipelinePresentation(pipelineBody, avatarResolver.getAvatar));
-          setDiretrizesData(toDiretrizesPresentation(directiveBody, avatarResolver.getAvatar));
-          setTmaData(toTmaPresentation(tmaBody, avatarResolver.getAvatar));
-          setPacingData(toPacingPresentation(goalsBody, body, avatarResolver.getAvatar));
-          setLossData(toLossPresentation(lossesBody));
-          setCohortData(toCohortPresentation(cohortsBody, body.today));
+          setPipelineData(computedPipeline);
+          setDiretrizesData(computedDiretrizes);
+          setTmaData(computedTma);
+          setPacingData(computedPacing);
+          setLossData(computedLoss);
+          setCohortData(computedCohort);
         }
       } catch (cause) {
         if (!signal?.aborted)
@@ -732,16 +798,8 @@ export function CommercialBiView() {
 
         {/* Direita: Data + Relógio Digital + Controles + 9 Pontos de Slide */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Data */}
-          <span className="font-mono text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-            {formattedDate}
-          </span>
-
-          {/* Relógio Digital */}
-          <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-800 dark:text-zinc-200">
-            <Clock className="h-3 w-3 text-slate-500 dark:text-zinc-400" />
-            <span>{formattedClock}</span>
-          </div>
+          {/* Relógio Digital e Data Isolados para Zero Re-renders do Painel */}
+          <LiveClockHeader />
 
           {/* Botões de Ação */}
           <div className="flex items-center gap-1">
@@ -825,7 +883,7 @@ export function CommercialBiView() {
               type="button"
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
-              onClick={() => void load()}
+              onClick={() => void load(undefined, true)}
               disabled={loading}
               className="rounded-[2px] border border-slate-200 dark:border-zinc-800 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white p-1 transition-colors cursor-pointer"
               title="Atualizar dados agora"

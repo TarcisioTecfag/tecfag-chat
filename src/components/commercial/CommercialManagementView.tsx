@@ -191,6 +191,21 @@ export function CommercialManagementView() {
   const [diretrizesBreakdownOpen, setDiretrizesBreakdownOpen] = useState(false);
   const [showManualDirectiveForm, setShowManualDirectiveForm] = useState(false);
 
+  const [loadingDeals, setLoadingDeals] = useState(false);
+
+  const loadDealsIfNeeded = useCallback(async () => {
+    if (deals.length > 0 || loadingDeals) return;
+    setLoadingDeals(true);
+    try {
+      const dealData = await getOpenCommercialDeals();
+      setDeals(dealData);
+    } catch {
+      // Falha defensiva silenciosa não impede a UI
+    } finally {
+      setLoadingDeals(false);
+    }
+  }, [deals.length, loadingDeals]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -201,7 +216,6 @@ export function CommercialManagementView() {
         calendarData,
         directiveData,
         evidenceData,
-        dealData,
         responsibilityData,
       ] = await Promise.all([
         getJson("/api/commercial/consultants"),
@@ -209,7 +223,6 @@ export function CommercialManagementView() {
         getJson(`/api/commercial/calendar?month=${encodeURIComponent(month)}`),
         getJson("/api/commercial/directives"),
         getJson("/api/commercial/evidence"),
-        getOpenCommercialDeals(),
         getJson(
           `/api/commercial/analysis?view=responsibilities&includeHidden=true&month=${encodeURIComponent(month)}`,
         ),
@@ -220,7 +233,6 @@ export function CommercialManagementView() {
       setClosings(calendarData.closings || []);
       setDirectives(directiveData.directives || []);
       setEvidence(evidenceData.evidence || []);
-      setDeals(dealData);
 
       // Enriquecer responsibilityData com avatares carregados de consultants de forma resiliente
       const avatarResolver = buildConsultantAvatarResolver([
@@ -487,7 +499,13 @@ export function CommercialManagementView() {
                   <div className="flex justify-end">
                     <button
                       type="button"
-                      onClick={() => setShowManualDirectiveForm((prev) => !prev)}
+                      onClick={() => {
+                        setShowManualDirectiveForm((prev) => {
+                          const next = !prev;
+                          if (next) void loadDealsIfNeeded();
+                          return next;
+                        });
+                      }}
                       className="rounded-[3px] border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
                     >
                       {showManualDirectiveForm
@@ -518,7 +536,9 @@ export function CommercialManagementView() {
                             }}
                             className={`${fieldClass} mt-1`}
                           >
-                            <option value="">Selecionar negociação</option>
+                            <option value="">
+                              {loadingDeals ? "Carregando negociações abertas..." : "Selecionar negociação"}
+                            </option>
                             {deals.map((deal) => (
                               <option key={deal.id} value={deal.id}>
                                 {deal.title}

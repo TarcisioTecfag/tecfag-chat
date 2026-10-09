@@ -26,7 +26,7 @@ interface CommercialProfilesViewProps {
   initialOperatorId?: string | null;
 }
 
-export function CommercialProfilesView({
+export const CommercialProfilesView = React.memo(function CommercialProfilesView({
   consultants,
   onRefresh,
   initialOperatorId = null,
@@ -379,4 +379,4 @@ export function CommercialProfilesView({
       </div>
     </div>
   );
-}
+});

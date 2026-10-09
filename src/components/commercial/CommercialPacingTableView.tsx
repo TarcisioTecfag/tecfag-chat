@@ -29,7 +29,7 @@ interface CommercialPacingTableViewProps {
   tenantId?: string | null;
 }
 
-export function CommercialPacingTableView({
+export const CommercialPacingTableView = React.memo(function CommercialPacingTableView({
   globalKpis,
   personnaliteData,
   semiMaquinasData,
@@ -443,4 +443,4 @@ export function CommercialPacingTableView({
       {renderTeamSection(semiMaquinasData)}
     </div>
   );
-}
+});

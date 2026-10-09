@@ -55,7 +55,7 @@ interface CommercialConsultantsViewProps {
 
 const PAGE_SIZE = 10;
 
-export function CommercialConsultantsView({
+export const CommercialConsultantsView = React.memo(function CommercialConsultantsView({
   consultants,
   loading = false,
   onRefresh,
@@ -1052,4 +1052,4 @@ export function CommercialConsultantsView({
       </Dialog>
     </div>
   );
-}
+});

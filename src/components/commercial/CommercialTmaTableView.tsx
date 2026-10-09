@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { motion } from "framer-motion";
 import { Clock, Target, Zap, CheckCircle2 } from "lucide-react";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -20,7 +20,7 @@ interface CommercialTmaTableViewProps {
   onOpenChat?: (conversationId: string) => void;
 }
 
-export function CommercialTmaTableView({
+export const CommercialTmaTableView = memo(function CommercialTmaTableView({
   kpis,
   personnaliteData,
   semiMaquinasData,
@@ -390,4 +390,4 @@ export function CommercialTmaTableView({
       )}
     </div>
   );
-}
+});

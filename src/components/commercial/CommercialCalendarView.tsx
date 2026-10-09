@@ -1427,6 +1427,7 @@ export function CommercialCalendarView({
                 strokeDasharray="5 5"
                 dot={false}
                 name="Meta Esperada Acumulada"
+                isAnimationActive={false}
               />
 
               {/* Linha Sólida do Realizado Acumulado */}
@@ -1439,6 +1440,7 @@ export function CommercialCalendarView({
                 activeDot={{ r: 6, fill: "#10b981", stroke: "#ffffff", strokeWidth: 2 }}
                 name="Realizado Acumulado"
                 connectNulls={false}
+                isAnimationActive={false}
               />
 
               {/* Marcador Vertical de Hoje */}

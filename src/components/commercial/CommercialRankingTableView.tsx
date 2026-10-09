@@ -50,7 +50,7 @@ function PositionBadge({ position }: { position: number }) {
   );
 }
 
-export function CommercialRankingTableView({
+export const CommercialRankingTableView = React.memo(function CommercialRankingTableView({
   operators,
   onOperatorClick,
 }: CommercialRankingTableViewProps) {
@@ -228,4 +228,4 @@ export function CommercialRankingTableView({
       </div>
     </div>
   );
-}
+});

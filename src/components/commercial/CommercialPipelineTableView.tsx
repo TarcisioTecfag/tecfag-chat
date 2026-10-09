@@ -28,7 +28,7 @@ interface CommercialPipelineTableViewProps {
   onHeaderStageClick: (stageKey: PipelineStageKey, division: "personnalite" | "maquinas") => void;
 }
 
-export function CommercialPipelineTableView({
+export const CommercialPipelineTableView = React.memo(function CommercialPipelineTableView({
   stagesByDivision,
   pipelineByDivision,
   pipelineOptions,
@@ -533,4 +533,4 @@ export function CommercialPipelineTableView({
       </div>
     </div>
   );
-}
+});

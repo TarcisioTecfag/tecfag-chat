@@ -18,7 +18,7 @@ interface CommercialDeparaTableViewProps {
   onHeaderTierClick?: (tierKey: DeparaTierKey) => void;
 }
 
-export function CommercialDeparaTableView({
+export const CommercialDeparaTableView = React.memo(function CommercialDeparaTableView({
   personnaliteData,
   semiMaquinasData,
   onCellClick,
@@ -276,4 +276,4 @@ export function CommercialDeparaTableView({
       {renderTeamSection(semiMaquinasData)}
     </div>
   );
-}
+});

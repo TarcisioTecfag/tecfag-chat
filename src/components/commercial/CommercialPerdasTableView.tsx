@@ -90,7 +90,7 @@ function CategoryIcon({ iconName, colorHex }: { iconName: string; colorHex: stri
   }
 }
 
-export function CommercialPerdasTableView({
+export const CommercialPerdasTableView = React.memo(function CommercialPerdasTableView({
   periods,
   initialPeriod = "mes_atual",
   selectedPeriod: controlledPeriod,
@@ -262,4 +262,4 @@ export function CommercialPerdasTableView({
       </div>
     </div>
   );
-}
+});

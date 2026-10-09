@@ -19,7 +19,7 @@ interface CommercialPrevistasTableViewProps {
   onHeaderTierClick?: (horizonKey: PrevistasTierKey) => void;
 }
 
-export function CommercialPrevistasTableView({
+export const CommercialPrevistasTableView = React.memo(function CommercialPrevistasTableView({
   personnaliteData,
   semiMaquinasData,
   onCellClick,
@@ -236,4 +236,4 @@ export function CommercialPrevistasTableView({
       {renderTeamSection(semiMaquinasData)}
     </div>
   );
-}
+});
