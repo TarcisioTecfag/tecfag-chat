@@ -888,7 +888,7 @@ export function ConversationDealsPanel({
                             Funil & Etapa
                           </span>
                           <span className="text-[10px] font-semibold text-foreground truncate">
-                            {deal.pipelineName || "Funil Padrão"}
+                            {deal.pipelineName || "Funil Comercial"}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">

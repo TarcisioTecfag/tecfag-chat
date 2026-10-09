@@ -314,7 +314,6 @@ export function CrmToolbar({
                 pipelines.map((pipeline) => (
                   <SelectItem key={pipeline.id} value={pipeline.id}>
                     {pipeline.name}
-                    {pipeline.isDefault ? " (Padrão)" : ""}
                   </SelectItem>
                 ))
               )}

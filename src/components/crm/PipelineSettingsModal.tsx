@@ -400,11 +400,6 @@ export function PipelineSettingsModal({
                 <div className="mb-6 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <h2 className="text-sm font-bold uppercase tracking-wide">{pipeline.name}</h2>
-                    {pipeline.isDefault && (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                        Padrão
-                      </span>
-                    )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
@@ -658,17 +653,6 @@ export function PipelineSettingsModal({
                 className="h-9 w-full rounded-lg border border-input bg-background px-3 font-normal"
               />
             </label>
-            {pipelineDraft?.id && (
-              <label className="flex items-center gap-2 font-semibold">
-                <Checkbox
-                  checked={pipelineDraft.isDefault}
-                  onCheckedChange={(checked) =>
-                    setPipelineDraft((current) => current && { ...current, isDefault: !!checked })
-                  }
-                />{" "}
-                Funil padrão
-              </label>
-            )}
             <div className="flex justify-end gap-2 border-t border-border pt-4">
               <button
                 type="button"

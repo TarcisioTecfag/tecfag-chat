@@ -26,10 +26,53 @@ type CrmViewSnapshot = {
   operators: Array<{ id: string; name: string }>;
 };
 
+// Armazenamento duradouro do funil ativo por tenant e operador no navegador (localStorage)
+const CRM_PIPELINE_STORAGE_PREFIX = "crm_selected_pipeline";
+
+export function getSavedCrmPipelineId(tenant?: string | null, operatorId?: string | null): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromUrl = urlParams.get("pipelineId") || urlParams.get("pipeline");
+    if (fromUrl) return fromUrl;
+
+    if (tenant && operatorId) {
+      const savedOp = localStorage.getItem(`${CRM_PIPELINE_STORAGE_PREFIX}_${tenant}_${operatorId}`);
+      if (savedOp) return savedOp;
+    }
+
+    if (tenant) {
+      const savedTenant = localStorage.getItem(`${CRM_PIPELINE_STORAGE_PREFIX}_${tenant}`);
+      if (savedTenant) return savedTenant;
+    }
+
+    const savedGlobal = localStorage.getItem(CRM_PIPELINE_STORAGE_PREFIX);
+    if (savedGlobal) return savedGlobal;
+  } catch (err) {
+    console.warn("[CrmView] Falha ao recuperar funil do localStorage:", err);
+  }
+  return "";
+}
+
+export function saveCrmPipelineId(pipelineId: string, tenant?: string | null, operatorId?: string | null) {
+  if (typeof window === "undefined" || !pipelineId) return;
+  try {
+    if (tenant && operatorId) {
+      localStorage.setItem(`${CRM_PIPELINE_STORAGE_PREFIX}_${tenant}_${operatorId}`, pipelineId);
+    }
+    if (tenant) {
+      localStorage.setItem(`${CRM_PIPELINE_STORAGE_PREFIX}_${tenant}`, pipelineId);
+    }
+    localStorage.setItem(CRM_PIPELINE_STORAGE_PREFIX, pipelineId);
+  } catch (err) {
+    console.warn("[CrmView] Falha ao salvar funil no localStorage:", err);
+  }
+}
+
 // Reaproveita o último funil exibido ao alternar entre Chat e CRM.
 // A chave inclui tenant e operador; a tela ainda revalida os dados ao abrir.
 const crmViewSnapshots = new Map<string, CrmViewSnapshot>();
-const CRM_SNAPSHOT_TTL_MS = 60_000;
+const CRM_SNAPSHOT_TTL_MS = 10 * 60 * 1000;
 
 export function CrmView() {
   const { tenant, currentOperatorId } = useChat();
@@ -45,7 +88,9 @@ export function CrmView() {
   const [loading, setLoading] = useState(!initialSnapshot.current);
   const [error, setError] = useState<string | null>(null);
   const [pipelines, setPipelines] = useState<any[]>(initialSnapshot.current?.pipelines || []);
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string>(initialSnapshot.current?.pipelineId || "");
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>(() => {
+    return initialSnapshot.current?.pipelineId || getSavedCrmPipelineId(tenant, currentOperatorId) || "";
+  });
   const [deals, setDeals] = useState<DealCardData[]>(initialSnapshot.current?.deals || []);
   const [totalDeals, setTotalDeals] = useState(0);
   const [loadingMoreStages, setLoadingMoreStages] = useState<Record<string, boolean>>({});
@@ -62,6 +107,16 @@ export function CrmView() {
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [statusFilter, setStatusFilter] = useState<CrmStatusFilter>("open");
 
+  // Troca de funil unificada com persistência imediata no localStorage
+  const handlePipelineChange = useCallback(
+    (newPipelineId: string) => {
+      setSelectedPipelineId(newPipelineId);
+      setListOffset(0);
+      saveCrmPipelineId(newPipelineId, tenant, currentOperatorId);
+    },
+    [tenant, currentOperatorId],
+  );
+
   // Alternância ágil por setas (Left / Right): entre funis (quando houver múltiplos) ou entre Quadro / Lista
   const crmTabs: readonly string[] = useMemo(() => {
     if (pipelines.length > 1) {
@@ -75,8 +130,7 @@ export function CrmView() {
     activeTab: pipelines.length > 1 ? selectedPipelineId : viewMode,
     onChange: (val) => {
       if (pipelines.length > 1) {
-        setSelectedPipelineId(val as string);
-        setListOffset(0);
+        handlePipelineChange(val as string);
       } else {
         setViewMode(val as "kanban" | "list");
       }
@@ -202,10 +256,22 @@ export function CrmView() {
       const list = data.pipelines || [];
       setPipelines(list);
       if (list.length > 0) {
-        const defaultPipe = list.find((p: any) => p.isDefault) || list[0];
-        setSelectedPipelineId((current) =>
-          current && list.some((p: any) => p.id === current) ? current : defaultPipe.id,
-        );
+        setSelectedPipelineId((current) => {
+          // 1. Se o funil em estado for válido na lista recebida, mantém e persiste
+          if (current && list.some((p: any) => p.id === current)) {
+            saveCrmPipelineId(current, tenant, currentOperatorId);
+            return current;
+          }
+          // 2. Se houver um funil gravado no localStorage deste operador/tenant, restaura
+          const saved = getSavedCrmPipelineId(tenant, currentOperatorId);
+          if (saved && list.some((p: any) => p.id === saved)) {
+            return saved;
+          }
+          // 3. Fallback neutro: primeiro funil retornado pela API (sem impor funil padrão fixo)
+          const fallbackId = list[0].id;
+          saveCrmPipelineId(fallbackId, tenant, currentOperatorId);
+          return fallbackId;
+        });
       } else {
         setLoading(false);
       }
@@ -214,7 +280,7 @@ export function CrmView() {
       toast.error("Falha ao carregar funis comerciais.");
       setLoading(false);
     }
-  }, [tenant]);
+  }, [tenant, currentOperatorId]);
 
   // Carrega operadores
   const fetchOperators = useCallback(async () => {
@@ -342,15 +408,32 @@ export function CrmView() {
     [buildFilterQueryParams],
   );
 
-  // Inicialização
+  // Inicialização & troca de tenant
   const previousTenantRef = useRef(tenant);
   useEffect(() => {
     if (previousTenantRef.current === tenant) return;
     previousTenantRef.current = tenant;
     setDeals([]);
     setStageSettings({});
-    setSelectedPipelineId("");
-  }, [tenant]);
+    const saved = getSavedCrmPipelineId(tenant, currentOperatorId);
+    setSelectedPipelineId(saved || "");
+  }, [tenant, currentOperatorId]);
+
+  // Reavalia funil gravado se o operador terminar de carregar da sessão assíncrona
+  useEffect(() => {
+    if (!pipelines.length) return;
+    const saved = getSavedCrmPipelineId(tenant, currentOperatorId);
+    if (saved && saved !== selectedPipelineId && pipelines.some((p) => p.id === saved)) {
+      setSelectedPipelineId(saved);
+    }
+  }, [tenant, currentOperatorId, pipelines, selectedPipelineId]);
+
+  // Salva no localStorage sempre que o selectedPipelineId mudar e for válido
+  useEffect(() => {
+    if (selectedPipelineId) {
+      saveCrmPipelineId(selectedPipelineId, tenant, currentOperatorId);
+    }
+  }, [selectedPipelineId, tenant, currentOperatorId]);
 
   useEffect(() => {
     if (loading || !selectedPipelineId || !pipelines.length || viewMode !== "kanban" ||
@@ -455,10 +538,7 @@ export function CrmView() {
           onViewModeChange={setViewMode}
           pipelines={pipelines}
           selectedPipelineId={selectedPipelineId}
-          onPipelineChange={(id) => {
-            setSelectedPipelineId(id);
-            setListOffset(0);
-          }}
+          onPipelineChange={handlePipelineChange}
           statusFilter={statusFilter}
           onStatusFilterChange={(st) => {
             setStatusFilter(st);

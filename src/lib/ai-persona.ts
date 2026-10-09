@@ -77,9 +77,9 @@ function resolveIsDark(themeOrIsDark?: boolean | "light" | "dark"): boolean {
   if (themeOrIsDark === "dark") return true;
   if (themeOrIsDark === "light") return false;
   if (typeof window !== "undefined") {
-    if (document.documentElement.classList.contains("dark")) return true;
     try {
-      const saved = localStorage.getItem("chat_theme_mode");
+      if (typeof document !== "undefined" && document?.documentElement?.classList?.contains?.("dark")) return true;
+      const saved = typeof localStorage !== "undefined" ? localStorage.getItem("chat_theme_mode") : null;
       if (saved === "dark") return true;
       if (saved === "light") return false;
       if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) return true;
