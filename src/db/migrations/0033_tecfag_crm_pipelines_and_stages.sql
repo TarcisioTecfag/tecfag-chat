@@ -5,14 +5,14 @@
 -- 1. Remove qualquer funil temporário vazio ('Funil Teste').
 -- 2. Detecta funis existentes por nome/slug (preserva IDs e negociações pré-existentes).
 -- 3. Atualiza ou insere com consistência os 8 funis corporativos da Tecfag:
---    • FUNIL MÁQUINAS 2.0 (Equipe Máquinas / Default)
+--    • FUNIL MÁQUINAS (Equipe Máquinas / Default)
 --    • FUNIL PERSONNALITÉ (Equipe Personnalité)
 --    • FUNIL SDR
 --    • FUNIL PEÇAS (Novo)
 --    • FUNIL PROJETOS (Novo)
 --    • FUNIL SUPORTE TÉCNICO (Novo)
 --    • FUNIL FINANCEIRO
---    • FUNIL EXTERNO 2.0
+--    • FUNIL EXTERNO
 -- 4. Sincroniza todas as etapas na ordem exata solicitada.
 -- 5. Configura crm_stage_settings (estagnação/cooling de 10 dias).
 -- 6. Mapeia divisões no commercial_settings.
@@ -39,19 +39,19 @@ BEGIN
     AND (LOWER(name) LIKE '%teste%')
     AND id NOT IN (SELECT DISTINCT pipeline_id FROM crm_deals WHERE pipeline_id IS NOT NULL);
 
-  -- 2. FUNIL MÁQUINAS 2.0
+  -- 2. FUNIL MÁQUINAS
   SELECT id INTO v_maq_id FROM crm_pipelines
-  WHERE tenant_id = 'tecfag' AND (LOWER(name) = 'máquinas' OR LOWER(name) = 'maquinas' OR LOWER(name) LIKE '%máquinas 2.0%' OR LOWER(name) LIKE '%maquinas 2.0%')
+  WHERE tenant_id = 'tecfag' AND (LOWER(name) = 'máquinas' OR LOWER(name) = 'maquinas' OR LOWER(name) LIKE '%máquinas 2.0%' OR LOWER(name) LIKE '%maquinas 2.0%' OR LOWER(name) = 'funil máquinas' OR LOWER(name) = 'funil maquinas')
   LIMIT 1;
 
   IF v_maq_id IS NOT NULL THEN
     UPDATE crm_pipelines
-    SET name = 'FUNIL MÁQUINAS 2.0', order_index = 0, is_default = true, color = '#0284c7', updated_at = NOW()
+    SET name = 'FUNIL MÁQUINAS', order_index = 0, is_default = true, color = '#0284c7', updated_at = NOW()
     WHERE id = v_maq_id;
   ELSE
     v_maq_id := 'pipe-tecfag-maquinas-2-0';
     INSERT INTO crm_pipelines (id, tenant_id, name, order_index, is_default, color, cooling_days, created_at, updated_at)
-    VALUES (v_maq_id, 'tecfag', 'FUNIL MÁQUINAS 2.0', 0, true, '#0284c7', 10, NOW(), NOW())
+    VALUES (v_maq_id, 'tecfag', 'FUNIL MÁQUINAS', 0, true, '#0284c7', 10, NOW(), NOW())
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, is_default = true, order_index = 0;
   END IF;
 
@@ -151,23 +151,23 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, order_index = 6;
   END IF;
 
-  -- 9. FUNIL EXTERNO 2.0
+  -- 9. FUNIL EXTERNO
   SELECT id INTO v_ext_id FROM crm_pipelines
   WHERE tenant_id = 'tecfag' AND (LOWER(name) LIKE '%externo%')
   LIMIT 1;
 
   IF v_ext_id IS NOT NULL THEN
     UPDATE crm_pipelines
-    SET name = 'FUNIL EXTERNO 2.0', order_index = 7, is_default = false, color = '#6366f1', updated_at = NOW()
+    SET name = 'FUNIL EXTERNO', order_index = 7, is_default = false, color = '#6366f1', updated_at = NOW()
     WHERE id = v_ext_id;
   ELSE
     v_ext_id := 'pipe-tecfag-externo-2-0';
     INSERT INTO crm_pipelines (id, tenant_id, name, order_index, is_default, color, cooling_days, created_at, updated_at)
-    VALUES (v_ext_id, 'tecfag', 'FUNIL EXTERNO 2.0', 7, false, '#6366f1', 10, NOW(), NOW())
+    VALUES (v_ext_id, 'tecfag', 'FUNIL EXTERNO', 7, false, '#6366f1', 10, NOW(), NOW())
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, order_index = 7;
   END IF;
 
-  -- Garante que apenas MÁQUINAS 2.0 seja is_default
+  -- Garante que apenas MÁQUINAS seja is_default
   UPDATE crm_pipelines
   SET is_default = false
   WHERE tenant_id = 'tecfag' AND id <> v_maq_id AND is_default = true;

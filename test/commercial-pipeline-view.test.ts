@@ -122,7 +122,7 @@ describe("Commercial War Room - Tela 1 (Oportunidades & Pipeline por Fase)", () 
 
     // Primeiro deal: Droga Vita
     expect(deals[0].title).toBe("Droga Vita");
-    expect(deals[0].funnelName).toBe("FUNIL MÁQUINAS 2.0");
+    expect(deals[0].funnelName).toBe("FUNIL MÁQUINAS");
     expect(deals[0].responsibleName).toBe("Diana Gimenes");
     expect(deals[0].value).toBe(3000);
     expect(deals[0].daysOpen).toBe(27);

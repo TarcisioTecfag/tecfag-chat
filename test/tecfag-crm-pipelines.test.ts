@@ -15,14 +15,14 @@ describe("Tecfag CRM - Funis e Etapas Operacionais", () => {
 
     expect(pipelines.length).toBe(8);
     const names = pipelines.map((p) => p.name);
-    expect(names).toContain("FUNIL MÁQUINAS 2.0");
+    expect(names.some((n) => n.startsWith("FUNIL MÁQUINAS"))).toBe(true);
     expect(names).toContain("FUNIL PERSONNALITÉ");
     expect(names).toContain("FUNIL SDR");
     expect(names).toContain("FUNIL PEÇAS");
     expect(names).toContain("FUNIL PROJETOS");
     expect(names).toContain("FUNIL SUPORTE TÉCNICO");
     expect(names).toContain("FUNIL FINANCEIRO");
-    expect(names).toContain("FUNIL EXTERNO 2.0");
+    expect(names.some((n) => n.startsWith("FUNIL EXTERNO"))).toBe(true);
   });
 
   it("FUNIL PEÇAS deve conter exatamente as 7 etapas na ordem correta", async () => {

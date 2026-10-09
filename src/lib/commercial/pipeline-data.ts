@@ -378,7 +378,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-01",
     title: "Droga Vita",
-    funnelName: "FUNIL MÁQUINAS 2.0",
+    funnelName: "FUNIL MÁQUINAS",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -392,7 +392,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-02",
     title: "Maicon Buisn Werplotz",
-    funnelName: "FUNIL PERSONNALITÉ 2.0",
+    funnelName: "FUNIL PERSONNALITÉ",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -406,7 +406,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-03",
     title: "Thomaz dias machado",
-    funnelName: "FUNIL PERSONNALITÉ 2.0",
+    funnelName: "FUNIL PERSONNALITÉ",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -420,7 +420,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-04",
     title: "FAGNER | Teppey",
-    funnelName: "FUNIL PERSONNALITÉ 2.0",
+    funnelName: "FUNIL PERSONNALITÉ",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -434,7 +434,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-05",
     title: "Rodrigo",
-    funnelName: "FUNIL PERSONNALITÉ 2.0",
+    funnelName: "FUNIL PERSONNALITÉ",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -448,7 +448,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-06",
     title: "FAGNER | Eric silva",
-    funnelName: "FUNIL PERSONNALITÉ 2.0",
+    funnelName: "FUNIL PERSONNALITÉ",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -462,7 +462,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-07",
     title: "FAGNER | Marcelo Soares",
-    funnelName: "FUNIL MÁQUINAS 2.0",
+    funnelName: "FUNIL MÁQUINAS",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -476,7 +476,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-08",
     title: "milton Marçal",
-    funnelName: "FUNIL MÁQUINAS 2.0",
+    funnelName: "FUNIL MÁQUINAS",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -490,7 +490,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-09",
     title: "Gabriel Silva",
-    funnelName: "FUNIL PERSONNALITÉ 2.0",
+    funnelName: "FUNIL PERSONNALITÉ",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -504,7 +504,7 @@ export const BASELINE_DEALS_DIANA_ABORDAGEM: CommercialPipelineDeal[] = [
   {
     id: "deal-dg-10",
     title: "FAGNER | Jéssica",
-    funnelName: "FUNIL PERSONNALITÉ 2.0",
+    funnelName: "FUNIL PERSONNALITÉ",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",
@@ -530,7 +530,7 @@ export function getBaselineDeals(
     deals.push({
       id: `deal-dg-${i.toString().padStart(2, "0")}`,
       title: `Oportunidade Comercial #${i} - Cliente Tecfag`,
-      funnelName: i % 2 === 0 ? "FUNIL PERSONNALITÉ 2.0" : "FUNIL MÁQUINAS 2.0",
+      funnelName: i % 2 === 0 ? "FUNIL PERSONNALITÉ" : "FUNIL MÁQUINAS",
       responsibleName: "Diana Gimenes",
       responsibleId: "op-tf-diana.gimenes.93",
       division: "personnalite",
@@ -548,7 +548,7 @@ export function getBaselineDeals(
     {
       id: "deal-dg-req-1",
       title: "Requalificação Industrial Alpha",
-      funnelName: "FUNIL PERSONNALITÉ 2.0",
+      funnelName: "FUNIL PERSONNALITÉ",
       responsibleName: "Diana Gimenes",
       responsibleId: "op-tf-diana.gimenes.93",
       division: "personnalite",
@@ -561,7 +561,7 @@ export function getBaselineDeals(
     {
       id: "deal-dg-req-2",
       title: "Requalificação Embalagens Beta",
-      funnelName: "FUNIL MÁQUINAS 2.0",
+      funnelName: "FUNIL MÁQUINAS",
       responsibleName: "Diana Gimenes",
       responsibleId: "op-tf-diana.gimenes.93",
       division: "personnalite",
@@ -579,7 +579,7 @@ export function getBaselineDeals(
     deals.push({
       id: `deal-dg-esf-${i}`,
       title: `Negócio em Atenção #${i} - Indústria ${i}`,
-      funnelName: "FUNIL PERSONNALITÉ 2.0",
+      funnelName: "FUNIL PERSONNALITÉ",
       responsibleName: "Diana Gimenes",
       responsibleId: "op-tf-diana.gimenes.93",
       division: "personnalite",
@@ -596,7 +596,7 @@ export function getBaselineDeals(
     deals.push({
       id: `deal-dg-rec-${i}`,
       title: `Lead Recente #${i} - Contato via Site`,
-      funnelName: "FUNIL PERSONNALITÉ 2.0",
+      funnelName: "FUNIL PERSONNALITÉ",
       responsibleName: "Diana Gimenes",
       responsibleId: "op-tf-diana.gimenes.93",
       division: "personnalite",
@@ -614,7 +614,7 @@ export function getBaselineDeals(
     deals.push({
       id: `deal-dg-qual-${i}`,
       title: `Oportunidade Qualificada #${i} - Farmacêutica ${i}`,
-      funnelName: "FUNIL PERSONNALITÉ 2.0",
+      funnelName: "FUNIL PERSONNALITÉ",
       responsibleName: "Diana Gimenes",
       responsibleId: "op-tf-diana.gimenes.93",
       division: "personnalite",
@@ -632,7 +632,7 @@ export function getBaselineDeals(
     deals.push({
       id: `deal-dg-prop-${i}`,
       title: `Proposta Técnica #${i} - Grupo Cosméticos ${i}`,
-      funnelName: "FUNIL PERSONNALITÉ 2.0",
+      funnelName: "FUNIL PERSONNALITÉ",
       responsibleName: "Diana Gimenes",
       responsibleId: "op-tf-diana.gimenes.93",
       division: "personnalite",
@@ -648,7 +648,7 @@ export function getBaselineDeals(
   deals.push({
     id: "deal-dg-fech-1",
     title: "Contrato em Fechamento - Linha de Envasamento",
-    funnelName: "FUNIL PERSONNALITÉ 2.0",
+    funnelName: "FUNIL PERSONNALITÉ",
     responsibleName: "Diana Gimenes",
     responsibleId: "op-tf-diana.gimenes.93",
     division: "personnalite",

@@ -4,7 +4,7 @@
  *
  * Mapeia a criação histórica de cards nos últimos 6 meses para as faixas da
  * Régua De-Para com base no valor e segrega itens sem classificação (sem valor).
- * Filtro estrito: FUNIL MÁQUINAS 2.0 (Semi) e FUNIL PERSONNALITÉ 2.0.
+ * Filtro estrito: FUNIL MÁQUINAS (Semi) e FUNIL PERSONNALITÉ.
  */
 
 export interface TVCohortTierConfig {
@@ -244,7 +244,7 @@ export const BASELINE_UNCLASSIFIED_DEALS: Record<string, TVUnclassifiedDeal[]> =
       name: 'Embaladora a Vácuo de Dupla Câmara',
       userName: 'Melissa Gomes',
       team: 'MAQUINAS',
-      pipelineName: 'FUNIL MÁQUINAS 2.0',
+      pipelineName: 'FUNIL MÁQUINAS',
       stageName: 'Diagnóstico e Qualificação',
       totalPrice: 0,
       dealCreatedAt: '2026-10-06T11:20:00Z',
@@ -257,7 +257,7 @@ export const BASELINE_UNCLASSIFIED_DEALS: Record<string, TVUnclassifiedDeal[]> =
       name: 'Linha de Envase Rotativa para Frascos',
       userName: 'Victor Goes',
       team: 'MAQUINAS',
-      pipelineName: 'FUNIL MÁQUINAS 2.0',
+      pipelineName: 'FUNIL MÁQUINAS',
       stageName: 'Envio de Proposta',
       totalPrice: 0,
       dealCreatedAt: '2026-10-05T09:45:00Z',
@@ -270,7 +270,7 @@ export const BASELINE_UNCLASSIFIED_DEALS: Record<string, TVUnclassifiedDeal[]> =
       name: 'Rosqueadeira Semi-Automática de Tampas',
       userName: 'Marcelo Nardelli',
       team: 'PERSONNALITE',
-      pipelineName: 'FUNIL PERSONNALITÉ 2.0',
+      pipelineName: 'FUNIL PERSONNALITÉ',
       stageName: 'Negociação / Fechamento',
       totalPrice: 0,
       dealCreatedAt: '2026-10-04T16:15:00Z',
@@ -283,7 +283,7 @@ export const BASELINE_UNCLASSIFIED_DEALS: Record<string, TVUnclassifiedDeal[]> =
       name: 'Seladora em L com Túnel de Encolhimento',
       userName: 'Andreia Camargo',
       team: 'MAQUINAS',
-      pipelineName: 'FUNIL MÁQUINAS 2.0',
+      pipelineName: 'FUNIL MÁQUINAS',
       stageName: 'Abordagem Comercial',
       totalPrice: 0,
       dealCreatedAt: '2026-10-03T10:05:00Z',
@@ -296,7 +296,7 @@ export const BASELINE_UNCLASSIFIED_DEALS: Record<string, TVUnclassifiedDeal[]> =
       name: 'Dosadora Pneumática de Pistão para Cremes',
       userName: 'Jhordan Rueda',
       team: 'PERSONNALITE',
-      pipelineName: 'FUNIL PERSONNALITÉ 2.0',
+      pipelineName: 'FUNIL PERSONNALITÉ',
       stageName: 'Diagnóstico e Qualificação',
       totalPrice: 0,
       dealCreatedAt: '2026-10-02T15:50:00Z',
@@ -309,7 +309,7 @@ export const BASELINE_UNCLASSIFIED_DEALS: Record<string, TVUnclassifiedDeal[]> =
       name: 'Rotuladora Automática para Frascos Cilíndricos',
       userName: 'Beatriz Ribeiro',
       team: 'MAQUINAS',
-      pipelineName: 'FUNIL MÁQUINAS 2.0',
+      pipelineName: 'FUNIL MÁQUINAS',
       stageName: 'Envio de Proposta',
       totalPrice: 0,
       dealCreatedAt: '2026-10-01T13:40:00Z',
@@ -324,7 +324,7 @@ export const BASELINE_UNCLASSIFIED_DEALS: Record<string, TVUnclassifiedDeal[]> =
       name: 'Envasadora de Líquidos e Pastosos 4 Bicos',
       userName: 'Victor Goes',
       team: 'MAQUINAS',
-      pipelineName: 'FUNIL MÁQUINAS 2.0',
+      pipelineName: 'FUNIL MÁQUINAS',
       stageName: 'Abordagem Comercial',
       totalPrice: 0,
       dealCreatedAt: '2026-09-28T10:10:00Z',
@@ -337,7 +337,7 @@ export const BASELINE_UNCLASSIFIED_DEALS: Record<string, TVUnclassifiedDeal[]> =
       name: 'Fechadora de Caixas com Tração Superior',
       userName: 'Diana Gimenes',
       team: 'PERSONNALITE',
-      pipelineName: 'FUNIL PERSONNALITÉ 2.0',
+      pipelineName: 'FUNIL PERSONNALITÉ',
       stageName: 'Diagnóstico e Qualificação',
       totalPrice: 0,
       dealCreatedAt: '2026-09-22T14:40:00Z',
