@@ -86,15 +86,15 @@ export function CommercialProfilesView({
     }
   };
 
-  // Se um consultor estiver selecionado, exibe exatamente a tela de Início dele com barra de controle executiva
+  // Se um consultor estiver selecionado, exibe exatamente a tela de Início dele com barra de controle executiva fixa no topo
   if (selectedConsultantId && selectedConsultant) {
     const avatarUrl =
       selectedConsultant.avatar || getDeterministicConsultantAvatar(selectedConsultant.name);
 
     return (
-      <div className="space-y-4">
-        {/* Barra Superior Executiva de Modo Gestão */}
-        <div className="sticky top-0 z-30 rounded-[4px] border border-border/80 bg-card/95 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90 p-3 sm:p-4 shadow-md flex flex-wrap items-center justify-between gap-3">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden h-full">
+        {/* Barra Superior Executiva de Modo Gestão — FIXA NO TOPO (Não acompanha scroll do mouse, não sobrepõe campos) */}
+        <div className="shrink-0 border-b border-border/80 bg-card/95 px-4 sm:px-6 py-2.5 sm:py-3 dark:border-zinc-800 dark:bg-zinc-950/95 shadow-sm flex flex-wrap items-center justify-between gap-3 z-10 backdrop-blur-md">
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -108,7 +108,7 @@ export function CommercialProfilesView({
             <div className="h-4 w-[1px] bg-border dark:bg-zinc-800 hidden sm:block" />
 
             <div className="flex items-center gap-2.5">
-              <div className="relative h-7 w-7 rounded-full overflow-hidden border border-border dark:border-zinc-700 bg-muted">
+              <div className="relative h-7 w-7 rounded-full overflow-hidden border border-border dark:border-zinc-700 bg-muted shrink-0">
                 <img
                   src={avatarUrl}
                   alt={selectedConsultant.name}
@@ -198,8 +198,8 @@ export function CommercialProfilesView({
           </div>
         </div>
 
-        {/* Componente CommercialHomeView com operatorId específico do consultor */}
-        <div className="rounded-[4px] border border-border/80 bg-card/40 dark:border-zinc-800 dark:bg-zinc-950/40 p-2 sm:p-4">
+        {/* Componente CommercialHomeView com scroll exclusivo e isolado (abaixo da barra fixa) */}
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <CommercialHomeView
             operatorId={selectedConsultantId}
             isManagementPreview={true}
@@ -212,7 +212,8 @@ export function CommercialProfilesView({
 
   // Visualização de Grade de Perfis (quando nenhum consultor está aberto)
   return (
-    <div className="space-y-6">
+    <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-6">
+      <div className="w-full space-y-6">
       {/* Header Executivo da Aba Perfis */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/80 dark:border-zinc-800/80 pb-4">
         <div>
@@ -375,6 +376,7 @@ export function CommercialProfilesView({
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }

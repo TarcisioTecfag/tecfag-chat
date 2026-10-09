@@ -393,13 +393,13 @@ export function CommercialManagementView() {
         })}
       </div>
 
-      {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
-        <div className="w-full space-y-6">
+      {/* Content Area */}
+      {tab === "profiles" ? (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {error && (
             <p
               role="alert"
-              className="rounded-[4px] border border-red-300 bg-red-50 p-3 text-xs font-mono text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+              className="m-6 mb-0 rounded-[4px] border border-red-300 bg-red-50 p-3 text-xs font-mono text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
             >
               {error}
             </p>
@@ -407,7 +407,7 @@ export function CommercialManagementView() {
           {notice && (
             <p
               role="status"
-              className="rounded-[4px] border border-emerald-300 bg-emerald-50 p-3 text-xs font-mono text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+              className="m-6 mb-0 rounded-[4px] border border-emerald-300 bg-emerald-50 p-3 text-xs font-mono text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
             >
               {notice}
             </p>
@@ -417,28 +417,51 @@ export function CommercialManagementView() {
               <Loader2 className="h-7 w-7 animate-spin" />
             </div>
           ) : (
-            <>
-              {tab === "consultants" && (
-                <CommercialConsultantsView
-                  consultants={consultants}
-                  loading={loading}
-                  onRefresh={load}
-                  onSelectProfile={(opId) => {
-                    setActiveProfileOperatorId(opId);
-                    setTab("profiles");
-                  }}
-                />
-              )}
+            <CommercialProfilesView
+              consultants={consultants}
+              onRefresh={load}
+              initialOperatorId={activeProfileOperatorId}
+            />
+          )}
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
+          <div className="w-full space-y-6">
+            {error && (
+              <p
+                role="alert"
+                className="rounded-[4px] border border-red-300 bg-red-50 p-3 text-xs font-mono text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+              >
+                {error}
+              </p>
+            )}
+            {notice && (
+              <p
+                role="status"
+                className="rounded-[4px] border border-emerald-300 bg-emerald-50 p-3 text-xs font-mono text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+              >
+                {notice}
+              </p>
+            )}
+            {loading ? (
+              <div className="flex min-h-[250px] items-center justify-center text-primary">
+                <Loader2 className="h-7 w-7 animate-spin" />
+              </div>
+            ) : (
+              <>
+                {tab === "consultants" && (
+                  <CommercialConsultantsView
+                    consultants={consultants}
+                    loading={loading}
+                    onRefresh={load}
+                    onSelectProfile={(opId) => {
+                      setActiveProfileOperatorId(opId);
+                      setTab("profiles");
+                    }}
+                  />
+                )}
 
-              {tab === "profiles" && (
-                <CommercialProfilesView
-                  consultants={consultants}
-                  onRefresh={load}
-                  initialOperatorId={activeProfileOperatorId}
-                />
-              )}
-
-              {tab === "goals" && <CommercialGoalsView initialMonth={month} />}
+                {tab === "goals" && <CommercialGoalsView initialMonth={month} />}
 
               {tab === "calendar" && <CommercialCalendarView initialMonth={month} />}
 
@@ -778,6 +801,7 @@ export function CommercialManagementView() {
           )}
         </div>
       </div>
+      )}
 
       {/* ─── MODAL DETALHADO DE TRATATIVAS POR CONSULTOR (DIRETRIZES CRM) ─── */}
       <CommercialDiretrizesDetailModal
