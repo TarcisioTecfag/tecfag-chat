@@ -13,7 +13,6 @@ import {
   Trophy,
   X,
   XCircle,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
@@ -33,14 +32,10 @@ interface ContactOption {
   name: string;
   phone: string | null;
   email: string | null;
-}
-
-interface MessageCandidate {
-  id: string;
-  content: string;
-  createdAt: string | null;
-  senderName: string;
-  senderType: string;
+  conversationId?: string | null;
+  totalMessages?: number;
+  totalMedia?: number;
+  lastMessageAt?: string | null;
 }
 
 interface EvidenceApiResponse {
@@ -60,7 +55,6 @@ interface EvidenceApiResponse {
   } | null;
   contacts: ContactOption[];
   activeConversationId: string | null;
-  whatsapp: MessageCandidate[];
   calls: Array<{
     id: string;
     startedAt: string;
@@ -136,7 +130,7 @@ export function CommercialEvidenceDialog({
   const [channel, setChannel] = useState<"call" | "whatsapp" | "email">("call");
   const [summary, setSummary] = useState("");
   const [emailContent, setEmailContent] = useState("");
-  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [selectedContactId, setSelectedContactId] = useState("");
   const [selectedCallId, setSelectedCallId] = useState("");
 
   // Passo 2: Desfecho
@@ -178,6 +172,9 @@ export function CommercialEvidenceDialog({
           if (data.deal?.value != null && !wonValue) {
             setWonValue(String(data.deal.value));
           }
+          if (data.contacts && data.contacts.length > 0) {
+            setSelectedContactId((prev) => prev || data.contacts[0].id);
+          }
         }
       })
       .catch((err) => {
@@ -213,6 +210,10 @@ export function CommercialEvidenceDialog({
     apiData?.directive.instruction ||
     "GESTOR PONTUOU ATENÇÃO E EXECUÇÃO NESSA NEGOCIAÇÃO";
 
+  const contactsList = apiData?.contacts || [];
+  const selectedContact =
+    contactsList.find((c) => c.id === selectedContactId) || contactsList[0] || null;
+
   // Avançar para o Passo 2 após validação da evidência
   function handleAdvanceToOutcome(e: React.FormEvent) {
     e.preventDefault();
@@ -224,13 +225,10 @@ export function CommercialEvidenceDialog({
       toast.error("Por favor, cole o cabeçalho e conteúdo do e-mail.");
       return;
     }
-    // Se for whatsapp e summary estiver vazio, coloca um relato padrão amigável
+    // Se for WhatsApp e o resumo estiver vazio, gera nota padrão indicando histórico integral
     if (channel === "whatsapp" && !summary.trim()) {
-      if (selectedMessageIds.length > 0) {
-        setSummary(`Tratativa via WhatsApp com ${selectedMessageIds.length} mensagem(ns) vinculadas.`);
-      } else {
-        setSummary("Mensagem de acompanhamento enviada no WhatsApp.");
-      }
+      const contactName = selectedContact?.name || "contato vinculado";
+      setSummary(`Tratativa via WhatsApp com ${contactName} — Histórico integral arquivado como evidência.`);
     }
     setStep("outcome");
   }
@@ -266,7 +264,7 @@ export function CommercialEvidenceDialog({
       const finalSummary =
         summary.trim() ||
         (channel === "whatsapp"
-          ? "Mensagem de acompanhamento enviada no WhatsApp"
+          ? `Tratativa via WhatsApp com ${selectedContact?.name || "contato vinculado"} — Histórico integral arquivado`
           : channel === "email"
             ? "E-mail comercial enviado"
             : "Ligação efetuada");
@@ -274,15 +272,18 @@ export function CommercialEvidenceDialog({
       const payload = {
         channel,
         source:
-          channel === "whatsapp" && selectedMessageIds.length > 0
+          channel === "whatsapp"
             ? "internal_record"
             : channel === "call" && selectedCallId
               ? "internal_record"
               : "manual_report",
+        contactId:
+          channel === "whatsapp"
+            ? selectedContactId || contactsList[0]?.id || undefined
+            : undefined,
         summary: finalSummary,
         emailContent: channel === "email" ? emailContent.trim() : undefined,
         callId: channel === "call" ? selectedCallId || undefined : undefined,
-        messageIds: channel === "whatsapp" ? selectedMessageIds : undefined,
         nextAction,
         nextTaskTitle: nextAction === "continue" ? nextTaskTitle.trim() : undefined,
         nextTaskDueAt: nextAction === "continue" ? new Date(nextTaskDueAt).toISOString() : undefined,
@@ -468,10 +469,10 @@ export function CommercialEvidenceDialog({
               <div className="space-y-3">
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-300 font-mono">
-                    IDENTIFICAÇÃO DO CONTATO NO WHATSAPP <span className="text-red-500">*</span>
+                    CONTATO VINCULADO NO WHATSAPP <span className="text-red-500">*</span>
                   </label>
                   <p className="mt-0.5 text-[11px] text-zinc-400">
-                    Selecione o contato utilizado na tratativa. O histórico completo de mensagens será sincronizado automaticamente.
+                    Selecione com qual contato você tratou. O sistema vinculará 100% da conversa histórica e preservará todas as mídias como evidência.
                   </p>
                 </div>
 
@@ -488,66 +489,80 @@ export function CommercialEvidenceDialog({
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-[4px] border border-zinc-800 bg-zinc-900/50 p-2.5">
-                    <div className="text-[11px] font-bold text-zinc-400 uppercase font-mono mb-1">
-                      Contato Vinculado:
-                    </div>
-                    <div className="text-xs font-semibold text-zinc-200 flex items-center justify-between">
-                      <span>{contactsList[0].name}</span>
-                      <span className="font-mono text-zinc-400">{contactsList[0].phone || "Sem telefone"}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Mensagens recentes das 24h para seleção */}
-                {whatsappMessages.length > 0 && (
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 font-mono">
-                      Mensagens trocadas nas últimas 24h ({whatsappMessages.length})
-                    </label>
-                    <div className="max-h-36 overflow-y-auto space-y-1 rounded-[4px] border border-zinc-800 bg-zinc-900/60 p-2 text-xs">
-                      {whatsappMessages.map((m) => {
-                        const isSelected = selectedMessageIds.includes(m.id);
-                        return (
-                          <label
-                            key={m.id}
-                            className={`flex items-start gap-2 p-1.5 rounded-[3px] transition-colors cursor-pointer ${
-                              isSelected ? "bg-emerald-950/40 text-emerald-300" : "hover:bg-zinc-800/60 text-zinc-300"
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedMessageIds((prev) => [...prev, m.id]);
-                                } else {
-                                  setSelectedMessageIds((prev) => prev.filter((id) => id !== m.id));
-                                }
-                              }}
-                              className="mt-0.5 rounded-[2px] border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-0"
-                            />
-                            <div className="min-w-0 flex-1 text-[11px] leading-relaxed">
-                              <span className="font-bold text-zinc-200">{m.senderName}: </span>
-                              <span className="line-clamp-2">{m.content}</span>
+                  <div className="space-y-2">
+                    {contactsList.map((contact) => {
+                      const isSelected = (selectedContactId || contactsList[0]?.id) === contact.id;
+                      return (
+                        <div
+                          key={contact.id}
+                          onClick={() => setSelectedContactId(contact.id)}
+                          className={`rounded-[4px] border p-3 cursor-pointer transition-all ${
+                            isSelected
+                              ? "border-emerald-500 bg-emerald-950/25 shadow-[0_0_12px_rgba(16,185,129,0.12)]"
+                              : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                                  isSelected
+                                    ? "border-emerald-500 bg-emerald-500 text-black"
+                                    : "border-zinc-600 bg-zinc-800"
+                                }`}
+                              >
+                                {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                              </div>
+                              <div className="min-w-0">
+                                <span
+                                  className={`text-xs font-bold block truncate ${
+                                    isSelected ? "text-white" : "text-zinc-200"
+                                  }`}
+                                >
+                                  {contact.name}
+                                </span>
+                                {contact.email && (
+                                  <span className="text-[10px] text-zinc-400 block truncate">
+                                    {contact.email}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </label>
-                        );
-                      })}
+
+                            <div className="text-right shrink-0">
+                              <span className="font-mono text-xs font-semibold text-emerald-400 block">
+                                {contact.phone || "Sem telefone"}
+                              </span>
+                              {contact.totalMessages != null && contact.totalMessages > 0 ? (
+                                <span className="text-[10px] text-zinc-400 font-mono block">
+                                  {contact.totalMessages} msgs
+                                  {contact.totalMedia ? ` • ${contact.totalMedia} mídias` : ""}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-zinc-400 font-mono block">
+                                  Histórico integral
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Confirmação Executiva de 100% da Conversa Vinculada */}
+                    <div className="rounded-[4px] border border-emerald-900/60 bg-emerald-950/20 p-3 text-xs text-emerald-300 flex items-start gap-2.5">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-emerald-200">
+                          100% da conversa com {selectedContact?.name || "o contato selecionado"} será vinculada:
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-emerald-300/80 leading-relaxed">
+                          O histórico integral de mensagens e todas as mídias trocadas no sistema serão arquivados como comprovação e evidência auditável da tratativa.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}
-
-                {/* Box de Sincronização Direta do Atendimento */}
-                <div className="rounded-[4px] border border-zinc-800 bg-zinc-900/40 p-3 text-xs text-zinc-300 flex items-start gap-2.5">
-                  <Zap className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-zinc-100">Sincronização Direta do Atendimento:</span>
-                    <span className="ml-1 text-zinc-400">
-                      O histórico das últimas 24h desta conversa é extraído diretamente do sistema em tempo real, sem necessidade de filas noturnas ou barreiras de API.
-                    </span>
-                  </div>
-                </div>
 
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-300 mb-1.5 font-mono">

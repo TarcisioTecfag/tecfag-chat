@@ -1003,83 +1003,83 @@ export function CommercialHomeView({
                             </div>
 
                             {/* Informações da Direita & Ações */}
-                            <div className="flex items-center justify-between gap-5 border-t border-border pt-3 lg:min-w-[380px] lg:border-t-0 lg:pt-0 dark:border-zinc-800">
+                            <div className="flex items-center justify-between gap-5 border-t border-border pt-3 lg:min-w-[390px] lg:border-t-0 lg:pt-0 dark:border-zinc-800">
                               <div>
                                 <div
-                                  className={`text-[10px] font-bold uppercase tracking-[.12em] font-mono ${
+                                  className={`text-[10px] font-bold uppercase tracking-[.15em] font-mono ${
                                     item.overdue && !isDone
-                                      ? "text-red-600 dark:text-red-400"
-                                      : "text-muted-foreground dark:text-zinc-500"
+                                      ? "text-[#ff4d6d] dark:text-[#ff4d6d]"
+                                      : "text-muted-foreground dark:text-zinc-400"
                                   }`}
                                 >
                                   {item.overdue && !isDone
                                     ? `ATRASADA · ${item.assignedDate ? `${item.assignedDate.slice(8, 10)}/${item.assignedDate.slice(5, 7)}` : "08/10"}`
                                     : `HOJE · ${item.assignedDate ? `${item.assignedDate.slice(8, 10)}/${item.assignedDate.slice(5, 7)}` : "08/10"}`}
                                 </div>
-                                <div className="mt-1 font-mono text-sm font-semibold text-foreground dark:text-zinc-50">
+                                <div className="mt-0.5 font-mono text-base font-bold text-foreground dark:text-white tracking-tight">
                                   {formatBRL(item.dealValue)}
                                 </div>
-                                <div className="mt-1 text-[10px] text-muted-foreground dark:text-zinc-400">
-                                  {item.stageName || "Leads Recebidos (Faltam 90d p/ maturar)"}
+                                <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-zinc-400 font-mono truncate max-w-[200px]">
+                                  {item.stageName ? item.stageName.toUpperCase() : "LEADS RECEBIDOS"}
                                 </div>
                               </div>
 
                               <div className="flex items-center gap-2">
                                 {isDone ? (
                                   <>
-                                    <span className="rounded-[4px] bg-muted dark:bg-zinc-800/80 border border-border dark:border-zinc-700 px-2 py-1 text-[10px] font-bold text-foreground dark:text-zinc-300 flex items-center gap-1">
+                                    <span className="rounded-[4px] bg-muted dark:bg-zinc-800/80 border border-border dark:border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-foreground dark:text-zinc-300 flex items-center gap-1.5 shadow-xs">
                                       {item.evidenceChannel === "whatsapp" ? (
                                         <>
-                                          <MessageSquare size={12} className="text-emerald-400" />
+                                          <MessageSquare size={13} className="text-emerald-400" />
                                           <span>WhatsApp</span>
                                         </>
                                       ) : item.evidenceChannel === "call" ? (
                                         <>
-                                          <Phone size={12} className="text-emerald-400" />
+                                          <Phone size={13} className="text-emerald-400" />
                                           <span>Ligação</span>
                                         </>
                                       ) : item.evidenceChannel === "email" ? (
                                         <>
-                                          <Mail size={12} className="text-emerald-400" />
+                                          <Mail size={13} className="text-emerald-400" />
                                           <span>E-mail</span>
                                         </>
                                       ) : (
                                         <>
-                                          <Check size={12} className="text-emerald-400" />
+                                          <Check size={13} className="text-emerald-400" strokeWidth={2.5} />
                                           <span>Concluído</span>
                                         </>
                                       )}
                                     </span>
                                     <motion.button
-                                      whileHover={{ scale: 1.05, y: -1 }}
-                                      whileTap={{ scale: 0.95 }}
+                                      whileHover={{ scale: 1.04, y: -1 }}
+                                      whileTap={{ scale: 0.96 }}
                                       onClick={() => openDeal(item.dealId)}
-                                      className="flex items-center gap-1.5 border border-border bg-card px-3 py-1.5 text-xs font-bold text-foreground hover:border-primary hover:text-primary cursor-pointer rounded-[4px] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-rose-400 dark:hover:text-zinc-50 shadow-sm"
+                                      className="flex items-center gap-1.5 border border-zinc-700/80 bg-zinc-900/60 hover:bg-zinc-800/80 hover:border-zinc-600 px-3.5 py-2 text-xs font-bold text-zinc-200 hover:text-white cursor-pointer rounded-[4px] shadow-sm transition-all"
                                     >
-                                      <ExternalLink size={13} />
+                                      <ExternalLink size={13} strokeWidth={2} />
                                       CRM
                                     </motion.button>
                                   </>
                                 ) : (
                                   <>
                                     <motion.button
-                                      whileHover={{ scale: 1.06, y: -1 }}
-                                      whileTap={{ scale: 0.95 }}
+                                      whileHover={{ scale: 1.04, y: -1 }}
+                                      whileTap={{ scale: 0.96 }}
                                       transition={{ duration: 0.15 }}
                                       onClick={() => setSelectedDirective(item)}
-                                      className="flex items-center gap-1.5 border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer rounded-[4px] shadow-sm transition-all"
+                                      className="flex items-center gap-1.5 bg-[#00a868] hover:bg-[#00965d] active:bg-[#008f57] px-4 py-2 text-xs sm:text-[13px] font-bold text-white cursor-pointer rounded-[4px] shadow-sm transition-all"
                                     >
-                                      <Check size={14} strokeWidth={2.5} />
+                                      <Check size={14} strokeWidth={2.8} />
                                       Concluir
                                     </motion.button>
                                     <motion.button
-                                      whileHover={{ scale: 1.06, y: -1 }}
-                                      whileTap={{ scale: 0.95 }}
+                                      whileHover={{ scale: 1.04, y: -1 }}
+                                      whileTap={{ scale: 0.96 }}
                                       transition={{ duration: 0.15 }}
                                       onClick={() => openDeal(item.dealId)}
-                                      className="flex items-center gap-1.5 border border-border bg-card px-3 py-1.5 text-xs font-bold text-foreground hover:border-primary hover:text-primary cursor-pointer rounded-[4px] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-rose-400 dark:hover:text-zinc-50 transition-all shadow-sm"
+                                      className="flex items-center gap-1.5 border border-zinc-700/80 bg-zinc-900/60 hover:bg-zinc-800/80 hover:border-zinc-600 px-3.5 py-2 text-xs sm:text-[13px] font-bold text-zinc-100 hover:text-white cursor-pointer rounded-[4px] transition-all shadow-sm"
                                     >
-                                      <ExternalLink size={13} />
+                                      <ExternalLink size={13} strokeWidth={2} />
                                       Abrir CRM
                                     </motion.button>
                                   </>

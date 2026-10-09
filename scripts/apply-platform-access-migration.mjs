@@ -124,6 +124,10 @@ const migrations = [
     name: "0032_commercial_pipeline_by_division",
     url: new URL("../src/db/migrations/0032_commercial_pipeline_by_division.sql", import.meta.url),
   },
+  {
+    name: "0033_tecfag_crm_pipelines_and_stages",
+    url: new URL("../src/db/migrations/0033_tecfag_crm_pipelines_and_stages.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 
