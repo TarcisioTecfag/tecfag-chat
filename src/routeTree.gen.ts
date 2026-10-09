@@ -132,6 +132,7 @@ import { Route as ApiLivechatVisitorVisitorIdRouteImport } from './routes/api/li
 import { Route as ApiCrmStagesStageIdRouteImport } from './routes/api/crm/stages/$stageId'
 import { Route as ApiCrmProductsProductIdRouteImport } from './routes/api/crm/products/$productId'
 import { Route as ApiCrmPipelinesPipelineIdRouteImport } from './routes/api/crm/pipelines/$pipelineId'
+import { Route as ApiCrmImportSyncStatusRouteImport } from './routes/api/crm/import/sync-status'
 import { Route as ApiCrmImportRdCrmRouteImport } from './routes/api/crm/import/rd-crm'
 import { Route as ApiCrmDealsBulkRouteImport } from './routes/api/crm/deals/bulk'
 import { Route as ApiCrmDealsDealIdRouteImport } from './routes/api/crm/deals/$dealId'
@@ -795,6 +796,11 @@ const ApiCrmPipelinesPipelineIdRoute =
     path: '/$pipelineId',
     getParentRoute: () => ApiCrmPipelinesRoute,
   } as any)
+const ApiCrmImportSyncStatusRoute = ApiCrmImportSyncStatusRouteImport.update({
+  id: '/api/crm/import/sync-status',
+  path: '/api/crm/import/sync-status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmImportRdCrmRoute = ApiCrmImportRdCrmRouteImport.update({
   id: '/api/crm/import/rd-crm',
   path: '/api/crm/import/rd-crm',
@@ -1094,6 +1100,7 @@ export interface FileRoutesByFullPath {
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
+  '/api/crm/import/sync-status': typeof ApiCrmImportSyncStatusRoute
   '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
   '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
@@ -1249,6 +1256,7 @@ export interface FileRoutesByTo {
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
+  '/api/crm/import/sync-status': typeof ApiCrmImportSyncStatusRoute
   '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
   '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
@@ -1405,6 +1413,7 @@ export interface FileRoutesById {
   '/api/crm/deals/$dealId': typeof ApiCrmDealsDealIdRouteWithChildren
   '/api/crm/deals/bulk': typeof ApiCrmDealsBulkRoute
   '/api/crm/import/rd-crm': typeof ApiCrmImportRdCrmRoute
+  '/api/crm/import/sync-status': typeof ApiCrmImportSyncStatusRoute
   '/api/crm/pipelines/$pipelineId': typeof ApiCrmPipelinesPipelineIdRouteWithChildren
   '/api/crm/products/$productId': typeof ApiCrmProductsProductIdRoute
   '/api/crm/stages/$stageId': typeof ApiCrmStagesStageIdRoute
@@ -1562,6 +1571,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
+    | '/api/crm/import/sync-status'
     | '/api/crm/pipelines/$pipelineId'
     | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
@@ -1717,6 +1727,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
+    | '/api/crm/import/sync-status'
     | '/api/crm/pipelines/$pipelineId'
     | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
@@ -1872,6 +1883,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId'
     | '/api/crm/deals/bulk'
     | '/api/crm/import/rd-crm'
+    | '/api/crm/import/sync-status'
     | '/api/crm/pipelines/$pipelineId'
     | '/api/crm/products/$productId'
     | '/api/crm/stages/$stageId'
@@ -2008,6 +2020,7 @@ export interface RootRouteChildren {
   ApiWhatsappSendRoute: typeof ApiWhatsappSendRoute
   CrmDealsDealIdRoute: typeof CrmDealsDealIdRoute
   ApiCrmImportRdCrmRoute: typeof ApiCrmImportRdCrmRoute
+  ApiCrmImportSyncStatusRoute: typeof ApiCrmImportSyncStatusRoute
   ApiCrmStagesStageIdRoute: typeof ApiCrmStagesStageIdRoute
   ApiLivechatVisitorVisitorIdRoute: typeof ApiLivechatVisitorVisitorIdRoute
 }
@@ -2875,6 +2888,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmPipelinesPipelineIdRouteImport
       parentRoute: typeof ApiCrmPipelinesRoute
     }
+    '/api/crm/import/sync-status': {
+      id: '/api/crm/import/sync-status'
+      path: '/api/crm/import/sync-status'
+      fullPath: '/api/crm/import/sync-status'
+      preLoaderRoute: typeof ApiCrmImportSyncStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/crm/import/rd-crm': {
       id: '/api/crm/import/rd-crm'
       path: '/api/crm/import/rd-crm'
@@ -3500,6 +3520,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWhatsappSendRoute: ApiWhatsappSendRoute,
   CrmDealsDealIdRoute: CrmDealsDealIdRoute,
   ApiCrmImportRdCrmRoute: ApiCrmImportRdCrmRoute,
+  ApiCrmImportSyncStatusRoute: ApiCrmImportSyncStatusRoute,
   ApiCrmStagesStageIdRoute: ApiCrmStagesStageIdRoute,
   ApiLivechatVisitorVisitorIdRoute: ApiLivechatVisitorVisitorIdRoute,
 }

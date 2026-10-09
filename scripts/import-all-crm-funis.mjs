@@ -547,6 +547,14 @@ async function main() {
                   if (phone) registerContactPhone(phone, contactId);
                   if (email) contactByEmail.set(email, contactId);
                   if (rdContactId) contactByRdId.set(rdContactId, contactId);
+
+                  if (accountId) {
+                    await tx`
+                      UPDATE contacts
+                      SET account_id = COALESCE(account_id, ${accountId})
+                      WHERE id = ${contactId} AND tenant_id = ${tenantId} AND account_id IS NULL
+                    `;
+                  }
                 }
 
                 // Vínculo Deal ↔ Contact
@@ -566,6 +574,33 @@ async function main() {
       }
 
       console.log(`   ✓ Concluído com sucesso lote do funil ${conf.pipeName}.`);
+    }
+
+    if (isExecute) {
+      console.log(`\n🔗 Executando reconciliação relacional Empresa ↔ Contato...`);
+      const updatedContacts = await sql`
+        UPDATE contacts c
+        SET account_id = d.account_id
+        FROM crm_deal_contacts dc
+        JOIN crm_deals d ON d.id = dc.deal_id
+        WHERE dc.contact_id = c.id
+          AND c.tenant_id = ${tenantId}
+          AND c.account_id IS NULL
+          AND d.account_id IS NOT NULL
+      `;
+      console.log(`   ✓ ${updatedContacts.count} contatos associados à empresa das negociações.`);
+
+      const updatedDeals = await sql`
+        UPDATE crm_deals d
+        SET account_id = c.account_id
+        FROM crm_deal_contacts dc
+        JOIN contacts c ON c.id = dc.contact_id
+        WHERE dc.deal_id = d.id
+          AND d.tenant_id = ${tenantId}
+          AND d.account_id IS NULL
+          AND c.account_id IS NOT NULL
+      `;
+      console.log(`   ✓ ${updatedDeals.count} negociações enriquecidas com a empresa do contato.`);
     }
 
     console.log(`\n============================================================`);
