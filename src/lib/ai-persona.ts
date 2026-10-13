@@ -1,10 +1,10 @@
 /**
  * ai-persona.ts
- * 
+ *
  * Fonte única de verdade para as personas de IA por tenant.
  * NUNCA hardcode o nome da IA diretamente na UI ou nos prompts.
  * SEMPRE use `getAiPersona(tenantId)` para obter o nome, gênero e avatar corretos.
- * 
+ *
  * Regra do projeto (AGENTS.md):
  *   - valem  → Valentina (SDR comercial, feminina, Valem Valvulas e Embalagens)
  *   - tecfag → Fagner (consultor técnico, masculino, Tecfag Informática)
@@ -69,6 +69,11 @@ const PERSONAS: Record<string, AiPersona> = {
   },
 };
 
+/** Gate central de implantação dos motores SDR, supervisor e QA. */
+export function isSdrTenant(tenantId: string) {
+  return PERSONAS[tenantId]?.chatFeatureKey === "valentina_chat";
+}
+
 /**
  * Retorna se o ambiente atual está no modo escuro.
  */
@@ -78,11 +83,17 @@ function resolveIsDark(themeOrIsDark?: boolean | "light" | "dark"): boolean {
   if (themeOrIsDark === "light") return false;
   if (typeof window !== "undefined") {
     try {
-      if (typeof document !== "undefined" && document?.documentElement?.classList?.contains?.("dark")) return true;
-      const saved = typeof localStorage !== "undefined" ? localStorage.getItem("chat_theme_mode") : null;
+      if (
+        typeof document !== "undefined" &&
+        document?.documentElement?.classList?.contains?.("dark")
+      )
+        return true;
+      const saved =
+        typeof localStorage !== "undefined" ? localStorage.getItem("chat_theme_mode") : null;
       if (saved === "dark") return true;
       if (saved === "light") return false;
-      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) return true;
+      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
+        return true;
     } catch {}
   }
   return true; // Default dark
@@ -94,12 +105,12 @@ function resolveIsDark(themeOrIsDark?: boolean | "light" | "dark"): boolean {
  */
 export function getAiPersona(
   tenantId: string = "valem",
-  themeOrIsDark?: boolean | "light" | "dark"
+  themeOrIsDark?: boolean | "light" | "dark",
 ): AiPersona {
   const base = PERSONAS[tenantId];
   if (!base) {
     console.warn(
-      `[ai-persona] Tenant desconhecido: "${tenantId}". Usando persona fallback neutra. Verifique o tenantId.`
+      `[ai-persona] Tenant desconhecido: "${tenantId}". Usando persona fallback neutra. Verifique o tenantId.`,
     );
     return {
       name: "Assistente",

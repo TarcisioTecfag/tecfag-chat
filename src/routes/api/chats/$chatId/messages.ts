@@ -66,6 +66,7 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
           // Inverte para retornar em ordem cronológica (mais antiga -> mais recente)
           const chronological = rows.reverse().map((r) => ({
             id: r.id,
+            clientMessageId: r.idempotencyKey,
             author: r.senderName,
             text: r.content,
             time: new Date(r.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }),
@@ -75,7 +76,7 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
             isInternalNote: r.isInternalNote,
             status: r.status,
             provider: r.provider,
-            errorMessage: r.status === "failed" ? r.errorMessage : null,
+            errorMessage: r.errorMessage,
             quotedMessageId: r.quotedMessageId,
             quotedMessageSender: r.quotedMessageSender,
             quotedMessageContent: r.quotedMessageContent,

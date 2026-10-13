@@ -1,3 +1,4 @@
+import { runtimeSingleton } from "../runtime-singleton";
 import { db } from "../../db";
 import {
   pendingInbounds,
@@ -16,6 +17,8 @@ import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
 import crypto from "node:crypto";
 
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 export class InboundProcessor {
   private static instance: InboundProcessor;
 
@@ -23,7 +26,7 @@ export class InboundProcessor {
 
   static getInstance(): InboundProcessor {
     if (!InboundProcessor.instance) {
-      InboundProcessor.instance = new InboundProcessor();
+      InboundProcessor.instance = runtimeSingleton("InboundProcessor", () => new InboundProcessor());
     }
     return InboundProcessor.instance;
   }
@@ -32,7 +35,107 @@ export class InboundProcessor {
    * Processa evento de entrada de mensagem (Baileys ou Meta) de forma resiliente,
    * garantindo deduplicação, criação de contato/conversa, persistência e notificação.
    */
-  async process(inbound: UniversalInboundMessage): Promise<{
+  async process(inbound: UniversalInboundMessage) {
+    const { tenantId, externalEventId } = inbound;
+    const id =
+      "inb_" +
+      crypto
+        .createHash("sha256")
+        .update(tenantId + ":" + externalEventId)
+        .digest("hex");
+    await db
+      .insert(pendingInbounds)
+      .values({
+        id,
+        tenantId,
+        provider: inbound.provider,
+        externalEventId,
+        status: "pending",
+        attempts: 0,
+        nextRetryAt: new Date(),
+        payload: {
+          ...(inbound.rawPayload || {}),
+          fromPhone: inbound.fromPhone,
+          fromUserId: inbound.fromUserId,
+          senderName: inbound.senderName,
+          whatsappUsername: inbound.whatsappUsername,
+          text: inbound.rawPayload?.text || inbound.text,
+          timestamp: inbound.rawPayload?.timestamp || String(inbound.timestamp.getTime() / 1000),
+        },
+      })
+      .onConflictDoNothing();
+    let result;
+    try {
+      result = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${externalEventId}))`,
+        );
+        return this.processInTransaction(inbound, tx);
+      });
+    } catch (error: any) {
+      await db
+        .update(pendingInbounds)
+        .set({
+          status: "failed",
+          attempts: sql`${pendingInbounds.attempts} + 1`,
+          errorMessage: "Falha no processamento; evento preservado.",
+          nextRetryAt: new Date(Date.now() + 60_000),
+        })
+        .where(
+          and(
+            eq(pendingInbounds.tenantId, tenantId),
+            eq(pendingInbounds.externalEventId, externalEventId),
+            sql`${pendingInbounds.status} != 'processed'`,
+          ),
+        );
+      return { success: false, error: "Falha no processamento; evento preservado." };
+    }
+    if (result.success && !result.duplicate && result.messageId && result.conversationId) {
+      try {
+        const [msg] = await db
+          .select()
+          .from(messages)
+          .where(and(eq(messages.tenantId, tenantId), eq(messages.id, result.messageId)));
+        const [conv] = await db
+          .select()
+          .from(conversations)
+          .where(
+            and(eq(conversations.tenantId, tenantId), eq(conversations.id, result.conversationId)),
+          );
+        SessionManager.getInstance().notifyPublic(tenantId, {
+          type: "message",
+          message: {
+            ...msg,
+            phone: inbound.fromPhone,
+            queue: conv.queueState,
+            operatorId: conv.operatorId,
+          },
+        });
+        if (conv.operatorId)
+          void sendPushToOperator(tenantId, conv.operatorId, {
+            title: msg.senderName,
+            body: msg.content,
+            conversationId: conv.id,
+            tenantId,
+            url: "/?chatId=" + conv.id,
+          }).catch(() => {});
+        void checkAndSendOperatorStatusAutoReply({
+          tenantId,
+          conversationId: conv.id,
+          contactId: conv.contactId,
+          incomingMessageTime: inbound.timestamp,
+        }).catch(() => {});
+      } catch {
+        console.error("[Inbound] Mensagem persistida; notificação indisponível.");
+      }
+    }
+    return result;
+  }
+
+  private async processInTransaction(
+    inbound: UniversalInboundMessage,
+    db: Transaction,
+  ): Promise<{
     success: boolean;
     duplicate?: boolean;
     messageId?: string;
@@ -61,99 +164,77 @@ export class InboundProcessor {
       return { success: false, error: "Identidade de origem inválida" };
     }
 
-    // Trava de concorrência atômica via pg_advisory_xact_lock quando há ID de evento externo
-    if (externalEventId) {
-      try {
-        await db.execute(
-          sql`SELECT pg_advisory_xact_lock(hashtext(${'inb:' + tenantId + ':' + externalEventId}))`
-        );
-      } catch (lockErr) {
-        // Advisory lock seguro — se o banco não suportar (ex: sqlite em mock), continua
-      }
-    }
-
-    // 1. Deduplicação durável em pending_inbounds & retomada sem INSERT duplicado
-    let targetInboundId = `inb-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    let isResuming = false;
-
-    if (externalEventId) {
-      const [existingEvent] = await db
-        .select({ id: pendingInbounds.id, status: pendingInbounds.status, attempts: pendingInbounds.attempts })
-        .from(pendingInbounds)
+    const [event] = await db
+      .select()
+      .from(pendingInbounds)
+      .where(
+        and(
+          eq(pendingInbounds.tenantId, tenantId),
+          eq(pendingInbounds.externalEventId, externalEventId),
+        ),
+      );
+    if (!event) throw new Error("Evento durável ausente.");
+    const targetInboundId = event.id;
+    if (event.status === "processed") return { success: true, duplicate: true };
+    const [persisted] = await db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.tenantId, tenantId),
+          eq(messages.direction, "inbound"),
+          eq(messages.externalId, externalEventId),
+        ),
+      )
+      .limit(1);
+    if (persisted) {
+      await db
+        .update(pendingInbounds)
+        .set({ status: "processed", processedAt: new Date() })
         .where(
-          and(
-            eq(pendingInbounds.tenantId, tenantId),
-            eq(pendingInbounds.externalEventId, externalEventId)
-          )
+          and(eq(pendingInbounds.tenantId, tenantId), eq(pendingInbounds.id, targetInboundId)),
         );
-
-      if (existingEvent) {
-        if (existingEvent.status === "processed") {
-          console.log(`[InboundProcessor] Evento duplicado descartado: ${externalEventId}`);
-          return { success: true, duplicate: true };
-        }
-
-        // Retomada de evento pendente/em processamento: faz UPDATE em vez de tentar novo INSERT
-        targetInboundId = existingEvent.id;
-        isResuming = true;
-        await db
-          .update(pendingInbounds)
-          .set({
-            status: "processing",
-            attempts: (existingEvent.attempts || 1) + 1,
-            errorMessage: null,
-          })
-          .where(eq(pendingInbounds.id, existingEvent.id));
-      }
+      return {
+        success: true,
+        duplicate: true,
+        messageId: persisted.id,
+        conversationId: persisted.conversationId,
+      };
     }
-
-    if (!isResuming) {
-      try {
-        await db.insert(pendingInbounds).values({
-          id: targetInboundId,
-          tenantId,
-          provider,
-          externalEventId: externalEventId || targetInboundId,
-          payload: rawPayload || { text, fromPhone },
-          status: "processing",
-          attempts: 1,
-          createdAt: new Date(),
-        });
-      } catch (insertErr: any) {
-        const code = insertErr?.code || insertErr?.cause?.code;
-        const constraint = insertErr?.constraint || insertErr?.cause?.constraint_name || insertErr?.cause?.constraint;
-        const msg = `${insertErr?.message || ""} ${insertErr?.cause?.message || ""} ${insertErr?.detail || ""} ${insertErr?.cause?.detail || ""}`;
-        const isDuplicate =
-          code === "23505" ||
-          constraint === "idx_pending_inbounds_tenant_event_uniq" ||
-          msg.includes("idx_pending_inbounds_tenant_event_uniq") ||
-          msg.includes("restrição de unicidade") ||
-          msg.includes("unique constraint");
-
-        if (externalEventId && isDuplicate) {
-          console.log(
-            `[InboundProcessor] Evento duplicado concorrente descartado (23505): ${externalEventId}`
-          );
-          return { success: true, duplicate: true };
-        }
-        throw insertErr;
-      }
-    }
+    await db
+      .update(pendingInbounds)
+      .set({ status: "processing", attempts: sql`${pendingInbounds.attempts} + 1` })
+      .where(and(eq(pendingInbounds.tenantId, tenantId), eq(pendingInbounds.id, targetInboundId)));
 
     try {
       // 2. Resolução do Contato (contacts)
-      let contact = userId ? (await db.select().from(contacts)
-        .where(and(eq(contacts.tenantId, tenantId), eq(contacts.whatsappUserId, userId))).limit(1))[0] : undefined;
+      let contact = userId
+        ? (
+            await db
+              .select()
+              .from(contacts)
+              .where(and(eq(contacts.tenantId, tenantId), eq(contacts.whatsappUserId, userId)))
+              .limit(1)
+          )[0]
+        : undefined;
 
       const canonicalPhone = normalizeCanonicalPhone(cleanPhone);
       const phoneTerms = buildPhoneSearchTerms(canonicalPhone || cleanPhone);
 
       if (!contact && phoneTerms.length > 0) {
-        const matching = await db.select().from(contacts)
-          .where(and(
-            eq(contacts.tenantId, tenantId),
-            or(...phoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
-          ))
+        const matching = await db
+          .select()
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.tenantId, tenantId),
+              or(
+                ...phoneTerms.map(
+                  (term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,
+                ),
+              ),
+            ),
+          )
           .limit(1);
         if (matching.length > 0) {
           contact = matching[0];
@@ -166,7 +247,11 @@ export class InboundProcessor {
 
       if (!contact) {
         const contactId = `cont-${crypto.randomUUID()}`;
-        const newContactName = senderName?.trim() || (whatsappUsername ? `@${whatsappUsername}` : canonicalPhone || cleanPhone || "Contato WhatsApp");
+        const newContactName =
+          senderName?.trim() ||
+          (whatsappUsername
+            ? `@${whatsappUsername}`
+            : canonicalPhone || cleanPhone || "Contato WhatsApp");
 
         const [createdContact] = await db
           .insert(contacts)
@@ -189,17 +274,35 @@ export class InboundProcessor {
         if (userId && !contact.whatsappUserId) identityUpdates.whatsappUserId = userId;
         // Auto-cura: se o contato estava sem phone ou com phone não canônico (ex: sem 55), atualiza para o canonicalPhone
         if (canonicalPhone && (!contact.phone || contact.phone !== canonicalPhone)) {
-          const [phoneOwner] = await db.select({ id: contacts.id }).from(contacts)
-            .where(and(eq(contacts.tenantId, tenantId), eq(contacts.phone, canonicalPhone))).limit(1);
+          const [phoneOwner] = await db
+            .select({ id: contacts.id })
+            .from(contacts)
+            .where(and(eq(contacts.tenantId, tenantId), eq(contacts.phone, canonicalPhone)))
+            .limit(1);
           if (!phoneOwner || phoneOwner.id === contact.id) identityUpdates.phone = canonicalPhone;
         }
-        if (userId && whatsappUsername !== undefined && contact.whatsappUsername !== whatsappUsername) {
+        if (
+          userId &&
+          whatsappUsername !== undefined &&
+          contact.whatsappUsername !== whatsappUsername
+        ) {
           identityUpdates.whatsappUsername = whatsappUsername;
         }
-        if (senderName && (contact.name === contact.phone || contact.name === "Contato WhatsApp" || (contact.phone && contact.name === `+${contact.phone}`))) {
+        if (
+          senderName &&
+          (contact.name === contact.phone ||
+            contact.name === "Contato WhatsApp" ||
+            (contact.phone && contact.name === `+${contact.phone}`))
+        ) {
           identityUpdates.name = senderName.trim();
-        } else if (whatsappUsername !== undefined && contact.whatsappUsername && contact.name === `@${contact.whatsappUsername}`) {
-          identityUpdates.name = whatsappUsername ? `@${whatsappUsername}` : contact.phone || "Contato WhatsApp";
+        } else if (
+          whatsappUsername !== undefined &&
+          contact.whatsappUsername &&
+          contact.name === `@${contact.whatsappUsername}`
+        ) {
+          identityUpdates.name = whatsappUsername
+            ? `@${whatsappUsername}`
+            : contact.phone || "Contato WhatsApp";
         }
         if (Object.keys(identityUpdates).length) {
           await db
@@ -214,15 +317,18 @@ export class InboundProcessor {
       let [activeConv] = await db
         .select()
         .from(conversations)
-        .where(
-          and(
-            eq(conversations.tenantId, tenantId),
-            eq(conversations.contactId, contact.id)
-          )
-        )
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contact.id)))
         .orderBy(desc(conversations.lastMessageTime))
         .limit(1);
 
+      if (activeConv) {
+        const [locked] = await db
+          .select()
+          .from(conversations)
+          .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, activeConv.id)))
+          .for("update");
+        activeConv = locked;
+      }
       const aiPersona = getAiPersona(tenantId);
       const lastTextPreview = text || (media ? `[Mídia: ${media.fileName || media.mimeType}]` : "");
       const normalizedContactPhone = (cleanPhone || contact.phone || "").replace(/\D/g, "");
@@ -241,10 +347,7 @@ export class InboundProcessor {
             .select({ id: operators.id, name: operators.name })
             .from(operators)
             .where(
-              and(
-                eq(operators.id, contact.walletOperatorId),
-                eq(operators.tenantId, tenantId)
-              )
+              and(eq(operators.id, contact.walletOperatorId), eq(operators.tenantId, tenantId)),
             );
 
           if (walletOp) {
@@ -265,49 +368,81 @@ export class InboundProcessor {
         activeConv = await db.transaction(async (tx) => {
           // A mesma chave é usada na criação manual. Evita dois históricos quando
           // mensagens simultâneas chegam antes de qualquer conversa existir.
-          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId}))`);
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId}))`,
+          );
           if (normalizedContactPhone.length >= 8) {
-            await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedContactPhone}))`);
+            await tx.execute(
+              sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedContactPhone}))`,
+            );
             const convPhoneTerms = buildPhoneSearchTerms(normalizedContactPhone);
-            const matchingHistories = await tx.select({ conversation: conversations })
+            const matchingHistories = await tx
+              .select({ conversation: conversations })
               .from(conversations)
-              .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
-              .where(and(
-                eq(conversations.tenantId, tenantId),
-                or(...convPhoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
-              ))
+              .innerJoin(
+                contacts,
+                and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)),
+              )
+              .where(
+                and(
+                  eq(conversations.tenantId, tenantId),
+                  or(
+                    ...convPhoneTerms.map(
+                      (term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,
+                    ),
+                  ),
+                ),
+              )
               .orderBy(desc(conversations.lastMessageTime))
               .limit(1);
             if (matchingHistories.length) return matchingHistories[0].conversation;
           }
-          const [existing] = await tx.select().from(conversations)
-            .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)))
-            .orderBy(desc(conversations.lastMessageTime)).limit(1);
+          const [existing] = await tx
+            .select()
+            .from(conversations)
+            .where(
+              and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)),
+            )
+            .orderBy(desc(conversations.lastMessageTime))
+            .limit(1);
           if (existing) return existing;
-          const [created] = await tx.insert(conversations).values({
-            id: convId,
-            tenantId,
-            contactId,
-            operatorId: initialOperatorId,
-            queueState: initialQueueState,
-            unreadCount: 1,
-            lastMessageText: lastTextPreview,
-            version: 1,
-            lastMessageTime: timestamp,
-            createdAt: timestamp,
-            updatedAt: timestamp,
-          }).returning();
+          const [created] = await tx
+            .insert(conversations)
+            .values({
+              id: convId,
+              tenantId,
+              contactId,
+              operatorId: initialOperatorId,
+              queueState: initialQueueState,
+              unreadCount: 1,
+              lastMessageText: lastTextPreview,
+              version: 1,
+              lastMessageTime: timestamp,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            })
+            .returning();
           createdConversation = true;
           return created;
         });
         if (activeConv.contactId !== contact.id) {
-          const [canonicalContact] = await db.select().from(contacts)
-            .where(and(eq(contacts.id, activeConv.contactId), eq(contacts.tenantId, tenantId))).limit(1);
-          if (!canonicalContact || (userId && canonicalContact.whatsappUserId && canonicalContact.whatsappUserId !== userId)) {
+          const [canonicalContact] = await db
+            .select()
+            .from(contacts)
+            .where(and(eq(contacts.id, activeConv.contactId), eq(contacts.tenantId, tenantId)))
+            .limit(1);
+          if (
+            !canonicalContact ||
+            (userId &&
+              canonicalContact.whatsappUserId &&
+              canonicalContact.whatsappUserId !== userId)
+          ) {
             throw new Error("Identidade WhatsApp conflitante para o histórico deste telefone");
           }
           if (userId && !canonicalContact.whatsappUserId) {
-            await db.update(contacts).set({ whatsappUserId: userId })
+            await db
+              .update(contacts)
+              .set({ whatsappUserId: userId })
               .where(and(eq(contacts.id, canonicalContact.id), eq(contacts.tenantId, tenantId)));
             canonicalContact.whatsappUserId = userId;
           }
@@ -317,7 +452,8 @@ export class InboundProcessor {
 
       if (!createdConversation && activeConv.queueState === "finalizados") {
         // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico
-        let reOpenOperatorId: string | null = provider === "meta" ? null : activeConv.operatorId || null;
+        let reOpenOperatorId: string | null =
+          provider === "meta" ? null : activeConv.operatorId || null;
         let reOpenQueueState = "fila";
 
         if (contact.walletOperatorId && provider !== "meta") {
@@ -325,10 +461,7 @@ export class InboundProcessor {
             .select({ id: operators.id, name: operators.name })
             .from(operators)
             .where(
-              and(
-                eq(operators.id, contact.walletOperatorId),
-                eq(operators.tenantId, tenantId)
-              )
+              and(eq(operators.id, contact.walletOperatorId), eq(operators.tenantId, tenantId)),
             );
 
           if (walletOp) {
@@ -350,9 +483,11 @@ export class InboundProcessor {
           .set({
             operatorId: reOpenOperatorId,
             queueState: reOpenQueueState,
-            unreadCount: (activeConv.unreadCount || 0) + 1,
-            lastMessageText: lastTextPreview,
-            lastMessageTime: timestamp,
+            unreadCount: sql`${conversations.unreadCount} + 1`,
+            lastMessageText:
+              activeConv.lastMessageTime > timestamp ? activeConv.lastMessageText : lastTextPreview,
+            lastMessageTime:
+              activeConv.lastMessageTime > timestamp ? activeConv.lastMessageTime : timestamp,
             updatedAt: new Date(),
             version: (activeConv.version || 1) + 1,
           })
@@ -372,9 +507,11 @@ export class InboundProcessor {
         await db
           .update(conversations)
           .set({
-            unreadCount: (activeConv.unreadCount || 0) + 1,
-            lastMessageText: lastTextPreview,
-            lastMessageTime: timestamp,
+            unreadCount: sql`${conversations.unreadCount} + 1`,
+            lastMessageText:
+              activeConv.lastMessageTime > timestamp ? activeConv.lastMessageText : lastTextPreview,
+            lastMessageTime:
+              activeConv.lastMessageTime > timestamp ? activeConv.lastMessageTime : timestamp,
             updatedAt: new Date(),
           })
           .where(and(eq(conversations.id, activeConv.id), eq(conversations.tenantId, tenantId)));
@@ -384,24 +521,33 @@ export class InboundProcessor {
       let mediaFileId: string | null = null;
       if (media?.dataBuffer) {
         mediaFileId = `med_${crypto.createHash("sha256").update(`${tenantId}:${externalEventId}`).digest("hex").slice(0, 32)}`;
-        await db.insert(mediaFiles).values({
-          id: mediaFileId,
-          tenantId,
-          conversationId: activeConv.id,
-          fileName: media.fileName || "arquivo",
-          mimeType: media.mimeType,
-          fileSize: media.dataBuffer.length,
-          base64Data: media.dataBuffer.toString("base64"),
-          createdAt: timestamp,
-        }).onConflictDoNothing();
+        await db
+          .insert(mediaFiles)
+          .values({
+            id: mediaFileId,
+            tenantId,
+            conversationId: activeConv.id,
+            fileName: media.fileName || "arquivo",
+            mimeType: media.mimeType,
+            fileSize: media.dataBuffer.length,
+            base64Data: media.dataBuffer.toString("base64"),
+            createdAt: timestamp,
+          })
+          .onConflictDoNothing();
       }
 
       // 5. Inserção da Mensagem Recebida (messages)
-      const messageId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const messageId =
+        "msg_in_" +
+        crypto
+          .createHash("sha256")
+          .update(tenantId + ":" + externalEventId)
+          .digest("hex");
       const safeFileName = (media?.fileName || "arquivo").replace(/:/g, "_");
-      const messageContent = mediaFileId && media?.mediaType
-        ? `[MEDIA:${media.mediaType}]${mediaFileId}${media.mediaType === "document" ? `:${safeFileName}` : ""}${text ? `\n${text}` : ""}`
-        : text || (media ? `[Mídia: ${safeFileName}]` : "");
+      const messageContent =
+        mediaFileId && media?.mediaType
+          ? `[MEDIA:${media.mediaType}]${mediaFileId}${media.mediaType === "document" ? `:${safeFileName}` : ""}${text ? `\n${text}` : ""}`
+          : text || (media ? `[Mídia: ${safeFileName}]` : "");
 
       // Resolução da mensagem citada (Reply / Quote do WhatsApp)
       let resolvedQuotedId: string | null = quotedExternalId || null;
@@ -424,15 +570,18 @@ export class InboundProcessor {
                 or(
                   eq(messages.externalId, quotedExternalId),
                   eq(messages.id, quotedExternalId),
-                  like(messages.externalId, `%${quotedExternalId}%`)
-                )
-              )
+                  like(messages.externalId, `%${quotedExternalId}%`),
+                ),
+              ),
             )
             .limit(1);
 
           if (foundQuoted) {
             resolvedQuotedId = foundQuoted.id;
-            quotedMessageSender = foundQuoted.senderType === "agent" ? "Você" : (foundQuoted.senderName || contact.name || "Cliente");
+            quotedMessageSender =
+              foundQuoted.senderType === "agent"
+                ? "Você"
+                : foundQuoted.senderName || contact.name || "Cliente";
             quotedMessageContent = foundQuoted.content;
           } else {
             quotedMessageSender = "Mensagem";
@@ -462,78 +611,21 @@ export class InboundProcessor {
         updatedAt: timestamp,
       });
 
-      // 6. Notificação via SSE em tempo real para os atendentes conectados.
-      // O formato é o mesmo emitido pelo Baileys e consumido por useChatState (content/senderName/senderType/sentAt).
-      SessionManager.getInstance().notifyPublic(tenantId, {
-        type: "message",
-        message: {
-          id: messageId,
-          conversationId: activeConv.id,
-          senderType: "client",
-          senderName: contact.name,
-          content: messageContent,
-          phone: contact.phone || cleanPhone || "",
-          avatar: contact.avatar || null,
-          sentAt: timestamp,
-          quotedMessageId: resolvedQuotedId,
-          quotedMessageSender,
-          quotedMessageContent,
-          queue: activeConv.queueState,
-          operatorId: activeConv.operatorId ?? null,
-          walletOperatorId: contact.walletOperatorId ?? null,
-        },
-      });
-
-      // 6.1. Web Push Notification para operador atribuído ou consultor da carteira
-      const targetOperatorId = activeConv.operatorId || contact.walletOperatorId;
-      if (targetOperatorId) {
-        sendPushToOperator(tenantId, targetOperatorId, {
-          title: contact.name || "Nova Mensagem",
-          body: text || (media ? "Arquivo recebido no WhatsApp" : "Mensagem no WhatsApp"),
-          conversationId: activeConv.id,
-          tenantId,
-          icon: tenantId === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg",
-          url: `/?chatId=${activeConv.id}`,
-        }).catch((err) => console.error("[Push] Erro ao enviar notificação no Inbound Meta:", err));
-      }
-
-      // 6.2. Auto-resposta quando operador atribuído estiver em pausa ou desconectado
-      checkAndSendOperatorStatusAutoReply({
-        tenantId,
-        conversationId: activeConv.id,
-        contactId: contact.id,
-        incomingMessageTime: timestamp,
-      }).catch((autoErr) => {
-        console.error("[InboundProcessor] Erro ao verificar auto-resposta de pausa:", autoErr);
-      });
-
       // 7. Conclusão do registro em pending_inbounds
       await db
         .update(pendingInbounds)
         .set({ status: "processed", processedAt: new Date() })
-        .where(eq(pendingInbounds.id, targetInboundId));
+        .where(
+          and(eq(pendingInbounds.id, targetInboundId), eq(pendingInbounds.tenantId, tenantId)),
+        );
 
       return {
         success: true,
         messageId,
         conversationId: activeConv.id,
       };
-
-    } catch (err: any) {
-      console.error(`[InboundProcessor] Erro ao processar inbound ${targetInboundId}:`, err);
-
-      await db
-        .update(pendingInbounds)
-        .set({
-          status: "failed",
-          errorMessage: err.message || "Erro desconhecido",
-        })
-        .where(eq(pendingInbounds.id, targetInboundId));
-
-      return {
-        success: false,
-        error: err.message,
-      };
+    } catch (err) {
+      throw err; // rollback de contato, conversa, mídia, mensagem e conclusão do evento
     }
   }
 }

@@ -22,7 +22,8 @@ function attachWebSocketServer(server: Server, label: string) {
         console.log(`[${label}] ✅ Twilio MediaStream conectado!`);
         try {
           // Import lazy: só carrega quando o Twilio conecta, não no startup
-          const { MediaStreamHandler } = await import("../../src/lib/voice/media-streams-handler.js");
+          const { MediaStreamHandler } =
+            await import("../../src/lib/voice/media-streams-handler.js");
           new MediaStreamHandler(ws as any);
         } catch (err: any) {
           console.error(`[${label}] ❌ Falha ao carregar MediaStreamHandler:`, err?.message || err);
@@ -62,7 +63,8 @@ export default function websocketPlugin(nitroApp: any) {
   // Fallback: hook request para capturar o servidor se "listen" não disparar
   nitroApp.hooks.hook("request", (event: any) => {
     if (serverListenerAttached) return;
-    const server: Server | undefined = event?.node?.res?.socket?.server;
+    const server: Server | undefined =
+      event?.node?.res?.socket?.server || event?.req?.runtime?.node?.req?.socket?.server;
     if (!server) return;
     console.log("[Nitro WS] Fallback via 'request' hook disparou!");
     attachWebSocketServer(server, "Nitro WS Fallback");

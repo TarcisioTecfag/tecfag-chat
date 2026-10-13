@@ -1,3 +1,4 @@
+import { runtimeSingleton } from "../runtime-singleton";
 
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts } from "../../db/schema";
@@ -115,7 +116,7 @@ export class SdrEngine {
 
   public static getInstance(): SdrEngine {
     if (!SdrEngine.instance) {
-      SdrEngine.instance = new SdrEngine();
+      SdrEngine.instance = runtimeSingleton("SdrEngine", () => new SdrEngine());
     }
     return SdrEngine.instance;
   }

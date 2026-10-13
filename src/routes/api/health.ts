@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getDatabaseName } from "../../db";
+import { readinessResponse } from "../../lib/readiness";
 
 /**
  * GET /api/health
@@ -12,26 +12,7 @@ export const Route = createFileRoute("/api/health")({
   server: {
     handlers: {
       GET: async () => {
-        let dbName: string | undefined;
-        if (process.env.NODE_ENV !== "production") {
-          try {
-            dbName = await getDatabaseName();
-          } catch (_) {
-            dbName = "unreachable";
-          }
-        }
-
-        return new Response(
-          JSON.stringify({
-            status: "ok",
-            timestamp: new Date().toISOString(),
-            ...(dbName ? { dbName } : {}),
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return readinessResponse();
       },
     },
   },

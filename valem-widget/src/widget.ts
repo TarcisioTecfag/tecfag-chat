@@ -1,3 +1,8 @@
+import {
+  saveBrowserIntent,
+  readBrowserIntents,
+  removeBrowserIntent,
+} from "../../src/lib/browser-outbox";
 // ══════════════════════════════════════════════════════════════════════════════
 // 💬 VALEM CHAT WIDGET — Valentina Live Chat Engine (v3.2)
 // Waveform Real-Time · Draggable · Ícones Vetoriais SVG (Sem Emojis) · Player Dourado
@@ -36,8 +41,16 @@ function formatTime(d: Date | string = new Date()): string {
 function formatFullDate(d: Date | string = new Date()): string {
   const dateObj = typeof d === "string" ? new Date(d) : d;
   if (isNaN(dateObj.getTime())) return "";
-  const date = dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  const time = dateObj.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const date = dateObj.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const time = dateObj.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
   return `${date} às ${time}`;
 }
 
@@ -90,7 +103,8 @@ function isValidCPF(cpf: string): boolean {
   const clean = cpf.replace(/\D/g, "");
   if (clean.length !== 11) return false;
   if (/^(\d)\1{10}$/.test(clean)) return false;
-  let sum = 0, rest = 0;
+  let sum = 0,
+    rest = 0;
   for (let i = 1; i <= 9; i++) sum += parseInt(clean[i - 1]) * (11 - i);
   rest = (sum * 10) % 11;
   if (rest === 10 || rest === 11) rest = 0;
@@ -151,7 +165,9 @@ function getOrCreateCookieId(): string {
   try {
     let id = localStorage.getItem(KEY);
     if (!id) {
-      id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      id = crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
       localStorage.setItem(KEY, id);
     }
     return id;
@@ -164,7 +180,7 @@ function getOrCreateCookieId(): string {
 
 function getFileSvgIcon(name: string): string {
   const ext = (name.split(".").pop() || "").toLowerCase();
-  
+
   // Planilhas (Excel, CSV)
   if (["xlsx", "xls", "csv"].includes(ext)) {
     return `
@@ -233,7 +249,7 @@ export class ValemChatWidget {
   private pillLoopTimer: any = null;
   private isHoveringFab = false;
   private pendingFile: File | null = null;
-  
+
   // Visitante Onboarding
   private visitorName = "";
   private visitorDoc = ""; // CPF ou CNPJ
@@ -465,7 +481,9 @@ export class ValemChatWidget {
 
           <!-- Waveform Visualizer -->
           <div class="vlm-rec-waveform" id="vlm-rec-waveform">
-            ${Array.from({ length: 18 }).map(() => `<span class="vlm-wave-bar"></span>`).join("")}
+            ${Array.from({ length: 18 })
+              .map(() => `<span class="vlm-wave-bar"></span>`)
+              .join("")}
           </div>
 
           <div class="vlm-rec-actions">
@@ -542,7 +560,12 @@ export class ValemChatWidget {
     const checkPrechatValidity = () => {
       const nameVal = inputName.value.trim();
       const rawDoc = inputDoc.value.replace(/\D/g, "");
-      const isDocValid = rawDoc.length === 11 ? isValidCPF(rawDoc) : rawDoc.length === 14 ? isValidCNPJ(rawDoc) : false;
+      const isDocValid =
+        rawDoc.length === 11
+          ? isValidCPF(rawDoc)
+          : rawDoc.length === 14
+            ? isValidCNPJ(rawDoc)
+            : false;
 
       if (rawDoc.length > 0 && !isDocValid && (rawDoc.length === 11 || rawDoc.length === 14)) {
         inputDoc.classList.add("vlm-input-error");
@@ -579,19 +602,42 @@ export class ValemChatWidget {
     btnPrechatClose.addEventListener("click", () => this.closePanel());
 
     // ── Lightbox Valentina ──────────────────────────────────────────────────
-    const openLightbox = () => { lightbox.classList.add("vlm-lightbox-open"); };
-    const closeLightbox = () => { lightbox.classList.remove("vlm-lightbox-open"); };
+    const openLightbox = () => {
+      lightbox.classList.add("vlm-lightbox-open");
+    };
+    const closeLightbox = () => {
+      lightbox.classList.remove("vlm-lightbox-open");
+    };
 
-    headerAvatarBtn.addEventListener("click", (e) => { e.stopPropagation(); openLightbox(); });
-    btnCloseLightbox.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
-    lightbox.addEventListener("click", (e) => { if (e.target === lightbox) closeLightbox(); });
+    headerAvatarBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openLightbox();
+    });
+    btnCloseLightbox.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeLightbox();
+    });
+    lightbox.addEventListener("click", (e) => {
+      if (e.target === lightbox) closeLightbox();
+    });
 
     // ── Fab & Chat Panel Events ─────────────────────────────────────────────
-    fabButton.addEventListener("mouseenter", () => { this.isHoveringFab = true; this.setPillState(true); });
-    fabButton.addEventListener("mouseleave", () => { this.isHoveringFab = false; });
+    fabButton.addEventListener("mouseenter", () => {
+      this.isHoveringFab = true;
+      this.setPillState(true);
+    });
+    fabButton.addEventListener("mouseleave", () => {
+      this.isHoveringFab = false;
+    });
     fabButton.addEventListener("click", () => this.togglePanel());
-    btnClose.addEventListener("click", (e) => { e.stopPropagation(); this.closePanel(); });
-    btnCopy.addEventListener("click", (e) => { e.stopPropagation(); this.copyConversation(); });
+    btnClose.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.closePanel();
+    });
+    btnCopy.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.copyConversation();
+    });
 
     // Botão de Ação Unificado (Mic quando vazio, Send quando preenchido)
     btnActionMain.addEventListener("click", () => {
@@ -612,7 +658,10 @@ export class ValemChatWidget {
     });
 
     textarea.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.handleSendMessage(); }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        this.handleSendMessage();
+      }
     });
 
     // Gravação de Áudio
@@ -626,7 +675,9 @@ export class ValemChatWidget {
 
     // Anexos
     btnAttach.addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", () => { if (fileInput.files && fileInput.files[0]) this.handleFileSelected(fileInput.files[0]); });
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files && fileInput.files[0]) this.handleFileSelected(fileInput.files[0]);
+    });
     btnRemoveAtt.addEventListener("click", () => this.clearPendingFile());
   }
 
@@ -688,13 +739,22 @@ export class ValemChatWidget {
     window.addEventListener("mouseup", stopDrag);
 
     // Touch Events
-    header.addEventListener("touchstart", (e) => {
-      if (e.touches.length === 1) startDrag(e.touches[0].clientX, e.touches[0].clientY, e.target);
-    }, { passive: true });
+    header.addEventListener(
+      "touchstart",
+      (e) => {
+        if (e.touches.length === 1) startDrag(e.touches[0].clientX, e.touches[0].clientY, e.target);
+      },
+      { passive: true },
+    );
 
-    window.addEventListener("touchmove", (e) => {
-      if (this.isDragging && e.touches.length === 1) doDrag(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: true });
+    window.addEventListener(
+      "touchmove",
+      (e) => {
+        if (this.isDragging && e.touches.length === 1)
+          doDrag(e.touches[0].clientX, e.touches[0].clientY);
+      },
+      { passive: true },
+    );
 
     window.addEventListener("touchend", stopDrag);
   }
@@ -770,7 +830,7 @@ export class ValemChatWidget {
       osc2.type = "sine";
       osc2.frequency.setValueAtTime(880, now + 0.08);
       gain2.gain.setValueAtTime(0, now + 0.08);
-      gain2.gain.linearRampToValueAtTime(0.22, now + 0.10);
+      gain2.gain.linearRampToValueAtTime(0.22, now + 0.1);
       gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
       osc2.connect(gain2);
       gain2.connect(ctx.destination);
@@ -781,7 +841,9 @@ export class ValemChatWidget {
     }
   }
 
-  private togglePanel() { this.isOpen ? this.closePanel() : this.openPanel(); }
+  private togglePanel() {
+    this.isOpen ? this.closePanel() : this.openPanel();
+  }
 
   private openPanel() {
     this.isOpen = true;
@@ -792,19 +854,26 @@ export class ValemChatWidget {
 
     if (panel) {
       panel.style.display = "flex";
-      setTimeout(() => { panel.classList.add("vlm-panel-open"); panel.removeAttribute("aria-hidden"); }, 10);
+      setTimeout(() => {
+        panel.classList.add("vlm-panel-open");
+        panel.removeAttribute("aria-hidden");
+      }, 10);
     }
     if (fabWrapper) fabWrapper.style.display = "none";
     if (goldBadge) goldBadge.classList.remove("vlm-badge-visible");
     if (fabBtn) fabBtn.classList.remove("vlm-fab-attention");
-    
+
     if (this.hasCompletedPrechat) {
       document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden");
       this.triggerWelcomeSequence();
-      setTimeout(() => { (document.getElementById("vlm-chat-textarea") as HTMLTextAreaElement)?.focus(); }, 200);
+      setTimeout(() => {
+        (document.getElementById("vlm-chat-textarea") as HTMLTextAreaElement)?.focus();
+      }, 200);
     } else {
       document.getElementById("vlm-prechat-view")?.classList.remove("vlm-prechat-hidden");
-      setTimeout(() => { (document.getElementById("vlm-input-name") as HTMLInputElement)?.focus(); }, 200);
+      setTimeout(() => {
+        (document.getElementById("vlm-input-name") as HTMLInputElement)?.focus();
+      }, 200);
     }
     this.scrollToBottom();
   }
@@ -816,9 +885,14 @@ export class ValemChatWidget {
     if (panel) {
       panel.classList.remove("vlm-panel-open");
       panel.setAttribute("aria-hidden", "true");
-      setTimeout(() => { if (!this.isOpen) panel.style.display = "none"; }, 280);
+      setTimeout(() => {
+        if (!this.isOpen) panel.style.display = "none";
+      }, 280);
     }
-    if (fabWrapper) { fabWrapper.style.display = "block"; this.setPillState(true); }
+    if (fabWrapper) {
+      fabWrapper.style.display = "block";
+      this.setPillState(true);
+    }
   }
 
   // ── 3 Mensagens Fragmentadas da Valentina ─────────────────────────────────
@@ -883,47 +957,65 @@ export class ValemChatWidget {
               });
             }, 800);
           }, 400);
-
         }, 800);
       }, 400);
-
     }, 300);
   }
 
   private notifyVisitorDataToBackend() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: "visitor_identify",
-        name: this.visitorName,
-        doc: this.visitorDoc,
-        url: location.href,
-        title: document.title,
-      }));
+      this.ws.send(
+        JSON.stringify({
+          type: "visitor_identify",
+          name: this.visitorName,
+          doc: this.visitorDoc,
+          url: location.href,
+          title: document.title,
+        }),
+      );
     }
   }
 
   private copyConversation() {
     if (this.messages.length === 0) return;
-    const transcript = this.messages.map(m => {
-      const sender = m.sender === "visitor" ? (this.visitorName || "Você") : m.sender === "ai" ? "Valentina (Valem)" : "Operador";
-      const content = m.text || (m.fileName ? `[Arquivo: ${m.fileName}]` : "[Áudio]");
-      return `[${m.timeStr}] ${sender}:\n${content}\n`;
-    }).join("\n");
+    const transcript = this.messages
+      .map((m) => {
+        const sender =
+          m.sender === "visitor"
+            ? this.visitorName || "Você"
+            : m.sender === "ai"
+              ? "Valentina (Valem)"
+              : "Operador";
+        const content = m.text || (m.fileName ? `[Arquivo: ${m.fileName}]` : "[Áudio]");
+        return `[${m.timeStr}] ${sender}:\n${content}\n`;
+      })
+      .join("\n");
     const header = `--- Atendimento Valem Pack ---\nData: ${new Date().toLocaleDateString("pt-BR")}\nCliente: ${this.visitorName || "Visitante"} (${this.visitorDoc || "Não informado"})\n\n`;
     const fullText = header + transcript;
     const showToast = () => {
       const toast = document.getElementById("vlm-copy-toast");
-      if (toast) { toast.classList.add("vlm-toast-active"); setTimeout(() => toast.classList.remove("vlm-toast-active"), 2200); }
+      if (toast) {
+        toast.classList.add("vlm-toast-active");
+        setTimeout(() => toast.classList.remove("vlm-toast-active"), 2200);
+      }
     };
-    if (navigator.clipboard) navigator.clipboard.writeText(fullText).then(showToast).catch(() => this.fallbackCopy(fullText, showToast));
+    if (navigator.clipboard)
+      navigator.clipboard
+        .writeText(fullText)
+        .then(showToast)
+        .catch(() => this.fallbackCopy(fullText, showToast));
     else this.fallbackCopy(fullText, showToast);
   }
 
   private fallbackCopy(text: string, cb: () => void) {
     const ta = document.createElement("textarea");
     ta.value = text;
-    ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
     cb();
   }
 
@@ -939,7 +1031,9 @@ export class ValemChatWidget {
         else mimeType = "";
       }
       this.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      this.mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) this.audioChunks.push(e.data); };
+      this.mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) this.audioChunks.push(e.data);
+      };
       this.mediaRecorder.start(200);
       this.recordStartTime = Date.now();
       this.recordingDurationSec = 0;
@@ -960,7 +1054,9 @@ export class ValemChatWidget {
         const s = this.recordingDurationSec % 60;
         timerElem.textContent = `${m < 10 ? "0" : ""}${m}:${s < 10 ? "0" : ""}${s}`;
       }, 1000);
-    } catch (err) { alert("Permissão de microfone negada ou microfone indisponível."); }
+    } catch (err) {
+      alert("Permissão de microfone negada ou microfone indisponível.");
+    }
   }
 
   private initWaveformVisualizer(stream: MediaStream) {
@@ -1014,7 +1110,7 @@ export class ValemChatWidget {
     this.stopWaveformVisualizer();
     if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
       this.mediaRecorder.stop();
-      this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+      this.mediaRecorder.stream.getTracks().forEach((t) => t.stop());
     }
     this.audioChunks = [];
     this.resetAudioUI();
@@ -1026,7 +1122,7 @@ export class ValemChatWidget {
     if (!this.mediaRecorder) return;
 
     this.mediaRecorder.onstop = () => {
-      this.mediaRecorder?.stream.getTracks().forEach(t => t.stop());
+      this.mediaRecorder?.stream.getTracks().forEach((t) => t.stop());
       const mimeType = this.mediaRecorder?.mimeType || "audio/webm";
       this.recordedAudioBlob = new Blob(this.audioChunks, { type: mimeType });
       if (this.recordedAudioBlob.size < 500) {
@@ -1065,7 +1161,7 @@ export class ValemChatWidget {
     playBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
 
     this.previewAudioElem.addEventListener("timeupdate", () => {
-      const dur = durationSec > 0 ? durationSec : (this.previewAudioElem?.duration || 1);
+      const dur = durationSec > 0 ? durationSec : this.previewAudioElem?.duration || 1;
       const pct = Math.min(((this.previewAudioElem?.currentTime || 0) / dur) * 100, 100);
       fill.style.width = `${pct}%`;
     });
@@ -1136,9 +1232,10 @@ export class ValemChatWidget {
       fullDateStr: formatFullDate(),
     });
 
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    {
       this.showTypingIndicator();
-      this.ws.send(JSON.stringify({
+      void this.queuePayload({
+        messageId: msgId,
         type: "visitor_audio",
         audioBase64: dataUrl,
         mimeType,
@@ -1147,14 +1244,17 @@ export class ValemChatWidget {
         visitorDoc: this.visitorDoc,
         url: location.href,
         title: document.title,
-      }));
+      });
     }
   }
 
   // ── Mídia & Anexos ────────────────────────────────────────────────────────
 
   private handleFileSelected(file: File) {
-    if (file.size > 20 * 1024 * 1024) { alert("Arquivo muito grande. Limite máximo: 20MB."); return; }
+    if (file.size > 20 * 1024 * 1024) {
+      alert("Arquivo muito grande. Limite máximo: 20MB.");
+      return;
+    }
     this.pendingFile = file;
     const bar = document.getElementById("vlm-attachment-preview-bar")!;
     const nameElem = document.getElementById("vlm-preview-filename")!;
@@ -1177,7 +1277,10 @@ export class ValemChatWidget {
     if (!this.isOpen && msg.sender !== "visitor") {
       this.unreadCount++;
       const badge = document.getElementById("vlm-fab-badge");
-      if (badge) { badge.textContent = String(this.unreadCount); badge.style.display = "flex"; }
+      if (badge) {
+        badge.textContent = String(this.unreadCount);
+        badge.style.display = "flex";
+      }
     }
   }
 
@@ -1203,7 +1306,7 @@ export class ValemChatWidget {
     const row = document.createElement("div");
     row.className = `vlm-message-row vlm-message-row--${msg.sender} ${isSameSenderAsPrev ? "vlm-msg-consecutive" : "vlm-msg-first-in-group"}`;
     row.addEventListener("click", () => row.classList.toggle("vlm-details-visible"));
-    
+
     let innerContent = "";
     if (msg.contentType === "audio" && msg.mediaUrl) {
       innerContent = this.renderAudioPlayer(msg.mediaUrl, msg.durationSec || 0);
@@ -1311,7 +1414,12 @@ export class ValemChatWidget {
     const fallbackSec = parseFloat(player.getAttribute("data-fallback-sec") || "5");
 
     const getRealDuration = () => {
-      if (audio.duration && isFinite(audio.duration) && !isNaN(audio.duration) && audio.duration > 0) {
+      if (
+        audio.duration &&
+        isFinite(audio.duration) &&
+        !isNaN(audio.duration) &&
+        audio.duration > 0
+      ) {
         return audio.duration;
       }
       return fallbackSec > 0 ? fallbackSec : 5;
@@ -1330,10 +1438,15 @@ export class ValemChatWidget {
     playBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       if (audio.paused) {
-        document.querySelectorAll("audio").forEach(a => { if (a !== audio) a.pause(); });
-        audio.play().then(() => {
-          playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
-        }).catch(() => {});
+        document.querySelectorAll("audio").forEach((a) => {
+          if (a !== audio) a.pause();
+        });
+        audio
+          .play()
+          .then(() => {
+            playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
+          })
+          .catch(() => {});
       } else {
         audio.pause();
         playBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
@@ -1404,23 +1517,19 @@ export class ValemChatWidget {
   private scrollToBottom() {
     const container = document.getElementById("vlm-messages-container");
     if (container) {
-      setTimeout(() => { container.scrollTop = container.scrollHeight; }, 30);
+      setTimeout(() => {
+        container.scrollTop = container.scrollHeight;
+      }, 30);
     }
   }
 
   private escapeHtml(str: string): string {
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   private escapeAndFormat(text: string): string {
     if (!text) return "";
-    const cleanText = text
-      .replace(/\\"/g, '"')
-      .replace(/\\\\/g, "")
-      .trim();
+    const cleanText = text.replace(/\\"/g, '"').replace(/\\\\/g, "").trim();
     return this.escapeHtml(cleanText)
       .replace(/\n/g, "<br>")
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
@@ -1460,9 +1569,10 @@ export class ValemChatWidget {
           fullDateStr: formatFullDate(),
         });
 
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        {
           this.showTypingIndicator();
-          this.ws.send(JSON.stringify({
+          void this.queuePayload({
+            messageId: msgId,
             type: "visitor_media",
             fileBase64: base64Data,
             fileName: file.name,
@@ -1473,7 +1583,7 @@ export class ValemChatWidget {
             visitorDoc: this.visitorDoc,
             url: location.href,
             title: document.title,
-          }));
+          });
         }
 
         this.clearPendingFile();
@@ -1494,9 +1604,9 @@ export class ValemChatWidget {
       fullDateStr: formatFullDate(),
     });
 
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    {
       this.showTypingIndicator();
-      this.ws.send(JSON.stringify({
+      void this.queuePayload({
         type: "visitor_message",
         text,
         messageId: msgId,
@@ -1504,17 +1614,7 @@ export class ValemChatWidget {
         visitorDoc: this.visitorDoc,
         url: location.href,
         title: document.title,
-      }));
-    } else {
-      this.addMessage({
-        id: `err-${Date.now()}`,
-        sender: "system",
-        text: "Conexão perdida. Tentando restabelecer...",
-        timestamp: new Date().toISOString(),
-        timeStr: formatTime(),
-        fullDateStr: formatFullDate(),
       });
-      this.connectWebSocket();
     }
 
     this.updateButtonsState();
@@ -1541,6 +1641,38 @@ export class ValemChatWidget {
     }
   }
 
+  private async queuePayload(payload: any) {
+    try {
+      await saveBrowserIntent({
+        id: payload.messageId,
+        tenantId: this.opts.tenant,
+        operatorId: this.cookieId,
+        conversationId: this.cookieId,
+        text: JSON.stringify(payload),
+        isInternal: false,
+        createdAt: Date.now(),
+      });
+      if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(payload));
+      else this.connectWebSocket();
+    } catch {
+      this.addMessage({
+        id: "err-" + Date.now(),
+        sender: "system",
+        text: "Não foi possível preservar o envio. Tente novamente.",
+        timestamp: new Date().toISOString(),
+        timeStr: formatTime(),
+        fullDateStr: formatFullDate(),
+      });
+    }
+  }
+  private async flushPending() {
+    const intents = await readBrowserIntents(this.opts.tenant, this.cookieId).catch(() => []);
+    for (const intent of intents) {
+      if (this.ws?.readyState !== WebSocket.OPEN) break;
+      this.ws.send(intent.text);
+    }
+  }
+
   private connectWebSocket() {
     if (this.opts.mock) return;
     const url = `${this.opts.wsUrl}?tenantId=${this.opts.tenant}&cookieId=${this.cookieId}&name=${encodeURIComponent(this.visitorName)}&doc=${encodeURIComponent(this.visitorDoc)}&currentUrl=${encodeURIComponent(location.href)}&currentTitle=${encodeURIComponent(document.title)}`;
@@ -1548,15 +1680,26 @@ export class ValemChatWidget {
       this.ws = new WebSocket(url);
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
+        void this.flushPending();
         if (this.hasCompletedPrechat) this.notifyVisitorDataToBackend();
       };
-      this.ws.onmessage = (event) => { try { this.handleIncomingPayload(JSON.parse(event.data)); } catch (e) {} };
+      this.ws.onmessage = (event) => {
+        try {
+          this.handleIncomingPayload(JSON.parse(event.data));
+        } catch (e) {}
+      };
       this.ws.onclose = () => this.scheduleReconnect();
-    } catch (e) { this.scheduleReconnect(); }
+    } catch (e) {
+      this.scheduleReconnect();
+    }
   }
 
   private handleIncomingPayload(payload: any) {
     const { type } = payload;
+    if (type === "message_ack") {
+      void removeBrowserIntent(payload.messageId);
+      return;
+    }
     if (type === "chat_history") {
       this.loadHistoryMessages(payload.messages || []);
       return;
@@ -1565,7 +1708,7 @@ export class ValemChatWidget {
       this.hideTypingIndicator();
       this.addMessage({
         id: payload.messageId || crypto.randomUUID?.() || String(Date.now()),
-        sender: (payload.sender === "operator" || type === "operator_message") ? "operator" : "ai",
+        sender: payload.sender === "operator" || type === "operator_message" ? "operator" : "ai",
         text: payload.content || payload.text || "",
         contentType: payload.contentType || "text",
         mediaUrl: payload.mediaUrl,
@@ -1599,10 +1742,18 @@ export class ValemChatWidget {
         fullDateStr: formatFullDate(),
       });
     }
-    if (type === "typing") payload.isTyping ? this.showTypingIndicator() : this.hideTypingIndicator();
+    if (type === "typing")
+      payload.isTyping ? this.showTypingIndicator() : this.hideTypingIndicator();
     if (type === "bridge_initiated" || type === "bridge_sent") {
       this.hideTypingIndicator();
-      this.addMessage({ id: `bridge-${Date.now()}`, sender: "system", text: "📱 **Atendimento transferido para o WhatsApp!** Nossa equipe comercial já recebeu suas informações e responderá por lá. Fique de olho no seu app!", timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
+      this.addMessage({
+        id: `bridge-${Date.now()}`,
+        sender: "system",
+        text: "📱 **Atendimento transferido para o WhatsApp!** Nossa equipe comercial já recebeu suas informações e responderá por lá. Fique de olho no seu app!",
+        timestamp: new Date().toISOString(),
+        timeStr: formatTime(),
+        fullDateStr: formatFullDate(),
+      });
     }
     if (type === "chat_closed") {
       this.hideTypingIndicator();
@@ -1616,7 +1767,6 @@ export class ValemChatWidget {
       });
     }
   }
-
 
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
@@ -1637,12 +1787,14 @@ export class ValemChatWidget {
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({
-            type: "pageview",
-            url: location.href,
-            title: document.title,
-            referrer: document.referrer,
-          }));
+          this.ws.send(
+            JSON.stringify({
+              type: "pageview",
+              url: location.href,
+              title: document.title,
+              referrer: document.referrer,
+            }),
+          );
         }
       }
     }, 2000);

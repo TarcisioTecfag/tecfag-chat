@@ -1,4 +1,9 @@
-import { WhatsAppAdapter, UniversalOutboundMessage, DeliveryStatus, ChannelSettings } from "../types";
+import {
+  WhatsAppAdapter,
+  UniversalOutboundMessage,
+  DeliveryStatus,
+  ChannelSettings,
+} from "../types";
 import { SessionManager, resolveRealJid } from "../../baileys/session-manager";
 import { db } from "../../../db";
 import { contacts, conversations, mediaFiles } from "../../../db/schema";
@@ -10,11 +15,16 @@ import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../audio-conver
 export class BaileysAdapter implements WhatsAppAdapter {
   readonly provider = "baileys" as const;
 
-  async send(tenantId: string, message: UniversalOutboundMessage): Promise<{
+  async send(
+    tenantId: string,
+    message: UniversalOutboundMessage,
+  ): Promise<{
     externalId: string;
     status: DeliveryStatus;
     error?: string;
+    retryable?: boolean;
   }> {
+    let requestStarted = false;
     try {
       const sessionManager = SessionManager.getInstance();
       const sock = sessionManager.getSession(tenantId);
@@ -24,6 +34,7 @@ export class BaileysAdapter implements WhatsAppAdapter {
           externalId: "",
           status: "failed",
           error: `WhatsApp Baileys não conectado para o tenant '${tenantId}'`,
+          retryable: true,
         };
       }
 
@@ -33,7 +44,9 @@ export class BaileysAdapter implements WhatsAppAdapter {
         const [conv] = await db
           .select({ contactId: conversations.contactId })
           .from(conversations)
-          .where(and(eq(conversations.id, message.conversationId), eq(conversations.tenantId, tenantId)));
+          .where(
+            and(eq(conversations.id, message.conversationId), eq(conversations.tenantId, tenantId)),
+          );
 
         if (conv?.contactId) {
           const [contact] = await db
@@ -58,9 +71,22 @@ export class BaileysAdapter implements WhatsAppAdapter {
       // 2. Opções de Citação
       const options: any = {};
       if (message.quotedMessageId) {
+        const { messages } = await import("../../../db/schema");
+        const [quoted] = await db
+          .select({ externalId: messages.externalId })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.tenantId, tenantId),
+              eq(messages.id, message.quotedMessageId),
+              eq(messages.conversationId, message.conversationId),
+            ),
+          );
+        const quotedId =
+          quoted?.externalId?.replace(`baileys:${tenantId}:`, "") || message.quotedMessageId;
         options.quoted = {
           key: {
-            id: message.quotedMessageId,
+            id: quotedId,
             remoteJid: jid,
             fromMe: false,
           },
@@ -76,6 +102,7 @@ export class BaileysAdapter implements WhatsAppAdapter {
 
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
+          requestStarted = true;
           if (message.mediaUrl && message.mediaType) {
             // Envio com mídia
             const caption = message.text || undefined;
@@ -85,8 +112,15 @@ export class BaileysAdapter implements WhatsAppAdapter {
             let mimeType = "application/octet-stream";
             try {
               const urlMatch = message.mediaUrl.match(/messageId=([^&]+)/);
-              const messageId = urlMatch ? urlMatch[1] : (message.mediaUrl.startsWith("media-") ? message.mediaUrl : null);
+              const messageId = urlMatch
+                ? urlMatch[1]
+                : message.mediaUrl.startsWith("media-")
+                  ? message.mediaUrl
+                  : null;
               if (messageId) {
+                const [record] = await db.select().from(mediaFiles)
+                  .where(and(eq(mediaFiles.id, messageId), eq(mediaFiles.tenantId, tenantId)));
+                if (!record) return { externalId: "", status: "failed", error: "Mídia não pertence à empresa do envio." };
                 const localPath = path.join(process.cwd(), "media", messageId);
                 const mimePath = path.join(process.cwd(), "media", `${messageId}.mime`);
                 if (fs.existsSync(localPath)) {
@@ -94,7 +128,6 @@ export class BaileysAdapter implements WhatsAppAdapter {
                   if (fs.existsSync(mimePath)) mimeType = fs.readFileSync(mimePath, "utf-8").trim();
                 } else {
                   // Fallback para o banco
-                  const [record] = await db.select().from(mediaFiles).where(eq(mediaFiles.id, messageId));
                   if (record?.base64Data) {
                     mediaBuffer = Buffer.from(record.base64Data, "base64");
                     mimeType = record.mimeType;
@@ -102,7 +135,10 @@ export class BaileysAdapter implements WhatsAppAdapter {
                 }
               }
             } catch (bufErr) {
-              console.warn("[BaileysAdapter] Não foi possível obter buffer local da mídia:", bufErr);
+              console.warn(
+                "[BaileysAdapter] Não foi possível obter buffer local da mídia:",
+                bufErr,
+              );
             }
 
             const mediaSource = mediaBuffer || { url: message.mediaUrl };
@@ -112,19 +148,30 @@ export class BaileysAdapter implements WhatsAppAdapter {
             } else if (message.mediaType === "audio") {
               let audioBuffer = mediaBuffer;
               let audioMime = mimeType;
-              if (audioBuffer && (metaAudioNeedsConversion(audioMime) || audioMime.includes("webm"))) {
+              if (
+                audioBuffer &&
+                (metaAudioNeedsConversion(audioMime) || audioMime.includes("webm"))
+              ) {
                 try {
                   audioBuffer = await convertAudioToOggOpus(audioBuffer);
                   audioMime = "audio/ogg; codecs=opus";
-                  console.log(`[BaileysAdapter] Áudio convertido com sucesso para OGG/Opus (${audioBuffer.length} bytes)`);
+                  console.log(
+                    `[BaileysAdapter] Áudio convertido com sucesso para OGG/Opus (${audioBuffer.length} bytes)`,
+                  );
                 } catch (convErr) {
                   console.warn("[BaileysAdapter] Falha ao converter áudio para OGG/Opus:", convErr);
                 }
               }
               const finalMime = audioMime.includes("ogg")
                 ? "audio/ogg; codecs=opus"
-                : audioMime.startsWith("audio/") ? audioMime : "audio/ogg; codecs=opus";
-              sentMsg = await sock.sendMessage(jid, { audio: audioBuffer || mediaSource, mimetype: finalMime, ptt: true }, options);
+                : audioMime.startsWith("audio/")
+                  ? audioMime
+                  : "audio/ogg; codecs=opus";
+              sentMsg = await sock.sendMessage(
+                jid,
+                { audio: audioBuffer || mediaSource, mimetype: finalMime, ptt: true },
+                options,
+              );
             } else if (message.mediaType === "video") {
               sentMsg = await sock.sendMessage(jid, { video: mediaSource, caption }, options);
             } else {
@@ -136,7 +183,7 @@ export class BaileysAdapter implements WhatsAppAdapter {
                   fileName: message.fileName || "documento",
                   caption,
                 },
-                options
+                options,
               );
             }
           } else if (message.text) {
@@ -152,7 +199,9 @@ export class BaileysAdapter implements WhatsAppAdapter {
           lastErr = sendErr;
           if (sendErr?.message?.includes("rate-overlimit") && attempt < 2) {
             const delay = (attempt + 1) * 2000;
-            console.warn(`[BaileysAdapter] rate-overlimit no tenant '${tenantId}' — aguardando ${delay}ms...`);
+            console.warn(
+              `[BaileysAdapter] rate-overlimit no tenant '${tenantId}' — aguardando ${delay}ms...`,
+            );
             await new Promise((r) => setTimeout(r, delay));
           } else {
             break;
@@ -162,7 +211,8 @@ export class BaileysAdapter implements WhatsAppAdapter {
 
       if (lastErr) throw lastErr;
 
-      const externalId = sentMsg?.key?.id || `baileys-${Date.now()}`;
+      const externalId = sentMsg?.key?.id;
+      if (!externalId) return { externalId: "", status: "unknown", error: "WhatsApp não retornou confirmação. Verifique antes de reenviar." };
       return {
         externalId,
         status: "accepted",
@@ -171,7 +221,9 @@ export class BaileysAdapter implements WhatsAppAdapter {
       console.error(`[BaileysAdapter] Falha ao enviar mensagem no tenant '${tenantId}':`, err);
       return {
         externalId: "",
-        status: "failed",
+        status: requestStarted || /timeout|timed out|network|connection closed|fetch failed/i.test(err?.message || "")
+          ? "unknown"
+          : "failed",
         error: err.message || "Erro durante o envio pelo Baileys",
       };
     }
@@ -184,7 +236,8 @@ export class BaileysAdapter implements WhatsAppAdapter {
   }> {
     const sessionManager = SessionManager.getInstance();
     const rawStatus = sessionManager.getStatus(tenantId);
-    let mappedStatus: "disconnected" | "connecting" | "connected" | "qr_ready" | "error" = "disconnected";
+    let mappedStatus: "disconnected" | "connecting" | "connected" | "qr_ready" | "error" =
+      "disconnected";
 
     if (rawStatus === "connected") mappedStatus = "connected";
     else if (rawStatus === "qr_ready") mappedStatus = "qr_ready";
@@ -219,7 +272,7 @@ export class BaileysAdapter implements WhatsAppAdapter {
     jid: string,
     targetExternalId: string,
     isFromMe: boolean,
-    emoji: string
+    emoji: string,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const sessionManager = SessionManager.getInstance();

@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { outboundQueue } from "../../../lib/whatsapp/outbound";
+import { storedResult } from "../../../lib/whatsapp/dispatch";
 import { requireSession } from "../../../lib/auth-session";
 import { db } from "../../../db";
-import { conversations, contacts, mediaFiles, channelConfigs } from "../../../db/schema";
+import { conversations, contacts, mediaFiles, channelConfigs, messages } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
@@ -159,6 +160,14 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           }
 
           // Persistir anexos apenas depois de validar tenant e responsável.
+          if (clientMessageId) {
+            const [existing] = await db.select().from(messages).where(and(eq(messages.tenantId, session.tenantId), eq(messages.idempotencyKey, clientMessageId)));
+            if (existing) {
+              if (existing.conversationId !== conversationId) return Response.json({ error: "Chave já utilizada em outra conversa." }, { status: 409 });
+              const result = storedResult(existing);
+              return Response.json({ ...result, ...(templateName ? {renderedText: existing.content} : {}) }, { status: result.success ? 200 : 400 });
+            }
+          }
           if (pendingFile) {
             try {
               await db.insert(mediaFiles).values({
@@ -173,6 +182,13 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               }).onConflictDoNothing();
             } catch (dbErr) {
               console.error("[WhatsApp Send] Erro ao persistir mídia no banco:", dbErr);
+              return Response.json(
+                {
+                  error: "Não foi possível preservar o anexo. Nenhuma mensagem foi enviada.",
+                  code: "MEDIA_NOT_DURABLE",
+                },
+                { status: 503 },
+              );
             }
             try {
               const mediaDir = path.join(process.cwd(), "media");
@@ -263,7 +279,6 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             status: result.success ? 200 : result.code === "META_TEMPLATE_REQUIRED" ? 409 : 400,
             headers: { "Content-Type": "application/json" },
           });
-
         } catch (err: any) {
           console.error("[WhatsApp Send Route] Erro:", err);
           return new Response(JSON.stringify({ error: err.message }), {

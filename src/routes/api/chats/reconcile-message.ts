@@ -1,213 +1,130 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../../db";
-import { messages, conversations, contacts } from "../../../db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { messages, conversations } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
-import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
-import { baileysAdapter } from "../../../lib/whatsapp/adapters/baileys";
-import { WhatsAppProviderType } from "../../../lib/whatsapp/types";
+import { dispatchStored, storedResult } from "../../../lib/whatsapp/dispatch";
+import { SessionManager } from "../../../lib/baileys/session-manager";
 
 export const Route = createFileRoute("/api/chats/reconcile-message")({
   server: {
     handlers: {
-      OPTIONS: async () => new Response(null, { status: 204 }),
-
       POST: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
         try {
-          // 1. Sessão mandatória — isolamento estrito
-          const auth = await requireSession(request);
-          if ("response" in auth) return auth.response;
-          const { session } = auth;
-          const tenantId = session.tenantId;
-
-          const body = await request.json().catch(() => ({}));
-          const { messageId } = body;
-
-          if (!messageId) {
-            return new Response(
-              JSON.stringify({ error: "messageId é obrigatório" }),
-              { status: 400, headers: { "Content-Type": "application/json" } }
-            );
-          }
-
-          // 2. Trava atômica por mensagem para evitar duplo reenvio concorrente
-          try {
-            const [lockRes] = await db.execute<{ locked: boolean }>(
-              sql`SELECT pg_try_advisory_xact_lock(hashtext(${'reconcile:' + messageId})) as locked`
-            );
-            if (lockRes && lockRes.locked === false) {
-              return new Response(
-                JSON.stringify({
-                  error: "Reconciliação já em andamento por outro operador ou processo.",
-                  code: "CONCURRENCY_CONFLICT",
-                }),
-                { status: 409, headers: { "Content-Type": "application/json" } }
-              );
-            }
-          } catch {
-            // Em testes ou ambientes sem Postgres advisory lock, prossegue defensivamente
-          }
-
-          // 3. Buscar a mensagem pertencente ao tenant da sessão
+          const body = await request.json();
+          if (typeof body.messageId !== "string")
+            return Response.json({ error: "Informe a mensagem." }, { status: 400 });
           const [msg] = await db
             .select()
             .from(messages)
-            .where(and(eq(messages.id, messageId), eq(messages.tenantId, tenantId)));
-
-          if (!msg) {
-            return new Response(
-              JSON.stringify({ error: "Mensagem não encontrada.", code: "NOT_FOUND" }),
-              { status: 404, headers: { "Content-Type": "application/json" } }
-            );
-          }
-
-          // 4. Buscar a conversa para validação de posse e permissão
+            .where(and(eq(messages.tenantId, tenantId), eq(messages.id, body.messageId)));
+          if (!msg || msg.direction !== "outbound" || msg.isInternalNote)
+            return Response.json({ error: "Envio não encontrado." }, { status: 404 });
           const [conv] = await db
             .select()
             .from(conversations)
-            .where(and(eq(conversations.id, msg.conversationId), eq(conversations.tenantId, tenantId)));
-
-          if (!conv) {
-            return new Response(
-              JSON.stringify({ error: "Conversa associada não encontrada.", code: "NOT_FOUND" }),
-              { status: 404, headers: { "Content-Type": "application/json" } }
+            .where(
+              and(eq(conversations.tenantId, tenantId), eq(conversations.id, msg.conversationId)),
             );
-          }
-
-          // 5. Verificar permissão de escrita
-          const isAdmin = session.operator.role === "admin";
-          const isSupervisor = session.operator.role === "supervisor";
-          const isOwner = conv.operatorId === session.operator.id;
-
-          if (!isAdmin && !isSupervisor && !isOwner) {
-            return new Response(
-              JSON.stringify({ error: "Sem permissão para reconciliar mensagens nesta conversa.", code: "FORBIDDEN" }),
-              { status: 403, headers: { "Content-Type": "application/json" } }
+          if (!conv) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
+          if (
+            !["admin", "supervisor"].includes(session.operator.role) &&
+            conv.operatorId !== session.operator.id
+          )
+            return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+          if (["accepted", "delivered", "read"].includes(msg.status))
+            return Response.json(storedResult(msg));
+          if (
+            msg.status === "sending" &&
+            ((msg.leaseUntil && msg.leaseUntil.getTime() > Date.now()) ||
+              Date.now() - msg.updatedAt.getTime() < 60_000)
+          )
+            return Response.json(
+              { error: "O envio ainda está em processamento." },
+              { status: 409 },
             );
+          if (!["failed", "unknown", "uncertain", "sending"].includes(msg.status))
+            return Response.json({ error: "Mensagem já está na fila." }, { status: 409 });
+          if (body.action === "confirm_sent") {
+            const [updated] = await db
+              .update(messages)
+              .set({
+                status: "accepted",
+                errorMessage: null,
+                leaseToken: null,
+                leaseUntil: null,
+                metaDetails: {
+                  ...msg.metaDetails,
+                  manualConfirmation: {
+                    operatorId: session.operator.id,
+                    at: new Date().toISOString(),
+                  },
+                },
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(messages.tenantId, tenantId),
+                  eq(messages.id, msg.id),
+                  eq(messages.status, msg.status),
+                ),
+              )
+              .returning();
+            if (updated) SessionManager.getInstance().notifyPublic(tenantId, { type: "message_status", conversationId: msg.conversationId, messageId: msg.id, status: "accepted", error: null });
+            return updated
+              ? Response.json(storedResult(updated))
+              : Response.json({ error: "Estado alterado; atualize o histórico." }, { status: 409 });
           }
-
-          // 6. Verificar status elegível (uncertain, failed, ou sending antigo)
-          const eligibleStatuses = ["uncertain", "failed", "sending"];
-          if (!eligibleStatuses.includes(msg.status)) {
-            return new Response(
-              JSON.stringify({
-                error: `Mensagem com status '${msg.status}' não requer reconciliação. Apenas mensagens incertas, falhas ou presas podem ser reenviadas.`,
-                status: msg.status,
-                code: "STATUS_NOT_ELIGIBLE",
-              }),
-              { status: 400, headers: { "Content-Type": "application/json" } }
+          if (
+            ["unknown", "uncertain", "sending"].includes(msg.status) &&
+            body.confirmNotDelivered !== true
+          )
+            return Response.json(
+              {
+                error:
+                  "Confira o histórico do WhatsApp antes de reenviar. Confirme que o envio anterior não ocorreu.",
+                code: "DELIVERY_CONFIRMATION_REQUIRED",
+              },
+              { status: 409 },
             );
-          }
-
-          // 7. Obter telefone de destino a partir do contato no banco (nunca do cliente)
-          let recipientPhone = "";
-          if (conv.contactId) {
-            const [contact] = await db
-              .select({ phone: contacts.phone })
-              .from(contacts)
-              .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
-
-            if (contact?.phone) recipientPhone = contact.phone;
-          }
-
-          if (!recipientPhone && !msg.isInternalNote) {
-            return new Response(
-              JSON.stringify({ error: "Contato associado à conversa não possui número de telefone válido." }),
-              { status: 400, headers: { "Content-Type": "application/json" } }
-            );
-          }
-
-          // 8. O reenvio DEVE usar o provedor original gravado na mensagem, NUNCA o ativo atual do canal
-          const provider: WhatsAppProviderType =
-            (msg.provider as WhatsAppProviderType) || "baileys";
-
-          // Incrementar retryCount
-          const nextRetry = (msg.retryCount || 0) + 1;
-          await db
+          const [queued] = await db
             .update(messages)
             .set({
-              retryCount: nextRetry,
-              status: "sending",
+              status: "pending",
+              leaseToken: null,
+              leaseUntil: null,
+              nextRetryAt: new Date(),
+              errorMessage: null,
+              metaDetails: {
+                ...msg.metaDetails,
+                approvedReplayAt: new Date().toISOString(),
+                replayedBy: session.operator.id,
+              },
               updatedAt: new Date(),
             })
-            .where(and(eq(messages.id, msg.id), eq(messages.tenantId, tenantId)));
-
-          // 9. Despacho pelo provedor original
-          let dispatchResult: { externalId?: string; status: any; error?: string };
-
-          if (provider === "meta") {
-            dispatchResult = await metaAdapter.send(tenantId, {
-              tenantId,
-              conversationId: msg.conversationId,
-              recipientPhone,
-              text: msg.content,
-            });
-          } else {
-            dispatchResult = await baileysAdapter.send(tenantId, {
-              tenantId,
-              conversationId: msg.conversationId,
-              recipientPhone,
-              text: msg.content,
-            });
-          }
-
-          // 10. Atualização do resultado no banco
-          if (dispatchResult.status === "accepted") {
-            await db
-              .update(messages)
-              .set({
-                status: "accepted",
-                externalId: dispatchResult.externalId || null,
-                errorMessage: null,
-                updatedAt: new Date(),
-              })
-              .where(and(eq(messages.id, msg.id), eq(messages.tenantId, tenantId)));
-
-            await db
-              .update(conversations)
-              .set({ lastMessageTime: new Date(), updatedAt: new Date() })
-              .where(and(eq(conversations.id, conv.id), eq(conversations.tenantId, tenantId)));
-
-            return new Response(
-              JSON.stringify({
-                success: true,
-                messageId: msg.id,
-                status: "accepted",
-                externalId: dispatchResult.externalId,
-                provider,
-                retryCount: nextRetry,
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } }
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                eq(messages.id, msg.id),
+                eq(messages.status, msg.status),
+              ),
+            )
+            .returning();
+          if (!queued)
+            return Response.json(
+              { error: "Estado alterado; atualize o histórico." },
+              { status: 409 },
             );
-          } else {
-            await db
-              .update(messages)
-              .set({
-                status: "failed",
-                errorMessage: dispatchResult.error || "Falha na reconciliação pelo provedor original",
-                updatedAt: new Date(),
-              })
-              .where(and(eq(messages.id, msg.id), eq(messages.tenantId, tenantId)));
-
-            return new Response(
-              JSON.stringify({
-                success: false,
-                messageId: msg.id,
-                status: "failed",
-                error: dispatchResult.error,
-                provider,
-                retryCount: nextRetry,
-              }),
-              { status: 400, headers: { "Content-Type": "application/json" } }
-            );
-          }
-
-        } catch (err: any) {
-          console.error("[Reconcile Message Route] Erro fatal:", err);
-          return new Response(JSON.stringify({ error: err.message }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-          });
+          return Response.json((await dispatchStored(tenantId, msg.id)) || storedResult(queued));
+        } catch {
+          return Response.json(
+            { error: "Não foi possível reconciliar; registro preservado." },
+            { status: 500 },
+          );
         }
       },
     },

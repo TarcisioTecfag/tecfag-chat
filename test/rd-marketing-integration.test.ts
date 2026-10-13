@@ -73,6 +73,12 @@ describe.skipIf(!testUrl)("RD Marketing: PostgreSQL isolado", () => {
         "utf8",
       ),
     );
+    const recoveryMigration = await readFile(
+      new URL("../src/db/migrations/0036_durable_recovery.sql", import.meta.url),
+      "utf8",
+    );
+    await database.client.unsafe(recoveryMigration);
+    await database.client.unsafe(recoveryMigration);
     await database.db.insert(schema.tenants).values([
       { id: tenantId, name: "Teste", slug: tenantId, connectionType: "meta" },
       { id: otherTenantId, name: "Outro", slug: otherTenantId, connectionType: "meta" },
@@ -652,13 +658,28 @@ describe.skipIf(!testUrl)("RD Marketing: PostgreSQL isolado", () => {
         ],
       }),
     );
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     const data = await response.json();
+    const inbox = await import("../src/lib/rd-marketing/inbox");
+    const claimed = await inbox.claimRdEvent(tenantId, data.eventId);
+    await inbox.processRdEvent(claimed!);
+    const [event] = await database.db
+      .select()
+      .from(schema.rdMarketingEvents)
+      .where(
+        and(
+          eq(schema.rdMarketingEvents.tenantId, tenantId),
+          eq(schema.rdMarketingEvents.id, data.eventId),
+        ),
+      );
     const [deal] = await database.db
       .select()
       .from(schema.crmDeals)
       .where(
-        and(eq(schema.crmDeals.tenantId, tenantId), eq(schema.crmDeals.id, data.results[0].dealId)),
+        and(
+          eq(schema.crmDeals.tenantId, tenantId),
+          eq(schema.crmDeals.id, event.outcomes[0].dealId!),
+        ),
       );
     expect(deal.pipelineId).toBe(pipelineId);
     expect(deal.operatorId).toBeNull();
@@ -691,7 +712,7 @@ describe.skipIf(!testUrl)("RD Marketing: PostgreSQL isolado", () => {
     expect(rotation.status).toBe(200);
     const newToken = (await rotation.json()).webhookUrl.split("/").at(-1);
     expect((await send(webhookToken, JSON.stringify({ leads: [makeLead()] }))).status).toBe(401);
-    expect((await send(newToken, JSON.stringify({ leads: [makeLead()] }))).status).toBe(200);
+    expect((await send(newToken, JSON.stringify({ leads: [makeLead()] }))).status).toBe(202);
   });
 
   test("reutiliza empresa e contato entre fluxos, preservando dados existentes", async () => {
@@ -746,5 +767,643 @@ describe.skipIf(!testUrl)("RD Marketing: PostgreSQL isolado", () => {
     expect(savedContacts).toHaveLength(1);
     expect(savedContacts[0].name).toBe("Teste");
     expect(savedContacts[0].accountId).toBe(accounts[0].id);
+  });
+  test("inbox RD sobrevive duas horas, reserva exclusiva e card único após replay", async () => {
+    const inbox = await import("../src/lib/rd-marketing/inbox");
+    const payload = { leads: [makeLead()] };
+    const receipts = await Promise.all(
+      Array.from({ length: 8 }, () => inbox.storeRdWebhook(flow, payload)),
+    );
+    expect(new Set(receipts.map((r) => r.eventId)).size).toBe(1);
+    const id = receipts[0].eventId;
+    const claims = await Promise.all(
+      Array.from({ length: 8 }, () => inbox.claimRdEvent(tenantId, id)),
+    );
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    // Processo morreu sem concluir; a reserva venceu há duas horas.
+    await database.db
+      .update(schema.rdMarketingEvents)
+      .set({ leaseUntil: new Date(Date.now() - 2 * 60 * 60_000) })
+      .where(
+        and(eq(schema.rdMarketingEvents.tenantId, tenantId), eq(schema.rdMarketingEvents.id, id)),
+      );
+    const resumed = await inbox.claimRdEvent(tenantId, id);
+    expect(resumed).toBeDefined();
+    await inbox.processRdEvent(resumed!);
+    const [event] = await database.db
+      .select()
+      .from(schema.rdMarketingEvents)
+      .where(
+        and(eq(schema.rdMarketingEvents.tenantId, tenantId), eq(schema.rdMarketingEvents.id, id)),
+      );
+    expect(event.status).toBe("processed");
+    expect(event.outcomes[0].dealId).toBeTruthy();
+    expect(await inbox.claimRdEvent(tenantId, id)).toBeUndefined();
+    expect(await inbox.claimRdEvent(otherTenantId, id)).toBeUndefined();
+  });
+
+  test("inbox RD preserva inválido e não bloqueia os cards válidos do lote", async () => {
+    const inbox = await import("../src/lib/rd-marketing/inbox");
+    const receipt = await inbox.storeRdWebhook(flow, {
+      leads: [makeLead(), { uuid: randomUUID(), name: "Sem email" }],
+    });
+    await inbox.processRdEvent((await inbox.claimRdEvent(tenantId, receipt.eventId))!);
+    const [event] = await database.db
+      .select()
+      .from(schema.rdMarketingEvents)
+      .where(
+        and(
+          eq(schema.rdMarketingEvents.tenantId, tenantId),
+          eq(schema.rdMarketingEvents.id, receipt.eventId),
+        ),
+      );
+    expect(event.status).toBe("error");
+    expect(event.outcomes.map((r) => r.status)).toEqual(["created", "error"]);
+    expect(event.payload).toBeTruthy();
+    await inbox.replayRdEvent(tenantId, event.id, "test-admin");
+    await inbox.processRdEvent((await inbox.claimRdEvent(tenantId, event.id))!);
+    const [again] = await database.db
+      .select()
+      .from(schema.rdMarketingEvents)
+      .where(
+        and(
+          eq(schema.rdMarketingEvents.tenantId, tenantId),
+          eq(schema.rdMarketingEvents.id, event.id),
+        ),
+      );
+    expect(again.outcomes[0].dealId).toBe(event.outcomes[0].dealId);
+    await expect(inbox.replayRdEvent(otherTenantId, event.id, "foreign")).rejects.toThrow(
+      "Evento não encontrado",
+    );
+  });
+
+  test("entrada concorrente Meta grava uma mensagem e incrementa não lidas uma vez", async () => {
+    const { inboundProcessor } = await import("../src/lib/whatsapp/inbound");
+    const event = {
+      tenantId,
+      provider: "meta" as const,
+      externalEventId: "meta:test:" + randomUUID(),
+      fromPhone: "5511991234567",
+      text: "teste de recuperação",
+      timestamp: new Date(),
+    };
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => inboundProcessor.process(event)),
+    );
+    expect(results.filter((r) => r.success && !r.duplicate)).toHaveLength(1);
+    const rows = await database.db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.tenantId, tenantId),
+          eq(schema.messages.externalId, event.externalEventId),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+    const [conv] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.id, rows[0].conversationId),
+        ),
+      );
+    expect(conv.unreadCount).toBe(1);
+    const older = {
+      ...event,
+      externalEventId: randomUUID(),
+      text: "antiga",
+      timestamp: new Date(Date.now() - 2 * 60 * 60_000),
+    };
+    await inboundProcessor.process(older);
+    const [updated] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(eq(schema.conversations.tenantId, tenantId), eq(schema.conversations.id, conv.id)),
+      );
+    expect(updated.lastMessageText).toBe(event.text);
+    expect(updated.unreadCount).toBe(2);
+  });
+
+  test("saída conserva envelope, deduplica depois de lida e não reenvia resultado desconhecido", async () => {
+    const { outboundQueue } = await import("../src/lib/whatsapp/outbound");
+    const { metaAdapter } = await import("../src/lib/whatsapp/adapters/meta");
+    const { whatsAppRecoveryService } = await import("../src/lib/whatsapp/recovery");
+    const [conv] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.tenantId, tenantId))
+      .limit(1);
+    const [cfg] = await database.db
+      .select()
+      .from(schema.channelConfigs)
+      .where(eq(schema.channelConfigs.tenantId, tenantId));
+    if (!cfg)
+      await database.db
+        .insert(schema.channelConfigs)
+        .values({ id: randomUUID(), tenantId, activeProvider: "meta" });
+    await database.db
+      .update(schema.conversations)
+      .set({ queueState: "meus", operatorId: tenantId + "-agent" })
+      .where(
+        and(eq(schema.conversations.tenantId, tenantId), eq(schema.conversations.id, conv.id)),
+      );
+    await database.db.insert(schema.messages).values({
+      id: randomUUID(),
+      tenantId,
+      conversationId: conv.id,
+      senderType: "client",
+      senderName: "Teste",
+      content: "Olá",
+      provider: "meta",
+      direction: "inbound",
+    });
+    const send = metaAdapter.send;
+    let calls = 0;
+    let received: any;
+    metaAdapter.send = async (_, payload) => {
+      calls++;
+      received = payload;
+      return { status: "accepted", externalId: "wamid-test-" + randomUUID() };
+    };
+    try {
+      const payload = {
+        tenantId,
+        conversationId: conv.id,
+        recipientPhone: "5511991234567",
+        operatorId: tenantId + "-agent",
+        idempotencyKey: randomUUID(),
+        text: "legenda",
+        mediaUrl: "https://example.com/document.pdf",
+        mediaType: "document" as const,
+        fileName: "proposta.pdf",
+      };
+      const first = await outboundQueue.enqueueAndSend(payload);
+      expect(first.status).toBe("accepted");
+      expect(received.fileName).toBe("proposta.pdf");
+      await database.db
+        .update(schema.messages)
+        .set({ status: "read" })
+        .where(
+          and(eq(schema.messages.tenantId, tenantId), eq(schema.messages.id, first.messageId)),
+        );
+      expect((await outboundQueue.enqueueAndSend(payload)).status).toBe("read");
+      expect(calls).toBe(1);
+      await database.db
+        .update(schema.messages)
+        .set({
+          status: "sending",
+          updatedAt: new Date(Date.now() - 2 * 60 * 60_000),
+          leaseUntil: new Date(Date.now() - 2 * 60 * 60_000),
+        })
+        .where(
+          and(eq(schema.messages.tenantId, tenantId), eq(schema.messages.id, first.messageId)),
+        );
+      await whatsAppRecoveryService.runRecoveryCycle();
+      const [unknown] = await database.db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(eq(schema.messages.tenantId, tenantId), eq(schema.messages.id, first.messageId)),
+        );
+      expect(unknown.status).toBe("unknown");
+      expect(calls).toBe(1);
+    } finally {
+      metaAdapter.send = send;
+    }
+  });
+
+  test("crash real após ACK/claim não perde evento e crash após card não duplica", async () => {
+    const inbox = await import("../src/lib/rd-marketing/inbox");
+    for (const afterCard of [false, true]) {
+      const receipt = await inbox.storeRdWebhook(flow, { leads: [makeLead()] });
+      const code = `import {claimRdEvent} from './src/lib/rd-marketing/inbox'; import {receiveLeads} from './src/lib/rd-marketing/service'; const event=await claimRdEvent(${JSON.stringify(tenantId)},${JSON.stringify(receipt.eventId)}); if(${afterCard}) await receiveLeads({id:event.flowId,tenantId:event.tenantId,settings:event.settings},event.payload); process.exit(23);`;
+      const child = Bun.spawn([process.execPath, "-e", code], {
+        stdout: "ignore",
+        stderr: "ignore",
+        env: { ...process.env, NODE_ENV: "test", IS_TEST: "true", TEST_DATABASE_URL: testUrl! },
+      });
+      expect(await child.exited).toBe(23);
+      expect(await inbox.claimRdEvent(tenantId, receipt.eventId)).toBeUndefined();
+      await database.db
+        .update(schema.rdMarketingEvents)
+        .set({ leaseUntil: new Date(Date.now() - 2 * 60 * 60_000) })
+        .where(
+          and(
+            eq(schema.rdMarketingEvents.tenantId, tenantId),
+            eq(schema.rdMarketingEvents.id, receipt.eventId),
+          ),
+        );
+      await inbox.processRdEvent((await inbox.claimRdEvent(tenantId, receipt.eventId))!);
+      const [event] = await database.db
+        .select()
+        .from(schema.rdMarketingEvents)
+        .where(
+          and(
+            eq(schema.rdMarketingEvents.tenantId, tenantId),
+            eq(schema.rdMarketingEvents.id, receipt.eventId),
+          ),
+        );
+      expect(event.status).toBe("processed");
+      expect(event.outcomes[0].status).toBe(afterCard ? "duplicate" : "created");
+    }
+  }, 30000);
+
+  test("histórico Baileys recupera entrada durável sem duplicar nem acionar automação antiga", async () => {
+    const { SessionManager } = await import("../src/lib/baileys/session-manager");
+    const key = randomUUID();
+    const externalEventId = "baileys:" + tenantId + ":" + key;
+    const raw = {
+      key: { id: key, remoteJid: "5511987654321@s.whatsapp.net", fromMe: false },
+      message: { conversation: "Histórico offline" },
+      messageTimestamp: String(Math.floor(Date.now() / 1000) - 7200),
+      pushName: "Teste histórico",
+    };
+    await database.db.insert(schema.pendingInbounds).values({
+      id: randomUUID(),
+      tenantId,
+      provider: "baileys",
+      externalEventId,
+      payload: { kind: "baileys_message", message: raw, historical: true },
+    });
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        SessionManager.getInstance().recoverInbound(tenantId, raw, true),
+      ),
+    );
+    const rows = await database.db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.tenantId, tenantId),
+          eq(schema.messages.externalId, externalEventId),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sentAt.getTime()).toBe(Number(raw.messageTimestamp) * 1000);
+    const [conv] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.id, rows[0].conversationId),
+        ),
+      );
+    expect(conv.unreadCount).toBe(0);
+  });
+  test("upload durável preserva bytes e replay da mesma chave não cria anexo órfão", async () => {
+    const { metaAdapter } = await import("../src/lib/whatsapp/adapters/meta");
+    const handler = (await import("../src/routes/api/whatsapp/send")).Route.options.server!
+      .handlers!.POST as any;
+    const contactId = randomUUID(),
+      convId = randomUUID();
+    await database.db.insert(schema.contacts).values({
+      id: contactId,
+      tenantId,
+      name: "Teste anexo",
+      phone: "5511987000123",
+      mainChannel: "whatsapp",
+    });
+    await database.db.insert(schema.conversations).values({
+      id: convId,
+      tenantId,
+      contactId,
+      queueState: "meus",
+      operatorId: tenantId + "-agent",
+    });
+    await database.db.insert(schema.messages).values({
+      id: randomUUID(),
+      tenantId,
+      conversationId: convId,
+      senderType: "client",
+      senderName: "Teste",
+      content: "Olá",
+      direction: "inbound",
+      provider: "meta",
+    });
+    const original = metaAdapter.send;
+    let calls = 0;
+    let url = "";
+    metaAdapter.send = async (_, payload) => {
+      calls++;
+      url = payload.mediaUrl!;
+      return { status: "accepted", externalId: randomUUID() };
+    };
+    const key = randomUUID();
+    const send = (content: string) => {
+      const data = new FormData();
+      data.set("conversationId", convId);
+      data.set("clientMessageId", key);
+      data.set("file", new File([content], "teste.pdf", { type: "application/pdf" }));
+      return handler({
+        request: new Request("http://localhost/api/whatsapp/send", {
+          method: "POST",
+          headers: { Cookie: agentCookie },
+          body: data,
+        }),
+      });
+    };
+    let mediaId = "";
+    try {
+      const response = await send("%PDF-teste");
+      expect(response.status).toBe(200);
+      mediaId = new URL(url, "http://localhost").searchParams.get("messageId")!;
+      const [media] = await database.db
+        .select()
+        .from(schema.mediaFiles)
+        .where(and(eq(schema.mediaFiles.tenantId, tenantId), eq(schema.mediaFiles.id, mediaId)));
+      expect(Buffer.from(media.base64Data, "base64").toString()).toBe("%PDF-teste");
+      expect((await send("%PDF-conteúdo diferente")).status).toBe(200);
+      expect(calls).toBe(1);
+      const files = await database.db
+        .select()
+        .from(schema.mediaFiles)
+        .where(
+          and(
+            eq(schema.mediaFiles.tenantId, tenantId),
+            eq(schema.mediaFiles.conversationId, convId),
+          ),
+        );
+      expect(files).toHaveLength(1);
+    } finally {
+      metaAdapter.send = original;
+      if (/^media-[0-9]+-[a-z0-9]+$/.test(mediaId)) {
+        const { unlink } = await import("node:fs/promises");
+        await unlink("media/" + mediaId).catch(() => {});
+        await unlink("media/" + mediaId + ".mime").catch(() => {});
+      }
+    }
+  });
+
+  test("reserva respeita ordem de envio por conversa", async () => {
+    const { dispatchStored } = await import("../src/lib/whatsapp/dispatch");
+    const { metaAdapter } = await import("../src/lib/whatsapp/adapters/meta");
+    const [conv] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.queueState, "meus"),
+        ),
+      )
+      .limit(1);
+    const first = randomUUID(),
+      second = randomUUID();
+    await database.db.insert(schema.messages).values(
+      [first, second].map((id, index) => ({
+        id,
+        tenantId,
+        conversationId: conv.id,
+        senderType: "agent",
+        senderName: "Teste",
+        content: "fila " + index,
+        direction: "outbound",
+        provider: "meta",
+        status: "pending",
+        sentAt: new Date(Date.now() - 2000 + index * 500),
+        metaDetails: { version: 1, text: "fila " + index },
+      })),
+    );
+    const original = metaAdapter.send;
+    const calls: string[] = [];
+    metaAdapter.send = async (_, payload) => {
+      calls.push(payload.text!);
+      return { status: "accepted", externalId: randomUUID() };
+    };
+    try {
+      expect(await dispatchStored(tenantId, second)).toBeNull();
+      expect((await dispatchStored(tenantId, first))?.status).toBe("accepted");
+      expect((await dispatchStored(tenantId, second))?.status).toBe("accepted");
+      expect(calls).toEqual(["fila 0", "fila 1"]);
+    } finally {
+      metaAdapter.send = original;
+    }
+  });
+
+  test("echo Baileys do envio do painel não duplica o histórico", async () => {
+    const { SessionManager } = await import("../src/lib/baileys/session-manager");
+    const [conv] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.tenantId, tenantId))
+      .limit(1);
+    const key = randomUUID(),
+      id = randomUUID(),
+      externalEventId = "baileys:" + tenantId + ":" + key;
+    await database.db.insert(schema.messages).values({
+      id,
+      tenantId,
+      conversationId: conv.id,
+      senderType: "agent",
+      senderName: "Teste",
+      content: "Echo teste",
+      provider: "baileys",
+      direction: "outbound",
+      externalId: key,
+    });
+    const raw = {
+      key: { id: key, remoteJid: "5511987000123@s.whatsapp.net", fromMe: true },
+      message: { conversation: "Echo teste" },
+      messageTimestamp: String(Math.floor(Date.now() / 1000)),
+    };
+    await database.db.insert(schema.pendingInbounds).values({
+      id: randomUUID(),
+      tenantId,
+      provider: "baileys",
+      externalEventId,
+      payload: { kind: "baileys_message", message: raw },
+    });
+    await SessionManager.getInstance().recoverInbound(tenantId, raw);
+    const rows = await database.db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.tenantId, tenantId),
+          eq(schema.messages.externalId, externalEventId),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  });
+
+  test("mídia Baileys indisponível mantém evento pendente sem confirmar placeholder", async () => {
+    const { SessionManager } = await import("../src/lib/baileys/session-manager");
+    const key = randomUUID(),
+      externalEventId = "baileys:" + tenantId + ":" + key;
+    const raw = {
+      key: { id: key, remoteJid: "5511987000765@s.whatsapp.net", fromMe: false },
+      message: { imageMessage: { mimetype: "image/jpeg", caption: "Anexo pendente" } },
+      messageTimestamp: String(Math.floor(Date.now() / 1000)),
+    };
+    await database.db.insert(schema.pendingInbounds).values({
+      id: randomUUID(),
+      tenantId,
+      provider: "baileys",
+      externalEventId,
+      payload: { kind: "baileys_message", message: raw },
+    });
+    await expect(SessionManager.getInstance().recoverInbound(tenantId, raw)).rejects.toThrow(
+      "Sessão indisponível",
+    );
+    const [event] = await database.db
+      .select()
+      .from(schema.pendingInbounds)
+      .where(
+        and(
+          eq(schema.pendingInbounds.tenantId, tenantId),
+          eq(schema.pendingInbounds.externalEventId, externalEventId),
+        ),
+      );
+    expect(event.status).toBe("pending");
+    expect(event.processedAt).toBeNull();
+    const rows = await database.db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.tenantId, tenantId),
+          eq(schema.messages.externalId, externalEventId),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  });
+
+  test("envio antigo incompleto vai para revisão sem repetir tentativa externa", async () => {
+    const { dispatchStored } = await import("../src/lib/whatsapp/dispatch");
+    const { metaAdapter } = await import("../src/lib/whatsapp/adapters/meta");
+    const [conv] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.queueState, "meus"),
+        ),
+      )
+      .limit(1);
+    const id = randomUUID();
+    await database.db.insert(schema.messages).values({
+      id,
+      tenantId,
+      conversationId: conv.id,
+      senderType: "agent",
+      senderName: "Teste",
+      content: "[Mídia: legado.pdf]",
+      direction: "outbound",
+      provider: "meta",
+      status: "pending",
+    });
+    const original = metaAdapter.send;
+    let calls = 0;
+    metaAdapter.send = async () => {
+      calls++;
+      return { status: "accepted", externalId: randomUUID() };
+    };
+    try {
+      expect((await dispatchStored(tenantId, id))?.status).toBe("failed");
+      expect(await dispatchStored(tenantId, id)).toBeNull();
+      expect(calls).toBe(0);
+    } finally {
+      metaAdapter.send = original;
+    }
+  });
+
+  test("timeout Meta distingue consulta prévia de tentativa que pode ter enviado", async () => {
+    const { MetaAdapter } = await import("../src/lib/whatsapp/adapters/meta");
+    const adapter = new MetaAdapter();
+    (adapter as any).getCredentials = async () => ({
+      phoneNumberId: "test-number",
+      accessToken: "test-token",
+      businessAccountId: "test-business",
+    });
+    adapter.listApprovedTemplates = async () => {
+      throw new DOMException("timeout de consulta", "TimeoutError");
+    };
+    const [conv] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.queueState, "meus"),
+        ),
+      )
+      .limit(1);
+    const payload = {
+      tenantId,
+      conversationId: conv.id,
+      recipientPhone: "5511987000123",
+      text: "Teste",
+    };
+    const before = await adapter.send(tenantId, { ...payload, templateName: "teste" });
+    expect(before.status).toBe("failed");
+    expect(before.retryable).toBe(true);
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      throw new DOMException("timeout de envio", "TimeoutError");
+    }) as typeof fetch;
+    try {
+      const during = await adapter.send(tenantId, payload);
+      expect(calls).toBe(1);
+      expect(during.status).toBe("unknown");
+      expect(during.retryable).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("resultado desconhecido exige verificação e confirmação manual não dispara envio", async () => {
+    const handler = (await import("../src/routes/api/chats/reconcile-message")).Route.options
+      .server!.handlers!.POST as any;
+    const [conv] = await database.db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.queueState, "meus"),
+        ),
+      )
+      .limit(1);
+    const id = randomUUID();
+    await database.db.insert(schema.messages).values({
+      id,
+      tenantId,
+      conversationId: conv.id,
+      senderType: "agent",
+      senderName: "Teste",
+      content: "resultado incerto",
+      direction: "outbound",
+      provider: "meta",
+      status: "unknown",
+    });
+    const reconcile = (body: object) =>
+      handler({
+        request: new Request("http://localhost/api/chats/reconcile-message", {
+          method: "POST",
+          headers: { Cookie: adminCookie, "Content-Type": "application/json" },
+          body: JSON.stringify({ messageId: id, ...body }),
+        }),
+      });
+    const refused = await reconcile({ action: "resend" });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).code).toBe("DELIVERY_CONFIRMATION_REQUIRED");
+    const confirmed = await reconcile({ action: "confirm_sent" });
+    expect(confirmed.status).toBe(200);
+    expect((await confirmed.json()).status).toBe("accepted");
+    const [saved] = await database.db
+      .select()
+      .from(schema.messages)
+      .where(and(eq(schema.messages.tenantId, tenantId), eq(schema.messages.id, id)));
+    expect(saved.externalId).toBeNull();
+    expect(saved.metaDetails.manualConfirmation.operatorId).toBe(tenantId + "-admin");
   });
 });

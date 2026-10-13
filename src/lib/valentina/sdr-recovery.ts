@@ -1,11 +1,12 @@
-﻿import { db } from "../../db";
-import { agentFlowStates, conversations, messages } from "../../db/schema";
+import { isSdrTenant } from "../ai-persona";
+import { db } from "../../db";
+import { agentFlowStates, conversations, messages, contacts } from "../../db/schema";
 import { eq, and, gte, desc } from "drizzle-orm";
 import { SdrEngine } from "./sdr-engine";
 import type { QueuedMessageItem } from "./sdr-debouncer";
 
-// Janela de recuperacao: so reativa conversas interrompidas nos ultimos 30 minutos.
-const RECOVERY_WINDOW_MS = 30 * 60 * 1000;
+// Janela de recuperacao: so reativa conversas interrompidas nos ultimos 24 horasutos.
+const RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Executa no evento connection.open do Baileys (apos deploy ou reconexao).
@@ -14,10 +15,11 @@ const RECOVERY_WINDOW_MS = 30 * 60 * 1000;
  *
  * Criterios de reativacao:
  *   1. outcome = "in_progress" (triagem nao concluida)
- *   2. lastInteractionAt dentro dos ultimos 30 min
+ *   2. lastInteractionAt dentro dos ultimos 24 horas
  *   3. Ultima mensagem da conversa eh do cliente (Valentina nao respondeu)
  */
 export async function recoverInterruptedConversations(tenantId: string): Promise<void> {
+  if (!isSdrTenant(tenantId)) return;
   const tag = `[SdrRecovery][${tenantId}]`;
   try {
     const windowStart = new Date(Date.now() - RECOVERY_WINDOW_MS);
@@ -30,8 +32,8 @@ export async function recoverInterruptedConversations(tenantId: string): Promise
           eq(agentFlowStates.tenantId, tenantId),
           eq(agentFlowStates.agentType, "sdr"),
           eq(agentFlowStates.outcome as any, "in_progress"),
-          gte(agentFlowStates.lastInteractionAt, windowStart)
-        )
+          gte(agentFlowStates.lastInteractionAt, windowStart),
+        ),
       );
 
     if (activeSdrFlows.length === 0) {
@@ -39,20 +41,25 @@ export async function recoverInterruptedConversations(tenantId: string): Promise
       return;
     }
 
-    console.log(`${tag} Encontradas ${activeSdrFlows.length} conversa(s) potencialmente interrompida(s). Verificando...`);
+    console.log(
+      `${tag} Encontradas ${activeSdrFlows.length} conversa(s) potencialmente interrompida(s). Verificando...`,
+    );
     let recoveredCount = 0;
 
     for (const flow of activeSdrFlows) {
       const conversationId = flow.conversationId;
       try {
         const conv = await db.query.conversations.findFirst({
-          where: (t: any, { eq: dEq }: any) => dEq(t.id, conversationId),
+          where: (t, { eq: dEq, and: dAnd }) =>
+            dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
         });
         if (!conv) continue;
 
         // Se ja tem operador alocado ou saiu da automacao, nao interferir
         if (conv.operatorId || conv.queueState === "meus" || conv.queueState === "finalizados") {
-          console.log(`${tag} Conversa ${conversationId} ja tem operador ou nao esta em automacao. Pulando.`);
+          console.log(
+            `${tag} Conversa ${conversationId} ja tem operador ou nao esta em automacao. Pulando.`,
+          );
           continue;
         }
 
@@ -60,16 +67,18 @@ export async function recoverInterruptedConversations(tenantId: string): Promise
         const recentMsgs = await db
           .select()
           .from(messages)
-          .where(eq(messages.conversationId, conversationId))
+          .where(and(eq(messages.conversationId, conversationId), eq(messages.tenantId, tenantId)))
           .orderBy(desc(messages.sentAt))
-          .limit(10);
+          .limit(100);
 
         if (recentMsgs.length === 0) continue;
 
         // So recuperar se a ultima mensagem e do CLIENTE (Valentina nao respondeu)
         const lastMsg = recentMsgs[0];
         if (lastMsg.senderType !== "client") {
-          console.log(`${tag} Conversa ${conversationId}: ultima msg e da Valentina, sem necessidade de recovery.`);
+          console.log(
+            `${tag} Conversa ${conversationId}: ultima msg e da Valentina, sem necessidade de recovery.`,
+          );
           continue;
         }
 
@@ -86,9 +95,12 @@ export async function recoverInterruptedConversations(tenantId: string): Promise
         if (clientMsgsToReprocess.length === 0) continue;
 
         // Determinar o telefone do contato a partir do contactId
-        const contactPhone = conv.contactId.startsWith("c-")
-          ? conv.contactId.slice(2)
-          : conv.contactId;
+        const [contact] = await db
+          .select({ phone: contacts.phone })
+          .from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)));
+        if (!contact?.phone) continue;
+        const contactPhone = contact.phone;
 
         // Montar batchItems sem binarios de midia (deploy apagou a memoria RAM)
         // SdrEngine usara mediaInterpretation do banco no historico se existir
@@ -101,19 +113,27 @@ export async function recoverInterruptedConversations(tenantId: string): Promise
 
         console.log(
           `${tag} RECOVERY: Reiniciando conversa ${conversationId} (${contactPhone}) ` +
-          `com ${batchItems.length} msg(s) do cliente sem resposta...`
+            `com ${batchItems.length} msg(s) do cliente sem resposta...`,
         );
         recoveredCount++;
 
         // Chamar SdrEngine diretamente, sem debounce de 15s
         const abortController = new AbortController();
         SdrEngine.getInstance()
-          .processBatchMessages(tenantId, conversationId, contactPhone, batchItems, abortController.signal)
+          .processBatchMessages(
+            tenantId,
+            conversationId,
+            contactPhone,
+            batchItems,
+            abortController.signal,
+          )
           .then((ok: boolean) => {
             if (ok) {
               console.log(`${tag} SUCESSO no recovery da conversa ${conversationId}.`);
             } else {
-              console.log(`${tag} Recovery retornou false para ${conversationId} (SDR off, operador ou concluida).`);
+              console.log(
+                `${tag} Recovery retornou false para ${conversationId} (SDR off, operador ou concluida).`,
+              );
             }
           })
           .catch((err: any) => {
@@ -122,9 +142,11 @@ export async function recoverInterruptedConversations(tenantId: string): Promise
 
         // Pequeno delay entre recoveries para nao sobrecarregar o socket recem-conectado
         await new Promise((r) => setTimeout(r, 1500));
-
       } catch (convErr: any) {
-        console.error(`${tag} Erro ao processar conversa ${flow.conversationId}:`, convErr?.message);
+        console.error(
+          `${tag} Erro ao processar conversa ${flow.conversationId}:`,
+          convErr?.message,
+        );
       }
     }
 

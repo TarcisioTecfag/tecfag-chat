@@ -1,17 +1,11 @@
+import { dispatchStored, storedResult } from "./dispatch";
+import { outboundEnvelope } from "./envelope";
 import { db } from "../../db";
 import { messages, conversations, channelConfigs } from "../../db/schema";
 import { eq, and } from "drizzle-orm";
-import {
-  UniversalOutboundMessage,
-  UniversalOutboundResult,
-  WhatsAppProviderType,
-} from "./types";
-import { metaAdapter } from "./adapters/meta";
-import { baileysAdapter } from "./adapters/baileys";
+import { UniversalOutboundMessage, UniversalOutboundResult, WhatsAppProviderType } from "./types";
+
 import { getMetaServiceWindow } from "./meta-policy";
-import { replayPendingMetaStatuses } from "./meta-status";
-import { resetMetaTypingThrottle } from "./meta-presence";
-import { recordCommercialFirstResponse } from "../commercial/tma";
 
 export class OutboundQueue {
   private static instance: OutboundQueue;
@@ -32,53 +26,33 @@ export class OutboundQueue {
   async enqueueAndSend(payload: UniversalOutboundMessage): Promise<UniversalOutboundResult> {
     const { tenantId, conversationId, idempotencyKey, isInternalNote } = payload;
 
-    // 1. Verificação de Idempotência por clientMessageId
     if (idempotencyKey) {
       const [existing] = await db
         .select()
         .from(messages)
-        .where(
-          and(
-            eq(messages.tenantId, tenantId),
-            eq(messages.idempotencyKey, idempotencyKey)
-          )
-        );
-
+        .where(and(eq(messages.tenantId, tenantId), eq(messages.idempotencyKey, idempotencyKey)));
       if (existing) {
-        if (existing.status === "accepted" || existing.status === "sending") {
-          if (existing.status === "accepted" && !isInternalNote && payload.operatorId) {
-            try {
-              await recordCommercialFirstResponse(tenantId, conversationId, payload.operatorId, existing.id);
-            } catch (tmaError) {
-              console.error("[OutboundQueue] Falha ao reconciliar TMA comercial:", tmaError);
-            }
-          }
-          console.log(`[OutboundQueue] Idempotência acionada para key '${idempotencyKey}'. Mensagem id '${existing.id}' já processada.`);
-          return {
-            success: existing.status === "accepted",
-            messageId: existing.id,
-            externalId: existing.externalId || undefined,
-            status: (existing.status as any) || "accepted",
-          };
-        }
+        if (existing.conversationId !== conversationId)
+          throw new Error("Chave já utilizada em outra conversa.");
+        return storedResult(existing);
       }
     }
 
     const messageId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date();
 
-function isIdempotencyConflict(err: any): boolean {
-  const code = err?.code || err?.cause?.code;
-  const constraint = err?.constraint || err?.cause?.constraint_name || err?.cause?.constraint;
-  const msg = `${err?.message || ""} ${err?.cause?.message || ""} ${err?.detail || ""} ${err?.cause?.detail || ""}`;
-  return (
-    code === "23505" ||
-    constraint === "idx_messages_tenant_idempotency_uniq" ||
-    msg.includes("idx_messages_tenant_idempotency_uniq") ||
-    msg.includes("restrição de unicidade") ||
-    msg.includes("unique constraint")
-  );
-}
+    function isIdempotencyConflict(err: any): boolean {
+      const code = err?.code || err?.cause?.code;
+      const constraint = err?.constraint || err?.cause?.constraint_name || err?.cause?.constraint;
+      const msg = `${err?.message || ""} ${err?.cause?.message || ""} ${err?.detail || ""} ${err?.cause?.detail || ""}`;
+      return (
+        code === "23505" ||
+        constraint === "idx_messages_tenant_idempotency_uniq" ||
+        msg.includes("idx_messages_tenant_idempotency_uniq") ||
+        msg.includes("restrição de unicidade") ||
+        msg.includes("unique constraint")
+      );
+    }
 
     // 2. Nota Interna — não é despachada para o WhatsApp externo
     if (isInternalNote) {
@@ -103,17 +77,12 @@ function isIdempotencyConflict(err: any): boolean {
             .select()
             .from(messages)
             .where(
-              and(
-                eq(messages.tenantId, tenantId),
-                eq(messages.idempotencyKey, idempotencyKey)
-              )
+              and(eq(messages.tenantId, tenantId), eq(messages.idempotencyKey, idempotencyKey)),
             );
           if (existing) {
-            return {
-              success: true,
-              messageId: existing.id,
-              status: "accepted",
-            };
+            if (existing.conversationId !== conversationId)
+              throw new Error("Chave já utilizada em outra conversa.");
+            return storedResult(existing);
           }
         }
         throw insertErr;
@@ -148,20 +117,24 @@ function isIdempotencyConflict(err: any): boolean {
           messageId: "",
           status: "failed",
           code: "META_TEMPLATE_REQUIRED",
-          error: "A janela de 24 horas terminou. Envie um template aprovado pela Meta para retomar a conversa.",
+          error:
+            "A janela de 24 horas terminou. Envie um template aprovado pela Meta para retomar a conversa.",
         };
       }
     }
 
     const localMediaId = payload.mediaUrl?.match(/messageId=([^&]+)/)?.[1];
-    const mediaContent = payload.mediaType && localMediaId
-      ? `[MEDIA:${payload.mediaType}]${localMediaId}${payload.fileName ? `:${payload.fileName}` : ""}${payload.text ? `\n${payload.text}` : ""}`
-      : payload.mediaType ? `[Mídia: ${payload.fileName || payload.mediaType}]` : "";
+    const mediaContent =
+      payload.mediaType && localMediaId
+        ? `[MEDIA:${payload.mediaType}]${localMediaId}${payload.fileName ? `:${payload.fileName}` : ""}${payload.text ? `\n${payload.text}` : ""}`
+        : payload.mediaType
+          ? `[Mídia: ${payload.fileName || payload.mediaType}]`
+          : "";
     const content = payload.templateName
       ? payload.text?.trim() || `[Template Meta: ${payload.templateName}]`
       : mediaContent || payload.text || "";
 
-    // 4. Inserção durável no PostgreSQL em status 'sending' (com proteção atômica contra race conditions)
+    // 4. Preservar a intenção pendente antes de reservar o despacho.
     try {
       await db.insert(messages).values({
         id: messageId,
@@ -174,142 +147,39 @@ function isIdempotencyConflict(err: any): boolean {
         isInternalNote: false,
         direction: "outbound",
         provider: activeProvider,
-        status: "sending",
+        status: "pending",
         idempotencyKey: idempotencyKey || null,
         retryCount: 0,
-        metaDetails: activeProvider === "meta" ? {
-          templateName: payload.templateName || null,
-          templateLanguage: payload.templateLanguage || null,
-          templateComponents: payload.templateComponents || null,
-          mediaUrl: payload.mediaUrl || null,
-          mediaType: payload.mediaType || null,
-          fileName: payload.fileName || null,
-        } : {},
+        metaDetails: outboundEnvelope(payload),
+        nextRetryAt: now,
         sentAt: now,
         updatedAt: now,
       });
     } catch (insertErr: any) {
       if (idempotencyKey && isIdempotencyConflict(insertErr)) {
         console.log(
-          `[OutboundQueue] Idempotência atômica interceptada (23505) para key '${idempotencyKey}'. Retornando mensagem existente.`
+          `[OutboundQueue] Idempotência atômica interceptada (23505) para key '${idempotencyKey}'. Retornando mensagem existente.`,
         );
         const [existing] = await db
           .select()
           .from(messages)
-          .where(
-            and(
-              eq(messages.tenantId, tenantId),
-              eq(messages.idempotencyKey, idempotencyKey)
-            )
-          );
+          .where(and(eq(messages.tenantId, tenantId), eq(messages.idempotencyKey, idempotencyKey)));
         if (existing) {
-          return {
-            success: existing.status === "accepted" || existing.status === "sending",
-            messageId: existing.id,
-            externalId: existing.externalId || undefined,
-            status: (existing.status as any) || "accepted",
-          };
+          if (existing.conversationId !== conversationId)
+            throw new Error("Chave já utilizada em outra conversa.");
+          return storedResult(existing);
         }
       }
       throw insertErr;
     }
 
-    // 5. Despacho real pelo adaptador correspondente
-    try {
-      let dispatchResult: { externalId: string; status: any; error?: string };
-
-      if (activeProvider === "meta") {
-        dispatchResult = await metaAdapter.send(tenantId, payload);
-      } else {
-        dispatchResult = await baileysAdapter.send(tenantId, payload);
-      }
-
-      // 6. Atualização do resultado no banco
-      if (dispatchResult.status === "accepted") {
-        await db
-          .update(messages)
-          .set({
-            status: "accepted",
-            externalId: dispatchResult.externalId || null,
-            updatedAt: new Date(),
-          })
-          .where(and(eq(messages.id, messageId), eq(messages.tenantId, tenantId)));
-
-        if (activeProvider === "meta" && dispatchResult.externalId) {
-          await replayPendingMetaStatuses(tenantId, dispatchResult.externalId);
-          resetMetaTypingThrottle(tenantId, conversationId);
-        }
-
-        await db
-          .update(conversations)
-          .set({ lastMessageTime: new Date(), updatedAt: new Date(), unreadCount: 0 })
-          .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
-
-        if (payload.operatorId) {
-          try {
-            await recordCommercialFirstResponse(tenantId, conversationId, payload.operatorId, messageId);
-          } catch (tmaError) {
-            console.error("[OutboundQueue] Falha ao registrar TMA comercial:", tmaError);
-          }
-        }
-
-        return {
-          success: true,
-          messageId,
-          externalId: dispatchResult.externalId,
-          status: "accepted",
-        };
-      } else {
-        await db
-          .update(messages)
-          .set({
-            status: dispatchResult.status === "unknown" ? "unknown" : "failed",
-            errorMessage: dispatchResult.error || "Falha no envio pelo provedor",
-            retryCount: 1,
-            updatedAt: new Date(),
-          })
-          .where(and(eq(messages.id, messageId), eq(messages.tenantId, tenantId)));
-
-        return {
-          success: false,
-          messageId,
-          status: dispatchResult.status === "unknown" ? "unknown" : "failed",
-          error: dispatchResult.error,
-        };
-      }
-    } catch (err: any) {
-      console.error(`[OutboundQueue] Exceção crítica ao despachar mensagem ${messageId}:`, err);
-
-      const isUncertain =
-        err?.code === "ETIMEDOUT" ||
-        err?.code === "ECONNRESET" ||
-        err?.code === "UND_ERR_CONNECT_TIMEOUT" ||
-        err?.name === "AbortError" ||
-        err?.message?.toLowerCase().includes("timeout") ||
-        err?.message?.toLowerCase().includes("network");
-
-      const finalStatus = isUncertain ? "uncertain" : "failed";
-      const finalMsg = isUncertain
-        ? "Confirmação não recebida do provedor (estado incerto). Ação manual de reconciliação disponível."
-        : (err.message || "Erro desconhecido durante despacho");
-
-      await db
-        .update(messages)
-        .set({
-          status: finalStatus,
-          errorMessage: finalMsg,
-          retryCount: 1,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(messages.id, messageId), eq(messages.tenantId, tenantId)));
-
-      return {
-        success: false,
+    return (
+      (await dispatchStored(tenantId, messageId)) || {
+        success: true,
         messageId,
-        status: finalStatus as any,
-        error: finalMsg,
-      };
-    }
+        status: "pending",
+      }
+    );
   }
 }
 

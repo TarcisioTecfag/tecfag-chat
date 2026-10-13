@@ -1,3 +1,4 @@
+import { runtimeSingleton } from "../runtime-singleton";
 // ══════════════════════════════════════════════════════════════════════════════
 // 🛑 LIVE CHAT DEBOUNCER & STOP-AND-RESTART (Espelho WhatsApp SDR Engine)
 // Acúmulo de mensagens picadas + Cancelamento Imediato via AbortController +
@@ -43,7 +44,7 @@ export class LiveChatDebouncer {
 
   public static getInstance(): LiveChatDebouncer {
     if (!LiveChatDebouncer.instance) {
-      LiveChatDebouncer.instance = new LiveChatDebouncer();
+      LiveChatDebouncer.instance = runtimeSingleton("LiveChatDebouncer", () => new LiveChatDebouncer());
     }
     return LiveChatDebouncer.instance;
   }

@@ -12,6 +12,7 @@ function resolveConnectionString(): string {
 }
 
 const connectionString = resolveConnectionString();
+const isLocalDatabase = ["localhost", "127.0.0.1", "::1"].includes(new URL(connectionString).hostname);
 
 const isCloud = connectionString.includes("railway") || connectionString.includes("neon") || connectionString.includes("supabase") || connectionString.includes("render") || process.env.NODE_ENV === "production";
 
@@ -19,7 +20,7 @@ const isCloud = connectionString.includes("railway") || connectionString.include
 export const client = postgres(connectionString, {
   max: 10,
   prepare: false,
-  ssl: isCloud && !connectionString.includes("localhost") ? { rejectUnauthorized: false } : false,
+  ssl: isCloud && !isLocalDatabase ? { rejectUnauthorized: false } : false,
 });
 
 export const db = drizzle(client, { schema });
@@ -72,7 +73,7 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
   const setupClient = postgres(connectionString, {
     max: 1,
     prepare: false,
-    ssl: isCloud && !connectionString.includes("localhost") ? { rejectUnauthorized: false } : false,
+    ssl: isCloud && !isLocalDatabase ? { rejectUnauthorized: false } : false,
   });
 
   try {

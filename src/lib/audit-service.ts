@@ -1,3 +1,4 @@
+import { runtimeSingleton } from "./runtime-singleton";
 /**
  * Audit Service — Pipeline de Auditoria de Atendimentos por IA
  *
@@ -15,6 +16,7 @@
  */
 
 import { db } from "../db";
+import crypto from "node:crypto";
 import {
   aiConversationAudits,
   messages,
@@ -24,7 +26,9 @@ import {
   responseTimeLogs,
   operatorDailyMetrics,
 } from "../db/schema";
-import { eq, and, desc, isNotNull, avg, sql } from "drizzle-orm";
+import { eq, and, desc, isNotNull, avg, sql, or, isNull, lte } from "drizzle-orm";
+import { tenants } from "../db/schema";
+import { isSdrTenant } from "./ai-persona";
 import { VALEM_PLAYBOOK, AUDIT_JSON_SCHEMA } from "./audit-playbook";
 
 // ── Tipos internos ────────────────────────────────────────────────────────────
@@ -55,7 +59,7 @@ export class AuditService {
 
   static getInstance(): AuditService {
     if (!AuditService.instance) {
-      AuditService.instance = new AuditService();
+      AuditService.instance = runtimeSingleton("AuditService", () => new AuditService());
     }
     return AuditService.instance;
   }
@@ -68,16 +72,17 @@ export class AuditService {
     console.log("[AuditService] Iniciando job de auditoria (intervalo: 5min)...");
 
     // Roda imediatamente na inicialização
-    this.runAuditBatch().catch((e) =>
-      console.error("[AuditService] Erro no batch inicial:", e)
-    );
+    this.runAuditBatch().catch((e) => console.error("[AuditService] Erro no batch inicial:", e));
 
     // Depois a cada 5 minutos
-    this.jobInterval = setInterval(() => {
-      this.runAuditBatch().catch((e) =>
-        console.error("[AuditService] Erro no batch periódico:", e)
-      );
-    }, 5 * 60 * 1000);
+    this.jobInterval = setInterval(
+      () => {
+        this.runAuditBatch().catch((e) =>
+          console.error("[AuditService] Erro no batch periódico:", e),
+        );
+      },
+      5 * 60 * 1000,
+    );
 
     console.log("[AuditService] ✓ Job iniciado.");
   }
@@ -96,22 +101,57 @@ export class AuditService {
     this.isProcessing = true;
 
     try {
-      const pending = await db
-        .select()
-        .from(aiConversationAudits)
-        .where(eq(aiConversationAudits.status, "pending"))
-        .orderBy(aiConversationAudits.createdAt)
-        .limit(3);
+      const companies = await db.select({ id: tenants.id }).from(tenants);
+      for (const { id: tenantId } of companies.filter((company) => isSdrTenant(company.id))) {
+        const eligible = or(
+          eq(aiConversationAudits.status, "pending"),
+          and(
+            eq(aiConversationAudits.status, "processing"),
+            or(
+              isNull(aiConversationAudits.leaseUntil),
+              lte(aiConversationAudits.leaseUntil, new Date()),
+            ),
+          ),
+        );
+        const pending = await db
+          .select()
+          .from(aiConversationAudits)
+          .where(and(eq(aiConversationAudits.tenantId, tenantId), eligible))
+          .orderBy(aiConversationAudits.createdAt)
+          .limit(3);
 
-      if (pending.length === 0) {
-        this.isProcessing = false;
-        return;
-      }
+        if (pending.length === 0) {
+          continue;
+        }
 
-      console.log(`[AuditService] Processando ${pending.length} auditoria(s)...`);
+        console.log(`[AuditService] Processando ${pending.length} auditoria(s)...`);
 
-      for (const audit of pending) {
-        await this.processAudit(audit.id, audit.conversationId, audit.tenantId, audit.operatorId);
+        for (const audit of pending) {
+          const token = crypto.randomUUID();
+          const [claimed] = await db
+            .update(aiConversationAudits)
+            .set({
+              status: "processing",
+              leaseToken: token,
+              leaseUntil: new Date(Date.now() + 10 * 60_000),
+            })
+            .where(
+              and(
+                eq(aiConversationAudits.tenantId, tenantId),
+                eq(aiConversationAudits.id, audit.id),
+                eligible,
+              ),
+            )
+            .returning({ id: aiConversationAudits.id });
+          if (!claimed) continue;
+          await this.processAudit(
+            audit.id,
+            audit.conversationId,
+            audit.tenantId,
+            audit.operatorId,
+            token,
+          );
+        }
       }
     } finally {
       this.isProcessing = false;
@@ -125,7 +165,8 @@ export class AuditService {
     auditId: string,
     conversationId: string,
     tenantId: string,
-    operatorId: string | null
+    operatorId: string | null,
+    leaseToken: string,
   ) {
     // Marca como em processamento para não ser pego novamente
     await db
@@ -134,8 +175,9 @@ export class AuditService {
       .where(
         and(
           eq(aiConversationAudits.id, auditId),
-          eq(aiConversationAudits.tenantId, tenantId)
-        )
+          eq(aiConversationAudits.tenantId, tenantId),
+          eq(aiConversationAudits.leaseToken, leaseToken),
+        ),
       );
 
     try {
@@ -149,12 +191,7 @@ export class AuditService {
           isInternalNote: messages.isInternalNote,
         })
         .from(messages)
-        .where(
-          and(
-            eq(messages.tenantId, tenantId),
-            eq(messages.conversationId, conversationId)
-          )
-        )
+        .where(and(eq(messages.tenantId, tenantId), eq(messages.conversationId, conversationId)))
         .orderBy(messages.sentAt);
 
       // Filtra apenas mensagens visíveis (sem notas internas)
@@ -165,14 +202,17 @@ export class AuditService {
         await db
           .update(aiConversationAudits)
           .set({
+            leaseToken: null,
+            leaseUntil: null,
             status: "error",
             errorMessage: "Transcrição muito curta para auditoria (menos de 3 mensagens visíveis).",
           })
           .where(
             and(
               eq(aiConversationAudits.id, auditId),
-              eq(aiConversationAudits.tenantId, tenantId)
-            )
+              eq(aiConversationAudits.tenantId, tenantId),
+              eq(aiConversationAudits.leaseToken, leaseToken),
+            ),
           );
         return;
       }
@@ -188,33 +228,39 @@ export class AuditService {
           and(
             eq(responseTimeLogs.tenantId, tenantId),
             eq(responseTimeLogs.conversationId, conversationId),
-            isNotNull(responseTimeLogs.responseTimeSeconds)
-          )
+            isNotNull(responseTimeLogs.responseTimeSeconds),
+          ),
         );
 
-      const avgResponseSec = slaLogs.length > 0
-        ? Math.floor(slaLogs.reduce((s, l) => s + (l.responseTimeSeconds ?? 0), 0) / slaLogs.length)
-        : null;
+      const avgResponseSec =
+        slaLogs.length > 0
+          ? Math.floor(
+              slaLogs.reduce((s, l) => s + (l.responseTimeSeconds ?? 0), 0) / slaLogs.length,
+            )
+          : null;
       const overdueCount = slaLogs.filter((l) => l.isOverdue).length;
-      const maxResponseSec = slaLogs.length > 0
-        ? Math.max(...slaLogs.map((l) => l.responseTimeSeconds ?? 0))
-        : null;
+      const maxResponseSec =
+        slaLogs.length > 0 ? Math.max(...slaLogs.map((l) => l.responseTimeSeconds ?? 0)) : null;
 
       // 3. Monta a transcrição formatada
       const transcript = visibleMsgs
         .map((m) => {
           const role = m.senderType === "client" ? "CLIENTE" : "OPERADOR";
-          const time = new Date(m.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const time = new Date(m.sentAt).toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
           return `[${time}] ${role} (${m.senderName}): ${m.content}`;
         })
         .join("\n");
 
       // 4. Monta as métricas de SLA
-      const slaContext = avgResponseSec !== null
-        ? `Tempo médio de resposta do operador: ${Math.floor(avgResponseSec / 60)}min ${avgResponseSec % 60}s. ` +
-          `Pior tempo: ${maxResponseSec ? `${Math.floor(maxResponseSec / 60)}min ${maxResponseSec % 60}s` : "N/A"}. ` +
-          `Respostas atrasadas (> 15min): ${overdueCount}.`
-        : "Dados de tempo de resposta não disponíveis para este atendimento.";
+      const slaContext =
+        avgResponseSec !== null
+          ? `Tempo médio de resposta do operador: ${Math.floor(avgResponseSec / 60)}min ${avgResponseSec % 60}s. ` +
+            `Pior tempo: ${maxResponseSec ? `${Math.floor(maxResponseSec / 60)}min ${maxResponseSec % 60}s` : "N/A"}. ` +
+            `Respostas atrasadas (> 15min): ${overdueCount}.`
+          : "Dados de tempo de resposta não disponíveis para este atendimento.";
 
       // 5. Monta o prompt completo
       const prompt = buildAuditPrompt(transcript, slaContext);
@@ -224,9 +270,11 @@ export class AuditService {
       if (!result) throw new Error("Gemini retornou resposta vazia ou inválida.");
 
       // 7. Salva o resultado
-      await db
+      const completed = await db
         .update(aiConversationAudits)
         .set({
+          leaseToken: null,
+          leaseUntil: null,
           status: "done",
           performanceScore: result.performanceScore,
           clientSentiment: result.clientSentiment,
@@ -244,12 +292,15 @@ export class AuditService {
         .where(
           and(
             eq(aiConversationAudits.id, auditId),
-            eq(aiConversationAudits.tenantId, tenantId)
-          )
-        );
+            eq(aiConversationAudits.tenantId, tenantId),
+            eq(aiConversationAudits.leaseToken, leaseToken),
+          ),
+        )
+        .returning({ id: aiConversationAudits.id });
+      if (!completed.length) return;
 
       console.log(
-        `[AuditService] ✓ Auditoria ${auditId} concluída — Score: ${result.performanceScore}/100`
+        `[AuditService] ✓ Auditoria ${auditId} concluída — Score: ${result.performanceScore}/100`,
       );
 
       // 8. Atualiza métricas diárias do operador
@@ -261,14 +312,17 @@ export class AuditService {
       await db
         .update(aiConversationAudits)
         .set({
+          leaseToken: null,
+          leaseUntil: null,
           status: "error",
           errorMessage: e.message?.slice(0, 500) ?? "Erro desconhecido",
         })
         .where(
           and(
             eq(aiConversationAudits.id, auditId),
-            eq(aiConversationAudits.tenantId, tenantId)
-          )
+            eq(aiConversationAudits.tenantId, tenantId),
+            eq(aiConversationAudits.leaseToken, leaseToken),
+          ),
         );
     }
   }
@@ -282,15 +336,20 @@ export class AuditService {
     prompt: string,
     tenantId: string,
     conversationId: string,
-    attempt = 1
+    attempt = 1,
   ): Promise<AuditResult | null> {
     try {
       const { vertexAi } = await import("./vertex-ai");
-      const parsed = await vertexAi.generateStructuredJson<AuditResult>(prompt, "gemini-2.5-pro", undefined, {
-        feature: "conversation_audit",
-        tenantId,
-        metadata: { conversationId },
-      });
+      const parsed = await vertexAi.generateStructuredJson<AuditResult>(
+        prompt,
+        "gemini-2.5-pro",
+        undefined,
+        {
+          feature: "conversation_audit",
+          tenantId,
+          metadata: { conversationId },
+        },
+      );
       if (!parsed) {
         if (attempt < 3) {
           await new Promise((r) => setTimeout(r, 3000));
@@ -327,7 +386,7 @@ export class AuditService {
   private async updateOperatorAuditMetrics(
     tenantId: string,
     operatorId: string,
-    result: AuditResult
+    result: AuditResult,
   ) {
     const today = new Date().toISOString().split("T")[0];
 
@@ -338,8 +397,8 @@ export class AuditService {
         and(
           eq(operatorDailyMetrics.tenantId, tenantId),
           eq(operatorDailyMetrics.operatorId, operatorId),
-          eq(operatorDailyMetrics.date, today)
-        )
+          eq(operatorDailyMetrics.date, today),
+        ),
       )
       .limit(1);
 
@@ -348,7 +407,7 @@ export class AuditService {
       const prevScore = m.avgPerformanceScore ?? 0;
       const auditedCount = m.totalConversations > 0 ? m.totalConversations : 1;
       const newAvgScore = Math.floor(
-        (prevScore * (auditedCount - 1) + result.performanceScore) / auditedCount
+        (prevScore * (auditedCount - 1) + result.performanceScore) / auditedCount,
       );
 
       await db
@@ -363,8 +422,8 @@ export class AuditService {
         .where(
           and(
             eq(operatorDailyMetrics.id, existing[0].id),
-            eq(operatorDailyMetrics.tenantId, tenantId)
-          )
+            eq(operatorDailyMetrics.tenantId, tenantId),
+          ),
         );
     } else {
       const op = await db
@@ -402,7 +461,9 @@ export class AuditService {
   }) {
     // REGRA ARQUITETURAL (AGENTS.md): Auditorias de IA ativas apenas para valem até go-live do tecfag
     if (params.tenantId !== "valem") {
-      console.log(`[AuditService] Auditoria ignorada para tenant "${params.tenantId}" (recurso desativado até go-live).`);
+      console.log(
+        `[AuditService] Auditoria ignorada para tenant "${params.tenantId}" (recurso desativado até go-live).`,
+      );
       return;
     }
 
@@ -413,8 +474,8 @@ export class AuditService {
       .where(
         and(
           eq(aiConversationAudits.tenantId, params.tenantId),
-          eq(aiConversationAudits.conversationId, params.conversationId)
-        )
+          eq(aiConversationAudits.conversationId, params.conversationId),
+        ),
       )
       .limit(1);
 
@@ -430,7 +491,9 @@ export class AuditService {
       createdAt: new Date(),
     });
 
-    console.log(`[AuditService] Auditoria enfileirada para conversa ${params.conversationId} (tenant: ${params.tenantId})`);
+    console.log(
+      `[AuditService] Auditoria enfileirada para conversa ${params.conversationId} (tenant: ${params.tenantId})`,
+    );
   }
 }
 

@@ -89,11 +89,41 @@ type ChatContextType = {
   setSearchQuery: (query: string) => void;
   channelFilter: Channel | "all";
   setChannelFilter: (filter: Channel | "all") => void;
-  activeView: "chat" | "commercialHome" | "commercialManagement" | "commercialBi" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes";
-  setActiveView: (view: "chat" | "commercialHome" | "commercialManagement" | "commercialBi" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes") => void;
+  activeView:
+    | "chat"
+    | "commercialHome"
+    | "commercialManagement"
+    | "commercialBi"
+    | "crm"
+    | "contacts"
+    | "wallet"
+    | "settings"
+    | "groups"
+    | "monitor"
+    | "analytics"
+    | "tasks"
+    | "valentina"
+    | "ligacoes";
+  setActiveView: (
+    view:
+      | "chat"
+      | "commercialHome"
+      | "commercialManagement"
+      | "commercialBi"
+      | "crm"
+      | "contacts"
+      | "wallet"
+      | "settings"
+      | "groups"
+      | "monitor"
+      | "analytics"
+      | "tasks"
+      | "valentina"
+      | "ligacoes",
+  ) => void;
   rightSidebarOpen: boolean;
   setRightSidebarOpen: (open: boolean) => void;
-  
+
   // Operator Profile State
   operatorProfile: OperatorProfile;
   updateOperatorProfile: (profile: Partial<OperatorProfile>) => void;
@@ -113,7 +143,10 @@ type ChatContextType = {
   impersonateOperator: (id: string) => void;
   createOperator: (operator: Omit<Operator, "id" | "status" | "avatar">) => void;
   updateOperator: (id: string, fields: Partial<Operator>) => void;
-  deleteOperator: (id: string, transferToOperatorId?: string) => Promise<{ success: boolean; stats?: any }>;
+  deleteOperator: (
+    id: string,
+    transferToOperatorId?: string,
+  ) => Promise<{ success: boolean; stats?: any }>;
   resetOperatorPassword: (id: string, newPasswordHash: string) => void;
   createAccessGroup: (group: Omit<AccessGroup, "id">) => void;
   updateAccessGroup: (id: string, fields: Partial<AccessGroup>) => void;
@@ -121,36 +154,70 @@ type ChatContextType = {
   createSector: (name: string) => void;
   updateSector: (id: string, fields: Partial<Sector>) => void;
   deleteSector: (id: string) => void;
-  
+
   // Quick Responses State & Operations
   quickResponses: QuickResponse[];
   createQuickResponse: (qr: Omit<QuickResponse, "id">) => void;
   updateQuickResponse: (id: string, fields: Partial<QuickResponse>) => void;
   deleteQuickResponse: (id: string) => void;
-  
+
   // Individual Templates State & Operations
   templates: OperatorTemplate[];
   createTemplate: (title: string, text: string) => Promise<void>;
   updateTemplate: (id: string, title: string, text: string) => Promise<void>;
   deleteTemplate: (id: string) => Promise<void>;
-  
+
   // Actions
-  sendMessage: (text: string, isInternalNote?: boolean, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null, metaTemplate?: { name: string; language: string; parameters: string[] }) => Promise<boolean>;
+  sendMessage: (
+    text: string,
+    isInternalNote?: boolean,
+    attachments?: File[],
+    quotedMessage?: { id: string; sender: string; content: string } | null,
+    metaTemplate?: { name: string; language: string; parameters: string[] },
+    intent?: { id: string; conversationId: string; tenantId: string },
+  ) => Promise<boolean>;
   captureChat: (id: string) => void;
-  transferChat: (id: string, sectorName: string | null, targetOperatorId?: string | null) => Promise<boolean>;
+  transferChat: (
+    id: string,
+    sectorName: string | null,
+    targetOperatorId?: string | null,
+  ) => Promise<boolean>;
   finishChat: (id: string) => void;
   logSystemEvent: (chatId: string, eventText: string) => Promise<void>;
   updateTags: (id: string, tags: string[]) => void;
-  updateClientInfo: (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & { accountId?: string | null }) => Promise<void>;
-  updateContactWallet: (contactId: string, walletOperatorId: string | null, targetOperatorId?: string | null) => Promise<void>;
-  createContact: (name: string, phone: string, email: string, accountId: string | null, channel: Channel) => Promise<{ contactId: string; conversationId: string; chatReady: boolean; queueState: QueueType }>;
+  updateClientInfo: (
+    id: string,
+    fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & { accountId?: string | null },
+  ) => Promise<void>;
+  updateContactWallet: (
+    contactId: string,
+    walletOperatorId: string | null,
+    targetOperatorId?: string | null,
+  ) => Promise<void>;
+  createContact: (
+    name: string,
+    phone: string,
+    email: string,
+    accountId: string | null,
+    channel: Channel,
+  ) => Promise<{
+    contactId: string;
+    conversationId: string;
+    chatReady: boolean;
+    queueState: QueueType;
+  }>;
   refreshConversations: (conversationId?: string) => Promise<void>;
-  loadConversationPage: (queue: QueueType, cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" }) => Promise<{ nextCursor: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null }>;
+  loadConversationPage: (
+    queue: QueueType,
+    cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" },
+  ) => Promise<{
+    nextCursor: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null;
+  }>;
   markAsRead: (id: string) => void;
   markAsUnread: (id: string) => void;
   pinChat: (id: string) => void;
   toggleReaction: (conversationId: string, messageId: string, emoji: string) => Promise<void>;
-  
+
   // Configurations
   activeProvider: "baileys" | "meta";
   setActiveProvider: React.Dispatch<React.SetStateAction<"baileys" | "meta">>;
@@ -158,19 +225,29 @@ type ChatContextType = {
   setMetaConfig: React.Dispatch<React.SetStateAction<MetaConfig>>;
   baileysConfig: BaileysConfig;
   setBaileysConfig: React.Dispatch<React.SetStateAction<BaileysConfig>>;
-  clientTypingStatus: Record<string, { status: "composing" | "recording"; timestamp: number } | null>;
+  clientTypingStatus: Record<
+    string,
+    { status: "composing" | "recording"; timestamp: number } | null
+  >;
   /** Status de entrega/leitura recebidos em tempo real (SSE), por id da mensagem. Prevalecem sobre o histórico carregado. */
   messageStatusOverrides: Record<string, { status: string; error?: string | null }>;
   /** Outro operador digitando na conversa (visível a quem acompanha o atendimento). */
-  operatorTypingStatus: Record<string, { operatorId: string; operatorName: string; timestamp: number } | null>;
+  operatorTypingStatus: Record<
+    string,
+    { operatorId: string; operatorName: string; timestamp: number } | null
+  >;
   isValentinaTyping: boolean;
   disconnectBaileys: () => void;
   connectBaileys: (forceNew?: boolean) => void;
- 
+
   // Authentication
   isAuthenticated: boolean;
   isRestoringSession: boolean;
-  login: (tenantOrEmail: "tecfag" | "valem" | string, emailOrPass: string, maybePass?: string) => Promise<boolean>;
+  login: (
+    tenantOrEmail: "tecfag" | "valem" | string,
+    emailOrPass: string,
+    maybePass?: string,
+  ) => Promise<boolean>;
   logout: () => void;
 };
 
@@ -791,7 +868,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const deleteOperator = async (id: string, transferToOperatorId?: string): Promise<{ success: boolean; stats?: any }> => {
+  const deleteOperator = async (
+    id: string,
+    transferToOperatorId?: string,
+  ): Promise<{ success: boolean; stats?: any }> => {
     if (id === currentOperatorId) return { success: false };
 
     // Otimista: remove da UI imediatamente
@@ -835,7 +915,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
       } else {
         setConversations((prev) =>
-          prev.map((c) => (c.operatorId === id ? { ...c, operatorId: undefined, queueState: "fila" as any } : c))
+          prev.map((c) =>
+            c.operatorId === id ? { ...c, operatorId: undefined, queueState: "fila" as any } : c,
+          ),
         );
       }
       if (typeof window !== "undefined") {
@@ -853,7 +935,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false };
     }
   };
-
 
   const resetOperatorPassword = async (id: string, newPasswordHash: string) => {
     // NÃO salvar passwordHash no estado React/localStorage — o servidor faz o hash
@@ -1381,13 +1462,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const activeChat = conversations.find((c) => c.id === selectedChatId) || null;
 
   // Actions
-  const sendMessage = async (text: string, isInternalNote = false, attachments?: File[], quotedMessage?: { id: string; sender: string; content: string } | null, metaTemplate?: { name: string; language: string; parameters: string[] }) => {
-    if (!selectedChatId) return false;
+  const sendMessage = async (
+    text: string,
+    isInternalNote = false,
+    attachments?: File[],
+    quotedMessage?: { id: string; sender: string; content: string } | null,
+    metaTemplate?: { name: string; language: string; parameters: string[] },
+    intent?: { id: string; conversationId: string; tenantId: string },
+  ) => {
+    const targetChatId = intent?.conversationId || selectedChatId;
+    if (intent && intent.tenantId !== tenant) return false;
+    if (!targetChatId) return false;
 
-    const currentChat = conversations.find((c) => c.id === selectedChatId);
+    const currentChat = conversations.find((c) => c.id === targetChatId);
     if (!currentChat) return false;
 
-    if (selectedChatId === "valentina") {
+    if (targetChatId === "valentina") {
       const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
       const userMsg: Message = {
         id: `msg-${Date.now()}`,
@@ -1457,7 +1547,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (valentinaGenerationRef.current !== myGeneration) return;
 
             const frag = fragments[i];
-            const delay = frag.delay || (i * 800);
+            const delay = frag.delay || i * 800;
 
             // Aguardar delay cancelável — rejeita se o sinal foi abortado
             await new Promise<void>((resolve, reject) => {
@@ -1570,30 +1660,40 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const shouldSendReal =
       currentChat.channel === "whatsapp" &&
       !isInternalNote;
-    const clientMessageId = `cmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const clientMessageId =
+      intent?.id || `cmsg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const optimisticMessageId = shouldSendReal && text.trim() && !attachments?.length && !metaTemplate
       ? `pending-${clientMessageId}` : null;
     if (optimisticMessageId) {
       const pendingTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
       const nowIso = new Date().toISOString();
-      setConversations((previous) => previous.map((chat) => chat.id === selectedChatId ? {
-        ...chat,
-        lastMessageTime: pendingTime,
-        messages: [...chat.messages, {
-          id: optimisticMessageId,
-          clientMessageId,
-          author: "Você",
-          text,
-          time: pendingTime,
-          sentAtISO: nowIso,
-          side: "out" as const,
-          status: "sending",
-          provider: activeProvider,
-          quotedMessageId: quotedMessage?.id || null,
-          quotedMessageSender: quotedMessage?.sender || null,
-          quotedMessageContent: quotedMessage?.content || null,
-        }],
-      } : chat));
+      setConversations((previous) =>
+        previous.map((chat) =>
+          chat.id === targetChatId
+            ? {
+                ...chat,
+                lastMessageTime: pendingTime,
+                messages: [
+                  ...chat.messages,
+                  {
+                    id: optimisticMessageId,
+                    clientMessageId,
+                    author: "Você",
+                    text,
+                    time: pendingTime,
+                    sentAtISO: nowIso,
+                    side: "out" as const,
+                    status: "sending",
+                    provider: activeProvider,
+                    quotedMessageId: quotedMessage?.id || null,
+                    quotedMessageSender: quotedMessage?.sender || null,
+                    quotedMessageContent: quotedMessage?.content || null,
+                  },
+                ],
+              }
+            : chat,
+        ),
+      );
     }
     let sentTextMessageId: string | undefined;
     let sentTextStatus: string | undefined;
@@ -1606,7 +1706,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       channel: currentChat.channel,
       isInternalNote,
       phone: currentChat.phone,
-      selectedChatId,
+      targetChatId,
       shouldSendReal,
       quotedMessage,
     });
@@ -1622,24 +1722,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({
-              conversationId: selectedChatId,
+              conversationId: targetChatId,
               text,
               clientMessageId,
               quotedMessageId: quotedMessage?.id || null,
-              ...(metaTemplate ? {
-                templateName: metaTemplate.name,
-                templateLanguage: metaTemplate.language,
-                templateComponents: metaTemplate.parameters.length ? [{
-                  type: "body",
-                  parameters: metaTemplate.parameters.map((value) => ({ type: "text", text: value })),
-                }] : [],
-              } : {}),
+              ...(metaTemplate
+                ? {
+                    templateName: metaTemplate.name,
+                    templateLanguage: metaTemplate.language,
+                    templateComponents: metaTemplate.parameters.length
+                      ? [
+                          {
+                            type: "body",
+                            parameters: metaTemplate.parameters.map((value) => ({
+                              type: "text",
+                              text: value,
+                            })),
+                          },
+                        ]
+                      : [],
+                  }
+                : {}),
             }),
           });
 
           if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error || "Erro na resposta do envio de mensagem");
+            throw Object.assign(
+              new Error(errData.error || "Erro na resposta do envio de mensagem"),
+              { messageId: errData.messageId, deliveryStatus: errData.status },
+            );
           }
           const sendResult = await response.json().catch(() => ({}));
           sentTextMessageId = sendResult.messageId;
@@ -1653,7 +1765,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           for (const [attachmentIndex, file] of attachments.entries()) {
             try {
               const formData = new FormData();
-              formData.append("conversationId", selectedChatId);
+              formData.append("conversationId", targetChatId);
               formData.append("clientMessageId", `${clientMessageId}-att-${attachmentIndex}`);
               const safeName = (file as any).name || file.name || "arquivo";
               formData.append("file", file, safeName);
@@ -1682,15 +1794,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (err: any) {
         if (optimisticMessageId) {
-          setConversations((previous) => previous.map((chat) => chat.id === selectedChatId
-            ? { ...chat, messages: chat.messages.filter((message) => message.id !== optimisticMessageId) }
-            : chat));
+          setConversations((previous) =>
+            previous.map((chat) =>
+              chat.id === targetChatId
+                ? {
+                    ...chat,
+                    messages: chat.messages.map((message) =>
+                      message.id === optimisticMessageId
+                        ? {
+                            ...message,
+                            id: err.messageId || message.id,
+                            status: err.deliveryStatus || "unknown",
+                            errorMessage: err.message || "Confirmação pendente",
+                          }
+                        : message,
+                    ),
+                  }
+                : chat,
+            ),
+          );
         }
         console.error("Falha ao enviar mensagem de WhatsApp pelo backend:", err);
         toast.error(partAlreadySent
           ? `Envio parcial: ${err.message || "um anexo falhou"}. Confira o histórico antes de repetir.`
           : `Erro ao enviar mensagem: ${err.message || "Conexão falhou"}`);
-        return partAlreadySent;
+        return false;
       }
     } else {
       // Para mensagens internas, outras plataformas ou outros inquilinos (ex: Tecfag), persistir no banco de dados local
@@ -1700,7 +1828,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tenantId: tenant,
-            conversationId: selectedChatId,
+            conversationId: targetChatId,
             senderType: "agent",
             senderName: operatorProfile.name,
             senderEmail: operatorProfile.email,
@@ -1781,7 +1909,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setConversations((prev) =>
       prev.map((c) => {
-        if (c.id === selectedChatId) {
+        if (c.id === targetChatId) {
           // Atualiza in-place para manter a mesma chave e evitar unmount/re-animação do balão
           let optimisticUpdated = false;
           const updatedMessages = c.messages.map((m) => {
@@ -1822,7 +1950,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         }
         return c;
-      })
+      }),
     );
     return true;
   };
@@ -1879,7 +2007,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const transferChat = async (id: string, sectorName: string | null, targetOperatorId?: string | null): Promise<boolean> => {
+  const transferChat = async (
+    id: string,
+    sectorName: string | null,
+    targetOperatorId?: string | null,
+  ): Promise<boolean> => {
     const previousState = conversationsRef.current.find((c) => c.id === id);
     const targetOp = targetOperatorId ? operators.find((op) => op.id === targetOperatorId) : null;
     if (!previousState || (targetOperatorId && !targetOp)) {
@@ -1894,7 +2026,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const targetQueueState = targetOp ? "meus" : "fila";
     const targetSector = sectorName ? sectors.find((sector) => sector.name === sectorName) : null;
-    const sectorId = sectorName ? targetSector?.id ?? null : undefined;
+    const sectorId = sectorName ? (targetSector?.id ?? null) : undefined;
     const textLog = targetOp
       ? `Atendimento transferido diretamente para ${targetOp.name} por ${operatorProfile.name}.`
       : `Atendimento transferido para a fila do setor ${sectorName || "geral"} por ${operatorProfile.name}.`;
@@ -2000,10 +2132,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+          throw new Error(`HTTP ${res.status}`);
+        }
       const updated = await res.json();
-      setConversations((prev) => prev.map((c) => c.id === id ? { ...c, version: updated.version } : c));
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, version: updated.version } : c)),
+      );
     } catch (err) {
       console.error("Erro ao persistir encerramento de chat no DB:", err);
       if (previousState) {
@@ -2324,7 +2458,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Rollback da parte da conversa
         if (previousActiveConvState) {
           setConversations((prev) =>
-            prev.map((c) => (c.id === previousActiveConvState.id ? { ...previousActiveConvState } : c))
+            prev.map((c) =>
+              c.id === previousActiveConvState.id ? { ...previousActiveConvState } : c,
+            ),
           );
         }
       }
@@ -2335,7 +2471,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const params = conversationId ? `conversationId=${encodeURIComponent(conversationId)}` : "limit=100";
     const response = await fetch(`${BACKEND_URL}/api/chats?${params}`, { credentials: "include" });
     if (!response.ok) throw new Error("Não foi possível atualizar os atendimentos.");
-    const freshChats = await response.json() as Conversation[];
+    const freshChats = (await response.json()) as Conversation[];
     if (!Array.isArray(freshChats)) throw new Error("Resposta inválida ao atualizar atendimentos.");
     if (conversationId && freshChats.length === 0) throw new Error("Atendimento não encontrado.");
     setConversations((previous) => {
@@ -2345,7 +2481,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const current = previousById.get(conversationId);
         const updated = { ...fresh, pinned: (current as any)?.pinned || false,
           messages: current ? mergeRecentMessages(current.messages, fresh.messages) : fresh.messages };
-        return current ? previous.map((item) => item.id === conversationId ? updated : item) : [updated, ...previous];
+        return current
+          ? previous.map((item) => (item.id === conversationId ? updated : item))
+          : [updated, ...previous];
       }
       const aiChat = previous.find((item) => item.id === "valentina");
       const freshIds = new Set(freshChats.map((item) => item.id));
@@ -2377,7 +2515,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const response = await fetch(`${BACKEND_URL}/api/chats?${params}`, { credentials: "include" });
     if (!response.ok) throw new Error("Não foi possível carregar mais atendimentos.");
-    const page = await response.json() as Conversation[];
+    const page = (await response.json()) as Conversation[];
     if (!Array.isArray(page)) throw new Error("Resposta inválida ao carregar atendimentos.");
     if (page.length) {
       setConversations((previous) => {
@@ -2387,13 +2525,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     }
     const last = page.at(-1);
-    const nextCursor = response.headers.get("X-Has-More") === "1" && last?.lastMessageAtISO
-      ? {
-          before: last.lastMessageAtISO,
-          beforeId: last.id,
-          beforeQueue: last.queue === "finalizados" ? "finalizados" as const : "active" as const,
-        }
-      : null;
+    const nextCursor =
+      response.headers.get("X-Has-More") === "1" && last?.lastMessageAtISO
+        ? {
+            before: last.lastMessageAtISO,
+            beforeId: last.id,
+            beforeQueue:
+              last.queue === "finalizados" ? ("finalizados" as const) : ("active" as const),
+          }
+        : null;
     return { nextCursor };
   };
   refreshAssignedChatRef.current = refreshConversations;
@@ -2485,12 +2625,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // ── Extração do processador de eventos SSE recebidos ─────────────────────
-  const handleIncomingSseEvent = useCallback((data: any) => {
-    try {
-      if (!data) return;
+  const handleIncomingSseEvent = useCallback(
+    (data: any) => {
+      try {
+        if (!data) return;
 
-      if (data.type === "status") {
-        if (activeProvider === "baileys") {
+        if (data.type === "status") {
+          if (activeProvider === "baileys") {
           setBaileysConfig((prev) => ({
             ...prev,
             status: data.status,
@@ -2518,12 +2659,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             status: data.status === "connected" ? "connected" : "disconnected",
           }));
         }
-      } else if (data.type === "channel_switched" && data.provider) {
-        console.log(`[SSE] Provedor alternado via servidor para '${data.provider}'`);
-        setActiveProvider(data.provider);
-        updateDocumentTitle(tenantRef.current, data.provider);
-      } else if (data.type === "qr" && activeProvider === "baileys") {
-        QRCode.toDataURL(data.qr, { width: 250, margin: 1, errorCorrectionLevel: "M" })
+        } else if (data.type === "channel_switched" && data.provider) {
+          console.log(`[SSE] Provedor alternado via servidor para '${data.provider}'`);
+          setActiveProvider(data.provider);
+          updateDocumentTitle(tenantRef.current, data.provider);
+        } else if (data.type === "qr" && activeProvider === "baileys") {
+          QRCode.toDataURL(data.qr, { width: 250, margin: 1, errorCorrectionLevel: "M" })
           .then((qrUrl) => {
             setBaileysConfig((prev) => ({
               ...prev,
@@ -2534,13 +2675,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .catch((err) => {
             console.error("[QRCode] Erro ao gerar QR Code local:", err);
           });
-      } else if (data.type === "error" && activeProvider === "baileys") {
-        const message = data.message || "Falha ao iniciar a conexão WhatsApp.";
-        console.error("[Baileys]", message);
-        toast.error(message);
-        setBaileysConfig((prev) => ({ ...prev, status: "disconnected", qrCodeUrl: "" }));
-      } else if (data.type === "contact_avatar") {
-        setConversations((prev) =>
+        } else if (data.type === "error" && activeProvider === "baileys") {
+          const message = data.message || "Falha ao iniciar a conexão WhatsApp.";
+          console.error("[Baileys]", message);
+          toast.error(message);
+          setBaileysConfig((prev) => ({ ...prev, status: "disconnected", qrCodeUrl: "" }));
+        } else if (data.type === "contact_avatar") {
+          setConversations((prev) =>
           prev.map((c) => {
             const matchById = data.contactId && c.id.includes(data.contactId);
             const matchByPhone = c.phone && data.phone &&
@@ -2550,9 +2691,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               : c;
           })
         );
-      } else if (data.type === "chat_updated" && data.chat) {
-        const updatedChat = data.chat;
-        setConversations((prev) =>
+        } else if (data.type === "chat_updated" && data.chat) {
+          const updatedChat = data.chat;
+          setConversations((prev) =>
           prev.map((c) => {
             if (c.id === updatedChat.id) {
               return {
@@ -2566,18 +2707,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return c;
           })
         );
-      } else if (data.type === "presence_update" && data.id) {
-        const presenceId = data.id;
-        let lastState: string | undefined;
+        } else if (data.type === "presence_update" && data.id) {
+          const presenceId = data.id;
+          let lastState: string | undefined;
 
-        if (data.presences) {
+          if (data.presences) {
           const pObj = data.presences[presenceId] || Object.values(data.presences)[0];
           if (pObj && typeof pObj === "object") {
             lastState = (pObj as any).lastKnownPresence || (pObj as any).presence || (pObj as any).state;
           }
         }
 
-        setClientTypingStatus((prev) => {
+          setClientTypingStatus((prev) => {
           const cleanPresence = presenceId.replace(/\D/g, "");
           const targetConv = conversationsRef.current.find((c) => {
             if (!c.phone) return false;
@@ -2607,63 +2748,70 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return { ...prev, [targetConv.id]: null };
           }
         });
-      } else if (data.type === "contact_updated") {
-        const contactId = data.contact?.id || data.contactId;
-        const conversationId = conversationsRef.current.find((chat) => chat.contactId === contactId)?.id;
-        if (conversationId) {
+        } else if (data.type === "contact_updated") {
+          const contactId = data.contact?.id || data.contactId;
+          const conversationId = conversationsRef.current.find((chat) => chat.contactId === contactId)?.id;
+          if (conversationId) {
           void refreshAssignedChatRef.current(conversationId).catch((error) =>
             console.warn("Falha ao atualizar contato da conversa:", error)
           );
         }
-      } else if (data.type === "message") {
-        const { message } = data;
+        } else if (data.type === "message") {
+          const { message } = data;
 
-        if (message?.conversationId) {
-          setClientTypingStatus((prev) => ({ ...prev, [message.conversationId]: null }));
-          if (message.senderType !== "client") {
-            setOperatorTypingStatus((prev) => (prev[message.conversationId] ? { ...prev, [message.conversationId]: null } : prev));
+          if (message?.conversationId) {
+            setClientTypingStatus((prev) => ({ ...prev, [message.conversationId]: null }));
+            if (message.senderType !== "client") {
+              setOperatorTypingStatus((prev) =>
+                prev[message.conversationId] ? { ...prev, [message.conversationId]: null } : prev,
+              );
+            }
           }
-        }
 
-        const currentOperatorId = currentOperatorIdRef.current;
-        const selectedChatId = selectedChatIdRef.current;
-        const currentConvs = conversationsRef.current;
+          const currentOperatorId = currentOperatorIdRef.current;
+          const selectedChatId = selectedChatIdRef.current;
+          const currentConvs = conversationsRef.current;
 
-        const existingConv = currentConvs.find((c) => c.id === message.conversationId);
-        const operatorId = message.operatorId !== undefined
-          ? message.operatorId
-          : (existingConv ? existingConv.operatorId : null);
+          const existingConv = currentConvs.find((c) => c.id === message.conversationId);
+          const operatorId =
+            message.operatorId !== undefined
+              ? message.operatorId
+              : existingConv
+                ? existingConv.operatorId
+                : null;
 
-        const queueState = message.queue !== undefined
-          ? message.queue
-          : (existingConv ? existingConv.queue : null);
+          const queueState =
+            message.queue !== undefined ? message.queue : existingConv ? existingConv.queue : null;
 
-        const walletOperatorId = message.walletOperatorId !== undefined
-          ? message.walletOperatorId
-          : (existingConv ? existingConv.walletOperatorId : null);
+          const walletOperatorId =
+            message.walletOperatorId !== undefined
+              ? message.walletOperatorId
+              : existingConv
+                ? existingConv.walletOperatorId
+                : null;
 
-        const isAssignedToMe = Boolean(currentOperatorId && operatorId === currentOperatorId);
-        const isInMyWallet = Boolean(currentOperatorId && walletOperatorId === currentOperatorId);
+          const isAssignedToMe = Boolean(currentOperatorId && operatorId === currentOperatorId);
+          const isInMyWallet = Boolean(currentOperatorId && walletOperatorId === currentOperatorId);
 
-        // Notificar o operador se o atendimento está com ele ou se é cliente da sua carteira
-        const shouldNotify = isAssignedToMe || isInMyWallet;
-        const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
+          // Notificar o operador se o atendimento está com ele ou se é cliente da sua carteira
+          const shouldNotify = isAssignedToMe || isInMyWallet;
+          const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
 
-        if (shouldNotify && message.senderType === "client" && !isCurrentOpen) {
-          // 1. Tocar alerta sonoro cristalino sintetizado
-          playNotificationSound();
+          if (shouldNotify && message.senderType === "client" && !isCurrentOpen) {
+            // 1. Tocar alerta sonoro cristalino sintetizado
+            playNotificationSound();
 
-          const clientName = existingConv?.name || message.senderName || "Cliente";
-          const clientAvatar = existingConv?.avatar || message.avatar || "";
-          const initials = clientName
+            const clientName = existingConv?.name || message.senderName || "Cliente";
+            const clientAvatar = existingConv?.avatar || message.avatar || "";
+            const initials = clientName
             .split(" ")
             .map((w: string) => w[0])
             .join("")
             .toUpperCase()
             .substring(0, 2) || "C";
 
-          let previewText = message.content || "";
-          if (previewText.startsWith("[LOCAL_MEDIA:") || previewText.startsWith("[MEDIA:")) {
+            let previewText = message.content || "";
+            if (previewText.startsWith("[LOCAL_MEDIA:") || previewText.startsWith("[MEDIA:")) {
             if (previewText.includes("image")) previewText = "Imagem";
             else if (previewText.includes("video")) previewText = "Vídeo";
             else if (previewText.includes("audio")) previewText = "Áudio";
@@ -2675,12 +2823,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
 
-          const isTecfag = tenantRef.current === "tecfag";
-          const primaryColor = isTecfag ? "#df3d3d" : "#2dc4a0";
-          const primarySoftBg = isTecfag ? "#fde8e8" : "#d8f1ea";
+            const isTecfag = tenantRef.current === "tecfag";
+            const primaryColor = isTecfag ? "#df3d3d" : "#2dc4a0";
+            const primarySoftBg = isTecfag ? "#fde8e8" : "#d8f1ea";
 
-          // 2. Disparar notificação nativa do sistema operacional caso a aba esteja em segundo plano
-          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted" && document.hidden) {
+            // 2. Disparar notificação nativa do sistema operacional caso a aba esteja em segundo plano
+            if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted" && document.hidden) {
             try {
               const n = new Notification(clientName, {
                 body: previewText,
@@ -2699,98 +2847,102 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
 
-          // 3. Renderizar Toast rico com DUPLO BOTÃO: 'Abrir Chat' e 'Abrir Mini Chat'
-          toast.custom(
-            (t) => (
-              <div 
-                className="flex flex-col gap-2.5 w-[380px] bg-card/95 backdrop-blur-md border border-border rounded-2xl p-3.5 shadow-2xl animate-in slide-in-from-bottom-5 duration-200 border-l-[5px]"
-                style={{ borderLeftColor: primaryColor }}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="relative shrink-0">
-                    {clientAvatar ? (
-                      <img
-                        src={clientAvatar}
-                        alt={clientName}
-                        className="h-10 w-10 rounded-full object-cover border border-border shadow-sm"
-                      />
-                    ) : (
-                      <div 
-                        className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold border shadow-sm"
-                        style={{
-                          backgroundColor: primarySoftBg,
-                          borderColor: `${primaryColor}20`,
-                          color: primaryColor
-                        }}
-                      >
-                        {initials}
-                      </div>
-                    )}
-                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card" />
-                  </div>
-
-                  <div className="flex-1 min-w-0 pr-1">
-                    <div className="flex items-center justify-between gap-1">
-                      <p className="text-xs font-bold text-foreground truncate">{clientName}</p>
-                      <span className="text-[10px] text-muted-foreground font-mono shrink-0">Agora</span>
+            // 3. Renderizar Toast rico com DUPLO BOTÃO: 'Abrir Chat' e 'Abrir Mini Chat'
+            toast.custom(
+              (t) => (
+                <div
+                  className="flex flex-col gap-2.5 w-[380px] bg-card/95 backdrop-blur-md border border-border rounded-2xl p-3.5 shadow-2xl animate-in slide-in-from-bottom-5 duration-200 border-l-[5px]"
+                  style={{ borderLeftColor: primaryColor }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="relative shrink-0">
+                      {clientAvatar ? (
+                        <img
+                          src={clientAvatar}
+                          alt={clientName}
+                          className="h-10 w-10 rounded-full object-cover border border-border shadow-sm"
+                        />
+                      ) : (
+                        <div
+                          className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold border shadow-sm"
+                          style={{
+                            backgroundColor: primarySoftBg,
+                            borderColor: `${primaryColor}20`,
+                            color: primaryColor,
+                          }}
+                        >
+                          {initials}
+                        </div>
+                      )}
+                      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card" />
                     </div>
-                    <p className="text-[11px] text-muted-foreground/90 line-clamp-2 mt-0.5 leading-relaxed">{previewText}</p>
+
+                    <div className="flex-1 min-w-0 pr-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="text-xs font-bold text-foreground truncate">{clientName}</p>
+                        <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                          Agora
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground/90 line-clamp-2 mt-0.5 leading-relaxed">
+                        {previewText}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => toast.dismiss(t)}
+                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-1 -mr-1"
+                      title="Fechar aviso"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </div>
 
-                  <button
-                    onClick={() => toast.dismiss(t)}
-                    className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-1 -mr-1"
-                    title="Fechar aviso"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/40">
-                  <button
-                    onClick={() => {
-                      setSelectedChatId(message.conversationId);
-                      markAsRead(message.conversationId);
-                      window.dispatchEvent(
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/40">
+                    <button
+                      onClick={() => {
+                        setSelectedChatId(message.conversationId);
+                        markAsRead(message.conversationId);
+                        window.dispatchEvent(
                         new CustomEvent("crm:open-mini-chat", {
                           detail: { conversationId: message.conversationId },
                         })
                       );
-                      toast.dismiss(t);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/70 transition shadow-sm cursor-pointer"
-                  >
-                    <MessageCircle className="h-3.5 w-3.5 text-primary" />
-                    Abrir Mini Chat
-                  </button>
+                        toast.dismiss(t);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/70 transition shadow-sm cursor-pointer"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5 text-primary" />
+                      Abrir Mini Chat
+                    </button>
 
-                  <button
-                    onClick={() => {
-                      setSelectedChatId(message.conversationId);
-                      setActiveView("chat");
-                      markAsRead(message.conversationId);
-                      if (typeof window !== "undefined" && window.location.pathname.startsWith("/crm/deals/")) {
+                    <button
+                      onClick={() => {
+                        setSelectedChatId(message.conversationId);
+                        setActiveView("chat");
+                        markAsRead(message.conversationId);
+                        if (typeof window !== "undefined" && window.location.pathname.startsWith("/crm/deals/")) {
                         window.location.href = `/?chatId=${message.conversationId}`;
                       }
-                      toast.dismiss(t);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition shadow-sm hover:opacity-90 cursor-pointer"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Abrir Chat
-                  </button>
+                        toast.dismiss(t);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition shadow-sm hover:opacity-90 cursor-pointer"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Abrir Chat
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ),
-            { duration: 8000, position: "bottom-right" }
-          );
-        }
-        
-        setConversations((prev) => {
-          const exists = prev.some((c) => c.id === message.conversationId);
-          const timeStr = new Date(message.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-          const incomingMsg: Message = {
+              ),
+              { duration: 8000, position: "bottom-right" },
+            );
+          }
+
+          setConversations((prev) => {
+            const exists = prev.some((c) => c.id === message.conversationId);
+            const timeStr = new Date(message.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            const incomingMsg: Message = {
             id: message.id,
             clientMessageId: message.clientMessageId || undefined,
             author: message.senderName,
@@ -2805,10 +2957,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             quotedMessageContent: message.quotedMessageContent || null,
           };
 
-          if (exists) {
-            return prev.map((c) => {
-              if (c.id === message.conversationId) {
-                if (!incomingMsg.quotedMessageContent && incomingMsg.quotedMessageId) {
+            if (exists) {
+              return prev.map((c) => {
+                if (c.id === message.conversationId) {
+                  if (!incomingMsg.quotedMessageContent && incomingMsg.quotedMessageId) {
                   const quoted = c.messages.find((m) => m.id === incomingMsg.quotedMessageId || (m as any).externalId === incomingMsg.quotedMessageId);
                   if (quoted) {
                     incomingMsg.quotedMessageContent = quoted.text;
@@ -2816,12 +2968,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   }
                 }
 
-                const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
-                const newUnread = message.senderType === "client"
-                  ? (isCurrentOpen ? 0 : c.unreadCount + 1)
-                  : c.unreadCount;
+                  const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
+                  const newUnread =
+                    message.senderType === "client"
+                      ? isCurrentOpen
+                        ? 0
+                        : c.unreadCount + 1
+                      : c.unreadCount;
 
-                if (isCurrentOpen && message.senderType === "client") {
+                  if (isCurrentOpen && message.senderType === "client") {
                   fetch(`${BACKEND_URL}/api/chats`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
@@ -2830,14 +2985,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   }).catch((e) => console.error("Erro ao marcar como lido via SSE:", e));
                 }
 
-                const matchIdx = c.messages.findIndex(
+                  const matchIdx = c.messages.findIndex(
                   (m) => m.id === incomingMsg.id || (incomingMsg.clientMessageId && m.clientMessageId === incomingMsg.clientMessageId)
                 );
-                const updatedList = matchIdx !== -1
-                  ? c.messages.map((m, i) => (i === matchIdx ? { ...m, ...incomingMsg, id: incomingMsg.id } : m))
-                  : [...c.messages, incomingMsg];
+                  const updatedList =
+                    matchIdx !== -1
+                      ? c.messages.map((m, i) =>
+                          i === matchIdx ? { ...m, ...incomingMsg, id: incomingMsg.id } : m,
+                        )
+                      : [...c.messages, incomingMsg];
 
-                return {
+                  return {
                   ...c,
                   lastMessageTime: timeStr,
                   unreadCount: newUnread,
@@ -2848,22 +3006,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   operatorId: message.operatorId !== undefined ? message.operatorId : c.operatorId,
                   walletOperatorId: message.walletOperatorId !== undefined ? message.walletOperatorId : c.walletOperatorId,
                 };
-              }
-              return c;
-            });
-          } else {
-            const initials = String(message.senderName || "Contato")
+                }
+                return c;
+              });
+            } else {
+              const initials = String(message.senderName || "Contato")
               .split(" ")
               .map((w: string) => w[0])
               .join("")
               .toUpperCase()
               .substring(0, 2);
-            const initialsBg = "";
-            
-            const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
-            const newUnread = isCurrentOpen ? 0 : 1;
+              const initialsBg = "";
 
-            if (isCurrentOpen && message.senderType === "client") {
+              const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
+              const newUnread = isCurrentOpen ? 0 : 1;
+
+              if (isCurrentOpen && message.senderType === "client") {
               fetch(`${BACKEND_URL}/api/chats`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
@@ -2872,15 +3030,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }).catch((e) => console.error("Erro ao marcar como lido via SSE para nova conversa:", e));
             }
 
-            const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
-            let pinnedIds: string[] = [];
-            try {
+              const pinnedKey = `pinned_chats_${currentOperatorId || "global"}`;
+              let pinnedIds: string[] = [];
+              try {
               const stored = localStorage.getItem(pinnedKey);
               if (stored) pinnedIds = JSON.parse(stored);
             } catch (e) {}
-            const isPinned = pinnedIds.includes(message.conversationId);
+              const isPinned = pinnedIds.includes(message.conversationId);
 
-            const newConv: Conversation = {
+              const newConv: Conversation = {
               id: message.conversationId,
               name: message.senderName || message.phone || "Contato",
               avatar: message.avatar || "",
@@ -2897,12 +3055,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               messages: [incomingMsg],
               pinned: isPinned,
             } as any;
-            return [newConv, ...prev];
-          }
-        });
-      } else if (data.type === "message_reaction") {
-        const { conversationId, messageId, reactions } = data;
-        setConversations((prev) =>
+              return [newConv, ...prev];
+            }
+          });
+        } else if (data.type === "message_reaction") {
+          const { conversationId, messageId, reactions } = data;
+          setConversations((prev) =>
           prev.map((c) =>
             c.id !== conversationId
               ? c
@@ -2914,21 +3072,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
           )
         );
-      } else if (data.type === "message_status" && data.messageId && data.status) {
-        // Guarda mesmo se a mensagem ainda não estiver na tela: o webhook "delivered" pode
-        // chegar antes da resposta do POST /send que adiciona o balão.
-        const { conversationId, messageId, status, error } = data;
-        setMessageStatusOverrides((prev) => ({ ...prev, [messageId]: { status, error: error || null } }));
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id !== conversationId
-              ? c
-              : { ...c, messages: c.messages.map((m) => (m.id === messageId ? { ...m, status, errorMessage: error || null } : m)) }
-          )
-        );
-      } else if (data.type === "operator_typing" && data.conversationId) {
-        if (data.operatorId && data.operatorId === currentOperatorIdRef.current) return;
-        setOperatorTypingStatus((prev) => {
+        } else if (data.type === "message_status" && data.messageId && data.status) {
+          // Guarda mesmo se a mensagem ainda não estiver na tela: o webhook "delivered" pode
+          // chegar antes da resposta do POST /send que adiciona o balão.
+          const { conversationId, messageId, status, error } = data;
+          setMessageStatusOverrides((prev) => ({ ...prev, [messageId]: { status, error: error || null } }));
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id !== conversationId
+                ? c
+                : {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === messageId ? { ...m, status, errorMessage: error || null } : m,
+                    ),
+                  },
+            ),
+          );
+        } else if (data.type === "operator_typing" && data.conversationId) {
+          if (data.operatorId && data.operatorId === currentOperatorIdRef.current) return;
+          setOperatorTypingStatus((prev) => {
           const current = prev[data.conversationId];
           if (current && current.operatorId === data.operatorId && Date.now() - current.timestamp < 2000) {
             return prev; // sem mudança relevante de estado
@@ -2942,37 +3105,47 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             },
           };
         });
-      } else if (data.type === "queue_update") {
-        const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
+        } else if (data.type === "queue_update") {
+          const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
 
-        if (queueState === "meus" && newOperatorId === currentOperatorIdRef.current &&
+          if (queueState === "meus" && newOperatorId === currentOperatorIdRef.current &&
             !conversationsRef.current.some((chat) => chat.id === conversationId)) {
           void refreshAssignedChatRef.current(conversationId).catch((error) =>
             console.warn("Falha ao carregar atendimento recebido:", error)
           );
         }
 
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== conversationId) return c;
-            return {
-              ...c,
-              queue: queueState,
-              operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
-              sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
-              responsibleName: responsibleName !== undefined ? responsibleName : c.responsibleName,
-              version: version !== undefined ? version : (c.version ? c.version + 1 : 1),
-            };
-          })
-        );
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== conversationId) return c;
+              return {
+                ...c,
+                queue: queueState,
+                operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
+                sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
+                responsibleName:
+                  responsibleName !== undefined ? responsibleName : c.responsibleName,
+                version: version !== undefined ? version : c.version ? c.version + 1 : 1,
+              };
+            }),
+          );
 
-        // Quem estava lendo a conversa continua vendo o histórico. O composer
-        // muda para somente leitura quando o operador responsável muda.
+          // Quem estava lendo a conversa continua vendo o histórico. O composer
+          // muda para somente leitura quando o operador responsável muda.
+        }
+      } catch (err) {
+        console.error("Erro ao processar dados recebidos do SSE:", err);
       }
-    } catch (err) {
-      console.error("Erro ao processar dados recebidos do SSE:", err);
-    }
-  }, [activeProvider, isCurrentlyViewingConversation, markAsRead, setActiveView, setConversations, setSelectedChatId]);
+    },
+    [
+      activeProvider,
+      isCurrentlyViewingConversation,
+      markAsRead,
+      setActiveView,
+      setConversations,
+      setSelectedChatId,
+    ],
+  );
 
   // ── Conexão SSE Universal (/api/events) com reconexão exponencial ──────────
   const universalSseRef = useRef<EventSource | null>(null);
@@ -3179,14 +3352,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (
     tenantOrEmail: "tecfag" | "valem" | string,
     emailOrPass: string,
-    maybePass?: string
+    maybePass?: string,
   ): Promise<boolean> => {
     let targetTenant: "tecfag" | "valem";
     let targetEmail: string;
     let targetPassword: string;
 
     if (maybePass !== undefined) {
-      targetTenant = (tenantOrEmail === "valem" ? "valem" : "tecfag");
+      targetTenant = tenantOrEmail === "valem" ? "valem" : "tecfag";
       targetEmail = emailOrPass.trim();
       targetPassword = maybePass;
     } else {

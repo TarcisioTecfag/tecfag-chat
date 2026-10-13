@@ -50,10 +50,16 @@ export interface ChatMessageBubbleProps {
   reactingMsgId: string | null;
   effectiveStatus?: string;
   effectiveError?: string | null;
+  onReconcile?: (id: string, action: "resend" | "confirm_sent", uncertain: boolean) => void;
   onBubbleClick: (e: React.MouseEvent, id: string) => void;
   onScrollToQuoted: (e: React.MouseEvent, targetId: string) => void;
   onSetReactingMsgId: (id: string | null) => void;
-  onSetMarkingEvidenceMsg: (msg: { id: string; text: string; author: string; time: string }) => void;
+  onSetMarkingEvidenceMsg: (msg: {
+    id: string;
+    text: string;
+    author: string;
+    time: string;
+  }) => void;
   onSetReplyingTo: (msg: Message) => void;
   onToggleReaction: (chatId: string, msgId: string, emoji: string) => void;
   onMediaClick?: (type: "image" | "video", url: string) => void;
@@ -81,6 +87,7 @@ function ChatMessageBubbleComponent({
   reactingMsgId,
   effectiveStatus,
   effectiveError,
+  onReconcile,
   onBubbleClick,
   onScrollToQuoted,
   onSetReactingMsgId,
@@ -199,7 +206,14 @@ function ChatMessageBubbleComponent({
             <SystemTooltip content="Marcar como evidência do negócio">
               <button
                 type="button"
-                onClick={() => onSetMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
+                onClick={() =>
+                  onSetMarkingEvidenceMsg({
+                    id: m.id,
+                    text: m.text,
+                    author: m.author,
+                    time: m.time,
+                  })
+                }
                 className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
               >
                 <Bookmark className="h-3.5 w-3.5" />
@@ -222,11 +236,22 @@ function ChatMessageBubbleComponent({
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
                     className="mb-1 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
                   >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
-                    <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                    <div className="font-bold text-[10px] mb-0.5 text-primary">
+                      {displayQuotedSender}
+                    </div>
+                    <div className="truncate font-medium">
+                      {getFriendlyQuotedContent(displayQuotedContent)}
+                    </div>
                   </div>
                 )}
-                {renderMessageContent(m.text, onMediaClick, true, onSaveSticker, m.author, activeChat.name)}
+                {renderMessageContent(
+                  m.text,
+                  onMediaClick,
+                  true,
+                  onSaveSticker,
+                  m.author,
+                  activeChat.name,
+                )}
               </div>
             ) : isAudioOrDoc ? (
               <div className="flex flex-col items-end gap-1.5">
@@ -235,14 +260,34 @@ function ChatMessageBubbleComponent({
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
                     className="mb-0.5 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
                   >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
-                    <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                    <div className="font-bold text-[10px] mb-0.5 text-primary">
+                      {displayQuotedSender}
+                    </div>
+                    <div className="truncate font-medium">
+                      {getFriendlyQuotedContent(displayQuotedContent)}
+                    </div>
                   </div>
                 )}
-                {renderMessageContent(m.text, onMediaClick, true, undefined, m.author, activeChat.name)}
+                {renderMessageContent(
+                  m.text,
+                  onMediaClick,
+                  true,
+                  undefined,
+                  m.author,
+                  activeChat.name,
+                )}
               </div>
             ) : isMedia && !hasCaption && !displayQuotedContent ? (
-              <div>{renderMessageContent(m.text, onMediaClick, true, undefined, m.author, activeChat.name)}</div>
+              <div>
+                {renderMessageContent(
+                  m.text,
+                  onMediaClick,
+                  true,
+                  undefined,
+                  m.author,
+                  activeChat.name,
+                )}
+              </div>
             ) : isEmojiOnly(m.text) && !displayQuotedContent ? (
               <div className="text-4xl leading-none select-none py-1">{m.text}</div>
             ) : (
@@ -261,11 +306,22 @@ function ChatMessageBubbleComponent({
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
                     className="mb-1.5 rounded-lg border-l-4 border-l-white/60 bg-white/10 px-2.5 py-1.5 text-[11px] text-white/95 select-none max-w-full cursor-pointer hover:bg-white/20 transition"
                   >
-                    <div className="font-bold text-[10px] mb-0.5 opacity-90">{displayQuotedSender}</div>
-                    <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                    <div className="font-bold text-[10px] mb-0.5 opacity-90">
+                      {displayQuotedSender}
+                    </div>
+                    <div className="truncate font-medium">
+                      {getFriendlyQuotedContent(displayQuotedContent)}
+                    </div>
                   </div>
                 )}
-                {renderMessageContent(m.text, onMediaClick, true, undefined, m.author, activeChat.name)}
+                {renderMessageContent(
+                  m.text,
+                  onMediaClick,
+                  true,
+                  undefined,
+                  m.author,
+                  activeChat.name,
+                )}
               </div>
             )}
 
@@ -284,6 +340,42 @@ function ChatMessageBubbleComponent({
             side="out"
             onReactionClick={() => onToggleReaction(activeChat.id, m.id, "")}
           />
+          {["failed", "unknown", "uncertain", "pending"].includes(effectiveStatus || "") && (
+            <div className="text-xs mt-2 space-x-3">
+              <span>
+                {effectiveStatus === "pending"
+                  ? "Na fila de envio"
+                  : effectiveStatus === "failed"
+                    ? "Falha no envio"
+                    : "Resultado do envio desconhecido"}
+              </span>
+              {effectiveError && <p>{effectiveError}</p>}
+              {effectiveStatus !== "pending" && onReconcile && (
+                <>
+                  <button
+                    className="underline"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onReconcile(m.id, "resend", effectiveStatus !== "failed");
+                    }}
+                  >
+                    Reenviar
+                  </button>
+                  {effectiveStatus !== "failed" && (
+                    <button
+                      className="underline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onReconcile(m.id, "confirm_sent", true);
+                      }}
+                    >
+                      Já foi enviado
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {(() => {
             const hasTicks = m.provider === "meta" && !m.isInternalNote && !!effectiveStatus;
@@ -291,8 +383,14 @@ function ChatMessageBubbleComponent({
             if (!isExpanded && !showTicks) return null;
             return (
               <span className="mr-1 mt-1 flex items-center gap-1 text-[10px] text-muted-foreground font-medium animate-in fade-in slide-in-from-top-1 duration-150">
-                {isExpanded && <span>{m.author} · {m.time}</span>}
-                {showTicks && <MessageStatusTicks status={effectiveStatus} error={effectiveError} />}
+                {isExpanded && (
+                  <span>
+                    {m.author} · {m.time}
+                  </span>
+                )}
+                {showTicks && (
+                  <MessageStatusTicks status={effectiveStatus} error={effectiveError} />
+                )}
               </span>
             );
           })()}
@@ -351,11 +449,22 @@ function ChatMessageBubbleComponent({
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
                     className="mb-1 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
                   >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
-                    <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                    <div className="font-bold text-[10px] mb-0.5 text-primary">
+                      {displayQuotedSender}
+                    </div>
+                    <div className="truncate font-medium">
+                      {getFriendlyQuotedContent(displayQuotedContent)}
+                    </div>
                   </div>
                 )}
-                {renderMessageContent(m.text, onMediaClick, false, onSaveSticker, m.author, activeChat.name)}
+                {renderMessageContent(
+                  m.text,
+                  onMediaClick,
+                  false,
+                  onSaveSticker,
+                  m.author,
+                  activeChat.name,
+                )}
               </div>
             ) : isAudioOrDoc && !m.isWarning ? (
               <div className="flex flex-col items-start gap-1.5">
@@ -364,14 +473,34 @@ function ChatMessageBubbleComponent({
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
                     className="mb-0.5 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
                   >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
-                    <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                    <div className="font-bold text-[10px] mb-0.5 text-primary">
+                      {displayQuotedSender}
+                    </div>
+                    <div className="truncate font-medium">
+                      {getFriendlyQuotedContent(displayQuotedContent)}
+                    </div>
                   </div>
                 )}
-                {renderMessageContent(m.text, onMediaClick, false, undefined, m.author, activeChat.name)}
+                {renderMessageContent(
+                  m.text,
+                  onMediaClick,
+                  false,
+                  undefined,
+                  m.author,
+                  activeChat.name,
+                )}
               </div>
             ) : isMedia && !hasCaption && !displayQuotedContent && !m.isWarning ? (
-              <div>{renderMessageContent(m.text, onMediaClick, false, undefined, m.author, activeChat.name)}</div>
+              <div>
+                {renderMessageContent(
+                  m.text,
+                  onMediaClick,
+                  false,
+                  undefined,
+                  m.author,
+                  activeChat.name,
+                )}
+              </div>
             ) : isEmojiOnly(m.text) && !displayQuotedContent && !m.isWarning ? (
               <div className="text-4xl leading-none select-none py-1">{m.text}</div>
             ) : (
@@ -400,11 +529,22 @@ function ChatMessageBubbleComponent({
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
                     className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-muted/80 transition"
                   >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">{displayQuotedSender}</div>
-                    <div className="truncate font-medium">{getFriendlyQuotedContent(displayQuotedContent)}</div>
+                    <div className="font-bold text-[10px] mb-0.5 text-primary">
+                      {displayQuotedSender}
+                    </div>
+                    <div className="truncate font-medium">
+                      {getFriendlyQuotedContent(displayQuotedContent)}
+                    </div>
                   </div>
                 )}
-                {renderMessageContent(m.text, onMediaClick, false, undefined, m.author, activeChat.name)}
+                {renderMessageContent(
+                  m.text,
+                  onMediaClick,
+                  false,
+                  undefined,
+                  m.author,
+                  activeChat.name,
+                )}
 
                 {/* Card interativo: Atraso de Resposta */}
                 {m.isWarning && m.warningType === "delay" && m.warningMetadata && (
@@ -413,7 +553,10 @@ function ChatMessageBubbleComponent({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="text-[11px] font-bold text-foreground">
-                      Cliente: <span className="text-primary font-black">{m.warningMetadata.clientName}</span>
+                      Cliente:{" "}
+                      <span className="text-primary font-black">
+                        {m.warningMetadata.clientName}
+                      </span>
                     </div>
                     {m.warningMetadata.lastMessage && (
                       <div className="p-2 rounded-lg bg-muted/65 text-[10px] text-muted-foreground border-l-2 border-primary italic">
@@ -441,7 +584,10 @@ function ChatMessageBubbleComponent({
                   >
                     <div className="text-[11px] font-bold text-foreground flex items-center justify-between gap-2">
                       <span>
-                        Cliente: <span className="text-primary font-black">{m.warningMetadata.clientName}</span>
+                        Cliente:{" "}
+                        <span className="text-primary font-black">
+                          {m.warningMetadata.clientName}
+                        </span>
                       </span>
                       {m.warningMetadata.temperature && (
                         <span
@@ -449,8 +595,8 @@ function ChatMessageBubbleComponent({
                             m.warningMetadata.temperature === "quente"
                               ? "bg-red-500/10 text-red-500 border border-red-500/25"
                               : m.warningMetadata.temperature === "morno"
-                              ? "bg-amber-500/10 text-amber-500 border border-amber-500/25"
-                              : "bg-blue-500/10 text-blue-500 border border-blue-500/25"
+                                ? "bg-amber-500/10 text-amber-500 border border-amber-500/25"
+                                : "bg-blue-500/10 text-blue-500 border border-blue-500/25"
                           }`}
                         >
                           {m.warningMetadata.temperature}
@@ -503,7 +649,14 @@ function ChatMessageBubbleComponent({
             <SystemTooltip content="Marcar como evidência do negócio">
               <button
                 type="button"
-                onClick={() => onSetMarkingEvidenceMsg({ id: m.id, text: m.text, author: m.author, time: m.time })}
+                onClick={() =>
+                  onSetMarkingEvidenceMsg({
+                    id: m.id,
+                    text: m.text,
+                    author: m.author,
+                    time: m.time,
+                  })
+                }
                 className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
               >
                 <Bookmark className="h-3.5 w-3.5" />

@@ -14,6 +14,7 @@ import {
   validateFlow,
 } from "../../../lib/rd-marketing/service";
 import { integrationError, readIntegrationJson } from "../../../lib/rd-marketing/http";
+import { listRdEvents, replayRdEvent } from "../../../lib/rd-marketing/inbox";
 
 export const Route = createFileRoute("/api/settings/rd-marketing")({
   server: {
@@ -29,8 +30,15 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
             { status: 403 },
           );
         try {
-          const [data, options] = await Promise.all([listFlows(tenantId), flowOptions(tenantId)]);
-          return Response.json({ ...data, options }, { headers: { "Cache-Control": "no-store" } });
+          const [data, options, events] = await Promise.all([
+            listFlows(tenantId),
+            flowOptions(tenantId),
+            listRdEvents(tenantId),
+          ]);
+          return Response.json(
+            { ...data, options, events },
+            { headers: { "Cache-Control": "no-store" } },
+          );
         } catch (error) {
           return integrationError(error);
         }
@@ -50,6 +58,19 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
           if (!raw || typeof raw !== "object" || Array.isArray(raw))
             throw new CrmError("Dados inválidos.", "BAD_REQUEST", 400);
           const body = raw as Record<string, unknown>;
+          if (body.action === "replay") {
+            if (typeof body.eventId !== "string")
+              throw new CrmError("Informe o evento.", "BAD_REQUEST", 400);
+            return Response.json(
+              await replayRdEvent(
+                tenantId,
+                body.eventId,
+                session.operator.id,
+                body.useCurrentSettings === true,
+              ),
+              { status: 202 },
+            );
+          }
           if (body.action === "preview")
             return Response.json(await previewFlow(tenantId, body.settings, body.payload));
           const id = typeof body.id === "string" ? body.id : "";

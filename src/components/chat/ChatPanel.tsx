@@ -1,3 +1,9 @@
+import {
+  saveBrowserIntent,
+  readBrowserIntents,
+  removeBrowserIntent,
+  type BrowserIntent,
+} from "@/lib/browser-outbox";
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
@@ -90,8 +96,10 @@ function appendUniqueFiles(previous: File[], incoming: File[]): File[] {
 // ── Formatação padronizada do título do áudio ───────────────────────────────
 export function getAudioLabel(authorName?: string, isMe?: boolean, clientName?: string): string {
   const name = isMe
-    ? (authorName && authorName !== "Você" ? authorName : null)
-    : (authorName || clientName || null);
+    ? authorName && authorName !== "Você"
+      ? authorName
+      : null
+    : authorName || clientName || null;
 
   if (name) {
     return `Áudio de ${name}`;
@@ -236,16 +244,11 @@ function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; i
 
       <div className="flex flex-1 flex-col gap-1.5 min-w-0">
         {/* Nome do arquivo padronizado */}
-        <p className={titleClasses}>
-          {fileName}
-        </p>
+        <p className={titleClasses}>{fileName}</p>
 
         {/* Barra de progresso */}
         <div className={trackClasses}>
-          <div
-            className={barClasses}
-            style={{ width: `${pct}%` }}
-          />
+          <div className={barClasses} style={{ width: `${pct}%` }} />
           <input
             type="range"
             min={0}
@@ -683,10 +686,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       setMetaWindow(null);
     }
     let cancelled = false;
-    const refresh = () => fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}`, { credentials: "include" })
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => { if (!cancelled && data?.window) setMetaWindow(data.window); })
-      .catch(() => {});
+    const refresh = () =>
+      fetch(
+        `${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}`,
+        { credentials: "include" },
+      )
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          if (!cancelled && data?.window) setMetaWindow(data.window);
+        })
+        .catch(() => {});
     void refresh();
     const timer = window.setInterval(refresh, 60000);
     return () => { cancelled = true; window.clearInterval(timer); };
@@ -762,13 +771,19 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [transferModalSubmitting, setTransferModalSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
-  type OutgoingQueueItem = {
-    text: string;
-    isInternal: boolean;
-    attachments?: File[];
-    quoted?: { id: string; sender: string; content: string } | null;
-    audioBlob?: Blob | null;
-  };
+  type OutgoingQueueItem = BrowserIntent;
+  const [localPending, setLocalPending] = useState<BrowserIntent[]>([]);
+  useEffect(() => {
+    let active = true;
+    void readBrowserIntents(tenant, currentOperatorId || "")
+      .then((rows) => {
+        if (active) setLocalPending(rows);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [tenant, currentOperatorId, activeChat?.id]);
   const sendQueueRef = useRef<OutgoingQueueItem[]>([]);
   const isQueueProcessingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -1227,7 +1242,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   }, [activeChat, tenant, currentOperatorId, operators, operatorProfile, sendMessage, cleanupCall]);
 
-
   const handleEndCall = useCallback(async (roomId: string | null, fromRemote = false) => {
     // Sinalizar encerramento para o cliente (se não veio do remoto)
     if (!fromRemote && roomId) {
@@ -1354,8 +1368,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setRecordingSeconds(0);
     setRecordingState("idle");
   };
-
-
 
   // ── Drag & Drop ────────────────────────────────────────────────────────────
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1495,19 +1507,38 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           const extras = task.attachments?.length
             ? [...task.attachments, audioFile as File]
             : [audioFile as File];
-          await sendMessage(task.text, false, extras, task.quoted);
+          const accepted = await sendMessage(
+            task.text,
+            false,
+            extras,
+            task.quoted,
+            undefined,
+            task,
+          );
+          if (!accepted) break;
         } else {
-          await sendMessage(task.text, task.isInternal, task.attachments, task.quoted);
+          const accepted = await sendMessage(
+            task.text,
+            task.isInternal,
+            task.attachments,
+            task.quoted,
+            undefined,
+            task,
+          );
+          if (!accepted) break;
         }
+        await removeBrowserIntent(task.id);
+        setLocalPending((rows) => rows.filter((row) => row.id !== task.id));
       } catch (err: any) {
         console.error("[ChatPanel] Erro ao enviar mensagem da fila:", err);
+        break;
       }
     }
 
     isQueueProcessingRef.current = false;
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (activeProvider === "meta" && activeChat?.channel === "whatsapp" && msgMode !== "internal" && metaWindow && !metaWindow.open) {
       toast.error("A janela de 24 horas terminou. Use um template aprovado pela Meta.");
       loadMetaTemplates();
@@ -1540,6 +1571,27 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
     const isInternal = msgMode === "internal";
 
+    if (!activeChat || !currentOperatorId) return;
+    const intent: BrowserIntent = {
+      id: crypto.randomUUID(),
+      tenantId: tenant,
+      operatorId: currentOperatorId,
+      conversationId: activeChat.id,
+      text: currentText,
+      isInternal,
+      attachments: currentAttachments,
+      quoted,
+      audioBlob: currentAudioBlob,
+      createdAt: Date.now(),
+    };
+    try {
+      await saveBrowserIntent(intent);
+    } catch {
+      toast.error("Não foi possível preservar o envio. O conteúdo continua no campo de mensagem.");
+      return;
+    }
+    setLocalPending((rows) => [...rows, intent]);
+
     // 1. Limpeza otimista IMEDIATA do campo de texto (latência zero para o operador poder digitar a próxima)
     setText("");
     setAttachments([]);
@@ -1557,13 +1609,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     focusInput();
 
     // 3. Enfileira o item na fila sequencial e processa em background sem congelar o botão ou a digitação
-    sendQueueRef.current.push({
-      text: currentText,
-      isInternal,
-      attachments: currentAttachments,
-      quoted,
-      audioBlob: currentAudioBlob,
-    });
+    sendQueueRef.current.push(intent);
     void processSendQueue();
   };
 
@@ -1637,15 +1683,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 onClick={() => setActiveMedia({ type: "image", url: activeChat.avatar })}
               />
             ) : (
-              <div
-                className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-primary bg-primary/10 border border-primary/20"
-              >
+              <div className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-primary bg-primary/10 border border-primary/20">
                 {activeChat.initials || "U"}
               </div>
             )}
-            <span
-              className="absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-primary-foreground shadow-soft bg-primary"
-            >
+            <span className="absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-card text-primary-foreground shadow-soft bg-primary">
               {activeChat.id === "valentina" ? (
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
@@ -1663,7 +1705,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
           <div>
             <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
-            {activeChat.whatsappUsername && <span className="text-[11px] text-primary">@{activeChat.whatsappUsername}</span>}
+            {activeChat.whatsappUsername && (
+              <span className="text-[11px] text-primary">@{activeChat.whatsappUsername}</span>
+            )}
             {activeChat.id === "valentina" && isValentinaTyping ? (
               <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
                 <Zap className="h-3 w-3 text-primary animate-bounce" />
@@ -1686,40 +1730,43 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             ) : activeOperatorTyping ? (
               <span className="text-[11px] font-bold text-amber-500 animate-pulse flex items-center gap-1 mt-0.5">
                 <Zap className="h-3 w-3" />
-                <span>{activeOperatorTyping.operatorName.split(" ")[0]} está digitando uma resposta...</span>
+                <span>
+                  {activeOperatorTyping.operatorName.split(" ")[0]} está digitando uma resposta...
+                </span>
               </span>
             ) : (
               <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5">
-              {activeChat.queue === "meus" && (
-                isOwner ? (
-                  <span className="flex items-center gap-1 text-primary">
-                    <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Meus Atendimentos
-                  </span>
-                ) : (
+                {activeChat.queue === "meus" &&
+                  (isOwner ? (
+                    <span className="flex items-center gap-1 text-primary">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Meus Atendimentos
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-amber-500">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Atendimento com{" "}
+                      {ownerOperator?.name ?? "outro operador"}
+                    </span>
+                  ))}
+                {activeChat.queue === "fila" && (
                   <span className="flex items-center gap-1 text-amber-500">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Atendimento com {ownerOperator?.name ?? "outro operador"}
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Fila de Espera
                   </span>
-                )
-              )}
-              {activeChat.queue === "fila" && (
-                <span className="flex items-center gap-1 text-amber-500">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Fila de Espera
-                </span>
-              )}
-              {activeChat.queue === "automacao" && (
-                <span className="flex items-center gap-1 text-primary font-bold animate-pulse">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Com {aiPersona.name} (I.A)
-                </span>
-              )}
-              {activeChat.queue === "finalizados" && (
-                <span className="flex items-center gap-1 text-gray-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-gray-400" /> Atendimento Finalizado
-                </span>
-              )}
-            </span>
-          )}
+                )}
+                {activeChat.queue === "automacao" && (
+                  <span className="flex items-center gap-1 text-primary font-bold animate-pulse">
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Com {aiPersona.name}{" "}
+                    (I.A)
+                  </span>
+                )}
+                {activeChat.queue === "finalizados" && (
+                  <span className="flex items-center gap-1 text-gray-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-gray-400" /> Atendimento Finalizado
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
 
         {/* Handover Operations Actions */}
         <div className="flex items-center gap-1.5 md:gap-2 relative shrink-0">
@@ -1742,7 +1789,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {rightSidebarOpen ? "Ocultar Painel de Informações" : "Mostrar Painel de Informações"}
+                {rightSidebarOpen
+                  ? "Ocultar Painel de Informações"
+                  : "Mostrar Painel de Informações"}
               </TooltipContent>
             </Tooltip>
           )}
@@ -1799,7 +1848,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         <MessageSquare className="h-3.5 w-3.5" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Respostas/Conversas de {aiPersona.name}</TooltipContent>
+                    <TooltipContent side="bottom">
+                      Respostas/Conversas de {aiPersona.name}
+                    </TooltipContent>
                   </Tooltip>
                 </>
               )}
@@ -1823,7 +1874,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       <PhoneCall className="h-3.5 w-3.5" />
                     </a>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Discar via VigosPhone (Softphone Local)</TooltipContent>
+                  <TooltipContent side="bottom">
+                    Discar via VigosPhone (Softphone Local)
+                  </TooltipContent>
                 </Tooltip>
               )}
 
@@ -1896,31 +1949,35 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                 </button>
 
                                 <div className="px-3 py-1 text-[9px] font-extrabold uppercase text-muted-foreground tracking-wider mb-1">
-                                  {directTransfer ? "Escolha o responsável" : `Atendentes em ${selectedSector?.name}`}
+                                  {directTransfer
+                                    ? "Escolha o responsável"
+                                    : `Atendentes em ${selectedSector?.name}`}
                                 </div>
 
                                 {/* Option to transfer to any agent in sector (general queue) */}
-                                {!directTransfer && <button
-                                  onClick={() => {
-                                    transferChat(
+                                {!directTransfer && (
+                                  <button
+                                    onClick={() => {
+                                      transferChat(
                                       activeChat.id,
                                       selectedSector?.name || "Sem Nome",
                                       null,
                                     );
-                                    closeTransferDropdown();
-                                  }}
-                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
-                                >
-                                  <div className="h-5 w-5 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
-                                    F
-                                  </div>
-                                  <div className="flex flex-col">
-                                    <span>Fila Geral do Setor</span>
-                                    <span className="text-[9px] text-muted-foreground font-normal">
-                                      Qualquer atendente
-                                    </span>
-                                  </div>
-                                </button>}
+                                      closeTransferDropdown();
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition border-b border-line border-dashed cursor-pointer"
+                                  >
+                                    <div className="h-5 w-5 rounded-full bg-primary/10 text-primary grid place-items-center text-[10px] font-black uppercase shrink-0">
+                                      F
+                                    </div>
+                                    <div className="flex flex-col">
+                                      <span>Fila Geral do Setor</span>
+                                      <span className="text-[9px] text-muted-foreground font-normal">
+                                        Qualquer atendente
+                                      </span>
+                                    </div>
+                                  </button>
+                                )}
 
                                 {sectorOps.length === 0 ? (
                                   <div className="px-3 py-2 text-xs text-muted-foreground italic">
@@ -1981,7 +2038,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </>
           ) : (
             /* Claim Chat — fila/automação, apenas para quem tem canCaptureChat */
-            activeChat.queue !== "finalizados" && !activeChat.operatorId && canCapture && (
+            activeChat.queue !== "finalizados" &&
+            !activeChat.operatorId &&
+            canCapture && (
               <button
                 onClick={() => captureChat(activeChat.id)}
                 className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
@@ -2004,7 +2063,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               {activeChat?.id === "valentina" ? (
                 <AiAvatar tenantId={tenant} className="h-full w-full rounded-full" />
               ) : activeChat?.avatar ? (
-                <img src={activeChat.avatar} alt={activeChat.name} className="h-full w-full rounded-full object-cover" />
+                <img
+                  src={activeChat.avatar}
+                  alt={activeChat.name}
+                  className="h-full w-full rounded-full object-cover"
+                />
               ) : (
                 <span>{activeChat?.initials ?? "?"}</span>
               )}
@@ -2100,7 +2163,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               <SystemTooltip content="Mensagem anterior">
                 <button
                   disabled={matches.length === 0}
-                  onClick={() => setSearchMatchIndex((prev) => (prev - 1 + matches.length) % matches.length)}
+                  onClick={() =>
+                    setSearchMatchIndex((prev) => (prev - 1 + matches.length) % matches.length)
+                  }
                   className={`p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer ${
                     matches.length === 0 ? "opacity-30 cursor-not-allowed" : ""
                   }`}
@@ -2135,18 +2200,20 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       )}
       {/* Messages Window */}
       <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
-        {activeChat.id !== "valentina" && history?.chatId === activeChat.id && history.nextCursor && (
-          <div className="mb-4 text-center">
-            <button
-              type="button"
-              onClick={loadOlderMessages}
-              disabled={loadingHistory}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50"
-            >
-              {loadingHistory ? "Carregando..." : "Carregar mensagens anteriores"}
-            </button>
-          </div>
-        )}
+        {activeChat.id !== "valentina" &&
+          history?.chatId === activeChat.id &&
+          history.nextCursor && (
+            <div className="mb-4 text-center">
+              <button
+                type="button"
+                onClick={loadOlderMessages}
+                disabled={loadingHistory}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50"
+              >
+                {loadingHistory ? "Carregando..." : "Carregar mensagens anteriores"}
+              </button>
+            </div>
+          )}
         {(() => {
           let displayed = allMessages;
 
@@ -2194,8 +2261,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const prevLinked = prev ? canLink(prev, m) : false;
             const nextLinked = next ? canLink(m, next) : false;
 
-            const isFirst = !prevLinked;  // primeira do grupo
-            const isLast  = !nextLinked;  // última do grupo
+            const isFirst = !prevLinked; // primeira do grupo
+            const isLast  = !nextLinked; // última do grupo
             const isMe     = m.side === "out";
             const isSystem = m.author === "Sistema";
             const isExpanded = expandedMsgId === m.id;
@@ -2235,11 +2302,18 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const showDateSeparator = Boolean(currDate && (!prevDate || currDate !== prevDate));
             const dateLabel = showDateSeparator ? currDate : null;
 
-            const quotedTarget = (m.quotedMessageId && !m.quotedMessageContent)
-              ? messageMap.get(m.quotedMessageId)
-              : null;
+            const quotedTarget =
+              m.quotedMessageId && !m.quotedMessageContent
+                ? messageMap.get(m.quotedMessageId)
+                : null;
             const displayQuotedContent = m.quotedMessageContent || quotedTarget?.text || null;
-            const displayQuotedSender = m.quotedMessageSender || (quotedTarget ? (quotedTarget.side === "out" ? "Você" : quotedTarget.author || activeChat.name) : "Mensagem");
+            const displayQuotedSender =
+              m.quotedMessageSender ||
+              (quotedTarget
+                ? quotedTarget.side === "out"
+                  ? "Você"
+                  : quotedTarget.author || activeChat.name
+                : "Mensagem");
 
             const isMatch = matches.length > 0 && matches[searchMatchIndex]?.id === m.id;
             const liveStatus = messageStatusOverrides[m.id];
@@ -2269,6 +2343,46 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 reactingMsgId={reactingMsgId}
                 effectiveStatus={effectiveStatus}
                 effectiveError={effectiveError}
+                onReconcile={async (id, action, uncertain) => {
+                  if (
+                    uncertain &&
+                    !window.confirm(
+                      action === "confirm_sent"
+                        ? "Você conferiu o WhatsApp e confirma que a mensagem já foi enviada?"
+                        : "Você conferiu o histórico e confirma que a mensagem anterior NÃO foi enviada?",
+                    )
+                  )
+                    return;
+                  try {
+                    const response = await fetch(`${BACKEND_URL}/api/chats/reconcile-message`, {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        messageId: id,
+                        action,
+                        confirmNotDelivered: action === "resend" && uncertain,
+                      }),
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error);
+                    if (!result.success) throw new Error(result.error || "Envio ainda não confirmado.");
+                    if (m.clientMessageId) {
+                      await removeBrowserIntent(m.clientMessageId);
+                      setLocalPending((rows) => rows.filter((row) => row.id !== m.clientMessageId));
+                    }
+                    toast.success(
+                      action === "confirm_sent"
+                        ? "Confirmação registrada."
+                        : "Resultado do reenvio atualizado.",
+                    );
+                    window.dispatchEvent(new Event("chat:reconnected"));
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : "Não foi possível reconciliar.",
+                    );
+                  }
+                }}
                 onBubbleClick={handleBubbleClick}
                 onScrollToQuoted={handleScrollToQuoted}
                 onSetReactingMsgId={setReactingMsgId}
@@ -2283,6 +2397,41 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             );
           });
         })()}
+
+        {localPending.filter((item) => item.conversationId === activeChat.id).length > 0 && (
+          <div className="m-3 rounded-xl border border-amber-500/40 p-3 text-xs space-y-2">
+            <p>
+              Envios preservados neste navegador. Confira o histórico antes de recuperar uma
+              tentativa sem confirmação.
+            </p>
+            {localPending
+              .filter((item) => item.conversationId === activeChat.id)
+              .map((item) => (
+                <div key={item.id} className="flex items-center gap-2">
+                  <span className="truncate flex-1">{item.text || "Anexo pendente"}</span>
+                  <button
+                    className="underline"
+                    onClick={() => {
+                      if (isQueueProcessingRef.current) return;
+                      sendQueueRef.current.push(item);
+                      void processSendQueue();
+                    }}
+                  >
+                    Recuperar envio
+                  </button>
+                  <button
+                    className="underline"
+                    onClick={async () => {
+                      await removeBrowserIntent(item.id);
+                      setLocalPending((rows) => rows.filter((row) => row.id !== item.id));
+                    }}
+                  >
+                    Descartar
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
 
         {/* Indicador da IA Digitando */}
         <AnimatePresence>
@@ -2328,9 +2477,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   className="h-7 w-7 shrink-0 rounded-full object-cover border border-border"
                 />
               ) : (
-                <div
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-primary bg-primary/10 border border-primary/20"
-                >
+                <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-primary bg-primary/10 border border-primary/20">
                   {activeChat.initials || "U"}
                 </div>
               )}
@@ -2393,7 +2540,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       onClick={() => selectQuickResponse(qr.text)}
                       className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
                     >
-                      <span className="text-xs font-bold text-primary font-mono">{qr.shortcut}</span>
+                      <span className="text-xs font-bold text-primary font-mono">
+                        {qr.shortcut}
+                      </span>
                       <span className="truncate text-xs text-foreground/80 max-w-[280px] font-medium ml-2">
                         {qr.text}
                       </span>
@@ -2416,7 +2565,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       onClick={() => selectQuickResponse(tpl.text)}
                       className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
                     >
-                      <span className="text-xs font-bold text-foreground font-medium">{tpl.title}</span>
+                      <span className="text-xs font-bold text-foreground font-medium">
+                        {tpl.title}
+                      </span>
                       <span className="truncate text-xs text-muted-foreground max-w-[320px] ml-2">
                         {tpl.text}
                       </span>
@@ -2428,7 +2579,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           );
         })()}
       </AnimatePresence>
-
 
       {/* Message Composer */}
       {activeChat.queue !== "finalizados" ? (
@@ -2452,7 +2602,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       Atendimento com {ownerOperator?.name ?? "outro operador"}
                     </h4>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Este atendimento está sob responsabilidade de {ownerOperator?.name ?? "outro operador"}. Somente o operador responsável pode responder mensagens nesta conversa.
+                      Este atendimento está sob responsabilidade de{" "}
+                      {ownerOperator?.name ?? "outro operador"}. Somente o operador responsável pode
+                      responder mensagens nesta conversa.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -2493,7 +2645,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       Cliente aguardando na fila de espera
                     </h4>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Este atendimento está na fila aguardando atribuição. Capture o atendimento para começar a responder o cliente ou direcione-o para outro operador.
+                      Este atendimento está na fila aguardando atribuição. Capture o atendimento
+                      para começar a responder o cliente ou direcione-o para outro operador.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -2534,7 +2687,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       Com {aiPersona.name} (I.A)
                     </h4>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {aiPersona.name} está conduzindo o atendimento inicial deste cliente. Você pode assumir a qualquer momento para continuar o atendimento de forma humana.
+                      {aiPersona.name} está conduzindo o atendimento inicial deste cliente. Você
+                      pode assumir a qualquer momento para continuar o atendimento de forma humana.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -2574,367 +2728,378 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               )}
 
               {/* ── 1. Aviso de Janela Meta 24h (Posicionado no topo para perfeita simetria) ── */}
-              {activeProvider === "meta" && activeChat.channel === "whatsapp" && msgMode !== "internal" && (
-                <div className="mb-2.5 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-3.5 py-2 text-xs backdrop-blur-xs shadow-2xs">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <span>
-                        {metaWindow === null
-                          ? "Consultando janela de atendimento da Meta..."
-                          : metaWindow.open
-                          ? `Janela Meta ativa até ${new Date(metaWindow.expiresAt!).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. Mensagens livres permitidas.`
-                          : "Janela de 24 horas encerrada. Para continuar, envie um template aprovado."}
-                      </span>
+              {activeProvider === "meta" &&
+                activeChat.channel === "whatsapp" &&
+                msgMode !== "internal" && (
+                  <div className="mb-2.5 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-3.5 py-2 text-xs backdrop-blur-xs shadow-2xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <span>
+                          {metaWindow === null
+                            ? "Consultando janela de atendimento da Meta..."
+                            : metaWindow.open
+                              ? `Janela Meta ativa até ${new Date(metaWindow.expiresAt!).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. Mensagens livres permitidas.`
+                              : "Janela de 24 horas encerrada. Para continuar, envie um template aprovado."}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await loadMetaTemplates();
+                          setShowMetaTemplateModal(true);
+                        }}
+                        className="font-semibold text-primary hover:underline cursor-pointer text-xs"
+                      >
+                        Templates Meta
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await loadMetaTemplates();
-                        setShowMetaTemplateModal(true);
-                      }}
-                      className="font-semibold text-primary hover:underline cursor-pointer text-xs"
-                    >
-                      Templates Meta
-                    </button>
                   </div>
-                </div>
-              )}
+                )}
 
               {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo) ── */}
               <div className="flex items-center gap-3 pl-1 mb-2 text-[11px] font-bold select-none">
-            <button
-              type="button"
-              onClick={() => {
-                setMsgMode("client");
-                setIsCatalogOpen(false);
-                focusInput();
-              }}
-              className={`pb-1 border-b-2 px-1 transition cursor-pointer ${
-                !isCatalogOpen && msgMode === "client"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Enviar Mensagem
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowValentinaModal(true)}
-              className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1.5 text-primary hover:opacity-85"
-            >
-              <AiAvatar tenantId={tenant} className="h-3.5 w-3.5 rounded-full border border-primary/30" />
-              <span>{aiPersona.name}</span>
-            </button>
-            {canSendInternalNotes && (
-              <button
-                type="button"
-                onClick={() => {
-                  setMsgMode("internal");
-                  setIsCatalogOpen(false);
-                  focusInput();
-                }}
-                className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
-                  !isCatalogOpen && msgMode === "internal"
-                    ? "border-primary text-primary font-bold"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Lock className="h-3 w-3 text-primary" />
-                <span>Nota Interna</span>
-              </button>
-            )}
-            <button
-              onClick={() => setIsCatalogOpen((v) => !v)}
-              className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
-                isCatalogOpen
-                  ? "border-primary text-primary font-extrabold"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Package className="h-3 w-3" />
-              <span>{tenant === "tecfag" ? "Catálogo" : "Válvulas"}</span>
-            </button>
-          </div>
-
-          {isCatalogOpen ? (
-            <ProductCatalogPicker
-              tenantId={tenant}
-              onAttachFiles={handleAttachCatalogFiles}
-              onClose={() => setIsCatalogOpen(false)}
-            />
-          ) : (
-            <>
-              {/* Audio preview panel */}
-          {recordingState === "preview" && audioUrl && (
-            <div className="flex items-center gap-3 mb-3 px-1 animate-in slide-in-from-bottom-2 duration-200">
-              <div className="flex-1">
-                <AudioBubble src={audioUrl} fileName="Áudio gravado" isMe={true} />
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={discardRecording}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-destructive hover:border-destructive transition cursor-pointer"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Descartar gravação</TooltipContent>
-              </Tooltip>
-            </div>
-          )}
-
-          {/* Attachment Previews */}
-          {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2 px-1">
-              {attachments.map((file, i) => (
-                <div
-                  key={i}
-                  className="relative group flex items-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 max-w-[200px]"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMsgMode("client");
+                    setIsCatalogOpen(false);
+                    focusInput();
+                  }}
+                  className={`pb-1 border-b-2 px-1 transition cursor-pointer ${
+                    !isCatalogOpen && msgMode === "client"
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
                 >
-                  {/* Image preview thumbnail */}
-                  {file.type.startsWith("image/") ? (
-                    <div className="h-10 w-10 shrink-0 rounded-lg overflow-hidden bg-black/5">
-                      <img
-                        src={URL.createObjectURL(file)}
-                        alt={file.name}
-                        className="h-full w-full object-cover"
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      className={`h-9 w-9 shrink-0 grid place-items-center rounded-lg ${getFileColor(file)}`}
-                    >
-                      {getFileIcon(file)}
+                  Enviar Mensagem
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowValentinaModal(true)}
+                  className="pb-1 border-b-2 border-transparent px-1 transition cursor-pointer flex items-center gap-1.5 text-primary hover:opacity-85"
+                >
+                  <AiAvatar
+                    tenantId={tenant}
+                    className="h-3.5 w-3.5 rounded-full border border-primary/30"
+                  />
+                  <span>{aiPersona.name}</span>
+                </button>
+                {canSendInternalNotes && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMsgMode("internal");
+                      setIsCatalogOpen(false);
+                      focusInput();
+                    }}
+                    className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
+                      !isCatalogOpen && msgMode === "internal"
+                        ? "border-primary text-primary font-bold"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Lock className="h-3 w-3 text-primary" />
+                    <span>Nota Interna</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setIsCatalogOpen((v) => !v)}
+                  className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
+                    isCatalogOpen
+                      ? "border-primary text-primary font-extrabold"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Package className="h-3 w-3" />
+                  <span>{tenant === "tecfag" ? "Catálogo" : "Válvulas"}</span>
+                </button>
+              </div>
+
+              {isCatalogOpen ? (
+                <ProductCatalogPicker
+                  tenantId={tenant}
+                  onAttachFiles={handleAttachCatalogFiles}
+                  onClose={() => setIsCatalogOpen(false)}
+                />
+              ) : (
+                <>
+                  {/* Audio preview panel */}
+                  {recordingState === "preview" && audioUrl && (
+                    <div className="flex items-center gap-3 mb-3 px-1 animate-in slide-in-from-bottom-2 duration-200">
+                      <div className="flex-1">
+                        <AudioBubble src={audioUrl} fileName="Áudio gravado" isMe={true} />
+                      </div>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={discardRecording}
+                            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-destructive hover:border-destructive transition cursor-pointer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Descartar gravação</TooltipContent>
+                      </Tooltip>
                     </div>
                   )}
-                  <div className="min-w-0">
-                    <p className="truncate text-[11px] font-semibold text-foreground max-w-[100px]">
-                      {file.name}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">{formatBytes(file.size)}</p>
-                  </div>
-                  <button
-                    onClick={() => removeAttachment(i)}
-                    className="absolute -top-1.5 -right-1.5 h-4.5 w-4.5 grid place-items-center rounded-full bg-destructive text-white opacity-0 group-hover:opacity-100 transition shadow-sm"
+
+                  {/* Attachment Previews */}
+                  {attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-2 px-1">
+                      {attachments.map((file, i) => (
+                        <div
+                          key={i}
+                          className="relative group flex items-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 max-w-[200px]"
+                        >
+                          {/* Image preview thumbnail */}
+                          {file.type.startsWith("image/") ? (
+                            <div className="h-10 w-10 shrink-0 rounded-lg overflow-hidden bg-black/5">
+                              <img
+                                src={URL.createObjectURL(file)}
+                                alt={file.name}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              className={`h-9 w-9 shrink-0 grid place-items-center rounded-lg ${getFileColor(file)}`}
+                            >
+                              {getFileIcon(file)}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate text-[11px] font-semibold text-foreground max-w-[100px]">
+                              {file.name}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {formatBytes(file.size)}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => removeAttachment(i)}
+                            className="absolute -top-1.5 -right-1.5 h-4.5 w-4.5 grid place-items-center rounded-full bg-destructive text-white opacity-0 group-hover:opacity-100 transition shadow-sm"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Reply preview panel */}
+                  {replyingTo && (
+                    <div className="flex items-center justify-between gap-4 mb-2 rounded-xl bg-muted/60 border border-border px-4 py-2 text-xs leading-relaxed animate-in slide-in-from-bottom-2 duration-150 border-l-4 border-l-primary">
+                      <div className="min-w-0">
+                        <div className="font-bold text-primary mb-0.5">
+                          Respondendo a {replyingTo.author}
+                        </div>
+                        <div className="truncate text-muted-foreground font-medium text-[11px]">
+                          {getFriendlyQuotedContent(replyingTo.text)}
+                        </div>
+                      </div>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => setReplyingTo(null)}
+                            className="p-1 rounded-full hover:bg-muted text-muted-foreground transition shrink-0 cursor-pointer"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Cancelar resposta</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  )}
+
+                  {/* Input container com acabamento glassmorphic translúcido */}
+                  <div
+                    className={`relative flex items-end gap-3 rounded-2xl px-4 py-3 border transition-all duration-200 ${
+                      recordingState === "recording"
+                        ? "border-primary/40 bg-primary/5 backdrop-blur-md"
+                        : msgMode === "internal"
+                          ? "bg-amber-500/15 border-amber-500/35 dark:bg-amber-950/40 dark:border-amber-500/40 backdrop-blur-md"
+                          : isDragging
+                            ? "border-primary bg-primary/10 backdrop-blur-md"
+                            : "bg-white/80 dark:bg-muted/40 border-border/70 backdrop-blur-md focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 shadow-xs"
+                    }`}
                   >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Reply preview panel */}
-          {replyingTo && (
-            <div className="flex items-center justify-between gap-4 mb-2 rounded-xl bg-muted/60 border border-border px-4 py-2 text-xs leading-relaxed animate-in slide-in-from-bottom-2 duration-150 border-l-4 border-l-primary">
-              <div className="min-w-0">
-                <div className="font-bold text-primary mb-0.5">
-                  Respondendo a {replyingTo.author}
-                </div>
-                <div className="truncate text-muted-foreground font-medium text-[11px]">
-                  {getFriendlyQuotedContent(replyingTo.text)}
-                </div>
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setReplyingTo(null)}
-                    className="p-1 rounded-full hover:bg-muted text-muted-foreground transition shrink-0 cursor-pointer"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Cancelar resposta</TooltipContent>
-              </Tooltip>
-            </div>
-          )}
-
-          {/* Input container com acabamento glassmorphic translúcido */}
-          <div
-            className={`relative flex items-end gap-3 rounded-2xl px-4 py-3 border transition-all duration-200 ${
-              recordingState === "recording"
-                ? "border-primary/40 bg-primary/5 backdrop-blur-md"
-                : msgMode === "internal"
-                  ? "bg-amber-500/15 border-amber-500/35 dark:bg-amber-950/40 dark:border-amber-500/40 backdrop-blur-md"
-                  : isDragging
-                    ? "border-primary bg-primary/10 backdrop-blur-md"
-                    : "bg-white/80 dark:bg-muted/40 border-border/70 backdrop-blur-md focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 shadow-xs"
-            }`}
-          >
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="*/*"
-              className="hidden"
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length > 0) setAttachments((prev) => appendUniqueFiles(prev, files));
-                e.target.value = "";
-              }}
-            />
-
-            {/* Recording: inline waveform */}
-            {recordingState === "recording" ? (
-              <>
-                <div className="flex items-center gap-[3px] shrink-0 mb-1">
-                  {[0.5, 0.9, 0.65, 1, 0.7, 1.15, 0.55, 0.85, 0.6].map((h, i) => (
-                    <div
-                      key={i}
-                      className="w-[3px] rounded-full bg-primary animate-pulse"
-                      style={{
-                        height: `${h * 18}px`,
-                        animationDelay: `${i * 75}ms`,
-                        animationDuration: `${550 + i * 65}ms`,
+                    {/* Hidden file input */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept="*/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        if (files.length > 0) setAttachments((prev) => appendUniqueFiles(prev, files));
+                        e.target.value = "";
                       }}
                     />
-                  ))}
-                </div>
-                <span className="text-sm font-bold text-primary tabular-nums flex-1 mb-1">
-                  {fmtSec(recordingSeconds)}
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={stopRecording}
-                      className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer mb-0.5"
-                    >
-                      <Square className="h-3.5 w-3.5 fill-current" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Parar gravação</TooltipContent>
-                </Tooltip>
-              </>
-            ) : (
-              <>
-                <textarea
-                  ref={inputRef}
-                  placeholder={
-                    msgMode === "internal"
-                      ? "Escreva uma nota interna (visível apenas para vendedores)..."
-                      : "Escreva sua mensagem... (digite '/' para respostas rápidas)"
-                  }
-                  value={text}
-                  onChange={handleInputChange}
-                  onKeyDown={handleKeyDown}
-                  rows={1}
-                  className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none resize-none overflow-y-auto leading-relaxed py-2 max-h-[160px] min-h-[36px] scrollbar-thin"
-                />
-                
-                {/* Icons container to vertically align icons with the send button */}
-                <div className="flex items-center gap-3 shrink-0 h-9">
-                  {/* Quick Template Icon */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <motion.button
-                        onClick={() => setShowQuickMenu(!showQuickMenu)}
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.88 }}
-                        animate={{ rotate: showQuickMenu ? -15 : 0 }}
-                        className={`transition cursor-pointer ${
-                          msgMode === "internal"
-                            ? "text-amber-500 hover:text-amber-700"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        <Zap className="h-4.5 w-4.5" strokeWidth={2} />
-                      </motion.button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Respostas Rápidas</TooltipContent>
-                  </Tooltip>
-                  {/* Emoji Picker Trigger */}
-                  <div className="relative flex items-center">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <motion.button
-                          onClick={() => setShowEmojiPicker((v) => !v)}
-                          whileHover={{ scale: 1.15 }}
-                          whileTap={{ scale: 0.88 }}
-                          animate={{ rotate: showEmojiPicker ? 15 : 0 }}
-                          className="text-muted-foreground hover:text-foreground cursor-pointer transition"
-                        >
-                          <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
-                        </motion.button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">Emojis</TooltipContent>
-                    </Tooltip>
-                    <AnimatePresence>
-                      {showEmojiPicker && (
-                        <EmojiPicker
-                          onSelect={(emoji) => {
-                            setText((prev) => prev + emoji);
-                            inputRef.current?.focus();
-                          }}
-                          onClose={() => setShowEmojiPicker(false)}
-                          onSelectSticker={handleSendSticker}
-                        />
-                      )}
-                    </AnimatePresence>
-                  </div>
-                  {/* Attachment Button */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <motion.button
-                        onClick={() => fileInputRef.current?.click()}
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.88 }}
-                        className={`cursor-pointer transition relative ${
-                          attachments.length > 0
-                            ? "text-primary"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
-                        {attachments.length > 0 && (
-                          <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
-                            {attachments.length}
-                          </span>
-                        )}
-                      </motion.button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Anexar arquivo</TooltipContent>
-                  </Tooltip>
-                  {/* Mic button */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <motion.button
-                        onClick={startRecording}
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.88 }}
-                        className="text-muted-foreground hover:text-primary transition cursor-pointer"
-                      >
-                        <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
-                      </motion.button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Gravar áudio</TooltipContent>
-                  </Tooltip>
-                </div>
-              </>
-            )}
 
-            {/* Send — always visible & immediately responsive */}
-            <motion.button
-              type="button"
-              onMouseDown={(e) => {
-                // Impede que o clique do mouse tire o foco do campo de texto
-                e.preventDefault();
-              }}
-              onClick={handleSend}
-              whileHover={{ scale: 1.06 }}
-              whileTap={{ scale: 0.94 }}
-              className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 shadow-soft shrink-0 ${
-                msgMode === "internal" ? "bg-amber-500" : "bg-primary"
-              }`}
-            >
-              {msgMode === "internal" ? <Lock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-            </motion.button>
-          </div>
-            </>
-          )}
-          </div>
+                    {/* Recording: inline waveform */}
+                    {recordingState === "recording" ? (
+                      <>
+                        <div className="flex items-center gap-[3px] shrink-0 mb-1">
+                          {[0.5, 0.9, 0.65, 1, 0.7, 1.15, 0.55, 0.85, 0.6].map((h, i) => (
+                            <div
+                              key={i}
+                              className="w-[3px] rounded-full bg-primary animate-pulse"
+                              style={{
+                                height: `${h * 18}px`,
+                                animationDelay: `${i * 75}ms`,
+                                animationDuration: `${550 + i * 65}ms`,
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <span className="text-sm font-bold text-primary tabular-nums flex-1 mb-1">
+                          {fmtSec(recordingSeconds)}
+                        </span>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={stopRecording}
+                              className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition shadow-soft cursor-pointer mb-0.5"
+                            >
+                              <Square className="h-3.5 w-3.5 fill-current" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Parar gravação</TooltipContent>
+                        </Tooltip>
+                      </>
+                    ) : (
+                      <>
+                        <textarea
+                          ref={inputRef}
+                          placeholder={
+                            msgMode === "internal"
+                              ? "Escreva uma nota interna (visível apenas para vendedores)..."
+                              : "Escreva sua mensagem... (digite '/' para respostas rápidas)"
+                          }
+                          value={text}
+                          onChange={handleInputChange}
+                          onKeyDown={handleKeyDown}
+                          rows={1}
+                          className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none resize-none overflow-y-auto leading-relaxed py-2 max-h-[160px] min-h-[36px] scrollbar-thin"
+                        />
+
+                        {/* Icons container to vertically align icons with the send button */}
+                        <div className="flex items-center gap-3 shrink-0 h-9">
+                          {/* Quick Template Icon */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <motion.button
+                                onClick={() => setShowQuickMenu(!showQuickMenu)}
+                                whileHover={{ scale: 1.15 }}
+                                whileTap={{ scale: 0.88 }}
+                                animate={{ rotate: showQuickMenu ? -15 : 0 }}
+                                className={`transition cursor-pointer ${
+                                  msgMode === "internal"
+                                    ? "text-amber-500 hover:text-amber-700"
+                                    : "text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <Zap className="h-4.5 w-4.5" strokeWidth={2} />
+                              </motion.button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Respostas Rápidas</TooltipContent>
+                          </Tooltip>
+                          {/* Emoji Picker Trigger */}
+                          <div className="relative flex items-center">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <motion.button
+                                  onClick={() => setShowEmojiPicker((v) => !v)}
+                                  whileHover={{ scale: 1.15 }}
+                                  whileTap={{ scale: 0.88 }}
+                                  animate={{ rotate: showEmojiPicker ? 15 : 0 }}
+                                  className="text-muted-foreground hover:text-foreground cursor-pointer transition"
+                                >
+                                  <Smile className="h-4.5 w-4.5" strokeWidth={1.75} />
+                                </motion.button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Emojis</TooltipContent>
+                            </Tooltip>
+                            <AnimatePresence>
+                              {showEmojiPicker && (
+                                <EmojiPicker
+                                  onSelect={(emoji) => {
+                                    setText((prev) => prev + emoji);
+                                    inputRef.current?.focus();
+                                  }}
+                                  onClose={() => setShowEmojiPicker(false)}
+                                  onSelectSticker={handleSendSticker}
+                                />
+                              )}
+                            </AnimatePresence>
+                          </div>
+                          {/* Attachment Button */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <motion.button
+                                onClick={() => fileInputRef.current?.click()}
+                                whileHover={{ scale: 1.15 }}
+                                whileTap={{ scale: 0.88 }}
+                                className={`cursor-pointer transition relative ${
+                                  attachments.length > 0
+                                    ? "text-primary"
+                                    : "text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <Paperclip className="h-4.5 w-4.5" strokeWidth={1.75} />
+                                {attachments.length > 0 && (
+                                  <span className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 grid place-items-center rounded-full bg-primary text-[8px] font-bold text-white">
+                                    {attachments.length}
+                                  </span>
+                                )}
+                              </motion.button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Anexar arquivo</TooltipContent>
+                          </Tooltip>
+                          {/* Mic button */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <motion.button
+                                onClick={startRecording}
+                                whileHover={{ scale: 1.15 }}
+                                whileTap={{ scale: 0.88 }}
+                                className="text-muted-foreground hover:text-primary transition cursor-pointer"
+                              >
+                                <Mic className="h-4.5 w-4.5" strokeWidth={1.75} />
+                              </motion.button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Gravar áudio</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Send — always visible & immediately responsive */}
+                    <motion.button
+                      type="button"
+                      onMouseDown={(e) => {
+                        // Impede que o clique do mouse tire o foco do campo de texto
+                        e.preventDefault();
+                      }}
+                      onClick={handleSend}
+                      whileHover={{ scale: 1.06 }}
+                      whileTap={{ scale: 0.94 }}
+                      className={`grid h-9 w-9 place-items-center rounded-xl transition cursor-pointer text-white hover:opacity-90 shadow-soft shrink-0 ${
+                        msgMode === "internal" ? "bg-amber-500" : "bg-primary"
+                      }`}
+                    >
+                      {msgMode === "internal" ? (
+                        <Lock className="h-4 w-4" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </motion.button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
       ) : (
@@ -2946,11 +3111,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               </div>
               <div className="flex-1 space-y-3">
                 <div>
-                  <h4 className="text-sm font-bold text-foreground">
-                    Atendimento Finalizado
-                  </h4>
+                  <h4 className="text-sm font-bold text-foreground">Atendimento Finalizado</h4>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Este atendimento foi encerrado. Você pode reiniciar uma nova conversa com o cliente ou transferir este contato para outro operador ou setor.
+                    Este atendimento foi encerrado. Você pode reiniciar uma nova conversa com o
+                    cliente ou transferir este contato para outro operador ou setor.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -3077,7 +3241,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     Finalizar Atendimento?
                   </h3>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Você está prestes a encerrar o atendimento com <strong className="text-foreground font-bold">{activeChat.name}</strong>. A conversa será movida para a aba de <span className="text-primary font-semibold">Finalizados</span>.
+                    Você está prestes a encerrar o atendimento com{" "}
+                    <strong className="text-foreground font-bold">{activeChat.name}</strong>. A
+                    conversa será movida para a aba de{" "}
+                    <span className="text-primary font-semibold">Finalizados</span>.
                   </p>
                 </div>
               </div>
@@ -3085,7 +3252,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               <div className="rounded-2xl bg-muted/40 border border-border p-3.5 flex items-center gap-3">
                 <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
                 <span className="text-[11px] text-muted-foreground font-medium">
-                  Você poderá reativar ou transferir este atendimento a qualquer momento no histórico.
+                  Você poderá reativar ou transferir este atendimento a qualquer momento no
+                  histórico.
                 </span>
               </div>
 
@@ -3126,10 +3294,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       />
 
       {/* Modal Explicativo da Janela de 24 Horas da Meta */}
-      <Meta24hInfoModal
-        isOpen={show24hInfoModal}
-        onClose={() => setShow24hInfoModal(false)}
-      />
+      <Meta24hInfoModal isOpen={show24hInfoModal} onClose={() => setShow24hInfoModal(false)} />
 
       {/* Modal Unificado de Transferência de Atendimento */}
       <Dialog
@@ -3146,7 +3311,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               Transferir Atendimento
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Selecione o operador ou setor para transferir a conversa com <strong className="text-foreground">{activeChat?.name}</strong>.
+              Selecione o operador ou setor para transferir a conversa com{" "}
+              <strong className="text-foreground">{activeChat?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
 
@@ -3170,7 +3336,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <div className="space-y-1">
                   {operators
                     .filter((op) => op.id !== currentOperatorId)
-                    .filter((op) => !transferModalSearch || op.name.toLowerCase().includes(transferModalSearch.toLowerCase()))
+                    .filter(
+                      (op) =>
+                        !transferModalSearch ||
+                        op.name.toLowerCase().includes(transferModalSearch.toLowerCase()),
+                    )
                     .map((op) => (
                       <button
                         key={op.id}
@@ -3194,12 +3364,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <img
-                            src={op.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${op.name}`}
+                            src={
+                              op.avatar ||
+                              `https://api.dicebear.com/7.x/avataaars/svg?seed=${op.name}`
+                            }
                             alt={op.name}
                             className="h-7 w-7 rounded-full object-cover border border-border"
                           />
                           <div className="min-w-0">
-                            <div className="truncate text-xs font-semibold text-foreground">{op.name}</div>
+                            <div className="truncate text-xs font-semibold text-foreground">
+                              {op.name}
+                            </div>
                             <div className="truncate text-[10px] text-muted-foreground">
                               {(op as any).role === "admin" ? "Administrador" : "Operador"}
                             </div>
@@ -3214,7 +3389,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         </span>
                       </button>
                     ))}
-                  {operators.filter((op) => op.id !== currentOperatorId).filter((op) => !transferModalSearch || op.name.toLowerCase().includes(transferModalSearch.toLowerCase())).length === 0 && (
+                  {operators
+                    .filter((op) => op.id !== currentOperatorId)
+                    .filter(
+                      (op) =>
+                        !transferModalSearch ||
+                        op.name.toLowerCase().includes(transferModalSearch.toLowerCase()),
+                    ).length === 0 && (
                     <div className="py-2 text-center text-xs text-muted-foreground italic">
                       Nenhum operador encontrado
                     </div>
@@ -3230,7 +3411,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   </div>
                   <div className="space-y-1">
                     {sectors
-                      .filter((sec) => !transferModalSearch || sec.name.toLowerCase().includes(transferModalSearch.toLowerCase()))
+                      .filter(
+                        (sec) =>
+                          !transferModalSearch ||
+                          sec.name.toLowerCase().includes(transferModalSearch.toLowerCase()),
+                      )
                       .map((sec) => (
                         <button
                           key={sec.id}
@@ -3257,7 +3442,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                               {sec.name.charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0">
-                              <div className="truncate text-xs font-semibold text-foreground">{sec.name}</div>
+                              <div className="truncate text-xs font-semibold text-foreground">
+                                {sec.name}
+                              </div>
                               <div className="truncate text-[10px] text-muted-foreground">
                                 {sec.operatorIds.length} atendente(s)
                               </div>
@@ -3282,4 +3469,3 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     </motion.section>
   );
 }
-

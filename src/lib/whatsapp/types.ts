@@ -1,6 +1,7 @@
 export type WhatsAppProviderType = "baileys" | "meta";
 
-export type DeliveryStatus = "pending" | "sending" | "accepted" | "failed" | "unknown";
+export type DeliveryStatus =
+  "pending" | "sending" | "accepted" | "delivered" | "read" | "failed" | "unknown";
 
 export type MessageDirection = "in" | "out";
 
@@ -74,10 +75,14 @@ export interface ChannelSettings {
 
 export interface WhatsAppAdapter {
   readonly provider: WhatsAppProviderType;
-  send(tenantId: string, message: UniversalOutboundMessage): Promise<{
+  send(
+    tenantId: string,
+    message: UniversalOutboundMessage,
+  ): Promise<{
     externalId: string;
     status: DeliveryStatus;
     error?: string;
+    retryable?: boolean;
   }>;
   getStatus(tenantId: string): Promise<{
     status: "disconnected" | "connecting" | "connected" | "qr_ready" | "error";
@@ -86,7 +91,10 @@ export interface WhatsAppAdapter {
   }>;
   connect?(tenantId: string, options?: any): Promise<void>;
   disconnect?(tenantId: string): Promise<void>;
-  testCredentials?(tenantId: string, config?: Partial<ChannelSettings>): Promise<{
+  testCredentials?(
+    tenantId: string,
+    config?: Partial<ChannelSettings>,
+  ): Promise<{
     valid: boolean;
     error?: string;
     details?: any;

@@ -1,3 +1,6 @@
+import { runtimeSingleton } from "../runtime-singleton";
+import { isSdrTenant } from "../ai-persona";
+import { tenants } from "../../db/schema";
 import { db } from "../../db";
 import { conversations, contacts, messages, internalMessages, operators } from "../../db/schema";
 import { eq, ne, desc, and, inArray, gte, sql } from "drizzle-orm";
@@ -39,7 +42,7 @@ export class SupervisorEngine {
 
   public static getInstance(): SupervisorEngine {
     if (!SupervisorEngine.instance) {
-      SupervisorEngine.instance = new SupervisorEngine();
+      SupervisorEngine.instance = runtimeSingleton("SupervisorEngine", () => new SupervisorEngine());
     }
     return SupervisorEngine.instance;
   }
@@ -76,6 +79,12 @@ export class SupervisorEngine {
    * Executa a varredura das regras de negócio
    */
   private async runChecks() {
+    const companies = await db.select({ id: tenants.id }).from(tenants);
+    for (const company of companies.filter((row) => isSdrTenant(row.id)))
+      await this.runTenantChecks(company.id);
+  }
+
+  private async runTenantChecks(tenantId: string) {
     const activeConvs = await db
       .select({
         id: conversations.id,
@@ -84,16 +93,19 @@ export class SupervisorEngine {
         contactName: contacts.name,
       })
       .from(conversations)
-      .leftJoin(contacts, eq(conversations.contactId, contacts.id))
+      .leftJoin(
+        contacts,
+        and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)),
+      )
       .where(
         and(
           ne(conversations.queueState, "finalizados"),
-          inArray(conversations.tenantId, SUPERVISOR_ACTIVE_TENANTS as unknown as string[]),
+          eq(conversations.tenantId, tenantId),
           // Bug fix (AGENTS.md): Excluir contatos do Live Chat do site se houver.
           // O Supervisor monitora apenas conversas WhatsApp — o Live Chat
           // tem seu próprio mecanismo de follow-up (livechatWs.ts).
-          ne(contacts.mainChannel, "livechat")
-        )
+          ne(contacts.mainChannel, "livechat"),
+        ),
       );
 
     const operatorLoads = new Map<string, number>();
@@ -110,12 +122,7 @@ export class SupervisorEngine {
       const lastMsgs = await db
         .select()
         .from(messages)
-        .where(
-          and(
-            eq(messages.tenantId, conv.tenantId),
-            eq(messages.conversationId, conv.id)
-          )
-        )
+        .where(and(eq(messages.tenantId, conv.tenantId), eq(messages.conversationId, conv.id)))
         .orderBy(desc(messages.sentAt))
         .limit(1);
 
@@ -155,7 +162,7 @@ export class SupervisorEngine {
     waitMinutes: number,
     lastClientMessage: Date,
     priority: "medium" | "high",
-    is24h: boolean
+    is24h: boolean,
   ) {
     const now = Date.now();
     const lastTime = this.lastNotified.get(conv.id) || 0;
@@ -174,24 +181,19 @@ export class SupervisorEngine {
 
     if (!conv.operatorId) return;
 
-    await this.dispatchInternalNotification(
-      conv.tenantId,
-      conv.operatorId,
-      alertMessage,
-      {
-        type: is24h ? "no_response" : "sla_alert",
-        title: is24h
-          ? `Cliente sem resposta há 24h+ — ${conv.contactName || "Desconhecido"}`
-          : priority === "high"
+    await this.dispatchInternalNotification(conv.tenantId, conv.operatorId, alertMessage, {
+      type: is24h ? "no_response" : "sla_alert",
+      title: is24h
+        ? `Cliente sem resposta há 24h+ — ${conv.contactName || "Desconhecido"}`
+        : priority === "high"
           ? `🚨 SLA estourado — ${conv.contactName || "Desconhecido"}`
           : `⚠️ SLA em risco — ${conv.contactName || "Desconhecido"}`,
-        priority,
-        conversationId: conv.id,
-        contactName: conv.contactName,
-        waitMinutes,
-        lastClientMessage: lastClientMessage.toISOString(),
-      }
-    );
+      priority,
+      conversationId: conv.id,
+      contactName: conv.contactName,
+      waitMinutes,
+      lastClientMessage: lastClientMessage.toISOString(),
+    });
   }
 
   /**
@@ -216,17 +218,12 @@ export class SupervisorEngine {
 
     const alertMessage = `⚠️ Atenção ${op.name.split(" ")[0]}! Você possui ${count} conversas ativas neste momento. Tente focar em fechar os atendimentos atuais para manter a qualidade.`;
 
-    await this.dispatchInternalNotification(
-      op.tenantId,
-      operatorId,
-      alertMessage,
-      {
-        type: "operator_overload",
-        title: `Operador ${op.name.split(" ")[0]} com ${count} atendimentos ativos`,
-        priority: "medium",
-        activeCount: count,
-      }
-    );
+    await this.dispatchInternalNotification(op.tenantId, operatorId, alertMessage, {
+      type: "operator_overload",
+      title: `Operador ${op.name.split(" ")[0]} com ${count} atendimentos ativos`,
+      priority: "medium",
+      activeCount: count,
+    });
   }
 
   /**
@@ -242,7 +239,7 @@ export class SupervisorEngine {
     tenantId: string,
     operatorId: string,
     content: string,
-    metadata: any
+    metadata: any,
   ) {
     try {
       const operatorExists = await db.query.operators.findFirst({
@@ -252,14 +249,16 @@ export class SupervisorEngine {
       });
 
       if (!operatorExists) {
-        console.warn(`[SupervisorEngine] Operador ${operatorId} não encontrado no tenant "${tenantId}" — notificação descartada.`);
+        console.warn(
+          `[SupervisorEngine] Operador ${operatorId} não encontrado no tenant "${tenantId}" — notificação descartada.`,
+        );
         return;
       }
 
       // ── Janela de deduplicação ─────────────────────────────────────────────
       const windowStart = new Date(Date.now() - DEDUP_WINDOW_MS);
-      const alertType   = metadata?.type ?? "unknown";
-      const convId      = metadata?.conversationId ?? null;
+      const alertType = metadata?.type ?? "unknown";
+      const convId = metadata?.conversationId ?? null;
 
       const existing = await db
         .select({ id: internalMessages.id, repeatCount: internalMessages.repeatCount })
@@ -272,8 +271,8 @@ export class SupervisorEngine {
             convId
               ? sql`${internalMessages.metadata}->>'conversationId' = ${convId}`
               : sql`${internalMessages.metadata}->>'conversationId' IS NULL`,
-            gte(internalMessages.createdAt, windowStart)
-          )
+            gte(internalMessages.createdAt, windowStart),
+          ),
         )
         .orderBy(desc(internalMessages.createdAt))
         .limit(1);
@@ -284,9 +283,13 @@ export class SupervisorEngine {
         await db
           .update(internalMessages)
           .set({ repeatCount: newCount, lastFiredAt: new Date(), content })
-          .where(and(eq(internalMessages.id, existing[0].id), eq(internalMessages.tenantId, tenantId)));
+          .where(
+            and(eq(internalMessages.id, existing[0].id), eq(internalMessages.tenantId, tenantId)),
+          );
 
-        console.log(`[SupervisorEngine] Alerta agrupado (${alertType} ×${newCount}) conv=${convId ?? "N/A"}`);
+        console.log(
+          `[SupervisorEngine] Alerta agrupado (${alertType} ×${newCount}) conv=${convId ?? "N/A"}`,
+        );
       } else {
         // ── Novo evento — insere nova linha ───────────────────────────────────
         await db.insert(internalMessages).values({

@@ -39,13 +39,13 @@ interface LcConnection {
   ws: WebSocket;
   type: ClientType;
   tenantId: string;
-  visitorId?: string;   // para visitors
-  chatId?: string;      // chat ativo
-  operatorId?: string;  // para operators
+  visitorId?: string; // para visitors
+  chatId?: string; // chat ativo
+  operatorId?: string; // para operators
 }
 
 // Mapas de conexões ativas
-const visitorConnections = new Map<string, LcConnection>();  // key: visitorId
+const visitorConnections = new Map<string, LcConnection>(); // key: visitorId
 const operatorConnections = new Map<string, LcConnection>(); // key: operatorId
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -98,7 +98,9 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       const conn: LcConnection = { ws, type: "operator", tenantId: session.tenantId, operatorId };
       operatorConnections.set(operatorId, conn);
 
-      console.log(`[LC WS] Operador ${session.operator.name} (${operatorId}) conectado (tenant: ${session.tenantId})`);
+      console.log(
+        `[LC WS] Operador ${session.operator.name} (${operatorId}) conectado (tenant: ${session.tenantId})`,
+      );
 
       // Envia snapshot dos visitantes ativos
       try {
@@ -130,8 +132,9 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       visitor = await upsertVisitor(tenantId, cookieId, {
         currentUrl: currentUrl || undefined,
         currentTitle: currentTitle || undefined,
-        ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
-                   req.socket.remoteAddress,
+        ipAddress:
+          (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress,
         userAgent: req.headers["user-agent"] || undefined,
       });
 
@@ -180,11 +183,7 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       if (historyCount === 0) {
         setTimeout(async () => {
           try {
-            const greeting = await generateProactiveGreeting(
-              tenantId,
-              currentUrl,
-              currentTitle
-            );
+            const greeting = await generateProactiveGreeting(tenantId, currentUrl, currentTitle);
             await saveMessage(tenantId, chat.id, "ai", greeting);
             send(ws, { type: "message", chatId: chat.id, sender: "ai", content: greeting });
             broadcastToOperators(tenantId, {
@@ -231,7 +230,7 @@ async function handleVisitorMessage(
   visitor: any,
   chat: any,
   payload: any,
-  tenantId: string
+  tenantId: string,
 ) {
   const { type, content, url, title } = payload;
 
@@ -282,16 +281,35 @@ async function handleVisitorMessage(
     return;
   }
 
+  const clientMessageId =
+    typeof payload.messageId === "string" && payload.messageId.length <= 200
+      ? payload.messageId
+      : undefined;
+  const stableId = clientMessageId
+    ? "lc_" +
+      crypto
+        .createHash("sha256")
+        .update(tenantId + ":" + visitor.id + ":" + clientMessageId)
+        .digest("hex")
+    : undefined;
+  const acknowledge = (msg: { duplicate?: boolean }) => {
+    if (clientMessageId) send(conn.ws, { type: "message_ack", messageId: clientMessageId });
+    return msg.duplicate === true;
+  };
+
   // ── Mensagem de texto (com Debounce, Stop & Restart e Fragmentação) ──
   const userText = content || payload.text;
   if ((type === "message" || type === "visitor_message") && userText) {
-    if (isNoise(userText)) {
-      send(conn.ws, { type: "pong" });
-      return;
-    }
-
     // Salva imediatamente no banco para o histórico
-    const savedMsg = await saveMessage(tenantId, chat.id, "visitor", userText);
+    const savedMsg = await saveMessage(
+      tenantId,
+      chat.id,
+      "visitor",
+      userText,
+      stableId ? { id: stableId } : {},
+    );
+    if (acknowledge(savedMsg)) return;
+    if (isNoise(userText)) return; // guardar/confirmar antes de suprimir efeitos de IA
 
     // Notifica operadores em tempo real
     broadcastToOperators(tenantId, {
@@ -319,7 +337,7 @@ async function handleVisitorMessage(
         receivedAt: new Date(),
       },
       (p) => send(conn.ws, p),
-      (p) => broadcastToOperators(tenantId, p)
+      (p) => broadcastToOperators(tenantId, p),
     );
     return;
   }
@@ -333,11 +351,13 @@ async function handleVisitorMessage(
       ? audioBase64
       : `data:${mimeType};base64,${audioBase64}`;
 
-    await saveMessage(tenantId, chat.id, "visitor", "[Áudio do visitante]", {
+    const savedAudio = await saveMessage(tenantId, chat.id, "visitor", "[Áudio do visitante]", {
+      ...(stableId ? { id: stableId } : {}),
       contentType: "audio",
       mediaUrl: mediaDataUrl,
       mediaType: mimeType,
     });
+    if (acknowledge(savedAudio)) return;
 
     broadcastToOperators(tenantId, {
       type: "new_message",
@@ -361,7 +381,9 @@ async function handleVisitorMessage(
       const rawTranscription = await vertexAi.generateText(
         [
           { inlineData: { mimeType: cleanMimeType, data: cleanBase64 } },
-          { text: "Você é um transcritor de áudio em português brasileiro. Transcreva fielmente o que a pessoa falou. Se o áudio for inaudível, vazio ou puro ruído, responda apenas: [INAUDIVEL]" },
+          {
+            text: "Você é um transcritor de áudio em português brasileiro. Transcreva fielmente o que a pessoa falou. Se o áudio for inaudível, vazio ou puro ruído, responda apenas: [INAUDIVEL]",
+          },
         ],
         "gemini-2.5-flash",
         undefined,
@@ -369,7 +391,7 @@ async function handleVisitorMessage(
           feature: "call_transcription",
           tenantId,
           metadata: { chatId: chat.id, visitorId: visitor.id },
-        }
+        },
       );
       const cleaned = (rawTranscription || "").trim();
       if (cleaned && !cleaned.includes("[INAUDIVEL]")) {
@@ -379,7 +401,7 @@ async function handleVisitorMessage(
       console.error("[LC WS] Erro ao transcrever áudio do visitante:", err?.message);
     }
 
-    const promptToProcess = transcribedText 
+    const promptToProcess = transcribedText
       ? `[Áudio transcrito do visitante]: "${transcribedText}"`
       : "[O visitante enviou uma mensagem de áudio curta]";
 
@@ -395,26 +417,39 @@ async function handleVisitorMessage(
         receivedAt: new Date(),
       },
       (p) => send(conn.ws, p),
-      (p) => broadcastToOperators(tenantId, p)
+      (p) => broadcastToOperators(tenantId, p),
     );
     return;
   }
 
   // ── Mensagem com Anexo / Mídia (Foto, Vídeo, PDF, Planilha, RAR) ──
   if (type === "visitor_media" || type === "media") {
-    const { fileBase64, fileName = "arquivo", fileType = "application/octet-stream", fileSize = 0 } = payload;
+    const {
+      fileBase64,
+      fileName = "arquivo",
+      fileType = "application/octet-stream",
+      fileSize = 0,
+    } = payload;
     if (!fileBase64) return;
 
     const isImg = fileType.startsWith("image/");
     const isVid = fileType.startsWith("video/");
     const contentType = isImg ? "image" : isVid ? "video" : "document";
 
-    await saveMessage(tenantId, chat.id, "visitor", payload.text || `[Arquivo: ${fileName}]`, {
-      contentType,
-      mediaUrl: fileBase64,
-      fileName,
-      mediaType: fileType,
-    });
+    const savedFile = await saveMessage(
+      tenantId,
+      chat.id,
+      "visitor",
+      payload.text || `[Arquivo: ${fileName}]`,
+      {
+        ...(stableId ? { id: stableId } : {}),
+        contentType,
+        mediaUrl: fileBase64,
+        fileName,
+        mediaType: fileType,
+      },
+    );
+    if (acknowledge(savedFile)) return;
 
     broadcastToOperators(tenantId, {
       type: "new_message",
@@ -448,7 +483,7 @@ async function handleVisitorMessage(
         receivedAt: new Date(),
       },
       (p) => send(conn.ws, p),
-      (p) => broadcastToOperators(tenantId, p)
+      (p) => broadcastToOperators(tenantId, p),
     );
     return;
   }
@@ -468,7 +503,7 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
 
       // Envia ao visitante
       const visitorConn = [...visitorConnections.values()].find(
-        (c) => c.chatId === chatId && c.tenantId === tenantId
+        (c) => c.chatId === chatId && c.tenantId === tenantId,
       );
       if (visitorConn) {
         send(visitorConn.ws, {
@@ -509,7 +544,7 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
 
       // Notifica o visitante
       const visitorConn = [...visitorConnections.values()].find(
-        (c) => c.chatId === chatId && c.tenantId === tenantId
+        (c) => c.chatId === chatId && c.tenantId === tenantId,
       );
       if (visitorConn) {
         send(visitorConn.ws, {
@@ -535,7 +570,7 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
 
       await updateChatStatus(tenantId, chatId, "closed", { outcome: "resolved" });
       const visitorConn = [...visitorConnections.values()].find(
-        (c) => c.chatId === chatId && c.tenantId === tenantId
+        (c) => c.chatId === chatId && c.tenantId === tenantId,
       );
       if (visitorConn) {
         send(visitorConn.ws, {

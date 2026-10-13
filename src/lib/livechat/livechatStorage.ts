@@ -5,8 +5,15 @@
 
 import { db } from "../../db";
 import {
-  lcVisitors, lcChats, lcMessages, lcPageviews, lcClickEvents,
-  LcVisitor, LcChat, LcMessage, LcPageview,
+  lcVisitors,
+  lcChats,
+  lcMessages,
+  lcPageviews,
+  lcClickEvents,
+  LcVisitor,
+  LcChat,
+  LcMessage,
+  LcPageview,
 } from "../../db/schema";
 import { eq, and, desc, asc, gte, count, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -23,7 +30,7 @@ const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 export async function upsertVisitor(
   tenantId: string,
   cookieId: string,
-  data: Partial<LcVisitor> = {}
+  data: Partial<LcVisitor> = {},
 ): Promise<LcVisitor> {
   const existing = await db
     .select()
@@ -55,7 +62,7 @@ export async function upsertVisitor(
 export async function updateVisitorData(
   tenantId: string,
   visitorId: string,
-  data: Partial<LcVisitor>
+  data: Partial<LcVisitor>,
 ): Promise<void> {
   await db
     .update(lcVisitors)
@@ -72,7 +79,10 @@ export async function getActiveVisitors(tenantId: string): Promise<LcVisitor[]> 
     .orderBy(desc(lcVisitors.lastSeenAt));
 }
 
-export async function getVisitorById(tenantId: string, visitorId: string): Promise<LcVisitor | null> {
+export async function getVisitorById(
+  tenantId: string,
+  visitorId: string,
+): Promise<LcVisitor | null> {
   const [v] = await db
     .select()
     .from(lcVisitors)
@@ -86,17 +96,11 @@ export async function getVisitorById(tenantId: string, visitorId: string): Promi
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function createChat(tenantId: string, visitorId: string): Promise<LcChat> {
-  const [chat] = await db
-    .insert(lcChats)
-    .values({ id: uuid(), tenantId, visitorId })
-    .returning();
+  const [chat] = await db.insert(lcChats).values({ id: uuid(), tenantId, visitorId }).returning();
   return chat;
 }
 
-export async function getOrCreateActiveChat(
-  tenantId: string,
-  visitorId: string
-): Promise<LcChat> {
+export async function getOrCreateActiveChat(tenantId: string, visitorId: string): Promise<LcChat> {
   const [existing] = await db
     .select()
     .from(lcChats)
@@ -104,8 +108,8 @@ export async function getOrCreateActiveChat(
       and(
         eq(lcChats.tenantId, tenantId),
         eq(lcChats.visitorId, visitorId),
-        eq(lcChats.status, "active")
-      )
+        eq(lcChats.status, "active"),
+      ),
     )
     .orderBy(desc(lcChats.startedAt))
     .limit(1);
@@ -118,7 +122,7 @@ export async function updateChatStatus(
   tenantId: string,
   chatId: string,
   status: LcChat["status"],
-  extra: Partial<LcChat> = {}
+  extra: Partial<LcChat> = {},
 ): Promise<void> {
   await db
     .update(lcChats)
@@ -133,7 +137,7 @@ export async function updateChatStatus(
 export async function operatorTakeOver(
   tenantId: string,
   chatId: string,
-  operatorId: string
+  operatorId: string,
 ): Promise<void> {
   await updateChatStatus(tenantId, chatId, "operator_took_over", { operatorId });
 }
@@ -147,8 +151,8 @@ export async function saveMessage(
   chatId: string,
   sender: LcMessage["sender"],
   content: string,
-  extra: Partial<LcMessage> = {}
-): Promise<LcMessage> {
+  extra: Partial<LcMessage> = {},
+): Promise<LcMessage & { duplicate?: boolean }> {
   const [msg] = await db
     .insert(lcMessages)
     .values({
@@ -160,27 +164,35 @@ export async function saveMessage(
       contentType: extra.contentType ?? "text",
       ...extra,
     })
+    .onConflictDoNothing()
     .returning();
-  return msg;
+  if (msg) return msg;
+  const [existing] = await db
+    .select()
+    .from(lcMessages)
+    .where(and(eq(lcMessages.tenantId, tenantId), eq(lcMessages.id, extra.id!)));
+  if (!existing) throw new Error("Mensagem não persistida.");
+  return Object.assign(existing, { duplicate: true });
 }
 
 export async function getChatHistory(
   tenantId: string,
   chatId: string,
-  limit = 50
+  limit = 50,
 ): Promise<LcMessage[]> {
   return db
     .select()
     .from(lcMessages)
     .where(and(eq(lcMessages.tenantId, tenantId), eq(lcMessages.chatId, chatId)))
-    .orderBy(asc(lcMessages.sentAt))
-    .limit(limit);
+    .orderBy(desc(lcMessages.sentAt))
+    .limit(limit)
+    .then((rows) => rows.reverse());
 }
 
 export async function getVisitorAllMessages(
   tenantId: string,
   visitorId: string,
-  limit = 100
+  limit = 100,
 ): Promise<LcMessage[]> {
   return db
     .select({
@@ -211,7 +223,7 @@ export async function recordPageview(
   tenantId: string,
   visitorId: string,
   url: string,
-  title?: string
+  title?: string,
 ): Promise<void> {
   await db.insert(lcPageviews).values({
     id: uuid(),
@@ -224,7 +236,7 @@ export async function recordPageview(
 
 export async function getVisitorPageviews(
   tenantId: string,
-  visitorId: string
+  visitorId: string,
 ): Promise<LcPageview[]> {
   return db
     .select()
@@ -258,8 +270,8 @@ export async function getLiveChatMetrics(tenantId: string, sinceHours = 24) {
       and(
         eq(lcChats.tenantId, tenantId),
         eq(lcChats.outcome, "bridge_whatsapp"),
-        gte(lcChats.startedAt, since)
-      )
+        gte(lcChats.startedAt, since),
+      ),
     );
 
   return {

@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { db } from "../../../../db";
 import { rdMarketingFlows, rdMarketingLogs } from "../../../../db/schema";
 import { CrmError } from "../../../../lib/crm/crm-service";
-import { hashToken, receiveLeads } from "../../../../lib/rd-marketing/service";
+import { hashToken } from "../../../../lib/rd-marketing/service";
+import { storeRdWebhook } from "../../../../lib/rd-marketing/inbox";
 import { integrationError, readIntegrationJson } from "../../../../lib/rd-marketing/http";
 
 export const Route = createFileRoute("/api/webhooks/rd-marketing/$token")({
@@ -49,8 +50,8 @@ export const Route = createFileRoute("/api/webhooks/rd-marketing/$token")({
             .limit(1);
           if (!flow) return Response.json({ error: "Webhook inválido." }, { status: 401 });
           if (!flow.settings.enabled) throw new CrmError("Fluxo desativado.", "FLOW_DISABLED", 409);
-          const results = await receiveLeads(flow, await readIntegrationJson(request));
-          return Response.json({ results });
+          const receipt = await storeRdWebhook(flow, await readIntegrationJson(request));
+          return Response.json(receipt, { status: 202 });
         } catch (error) {
           const response = integrationError(error);
           if (flow) {

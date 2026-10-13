@@ -96,6 +96,39 @@ export const rdMarketingLogs = pgTable("rd_marketing_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({ tenantDateIdx: index("idx_rd_marketing_logs_tenant_date").on(table.tenantId, table.createdAt) }));
 
+// ACK do webhook só é emitido depois de preservar payload e configuração.
+export const rdMarketingEvents = pgTable(
+  "rd_marketing_events",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .references(() => tenants.id, { onDelete: "cascade" })
+      .notNull(),
+    flowId: text("flow_id").notNull(),
+    payload: jsonb("payload").notNull(),
+    settings: jsonb("settings").$type<FlowSettings>().notNull(),
+    status: text("status").default("pending").notNull(),
+    outcomes: jsonb("outcomes")
+      .$type<Array<{ index: number; status: string; dealId?: string | null; error?: string }>>()
+      .default([])
+      .notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    nextRetryAt: timestamp("next_retry_at").defaultNow().notNull(),
+    leaseToken: text("lease_token"),
+    leaseUntil: timestamp("lease_until"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    dueIdx: index("idx_rd_marketing_events_due").on(
+      table.tenantId,
+      table.status,
+      table.nextRetryAt,
+    ),
+  }),
+);
+
 // ─── 2.5. GRUPOS DE ACESSO (RBAC) ───────────────────────────────────────────
 export const accessGroups = pgTable("access_groups", {
   id: text("id").primaryKey(),
@@ -259,42 +292,60 @@ export const conversations = pgTable("conversations", {
 }));
 
 // ─── 6. MENSAGENS (Histórico de Chat & Notas Internas) ───────────────────────
-export const messages = pgTable("messages", {
-  id: text("id").primaryKey(), // ID interno estável
-  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
-  
-  senderType: text("sender_type").notNull(), // 'client' | 'agent' | 'bot' | 'system'
-  senderName: text("sender_name").notNull(), // Ex: "Pedro Silva" ou "Fagner (Vendedor)"
-  
-  content: text("content").notNull(),
-  isInternalNote: boolean("is_internal_note").default(false).notNull(), // TRUE renderiza como nota amarela
-  
-  quotedMessageId: text("quoted_message_id"),
-  quotedMessageSender: text("quoted_message_sender"),
-  quotedMessageContent: text("quoted_message_content"),
+export const messages = pgTable(
+  "messages",
+  {
+    id: text("id").primaryKey(), // ID interno estável
+    tenantId: text("tenant_id")
+      .references(() => tenants.id, { onDelete: "cascade" })
+      .notNull(),
+    conversationId: text("conversation_id")
+      .references(() => conversations.id, { onDelete: "cascade" })
+      .notNull(),
 
-  // Interpretação textual de mídia feita pelo Gemini (imagem, áudio, PDF).
-  mediaInterpretation: text("media_interpretation"),
+    senderType: text("sender_type").notNull(), // 'client' | 'agent' | 'bot' | 'system'
+    senderName: text("sender_name").notNull(), // Ex: "Pedro Silva" ou "Fagner (Vendedor)"
 
-  // ── Transporte Universal & Fila Confiável de Mensagens (Entregas A & B) ───────
-  externalId: text("external_id"), // ID externo retornado pelo WhatsApp (Baileys stanzaId / Meta wamid)
-  provider: text("provider").default("baileys"), // 'baileys' | 'meta' | 'system' | 'internal'
-  direction: text("direction").default("inbound"), // 'inbound' | 'outbound'
-  status: text("status").default("accepted").notNull(), // 'pending' | 'sending' | 'accepted' | 'delivered' | 'read' | 'failed' | 'unknown'
-  idempotencyKey: text("idempotency_key"), // clientMessageId enviado pelo frontend para evitar envios duplicados
-  errorMessage: text("error_message"),
-  retryCount: integer("retry_count").default(0).notNull(),
-  metaDetails: jsonb("meta_details").$type<Record<string, unknown>>().default({}).notNull(),
-  metaPricing: jsonb("meta_pricing").$type<Record<string, unknown>>(),
-  metaStatusAt: timestamp("meta_status_at"),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    content: text("content").notNull(),
+    isInternalNote: boolean("is_internal_note").default(false).notNull(), // TRUE renderiza como nota amarela
 
-  sentAt: timestamp("sent_at").defaultNow().notNull(),
-}, (table) => ({
-  tenantConvSentIdx: index("idx_messages_tenant_conv_sent").on(table.tenantId, table.conversationId, table.sentAt),
-  tenantExternalIdx: index("idx_messages_tenant_external").on(table.tenantId, table.externalId),
-}));
+    quotedMessageId: text("quoted_message_id"),
+    quotedMessageSender: text("quoted_message_sender"),
+    quotedMessageContent: text("quoted_message_content"),
+
+    // Interpretação textual de mídia feita pelo Gemini (imagem, áudio, PDF).
+    mediaInterpretation: text("media_interpretation"),
+
+    // ── Transporte Universal & Fila Confiável de Mensagens (Entregas A & B) ───────
+    externalId: text("external_id"), // ID externo retornado pelo WhatsApp (Baileys stanzaId / Meta wamid)
+    provider: text("provider").default("baileys"), // 'baileys' | 'meta' | 'system' | 'internal'
+    direction: text("direction").default("inbound"), // 'inbound' | 'outbound'
+    status: text("status").default("accepted").notNull(), // 'pending' | 'sending' | 'accepted' | 'delivered' | 'read' | 'failed' | 'unknown'
+    idempotencyKey: text("idempotency_key"), // clientMessageId enviado pelo frontend para evitar envios duplicados
+    errorMessage: text("error_message"),
+    retryCount: integer("retry_count").default(0).notNull(),
+    nextRetryAt: timestamp("next_retry_at"),
+    leaseToken: text("lease_token"),
+    leaseUntil: timestamp("lease_until"),
+    metaDetails: jsonb("meta_details").$type<Record<string, unknown>>().default({}).notNull(),
+    metaPricing: jsonb("meta_pricing").$type<Record<string, unknown>>(),
+    metaStatusAt: timestamp("meta_status_at"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+    sentAt: timestamp("sent_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    tenantConvSentIdx: index("idx_messages_tenant_conv_sent").on(
+      table.tenantId,
+      table.conversationId,
+      table.sentAt,
+    ),
+    tenantExternalIdx: index("idx_messages_tenant_external").on(table.tenantId, table.externalId),
+    tenantIdempotencyUnique: uniqueIndex("idx_messages_tenant_idempotency_uniq")
+      .on(table.tenantId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} IS NOT NULL`),
+  }),
+);
 
 // ─── 7. RESPOSTAS RÁPIDAS (Templates por Tenant) ────────────────────────────
 export const quickResponses = pgTable("quick_responses", {
@@ -336,19 +387,29 @@ export const mediaFiles = pgTable("media_files", {
 });
 
 // ─── 8.5. RECEBIMENTOS PENDENTES (Caixa de entrada durável para Webhooks / Eventos) ───────
-export const pendingInbounds = pgTable("pending_inbounds", {
-  id: text("id").primaryKey(),
-  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
-  provider: text("provider").notNull(), // 'baileys' | 'meta'
-  externalEventId: text("external_event_id"), // ID do evento do provedor para deduplicação
-  payload: jsonb("payload").notNull(),
-  status: text("status").default("pending").notNull(), // 'pending' | 'processing' | 'processed' | 'failed'
-  attempts: integer("attempts").default(0).notNull(),
-  nextRetryAt: timestamp("next_retry_at"),
-  errorMessage: text("error_message"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  processedAt: timestamp("processed_at"),
-});
+export const pendingInbounds = pgTable(
+  "pending_inbounds",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .references(() => tenants.id, { onDelete: "cascade" })
+      .notNull(),
+    provider: text("provider").notNull(), // 'baileys' | 'meta'
+    externalEventId: text("external_event_id"), // ID do evento do provedor para deduplicação
+    payload: jsonb("payload").notNull(),
+    status: text("status").default("pending").notNull(), // 'pending' | 'processing' | 'processed' | 'failed'
+    attempts: integer("attempts").default(0).notNull(),
+    nextRetryAt: timestamp("next_retry_at"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    processedAt: timestamp("processed_at"),
+  },
+  (table) => ({
+    tenantEventUnique: uniqueIndex("idx_pending_inbounds_tenant_event_uniq")
+      .on(table.tenantId, table.externalEventId)
+      .where(sql`${table.externalEventId} IS NOT NULL`),
+  }),
+);
 
 // ─── 9. SESSÕES DE CHAMADA (Ligações WebRTC) ─────────────────────────────────
 export const callSessions = pgTable("call_sessions", {
@@ -394,14 +455,18 @@ export const responseTimeLogs = pgTable("response_time_logs", {
 // e gera score, sentimento, flags de problema e insights acionáveis.
 export const aiConversationAudits = pgTable("ai_conversation_audits", {
   id: text("id").primaryKey(),
-  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  tenantId: text("tenant_id")
+    .references(() => tenants.id, { onDelete: "cascade" })
+    .notNull(),
+  conversationId: text("conversation_id")
+    .references(() => conversations.id, { onDelete: "cascade" })
+    .notNull(),
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
-  contactName: text("contact_name"),          // Desnormalizado para exibição rápida sem joins
+  contactName: text("contact_name"), // Desnormalizado para exibição rápida sem joins
 
   // ── Resultado estruturado da IA ──
-  performanceScore: integer("performance_score"),             // 0-100
-  clientSentiment: text("client_sentiment"),                  // 'satisfeito' | 'neutro' | 'frustrado'
+  performanceScore: integer("performance_score"), // 0-100
+  clientSentiment: text("client_sentiment"), // 'satisfeito' | 'neutro' | 'frustrado'
 
   // ── Flags booleanas de problema (indexáveis e filtráveis) ──
   hadLongResponseGap: boolean("had_long_response_gap").default(false).notNull(),
@@ -410,17 +475,19 @@ export const aiConversationAudits = pgTable("ai_conversation_audits", {
   hadNoFollowUp: boolean("had_no_follow_up").default(false).notNull(),
 
   // ── Textos gerados pela IA ──
-  summary: text("summary"),                 // Resumo em 2-3 linhas do que aconteceu
-  strengths: text("strengths"),             // O que o vendedor fez bem (específico)
-  weaknesses: text("weaknesses"),           // O que o vendedor errou (com ref. à mensagem)
+  summary: text("summary"), // Resumo em 2-3 linhas do que aconteceu
+  strengths: text("strengths"), // O que o vendedor fez bem (específico)
+  weaknesses: text("weaknesses"), // O que o vendedor errou (com ref. à mensagem)
   actionableInsight: text("actionable_insight"), // 1 frase direta para o gestor agir
 
-  rawAiResponse: jsonb("raw_ai_response"),  // JSON bruto para auditoria futura
+  rawAiResponse: jsonb("raw_ai_response"), // JSON bruto para auditoria futura
 
   // ── Controle de processamento ──
   status: text("status").default("pending").notNull(), // 'pending' | 'processing' | 'done' | 'error'
   errorMessage: text("error_message"),
   auditedAt: timestamp("audited_at"),
+  leaseToken: text("lease_token"),
+  leaseUntil: timestamp("lease_until"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -1323,7 +1390,6 @@ export type VoiceCampaign = typeof voiceCampaigns.$inferSelect;
 export type VoiceCampaignLead = typeof voiceCampaignLeads.$inferSelect;
 export type VoiceAgenda = typeof voiceAgenda.$inferSelect;
 export type VoiceObjective = typeof voiceObjectives.$inferSelect;
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 🌐 LIVE CHAT DO SITE (valem-widget) — Módulo Web Chat

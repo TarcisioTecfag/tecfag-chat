@@ -1,3 +1,4 @@
+import { runtimeSingleton } from "../runtime-singleton";
 import { SdrEngine } from "./sdr-engine";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 
@@ -30,7 +31,7 @@ export class SdrDebouncer {
 
   public static getInstance(): SdrDebouncer {
     if (!SdrDebouncer.instance) {
-      SdrDebouncer.instance = new SdrDebouncer();
+      SdrDebouncer.instance = runtimeSingleton("SdrDebouncer", () => new SdrDebouncer());
     }
     return SdrDebouncer.instance;
   }

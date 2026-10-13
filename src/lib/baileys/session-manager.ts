@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { runtimeSingleton } from "../runtime-singleton";
 import makeWASocket, { 
   DisconnectReason, 
   WASocket, 
@@ -14,7 +16,16 @@ import fs from "fs";
 import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
 import { db } from "../../db";
-import { channelConfigs, contacts, conversations, messages, mediaFiles, responseTimeLogs, agentFlowStates } from "../../db/schema";
+import {
+  channelConfigs,
+  contacts,
+  conversations,
+  messages,
+  mediaFiles,
+  responseTimeLogs,
+  agentFlowStates,
+  pendingInbounds,
+} from "../../db/schema";
 import { eq, isNull, and, or, inArray, desc, sql } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
@@ -22,7 +33,9 @@ import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { urlToBase64 } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { shouldIgnoreJid, ignoreReason } from "./jid-validator";
-import { getAiPersona } from "../ai-persona";
+import { getAiPersona, isSdrTenant } from "../ai-persona";
+
+type SessionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type SessionStatus = "disconnected" | "qr_ready" | "connecting" | "connected" | "switching";
 
@@ -106,7 +119,7 @@ export class SessionManager {
 
   public static getInstance(): SessionManager {
     if (!SessionManager.instance) {
-      SessionManager.instance = new SessionManager();
+      SessionManager.instance = runtimeSingleton("SessionManager", () => new SessionManager());
       // Auto-boot: reconectar sessões persistidas no banco ao iniciar o servidor
       SessionManager.instance.autoBootFromDB().catch((err) =>
         console.error("[SessionManager] Erro no auto-boot:", err)
@@ -131,7 +144,10 @@ export class SessionManager {
 
       const configs = await db.query.channelConfigs.findMany();
       const tenantsWithKeys = configs.filter(
-        (c) => c.baileysAuthKeys !== null && c.baileysAuthKeys !== undefined
+        (c) =>
+          c.activeProvider === "baileys" &&
+          c.baileysAuthKeys !== null &&
+          c.baileysAuthKeys !== undefined,
       );
 
       if (tenantsWithKeys.length === 0) {
@@ -150,7 +166,12 @@ export class SessionManager {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     } catch (err) {
-      console.error("[SessionManager] Auto-boot: erro ao buscar configs no banco:", err);
+      console.error("[SessionManager] Auto-boot: banco indisponível; nova tentativa em 30s.");
+      this.booted = false;
+      const timer = setTimeout(() => {
+        if (!this.isShuttingDown) void this.autoBootFromDB();
+      }, 30_000);
+      timer.unref();
     }
   }
 
@@ -165,7 +186,7 @@ export class SessionManager {
     // Enviar status atual imediatamente
     const status = this.sessionStatuses.get(tenantId) || "disconnected";
     listener({ type: "status", status, phone: undefined });
-    
+
     // Se tiver QR code guardado, enviar imediatamente
     const qr = this.sessionQrs.get(tenantId);
     if (qr && status === "qr_ready") {
@@ -256,13 +277,12 @@ export class SessionManager {
     }
   }
 
-
   /**
    * Força uma sessão completamente limpa: encerra o socket atual, apaga as chaves
    * do banco e inicia uma nova sessão (vai gerar novo QR Code).
    */
   public async resetAndInitSession(tenantId: string): Promise<WASocket> {
-    console.log(`[SessionManager] Resetando sessão para forçar novo QR Code — tenant: ${tenantId}`);
+    console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
 
     // Aguarda a inicialização anterior para não deixar um socket antigo nascer após o reset.
     const pendingInit = this.initMutex.get(tenantId);
@@ -328,14 +348,14 @@ export class SessionManager {
       try { oldSock.end(undefined); } catch (_) {}
     }
 
-    console.log(`[SessionManager] Iniciando sessão Baileys para tenant: ${tenantId}`);
+    console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
 
     // Logger silencioso — logs do Baileys são muito verbosos e poluem o output
     const logger = pino({ level: "silent" });
 
     // Carregar estado de autenticação do banco
     const { state, saveCreds } = await useDrizzleAuthState(tenantId);
-    console.log(`[SessionManager] Estado de autenticação carregado para tenant ${tenantId}`);
+    console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
 
     // ── Versão do protocolo WhatsApp Web ────────────────────────────────────────
     // Estratégia em 3 camadas para evitar "Too Many Requests" do servidor WA:
@@ -349,7 +369,7 @@ export class SessionManager {
     let version: [number, number, number] = SessionManager.WA_VERSION_FALLBACK;
     const now = Date.now();
     const cached = SessionManager.waVersionCache;
-    const cacheValid = cached && (now - cached.fetchedAt) < SessionManager.WA_VERSION_CACHE_TTL_MS;
+    const cacheValid = cached && now - cached.fetchedAt < SessionManager.WA_VERSION_CACHE_TTL_MS;
 
     if (cacheValid) {
       version = cached!.version;
@@ -358,10 +378,10 @@ export class SessionManager {
       try {
         const isNewPairing = !state.creds.registered;
         const fetchVersion = isNewPairing ? fetchLatestWaWebVersion : fetchLatestBaileysVersion;
-        const result = await Promise.race([
+        const result = (await Promise.race([
           fetchVersion({ signal: AbortSignal.timeout(5000) }),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000))
-        ]) as { version: [number, number, number]; isLatest: boolean; error?: unknown } | null;
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+        ])) as { version: [number, number, number]; isLatest: boolean; error?: unknown } | null;
 
         if (result?.version) {
           version = result.version;
@@ -380,7 +400,6 @@ export class SessionManager {
       }
     }
     // ── Fim: versão do protocolo ─────────────────────────────────────────────
-
 
     // Cache de retry de mensagens
     const msgRetryCounterCache = new NodeCache({ stdTTL: 60, useClones: false });
@@ -408,7 +427,7 @@ export class SessionManager {
     });
 
     this.sessions.set(tenantId, sock);
-    console.log(`[SessionManager] Socket criado e registrado para tenant ${tenantId}`);
+    console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
 
     // Persistir credenciais ao serem atualizadas pelo handshake
     sock.ev.on("creds.update", () => {
@@ -543,14 +562,20 @@ export class SessionManager {
     });
 
     // Tratar eventos de mensagens recebidas
-    sock.ev.on("messages.upsert", async (m: any) => {
-      if (m.type === "notify") {
-        for (const msg of m.messages) {
-          if (!msg.key.fromMe && msg.message) {
-            // Processar a mensagem recebida e salvar no banco
-            await this.handleIncomingMessage(tenantId, msg);
-          }
-        }
+    sock.ev.on("messages.upsert", async (event: any) => {
+      for (const msg of event.messages) {
+        if (msg.message)
+          await this.captureInbound(tenantId, msg, event.type !== "notify").catch(() =>
+            console.error("[Baileys] Evento não processado; recuperação pendente."),
+          );
+      }
+    });
+    sock.ev.on("messaging-history.set", async (event: any) => {
+      for (const msg of event.messages || []) {
+        if (msg.message)
+          await this.captureInbound(tenantId, msg, true).catch(() =>
+            console.error("[Baileys] Falha ao importar histórico; evento preservado."),
+          );
       }
     });
 
@@ -740,9 +765,78 @@ export class SessionManager {
     }
   }
 
+  private async captureInbound(tenantId: string, rawMsg: any, historical = false) {
+    if (!rawMsg.key?.id || !rawMsg.key?.remoteJid || shouldIgnoreJid(rawMsg.key.remoteJid)) return;
+    const wire = proto.WebMessageInfo.toObject(proto.WebMessageInfo.fromObject(rawMsg), {
+      bytes: String,
+      longs: String,
+    });
+    const timestamp = Number(wire.messageTimestamp || Date.now() / 1000);
+    historical ||= Date.now() - timestamp * 1000 > 5 * 60_000;
+    const externalEventId = "baileys:" + tenantId + ":" + rawMsg.key.id;
+    const id = "inb_b_" + createHash("sha256").update(externalEventId).digest("hex");
+    await db
+      .insert(pendingInbounds)
+      .values({
+        id,
+        tenantId,
+        provider: "baileys",
+        externalEventId,
+        status: "pending",
+        attempts: 0,
+        nextRetryAt: new Date(),
+        payload: { kind: "baileys_message", message: wire, historical },
+      })
+      .onConflictDoNothing();
+    return this.recoverInbound(tenantId, wire, historical);
+  }
 
+  public async recoverInbound(tenantId: string, wire: any, historical?: boolean) {
+    const externalEventId = "baileys:" + tenantId + ":" + wire.key.id;
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}),hashtext(${externalEventId}))`,
+      );
+      const [event] = await tx
+        .select()
+        .from(pendingInbounds)
+        .where(
+          and(
+            eq(pendingInbounds.tenantId, tenantId),
+            eq(pendingInbounds.externalEventId, externalEventId),
+          ),
+        );
+      if (!event || event.status === "processed") return;
+      const [existing] = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.tenantId, tenantId),
+            or(eq(messages.externalId, externalEventId), eq(messages.externalId, wire.key.id), eq(messages.id, wire.key.id)),
+          ),
+        )
+        .limit(1);
+      if (!existing) {
+        const raw: any = proto.WebMessageInfo.fromObject(wire);
+        raw.__historical = historical ?? Boolean((event.payload as any).historical);
+        raw.__externalEventId = externalEventId;
+        raw.__localMessageId =
+          "msg_b_" + createHash("sha256").update(externalEventId).digest("hex");
+        // Serializa efeitos de mensagens do mesmo contato, inclusive histórico e notificações.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}),hashtext(${wire.key.remoteJid}))`,
+        );
+        await this.handleIncomingMessage(tenantId, raw, tx);
+      }
+      await tx
+        .update(pendingInbounds)
+        .set({ status: "processed", processedAt: new Date(), errorMessage: null })
+        .where(and(eq(pendingInbounds.tenantId, tenantId), eq(pendingInbounds.id, event.id)));
+    });
+  }
 
-  private async handleIncomingMessage(tenantId: string, rawMsg: any) {
+  private async handleIncomingMessage(tenantId: string, rawMsg: any, db: SessionTransaction) {
     const jid = rawMsg.key.remoteJid;
     if (!jid) return;
 
@@ -755,7 +849,7 @@ export class SessionManager {
       return;
     }
     // ── FIM FILTRO ───────────────────────────────────────────────────────────────────────────
-    
+
     const sock = this.sessions.get(tenantId);
 
     // O WhatsApp pode entregar o cliente pelo LID mesmo quando a conversa foi criada pelo telefone.
@@ -785,15 +879,13 @@ export class SessionManager {
     if (phone.includes(":")) {
       phone = phone.split(":")[0];
     }
-    
-    const name = rawMsg.pushName || `Cliente (${phone})`;
-    const messageId = rawMsg.key.id || `msg-${Date.now()}`;
 
-    // Criar a pasta media se não existir
+    const name = rawMsg.pushName || `Cliente (${phone})`;
+    const messageId = rawMsg.__localMessageId || rawMsg.key.id;
+    const eventTime = new Date(Number(rawMsg.messageTimestamp || Date.now() / 1000) * 1000);
+
+    // Cache em disco é opcional; o banco preserva os bytes recebidos.
     const mediaDir = path.join(process.cwd(), "media");
-    if (!fs.existsSync(mediaDir)) {
-      fs.mkdirSync(mediaDir, { recursive: true });
-    }
 
     const messageType = Object.keys(rawMsg.message || {})[0];
     const isMedia = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"].includes(messageType) ||
@@ -907,6 +999,7 @@ export class SessionManager {
     if (isMedia) {
       try {
         console.log(`Baixando mídia para a mensagem ${messageId}...`);
+        if (!sock) throw new Error("Sessão indisponível para recuperar mídia; evento preservado.");
         if (sock) {
           const buffer = await downloadMediaMessage(
             rawMsg,
@@ -918,9 +1011,8 @@ export class SessionManager {
             }
           );
 
+          if (!buffer?.length) throw new Error("Download de mídia vazio; evento preservado.");
           if (buffer) {
-            // Salvar os bytes da mídia
-            fs.writeFileSync(path.join(mediaDir, messageId), buffer);
 
             // Identificar mimetype e formatar tag de mídia
             // Extrair legenda da mídia se houver
@@ -964,11 +1056,7 @@ export class SessionManager {
               }
             }
 
-            // Salvar arquivo de mimetype no cache local
-            fs.writeFileSync(path.join(mediaDir, `${messageId}.mime`), mime);
-
             // Persistir a mídia permanentemente no banco de dados (Base64)
-            try {
               const base64Data = buffer.toString("base64");
               await db.insert(mediaFiles).values({
                 id: messageId,
@@ -979,14 +1067,17 @@ export class SessionManager {
                 createdAt: new Date(),
               }).onConflictDoNothing();
               console.log(`Mídia ${messageId} persistida no banco com sucesso!`);
-            } catch (dbErr) {
-              console.error(`Erro ao salvar mídia no banco ${messageId}:`, dbErr);
+            try {
+              fs.mkdirSync(mediaDir, { recursive: true });
+              fs.writeFileSync(path.join(mediaDir, messageId), buffer);
+              fs.writeFileSync(path.join(mediaDir, `${messageId}.mime`), mime);
+            } catch {
+              console.warn(`[Baileys] Cache local indisponível; mídia ${messageId} preservada no banco.`);
             }
-            console.log(`Mídia ${messageId} salva com sucesso no disco! Mime: ${mime}`);
           }
         }
       } catch (err) {
-        console.error(`Erro ao processar download de mídia da mensagem ${messageId}:`, err);
+        throw err; // Não confirmar o evento antes de preservar os bytes.
       }
     }
 
@@ -1151,7 +1242,7 @@ export class SessionManager {
       const isFromMe = !!rawMsg.key.fromMe;
 
       // ── Comando !reset: Reinicia a triagem da IA SEM apagar o histórico de mensagens ──
-      if (text.trim().toLowerCase() === "!reset") {
+      if (!rawMsg.__historical && !rawMsg.key.fromMe && text.trim().toLowerCase() === "!reset") {
         console.log(`[Baileys/Reset] Comando !reset acionado para a conversa ${convId} (${phone}) — reiniciando fluxo de triagem sem apagar mensagens.`);
 
         // 1. Limpar sessão de debounce ativa
@@ -1171,7 +1262,7 @@ export class SessionManager {
               operatorId: null,
               unreadCount: 0,
               lastMessageText: "🔄 Fluxo de triagem reiniciado via !reset",
-              lastMessageTime: new Date(),
+              lastMessageTime: eventTime,
               updatedAt: new Date(),
             })
             .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
@@ -1220,13 +1311,19 @@ export class SessionManager {
 
       // Se a mensagem veio do próprio operador/WhatsApp conectado (fromMe), zera as mensagens não lidas.
       // Se veio do cliente, incrementa as não lidas.
-      const unreadCount = isFromMe ? 0 : (conversation ? conversation.unreadCount + 1 : 1);
+      const unreadCount = rawMsg.__historical
+        ? conversation?.unreadCount || 0
+        : isFromMe
+          ? 0
+          : conversation
+            ? conversation.unreadCount + 1
+            : 1;
 
       // Regra de reabertura e carteirização automática de filas:
       let targetQueue = conversation?.queueState || "fila";
       let targetOperatorId = conversation?.operatorId || null;
 
-      if (!isFromMe) {
+      if (!rawMsg.__historical && !isFromMe) {
         if (contact?.walletOperatorId) {
           // Se o cliente tem dono de carteira, atribui diretamente a ele e abre em "Meus"
           targetQueue = "meus";
@@ -1236,7 +1333,7 @@ export class SessionManager {
           targetQueue = "fila";
           targetOperatorId = null;
         }
-      } else {
+      } else if (!rawMsg.__historical) {
         // Se a mensagem veio do operador (WhatsApp Web conectado ou painel)
         if (conversation?.queueState === "fila") {
           targetQueue = "meus";
@@ -1249,11 +1346,11 @@ export class SessionManager {
           id: convId,
           tenantId,
           contactId,
-          queueState: isFromMe ? "meus" : (contact?.walletOperatorId ? "meus" : "fila"),
-          operatorId: (!isFromMe && contact?.walletOperatorId) ? contact.walletOperatorId : null,
+          queueState: isFromMe ? "meus" : contact?.walletOperatorId ? "meus" : "fila",
+          operatorId: !isFromMe && contact?.walletOperatorId ? contact.walletOperatorId : null,
           unreadCount,
           lastMessageText: text,
-          lastMessageTime: new Date(),
+          lastMessageTime: eventTime,
           createdAt: new Date(),
         });
       } else {
@@ -1262,8 +1359,14 @@ export class SessionManager {
           .update(conversations)
           .set({
             unreadCount,
-            lastMessageText: text,
-            lastMessageTime: new Date(),
+            lastMessageText:
+              conversation && conversation.lastMessageTime > eventTime
+                ? conversation.lastMessageText
+                : text,
+            lastMessageTime:
+              conversation && conversation.lastMessageTime > eventTime
+                ? conversation.lastMessageTime
+                : eventTime,
             queueState: targetQueue,
             operatorId: targetOperatorId,
           })
@@ -1275,24 +1378,30 @@ export class SessionManager {
 
       // 3. Salvar a mensagem (onConflictDoNothing evita erro de chave duplicada
       // quando o WA entrega a mesma mensagem mais de uma vez)
-      await db.insert(messages).values({
-        id: messageId,
-        tenantId,
-        conversationId: convId,
-        senderType: finalSenderType,
-        senderName: finalSenderName,
-        content: text,
-        isInternalNote: false,
-        quotedMessageId,
-        quotedMessageSender,
-        quotedMessageContent,
-        sentAt: new Date(),
-      }).onConflictDoNothing();
+      await db
+        .insert(messages)
+        .values({
+          id: messageId,
+          tenantId,
+          conversationId: convId,
+          provider: "baileys",
+          direction: isFromMe ? "outbound" : "inbound",
+          externalId: rawMsg.__externalEventId,
+          senderType: finalSenderType,
+          senderName: finalSenderName,
+          content: text,
+          isInternalNote: false,
+          quotedMessageId,
+          quotedMessageSender,
+          quotedMessageContent,
+          sentAt: eventTime,
+        })
+        .onConflictDoNothing();
 
       // ── SLA Engine & Web Push Notification ─────────
       try {
         const now = new Date();
-        if (finalSenderType === "client") {
+        if (!rawMsg.__historical && finalSenderType === "client") {
           // Disparar Web Push Notification EXCLUSIVAMENTE para o operador atribuído à conversa (se houver)
           if (targetOperatorId) {
             sendPushToOperator(tenantId, targetOperatorId, {
@@ -1369,7 +1478,7 @@ export class SessionManager {
       // ── Fim SLA Engine ──────────────────────────────────────────────────────
 
       // ── Sentiment Analyzer: análise de sentimento em mensagens de clientes ──
-      if (finalSenderType === "client" && text && text.trim().length > 5) {
+      if (!rawMsg.__historical && finalSenderType === "client" && text && text.trim().length > 5) {
         try {
           const { analyzeSentiment } = await import("../valentina/sentiment-analyzer");
           analyzeSentiment(text, convId, tenantId, { contactName: finalSenderName })
@@ -1390,19 +1499,30 @@ export class SessionManager {
           senderName: finalSenderName,
           content: text,
           phone: phone, // Enviar o telefone real extraído do JID para o frontend
-          avatar: isFromMe ? null : (profilePicUrl || null), // O avatar no SSE é do contato se for do cliente
-          sentAt: new Date(),
+          avatar: isFromMe ? null : profilePicUrl || null, // O avatar no SSE é do contato se for do cliente
+          sentAt: eventTime,
           quotedMessageId,
           quotedMessageSender,
           quotedMessageContent,
-          queue: !conversation ? (isFromMe ? "meus" : (contact?.walletOperatorId ? "meus" : "fila")) : targetQueue,
-          operatorId: !conversation ? ((!isFromMe && contact?.walletOperatorId) ? contact.walletOperatorId : null) : targetOperatorId,
-          walletOperatorId: contact?.walletOperatorId || (conversation as any)?.walletOperatorId || null,
-        }
+          queue: !conversation
+            ? isFromMe
+              ? "meus"
+              : contact?.walletOperatorId
+                ? "meus"
+                : "fila"
+            : targetQueue,
+          operatorId: !conversation
+            ? !isFromMe && contact?.walletOperatorId
+              ? contact.walletOperatorId
+              : null
+            : targetOperatorId,
+          walletOperatorId:
+            contact?.walletOperatorId || (conversation as any)?.walletOperatorId || null,
+        },
       });
 
       // ── Auto-resposta quando operador atribuído estiver em pausa ou desconectado ──
-      if (finalSenderType === "client") {
+      if (!rawMsg.__historical && finalSenderType === "client") {
         import("../whatsapp/status-auto-reply").then(({ checkAndSendOperatorStatusAutoReply }) => {
           checkAndSendOperatorStatusAutoReply({
             tenantId,
@@ -1433,7 +1553,12 @@ export class SessionManager {
       );
 
       // 🛑 REGRA ARQUITETURAL (AGENTS.md): SDR ativo exclusivamente para valem até go-live do tecfag
-      if (tenantId === "valem" && finalSenderType === "client" && !isHandledByOperator) {
+      if (
+        !rawMsg.__historical &&
+        isSdrTenant(tenantId) &&
+        finalSenderType === "client" &&
+        !isHandledByOperator
+      ) {
         let mediaType: "text" | "image" | "audio" | "document" = "text";
         let mediaBase64: string | undefined = undefined;
         let mimeType: string | undefined = undefined;
@@ -1483,9 +1608,8 @@ export class SessionManager {
       } else if (isHandledByOperator) {
         console.log(`[Baileys/SDR] 🛑 TRAVA DE OPERADOR ATIVA: Cliente ${phone} em atendimento humano ou triagem finalizada. Valentina silenciada.`);
       }
-
     } catch (e) {
-      console.error(`Erro ao salvar mensagem recebida do Baileys no DB:`, e);
+      throw e; // rollback; payload original continua na inbox para recuperação
     }
   }
 }
@@ -1597,4 +1721,3 @@ if (typeof process !== "undefined" && typeof process.on === "function") {
   process.once("SIGTERM", handleSignal);
   process.once("SIGINT", handleSignal);
 }
-

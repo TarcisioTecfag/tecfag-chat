@@ -2,10 +2,6 @@ import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
-import { applyTecfagCrmSeed } from "./apply-tecfag-crm-seed.mjs";
-import { cleanupSyntheticOperators } from "./cleanup-synthetic-operators.mjs";
-import { reassignMarceloNardelliDeals } from "./reassign-marcelo-nardelli-deals.mjs";
-
 
 // Carrega .env nativamente se existir no ambiente de execução
 if (typeof process.loadEnvFile === "function") {
@@ -28,6 +24,13 @@ if (typeof process.loadEnvFile === "function") {
 }
 
 const migrations = [
+  {
+    name: "0008_mvp_idempotency_unique_and_recovery",
+    url: new URL(
+      "../src/db/migrations/0008_mvp_idempotency_unique_and_recovery.sql",
+      import.meta.url,
+    ),
+  },
   {
     name: "0009_crm_core_foundation",
     url: new URL("../src/db/migrations/0009_crm_core_foundation.sql", import.meta.url),
@@ -98,11 +101,17 @@ const migrations = [
   },
   {
     name: "0025_crm_catalog_standard_items_policy",
-    url: new URL("../src/db/migrations/0025_crm_catalog_standard_items_policy.sql", import.meta.url),
+    url: new URL(
+      "../src/db/migrations/0025_crm_catalog_standard_items_policy.sql",
+      import.meta.url,
+    ),
   },
   {
     name: "0026_crm_custom_fields_unique_and_stage_rules",
-    url: new URL("../src/db/migrations/0026_crm_custom_fields_unique_and_stage_rules.sql", import.meta.url),
+    url: new URL(
+      "../src/db/migrations/0026_crm_custom_fields_unique_and_stage_rules.sql",
+      import.meta.url,
+    ),
   },
   {
     name: "0027_commercial_war_room_foundation",
@@ -110,7 +119,10 @@ const migrations = [
   },
   {
     name: "0028_canonical_phone_ddi55_and_auto_link",
-    url: new URL("../src/db/migrations/0028_canonical_phone_ddi55_and_auto_link.sql", import.meta.url),
+    url: new URL(
+      "../src/db/migrations/0028_canonical_phone_ddi55_and_auto_link.sql",
+      import.meta.url,
+    ),
   },
   {
     name: "0029_commercial_directive_snapshot",
@@ -135,6 +147,10 @@ const migrations = [
   {
     name: "0035_rd_marketing",
     url: new URL("../src/db/migrations/0035_rd_marketing.sql", import.meta.url),
+  },
+  {
+    name: "0036_durable_recovery",
+    url: new URL("../src/db/migrations/0036_durable_recovery.sql", import.meta.url),
   },
 ];
 const databaseUrl = process.env.DATABASE_URL;
@@ -172,31 +188,11 @@ if (!databaseUrl) {
         console.log(`[platform migration] ${migration.name} aplicada com sucesso.`);
       }
     });
-
-    // 2. Limpeza e remapeamento obrigatório de operadores sintéticos (restaurar estritamente operadores legítimos)
-    try {
-      await cleanupSyntheticOperators(sql);
-    } catch (cleanErr) {
-      console.error("[platform migration] Falha na limpeza de operadores sintéticos:", cleanErr);
-    }
-
-    // 3. Reatribuição dos cards de Marcelo Nardelli para sua conta legítima existente
-    try {
-      await reassignMarceloNardelliDeals(sql);
-    } catch (marceloErr) {
-      console.error("[platform migration] Falha na reatribuição dos cards de Marcelo Nardelli:", marceloErr);
-    }
-
-    // 4. Carga atômica do seed de produção Tecfag CRM (se ainda não aplicado)
-    try {
-      await applyTecfagCrmSeed(sql);
-    } catch (seedErr) {
-      console.error("[platform migration] Falha na aplicação do seed Tecfag CRM:", seedErr);
-    }
-
-
   } catch (error) {
-    console.error("[platform migration] Falha crítica ao aplicar migrações estruturais DDL:", error);
+    console.error(
+      "[platform migration] Falha crítica ao aplicar migrações estruturais DDL:",
+      error,
+    );
     process.exitCode = 1;
   } finally {
     await sql.end();

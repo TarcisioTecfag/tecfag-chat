@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "start": "npm run db:migrate:platform && node .output/server/index.mjs",
     "db:seed": "tsx src/db/cleanup.ts && tsx src/db/seed.ts",
-    "db:reset-data": "tsx src/db/reset-data.ts",
+    "db:reset-data": "node scripts/reset-tenant-data.mjs",
     "db:reset-tenant": "node scripts/reset-tenant-data.mjs",
     "db:reset-tecfag": "node scripts/reset-tenant-data.mjs --tenant=tecfag",
     "db:migrate": "bun run src/db/migrate.ts",

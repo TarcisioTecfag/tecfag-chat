@@ -84,6 +84,14 @@ type Log = {
 };
 
 type PreviewResult = Record<"contact" | "company" | "deal", Record<string, unknown>>;
+type InboxEvent = {
+  id: string;
+  flowId: string;
+  status: string;
+  errorMessage?: string;
+  attempts: number;
+  outcomes: { index: number; status: string; error?: string }[];
+};
 
 interface CustomSelectOption {
   value: string;
@@ -365,6 +373,7 @@ const QUICK_RD_FIELDS = [
 export function RdMarketingSettings({ tenant }: { tenant: string }) {
   const [flows, setFlows] = useState<Flow[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
+  const [events, setEvents] = useState<InboxEvent[]>([]);
   const [options, setOptions] = useState<Options | null>(null);
   const [id, setId] = useState("");
   const [form, setForm] = useState<FlowSettings>(blank);
@@ -386,6 +395,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     if (!signal?.aborted) {
       setFlows(data.flows);
       setLogs(data.logs);
+      setEvents(data.events || []);
       setOptions(data.options);
     }
     return data as { flows: Flow[]; logs: Log[]; options: Options };
@@ -396,6 +406,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     setOptions(null);
     setFlows([]);
     setLogs([]);
+    setEvents([]);
     setId("");
     setForm(blank());
     setUrl("");
@@ -1805,6 +1816,65 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
           </SystemTooltip>
         </div>
 
+        {events.some((event) => event.status !== "processed") && (
+          <div className="space-y-2 mb-4">
+            <h5 className="text-sm font-semibold">Recebimentos pendentes e falhas</h5>
+            {events
+              .filter((event) => event.status !== "processed")
+              .map((event) => (
+                <div key={event.id} className="rounded-xl border p-3 text-xs space-y-2">
+                  <p>
+                    {flows.find((flow) => flow.id === event.flowId)?.settings.name || "Fluxo"} ·{" "}
+                    {event.status === "error" ? "Requer revisão" : "Aguardando processamento"} ·{" "}
+                    {event.attempts} tentativa(s)
+                  </p>
+                  {event.errorMessage && <p>{event.errorMessage}</p>}
+                  {event.outcomes
+                    .filter((item) => item.error)
+                    .map((item) => (
+                      <p key={item.index}>
+                        Item {item.index + 1}: {item.error}
+                      </p>
+                    ))}
+                  {event.status === "error" && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="underline"
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          const response = await fetch("/api/settings/rd-marketing", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              action: "replay",
+                              eventId: event.id,
+                              useCurrentSettings: true,
+                            }),
+                          });
+                          const data = await response.json();
+                          if (!response.ok) throw new Error(data.error);
+                          toast.success(
+                            "Reprocessamento programado com a configuração atual do fluxo.",
+                          );
+                          await load();
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : "Falha ao reprocessar.",
+                          );
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      Reprocessar com a configuração atual
+                    </button>
+                  )}
+                </div>
+              ))}
+          </div>
+        )}
         {!logs.length ? (
           <div className="flex flex-col items-center justify-center p-8 bg-muted/20 border border-border/80 rounded-2xl text-center">
             <Clock className="h-8 w-8 text-muted-foreground/50 mb-2" />

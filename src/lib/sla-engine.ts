@@ -1,3 +1,5 @@
+import { runtimeSingleton } from "./runtime-singleton";
+import { isSdrTenant } from "./ai-persona";
 /**
  * SLA Engine — Motor de Monitoramento de Tempo de Resposta e Relatórios Automáticos
  *
@@ -44,7 +46,7 @@ export class SlaEngine {
 
   static getInstance(): SlaEngine {
     if (!SlaEngine.instance) {
-      SlaEngine.instance = new SlaEngine();
+      SlaEngine.instance = runtimeSingleton("SlaEngine", () => new SlaEngine());
     }
     return SlaEngine.instance;
   }
@@ -149,6 +151,7 @@ export class SlaEngine {
     const activeTenants = await db.select().from(tenants);
 
     for (const t of activeTenants) {
+      if (!isSdrTenant(t.id)) continue;
       const config = await db.query.channelConfigs.findFirst({
         where: eq(channelConfigs.tenantId, t.id),
       });
@@ -309,13 +312,13 @@ export class SlaEngine {
           overdueCount: (existing[0].overdueCount ?? 0) + 1,
           updatedAt: new Date(),
         })
-        .where(eq(operatorDailyMetrics.id, existing[0].id));
+        .where(and(eq(operatorDailyMetrics.id, existing[0].id), eq(operatorDailyMetrics.tenantId, tenantId)));
     } else {
       // Busca o nome do operador para desnormalizar
       const op = await db
         .select({ name: operators.name })
         .from(operators)
-        .where(eq(operators.id, operatorId))
+        .where(and(eq(operators.id, operatorId), eq(operators.tenantId, tenantId)))
         .limit(1);
 
       await db.insert(operatorDailyMetrics).values({
@@ -368,12 +371,12 @@ export class SlaEngine {
           totalConversations: prevTotal + 1,
           updatedAt: new Date(),
         })
-        .where(eq(operatorDailyMetrics.id, existing[0].id));
+        .where(and(eq(operatorDailyMetrics.id, existing[0].id), eq(operatorDailyMetrics.tenantId, tenantId)));
     } else {
       const op = await db
         .select({ name: operators.name })
         .from(operators)
-        .where(eq(operators.id, operatorId))
+        .where(and(eq(operators.id, operatorId), eq(operators.tenantId, tenantId)))
         .limit(1);
 
       await db.insert(operatorDailyMetrics).values({

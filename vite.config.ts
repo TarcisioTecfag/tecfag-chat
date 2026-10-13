@@ -13,6 +13,8 @@ export default defineConfig({
     server: { entry: "server" },
   },
   nitro: {
+    // Runtime persistente requerido por Baileys, WebSockets e workers no Railway.
+    preset: "node_server",
     // HTML must be revalidated after a deploy; hashed /assets files remain immutable.
     routeRules: {
       "/": { headers: { "cache-control": "no-cache" } },
