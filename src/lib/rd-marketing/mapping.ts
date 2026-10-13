@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { conversionAttribution } from "./attribution";
 
 export class MappingError extends Error {
   readonly statusCode = 400;
@@ -100,14 +101,15 @@ export function attributionForLead(lead: Record<string, unknown>, settings: Flow
   const conversion =
     settings.attributionConversion === "last" ? "last_conversion" : "first_conversion";
   const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  const selectedConversion = readPath(lead, conversion);
+  const attribution = conversionAttribution(selectedConversion);
   // Fonte e campanha pertencem à mesma conversão: nunca completar a última com a primeira.
   const source =
-    asText(readPath(lead, `${conversion}.conversion_origin.source`)) ||
-    asText(readPath(lead, `${conversion}.source`)) ||
-    (conversion === "first_conversion" ? asText(readPath(lead, "funnel.origin")) : "");
-  const campaign = settings.campaignFromFlow
-    ? settings.name
-    : asText(readPath(lead, `${conversion}.conversion_origin.campaign`));
+    attribution.source ||
+    (conversion === "first_conversion" && !selectedConversion
+      ? asText(readPath(lead, "funnel.origin"))
+      : "");
+  const campaign = settings.campaignFromFlow ? settings.name : attribution.campaign || "";
   return { source, campaign };
 }
 
@@ -180,6 +182,7 @@ export function hasMarketingAttribution(value: unknown): boolean {
   const text = typeof value === "string" ? value.trim().toLowerCase() : "";
   return (
     !!text &&
+    !text.startsWith("encoded_") &&
     ![
       "unknown",
       "undefined",

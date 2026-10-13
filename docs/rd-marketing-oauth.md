@@ -17,6 +17,18 @@ Consulta `GET /platform/contacts/{identifier}:{value}` e, com o UUID devolvido, 
 
 Os dados pessoais retornados são apresentados somente ao administrador autenticado do tenant e não são persistidos nem enviados a logs por esta funcionalidade. Credenciais são removidas do JSON de diagnóstico. A autorização precisa ser feita uma vez por tenant; não há compartilhamento de tokens entre tenants.
 
+## Retorno real validado em 13/10/2026
+
+A consulta autorizada retornou um contato com telefone em `personal_phone`, uma conversão CDP e uma marcação de oportunidade. A conversão contém `event_identifier`, `event_timestamp`, `payload.cf_utm_source`, `payload.cf_utm_campaign`, `payload.cf_utm_medium` e `payload.traffic_source` com prefixo `encoded_`.
+
+A leitura normalizada mostra Fonte `linktree`, Campanha `site-home` e Mídia `social`. O tracking codificado dessa amostra contém JSON em base64 com `first_session` e `current_session`; quando faltam UTMs explícitas, a leitura considera somente `current_session` da própria conversão, sem completar a campanha com outra sessão. O JSON original permanece visível e inalterado. Tracking inválido nunca é exibido como uma fonte válida.
+
+O webhook legado recebe a mesma leitura quando esses campos estão dentro da conversão selecionada (`first_conversion` ou `last_conversion`, inclusive `content`). Não utiliza os `cf_utm_*` atuais do perfil para atribuir automaticamente uma conversão histórica; mapeamentos explícitos continuam configuráveis. Esta correção não altera os cards já importados.
+
+O evento `OPPORTUNITY` dessa amostra informa apenas `funnel_name: "default"`; ele não contém Fonte/Campanha e não identifica uma negociação local. A interface o apresenta como **Marcado como oportunidade**, com o nome do funil no RD Marketing. Não é o funil comercial do CRM.
+
+Campos `cf_plug_*` retornados no contato são valores do perfil, sem data ou lista de alterações nesse retorno. Não reconstruímos uma história de mudança de etapa, responsável, valor, venda ou perda a partir deles. A conversão também não retornou URL da página: seu identificador de botão e suas UTMs não bastam para deduzir a página visitada. A prova ainda não confirmou acesso à timeline integral nem aos registros comerciais nativos mostrados nas imagens do RD.
+
 ## Segurança e operação
 
 - Credenciais e tokens usam AES-256-GCM com contexto do tenant e finalidade. A chave do servidor deve ser guardada de forma durável. Perder ou trocar a chave exige cadastrar/autorizar novamente.

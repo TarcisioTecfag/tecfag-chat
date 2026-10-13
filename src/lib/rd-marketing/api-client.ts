@@ -1,5 +1,6 @@
 import { CrmError } from "../crm/crm-service";
 import type { RdEventPage, RdEventType, RdIdentifier, RdProbe } from "./api-types";
+import { conversionAttribution } from "./attribution";
 
 export type RdFetch = typeof fetch;
 export const RD_API = "https://api.rd.services";
@@ -163,7 +164,7 @@ export function parseRdEventPage(raw: unknown, eventType: RdEventType, page: num
     events: (list || []).map((item) => {
       const event = object(item),
         payload = object(event.payload),
-        origin = object(payload.conversion_origin ?? event.conversion_origin);
+        attribution = conversionAttribution(event);
       const links = [
         payload.url,
         payload.page_url,
@@ -186,21 +187,20 @@ export function parseRdEventPage(raw: unknown, eventType: RdEventType, page: num
         identifier: string(
           payload.conversion_identifier,
           event.conversion_identifier,
+          event.event_identifier,
           event.event_type,
         ),
         date: string(
-          event.created_at,
-          event.occurred_at,
           event.event_timestamp,
+          event.occurred_at,
+          payload.event_timestamp,
+          event.created_at,
           payload.created_at,
         ),
-        source: string(origin.source, payload.traffic_source, payload.source, event.source),
-        campaign: string(
-          origin.campaign,
-          payload.traffic_campaign,
-          payload.campaign,
-          event.campaign,
-        ),
+        source: attribution.source,
+        campaign: attribution.campaign,
+        medium: attribution.medium,
+        funnelName: string(payload.funnel_name),
         links: [...new Set(links)],
         raw: sanitizeRdResponse(item),
       };

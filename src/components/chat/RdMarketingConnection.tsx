@@ -328,15 +328,21 @@ export function RdMarketingConnection() {
                         className="rounded-lg bg-muted/40 p-3 text-sm space-y-1"
                       >
                         <p className="font-medium">
-                          {event.identifier || "Evento sem identificador informado"}
+                          {page.eventType === "OPPORTUNITY"
+                            ? "Marcado como oportunidade"
+                            : event.identifier || "Evento sem identificador informado"}
                         </p>
+                        {event.funnelName && (
+                          <p className="text-xs">Funil no RD Marketing: {event.funnelName}</p>
+                        )}
                         <p className="text-xs text-muted-foreground">
                           Data: {event.date || "Não informada"}
                         </p>
-                        <p className="text-xs">
+                        <p className="text-xs break-words">
                           Fonte: {event.source || "Não informada"} · Campanha:{" "}
                           {event.campaign || "Não informada"}
                         </p>
+                        {event.medium && <p className="text-xs">Mídia: {event.medium}</p>}
                         {event.links.map((url) => (
                           <a
                             key={url}

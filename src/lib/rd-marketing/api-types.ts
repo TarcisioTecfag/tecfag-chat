@@ -14,6 +14,8 @@ export type RdEventView = {
   date: string | null;
   source: string | null;
   campaign: string | null;
+  medium?: string | null;
+  funnelName?: string | null;
   links: string[];
   raw: unknown;
 };
