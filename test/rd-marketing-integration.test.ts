@@ -13,6 +13,7 @@ describe.skipIf(!testUrl)("RD Marketing: PostgreSQL isolado", () => {
   let authModule: typeof import("../src/lib/auth-session");
   let settingsHandlers: Record<string, (context: any) => Promise<Response>>;
   let webhookHandler: (context: any) => Promise<Response>;
+  let webhookReadHandler: (context: { params: { token: string } }) => Promise<Response>;
   let adminCookie: string;
   let agentCookie: string;
   let webhookToken: string;
@@ -110,10 +111,54 @@ describe.skipIf(!testUrl)("RD Marketing: PostgreSQL isolado", () => {
       .server!.handlers as any;
     webhookHandler = (await import("../src/routes/api/webhooks/rd-marketing/$token")).Route.options
       .server!.handlers!.POST as any;
+    webhookReadHandler = (await import("../src/routes/api/webhooks/rd-marketing/$token")).Route
+      .options.server!.handlers!.GET as typeof webhookReadHandler;
   }, 60000);
 
   afterAll(async () => {
     if (database) await database.client.end();
+  });
+
+  test("consulta a URL existente sem criar cards, recibos ou logs", async () => {
+    const tables = [schema.crmDeals, schema.rdMarketingReceipts, schema.rdMarketingLogs];
+    const before = await Promise.all(
+      tables.map((table) => database.db.select().from(table).where(eq(table.tenantId, tenantId))),
+    );
+    const response = await webhookReadHandler({ params: { token: webhookToken } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({ status: "ready", integrationName: config.name });
+    const after = await Promise.all(
+      tables.map((table) => database.db.select().from(table).where(eq(table.tenantId, tenantId))),
+    );
+    expect(after).toEqual(before);
+    for (const token of ["invalid", "f".repeat(64)]) {
+      const invalid = await webhookReadHandler({ params: { token } });
+      expect(invalid.status).toBe(401);
+    }
+    await database.db
+      .update(schema.rdMarketingFlows)
+      .set({ settings: { ...config, enabled: false } })
+      .where(
+        and(
+          eq(schema.rdMarketingFlows.id, flow.id),
+          eq(schema.rdMarketingFlows.tenantId, tenantId),
+        ),
+      );
+    try {
+      const paused = await webhookReadHandler({ params: { token: webhookToken } });
+      expect(await paused.json()).toEqual({ status: "paused", integrationName: config.name });
+    } finally {
+      await database.db
+        .update(schema.rdMarketingFlows)
+        .set({ settings: config })
+        .where(
+          and(
+            eq(schema.rdMarketingFlows.id, flow.id),
+            eq(schema.rdMarketingFlows.tenantId, tenantId),
+          ),
+        );
+    }
   });
 
   test("simula sem gravar e cria contato, card, auditoria e recibo", async () => {

@@ -63,6 +63,17 @@ Esta entrega cobre a entrada de leads e criação local. Não envia status de ve
 
 ## Validação local
 
+Ao reabrir o painel, ele carrega as configurações do servidor e seleciona o último fluxo salvo
+usado neste navegador e tenant, ou o primeiro fluxo disponível. O navegador guarda apenas o ID
+selecionado; os mapeamentos e destinos permanecem no banco. Um rascunho não salvo não substitui
+o fluxo salvo na próxima abertura.
+
+A URL do webhook aparece somente ao criar ou rotacionar o segredo. Recarregar ou publicar o
+sistema não invalida a URL original. Para verificar uma URL já configurada, abra-a no navegador:
+o GET autenticado pelo segredo retorna somente o nome da integração e `ready` ou `paused`, sem
+criar contatos, cards, recibos ou logs. `401` indica segredo inválido ou fluxo não encontrado.
+Não compartilhe a URL, pois ela autoriza recebimentos. Rotação exige atualizar a ação do RD.
+
 `bun test test/rd-marketing-mapping.test.ts` cobre payloads, mapeamentos, opções, identidades e caminhos seguros.
 
 `bun test test/rd-marketing-integration.test.ts` exige `TEST_DATABASE_URL` apontando para uma base PostgreSQL **local, descartável e vazia**, com `test` no nome. A suíte cria o schema e valida criação, concorrência, rollback, campos obrigatórios, isolamento, sessão admin, webhook, rotação e reutilização de cadastros. Não carregar `.env` operacional para essa suíte.

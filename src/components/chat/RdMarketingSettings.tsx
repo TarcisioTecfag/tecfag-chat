@@ -54,6 +54,7 @@ import {
   type FlowSettings,
   type Mapping,
 } from "@/lib/rd-marketing/mapping";
+import { rememberRdMarketingFlow, restoreRdMarketingFlow } from "@/lib/rd-marketing/selection";
 
 type Field = {
   id: string;
@@ -378,9 +379,14 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     const response = await fetch("/api/settings/rd-marketing", { signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error);
-    setFlows(data.flows || []);
-    setLogs(data.logs || []);
-    setOptions(data.options || null);
+    if (!Array.isArray(data.flows) || !Array.isArray(data.logs) || !data.options)
+      throw new Error("Não foi possível carregar as integrações salvas. Recarregue a página.");
+    if (!signal?.aborted) {
+      setFlows(data.flows);
+      setLogs(data.logs);
+      setOptions(data.options);
+    }
+    return data as { flows: Flow[]; logs: Log[]; options: Options };
   }
 
   useEffect(() => {
@@ -394,9 +400,19 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     setPreview(null);
     setLoadError("");
     setPayload(sample);
-    load(controller.signal).catch((error) => {
-      if (!controller.signal.aborted) setLoadError(error.message);
-    });
+    load(controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        const flow = restoreRdMarketingFlow(tenant, data.flows);
+        if (flow) {
+          setId(flow.id);
+          setForm(structuredClone(flow.settings));
+          rememberRdMarketingFlow(tenant, flow.id);
+        }
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setLoadError(error.message);
+      });
     return () => controller.abort();
   }, [tenant]);
 
@@ -431,7 +447,10 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
         setPreview(data.results);
         toast.success("Simulação executada com sucesso!");
       } else {
-        if (data.id) setId(data.id);
+        if (data.id) {
+          setId(data.id);
+          rememberRdMarketingFlow(tenant, data.id);
+        }
         if (data.webhookUrl) setUrl(data.webhookUrl);
         await load();
         toast.success(
@@ -733,10 +752,12 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
             <div className="relative flex-1 max-w-md">
               <CustomSelect
                 value={id}
+                disabled={busy}
                 onChange={(selectedId) => {
                   const flow = flows.find((f) => f.id === selectedId);
                   setId(flow?.id || "");
                   setForm(flow ? structuredClone(flow.settings) : blank());
+                  if (flow) rememberRdMarketingFlow(tenant, flow.id);
                   setUrl("");
                   setPreview(null);
                 }}
@@ -783,6 +804,11 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
           </div>
         </div>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        {flows.length} {flows.length === 1 ? "integração salva" : "integrações salvas"} no servidor
+        para esta empresa.
+      </p>
 
       <fieldset disabled={busy} className="space-y-6 disabled:opacity-75">
         {/* 2. CARD: DESTINO & REGRAS DO FLUXO COM CUSTOMSELECTS */}
@@ -1576,6 +1602,21 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
         </motion.div>
 
         {/* 6. CARD: WEBHOOK & URL DE INTEGRAÇÃO (SE DISPONÍVEL) */}
+        {id && !url && (
+          <div className="rounded-2xl border border-border bg-muted/40 p-4 text-sm space-y-2">
+            <p className="font-semibold">Integração salva: {form.name}</p>
+            <p className="text-muted-foreground">
+              A URL original do webhook continua válida após atualizar ou publicar o sistema. Por
+              segurança, ela é exibida apenas na criação ou ao gerar uma nova URL. Você pode
+              consultar a URL original na ação configurada no RD Marketing.
+            </p>
+            <p className="text-muted-foreground">
+              Gere uma nova URL somente para substituí-la: isso invalida a anterior e exige
+              atualizar a ação no RD Marketing.
+            </p>
+          </div>
+        )}
+
         {url && (
           <motion.div
             initial={{ opacity: 0, scale: 0.98 }}

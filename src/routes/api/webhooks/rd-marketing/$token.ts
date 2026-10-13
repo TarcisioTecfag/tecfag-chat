@@ -10,6 +10,31 @@ import { integrationError, readIntegrationJson } from "../../../../lib/rd-market
 export const Route = createFileRoute("/api/webhooks/rd-marketing/$token")({
   server: {
     handlers: {
+      GET: async ({ params }) => {
+        // Diagnóstico sem gravar eventos: o mesmo segredo do recebimento autentica a consulta.
+        const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+        if (!/^[a-f0-9]{64}$/.test(params.token))
+          return Response.json({ error: "Webhook inválido." }, { status: 401, headers });
+        try {
+          const [flow] = await db
+            .select({ settings: rdMarketingFlows.settings })
+            .from(rdMarketingFlows)
+            .where(eq(rdMarketingFlows.tokenHash, hashToken(params.token)))
+            .limit(1);
+          if (!flow) return Response.json({ error: "Webhook inválido." }, { status: 401, headers });
+          return Response.json(
+            {
+              status: flow.settings.enabled ? "ready" : "paused",
+              integrationName: flow.settings.name,
+            },
+            { headers },
+          );
+        } catch (error) {
+          const response = integrationError(error);
+          for (const [name, value] of Object.entries(headers)) response.headers.set(name, value);
+          return response;
+        }
+      },
       POST: async ({ request, params }) => {
         // Rota pública: segredo aleatório identifica um único fluxo e seu tenant no servidor.
         // Tenant, funil, etapa e responsável presentes no payload nunca são autoridade.
