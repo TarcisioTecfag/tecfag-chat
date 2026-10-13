@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, integer, boolean, jsonb, numeric, index, uniqueIndex } from "drizzle-orm/pg-core";
+import type { FlowSettings } from "../lib/rd-marketing/mapping";
 
 // ─── 1. TENANTS (Empresas: Valem, Tecfag) ──────────────────────────────────
 export const tenants = pgTable("tenants", {
@@ -65,6 +66,35 @@ export const channelConfigs = pgTable("channel_configs", {
 
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// RD Marketing: URLs independentes por fluxo; o segredo só é armazenado como hash.
+export const rdMarketingFlows = pgTable("rd_marketing_flows", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  settings: jsonb("settings").$type<FlowSettings>().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ tenantIdx: index("idx_rd_marketing_flows_tenant").on(table.tenantId) }));
+
+export const rdMarketingReceipts = pgTable("rd_marketing_receipts", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  flowId: text("flow_id").references(() => rdMarketingFlows.id, { onDelete: "cascade" }).notNull(),
+  identityHash: text("identity_hash").notNull(),
+  dealId: text("deal_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ identityUnique: uniqueIndex("idx_rd_marketing_receipt_identity").on(table.tenantId, table.flowId, table.identityHash) }));
+
+export const rdMarketingLogs = pgTable("rd_marketing_logs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  flowId: text("flow_id").references(() => rdMarketingFlows.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").notNull(),
+  dealId: text("deal_id"),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ tenantDateIdx: index("idx_rd_marketing_logs_tenant_date").on(table.tenantId, table.createdAt) }));
 
 // ─── 2.5. GRUPOS DE ACESSO (RBAC) ───────────────────────────────────────────
 export const accessGroups = pgTable("access_groups", {

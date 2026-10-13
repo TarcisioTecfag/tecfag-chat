@@ -132,6 +132,10 @@ const migrations = [
     name: "0034_performance_indexes",
     url: new URL("../src/db/migrations/0034_performance_indexes.sql", import.meta.url),
   },
+  {
+    name: "0035_rd_marketing",
+    url: new URL("../src/db/migrations/0035_rd_marketing.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

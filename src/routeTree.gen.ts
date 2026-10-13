@@ -56,6 +56,7 @@ import { Route as ApiValentinaAssistantRouteImport } from './routes/api/valentin
 import { Route as ApiValentinaAgentsRouteImport } from './routes/api/valentina/agents'
 import { Route as ApiSettingsWhatsappRouteImport } from './routes/api/settings/whatsapp'
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
+import { Route as ApiSettingsRdMarketingRouteImport } from './routes/api/settings/rd-marketing'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
 import { Route as ApiPlatformAccessRouteImport } from './routes/api/platform/access'
 import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
@@ -122,6 +123,7 @@ import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAdminResetRouteImport } from './routes/api/admin/reset'
+import { Route as ApiWebhooksRdMarketingTokenRouteImport } from './routes/api/webhooks/rd-marketing/$token'
 import { Route as ApiValentinaVoiceChatCompletionsRouteImport } from './routes/api/valentina-voice/chat/completions'
 import { Route as ApiSettingsWhatsappUsageRouteImport } from './routes/api/settings/whatsapp/usage'
 import { Route as ApiSettingsWhatsappTestSendRouteImport } from './routes/api/settings/whatsapp/test-send'
@@ -400,6 +402,11 @@ const ApiSettingsWhatsappRoute = ApiSettingsWhatsappRouteImport.update({
 const ApiSettingsReportsRoute = ApiSettingsReportsRouteImport.update({
   id: '/api/settings/reports',
   path: '/api/settings/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsRdMarketingRoute = ApiSettingsRdMarketingRouteImport.update({
+  id: '/api/settings/rd-marketing',
+  path: '/api/settings/rd-marketing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
@@ -739,6 +746,12 @@ const ApiAdminResetRoute = ApiAdminResetRouteImport.update({
   path: '/api/admin/reset',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksRdMarketingTokenRoute =
+  ApiWebhooksRdMarketingTokenRouteImport.update({
+    id: '/api/webhooks/rd-marketing/$token',
+    path: '/api/webhooks/rd-marketing/$token',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiValentinaVoiceChatCompletionsRoute =
   ApiValentinaVoiceChatCompletionsRouteImport.update({
     id: '/chat/completions',
@@ -1070,6 +1083,7 @@ export interface FileRoutesByFullPath {
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
+  '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRoute
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
@@ -1111,6 +1125,7 @@ export interface FileRoutesByFullPath {
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/webhooks/rd-marketing/$token': typeof ApiWebhooksRdMarketingTokenRoute
   '/api/commercial/directives/$directiveId/evidence': typeof ApiCommercialDirectivesDirectiveIdEvidenceRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
@@ -1226,6 +1241,7 @@ export interface FileRoutesByTo {
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
+  '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRoute
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
@@ -1267,6 +1283,7 @@ export interface FileRoutesByTo {
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/webhooks/rd-marketing/$token': typeof ApiWebhooksRdMarketingTokenRoute
   '/api/commercial/directives/$directiveId/evidence': typeof ApiCommercialDirectivesDirectiveIdEvidenceRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
@@ -1383,6 +1400,7 @@ export interface FileRoutesById {
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
+  '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRoute
   '/api/settings/reports': typeof ApiSettingsReportsRoute
   '/api/settings/whatsapp': typeof ApiSettingsWhatsappRouteWithChildren
   '/api/valentina/agents': typeof ApiValentinaAgentsRoute
@@ -1424,6 +1442,7 @@ export interface FileRoutesById {
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
   '/api/settings/whatsapp/usage': typeof ApiSettingsWhatsappUsageRoute
   '/api/valentina-voice/chat/completions': typeof ApiValentinaVoiceChatCompletionsRoute
+  '/api/webhooks/rd-marketing/$token': typeof ApiWebhooksRdMarketingTokenRoute
   '/api/commercial/directives/$directiveId/evidence': typeof ApiCommercialDirectivesDirectiveIdEvidenceRoute
   '/api/crm/accounts/$accountId/conversations': typeof ApiCrmAccountsAccountIdConversationsRoute
   '/api/crm/deals/$dealId/activities': typeof ApiCrmDealsDealIdActivitiesRouteWithChildren
@@ -1541,6 +1560,7 @@ export interface FileRouteTypes {
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/rd-crm'
+    | '/api/settings/rd-marketing'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
     | '/api/valentina/agents'
@@ -1582,6 +1602,7 @@ export interface FileRouteTypes {
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
+    | '/api/webhooks/rd-marketing/$token'
     | '/api/commercial/directives/$directiveId/evidence'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
@@ -1697,6 +1718,7 @@ export interface FileRouteTypes {
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/rd-crm'
+    | '/api/settings/rd-marketing'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
     | '/api/valentina/agents'
@@ -1738,6 +1760,7 @@ export interface FileRouteTypes {
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
+    | '/api/webhooks/rd-marketing/$token'
     | '/api/commercial/directives/$directiveId/evidence'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
@@ -1853,6 +1876,7 @@ export interface FileRouteTypes {
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/rd-crm'
+    | '/api/settings/rd-marketing'
     | '/api/settings/reports'
     | '/api/settings/whatsapp'
     | '/api/valentina/agents'
@@ -1894,6 +1918,7 @@ export interface FileRouteTypes {
     | '/api/settings/whatsapp/test-send'
     | '/api/settings/whatsapp/usage'
     | '/api/valentina-voice/chat/completions'
+    | '/api/webhooks/rd-marketing/$token'
     | '/api/commercial/directives/$directiveId/evidence'
     | '/api/crm/accounts/$accountId/conversations'
     | '/api/crm/deals/$dealId/activities'
@@ -2001,6 +2026,7 @@ export interface RootRouteChildren {
   ApiLivechatVisitorsRoute: typeof ApiLivechatVisitorsRoute
   ApiPlatformAccessRoute: typeof ApiPlatformAccessRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
+  ApiSettingsRdMarketingRoute: typeof ApiSettingsRdMarketingRoute
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
   ApiSettingsWhatsappRoute: typeof ApiSettingsWhatsappRouteWithChildren
   ApiValentinaAgentsRoute: typeof ApiValentinaAgentsRoute
@@ -2023,6 +2049,7 @@ export interface RootRouteChildren {
   ApiCrmImportSyncStatusRoute: typeof ApiCrmImportSyncStatusRoute
   ApiCrmStagesStageIdRoute: typeof ApiCrmStagesStageIdRoute
   ApiLivechatVisitorVisitorIdRoute: typeof ApiLivechatVisitorVisitorIdRoute
+  ApiWebhooksRdMarketingTokenRoute: typeof ApiWebhooksRdMarketingTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -2354,6 +2381,13 @@ declare module '@tanstack/react-router' {
       path: '/api/settings/reports'
       fullPath: '/api/settings/reports'
       preLoaderRoute: typeof ApiSettingsReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings/rd-marketing': {
+      id: '/api/settings/rd-marketing'
+      path: '/api/settings/rd-marketing'
+      fullPath: '/api/settings/rd-marketing'
+      preLoaderRoute: typeof ApiSettingsRdMarketingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/settings/rd-crm': {
@@ -2816,6 +2850,13 @@ declare module '@tanstack/react-router' {
       path: '/api/admin/reset'
       fullPath: '/api/admin/reset'
       preLoaderRoute: typeof ApiAdminResetRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/rd-marketing/$token': {
+      id: '/api/webhooks/rd-marketing/$token'
+      path: '/api/webhooks/rd-marketing/$token'
+      fullPath: '/api/webhooks/rd-marketing/$token'
+      preLoaderRoute: typeof ApiWebhooksRdMarketingTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina-voice/chat/completions': {
@@ -3501,6 +3542,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLivechatVisitorsRoute: ApiLivechatVisitorsRoute,
   ApiPlatformAccessRoute: ApiPlatformAccessRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
+  ApiSettingsRdMarketingRoute: ApiSettingsRdMarketingRoute,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,
   ApiSettingsWhatsappRoute: ApiSettingsWhatsappRouteWithChildren,
   ApiValentinaAgentsRoute: ApiValentinaAgentsRoute,
@@ -3523,6 +3565,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCrmImportSyncStatusRoute: ApiCrmImportSyncStatusRoute,
   ApiCrmStagesStageIdRoute: ApiCrmStagesStageIdRoute,
   ApiLivechatVisitorVisitorIdRoute: ApiLivechatVisitorVisitorIdRoute,
+  ApiWebhooksRdMarketingTokenRoute: ApiWebhooksRdMarketingTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

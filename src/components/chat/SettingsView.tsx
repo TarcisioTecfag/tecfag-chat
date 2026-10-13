@@ -16,6 +16,7 @@ import { CrmActionHistoryModal } from "@/components/crm/CrmActionHistoryModal";
 import type { CatalogKind } from "@/lib/crm/catalogs";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
+import { RdMarketingSettings } from "./RdMarketingSettings";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 
@@ -430,7 +431,7 @@ export function SettingsView() {
   const allTabs = [
     { id: "whatsapp" as const, label: "WhatsApp (Meta / Baileys)", icon: Smartphone },
     { id: "voz" as const, label: `Voz & Telefonia (${aiPersona.name})`, icon: PhoneCall },
-    { id: "rd" as const, label: "RD Station CRM", icon: Link },
+    { id: "rd" as const, label: "RD Station", icon: Link },
     { id: "crm" as const, label: "Configurações do CRM", icon: FileText },
     { id: "email" as const, label: "E-mail & Automações", icon: Mail },
     { id: "livechat" as const, label: "Live Chat (Site)", icon: Globe },
@@ -982,6 +983,7 @@ export function SettingsView() {
         {/* ABA 3: RD STATION CRM */}
         {activeTab === "rd" && (
           <div className="w-full space-y-6">
+            {sessionRole === "admin" && tenant && <RdMarketingSettings key={tenant} tenant={tenant} />}
             {renderRdCrmCard()}
           </div>
         )}

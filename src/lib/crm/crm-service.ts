@@ -2740,7 +2740,8 @@ export class CrmService {
       conversationId?: string; // Conversa de origem
       initialNote?: string | null;
       customFields?: CustomFieldValues;
-    }
+    },
+    executor: Pick<typeof db, "transaction"> = db,
   ): Promise<CrmDeal> {
     if (!data.title || !data.title.trim()) {
       throw new CrmValidationError("O título da negociação é obrigatório.");
@@ -2749,7 +2750,7 @@ export class CrmService {
       throw new CrmValidationError("Funil (pipelineId) e Etapa (stageId) são obrigatórios.");
     }
 
-    return await db.transaction(async (tx) => {
+    return await executor.transaction(async (tx) => {
       // 1. Validação estrita do Funil no tenant
       const [pipeline] = await tx
         .select({ id: crmPipelines.id })
