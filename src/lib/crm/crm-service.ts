@@ -294,7 +294,7 @@ export function parseExtraDealFilters(params: URLSearchParams): Pick<CrmDealFilt
 /**
  * Constrói condições unificadas de filtro para negociações sem duplicar joins (usa subqueries correlacionadas EXISTS).
  */
-export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilters) {
+export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilters | Record<string, any>) {
   const conditions = [eq(crmDeals.tenantId, tenantId)];
   const nextTaskDate = sql`(SELECT MIN(act.due_date) FROM crm_deal_activities act WHERE act.deal_id = ${crmDeals.id} AND act.tenant_id = ${tenantId} AND act.status = 'pending' AND act.type != 'note')`;
   const dateFields = {
@@ -306,21 +306,45 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
   for (const [key, column] of Object.entries(dateFields)) {
     const from = filters[`${key}From` as keyof CrmDealFilters];
     const to = filters[`${key}To` as keyof CrmDealFilters];
-    if (typeof from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(from))
-      conditions.push(sql`(${column} AT TIME ZONE 'America/Sao_Paulo')::date >= ${from}::date`);
-    if (typeof to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(to))
-      conditions.push(sql`(${column} AT TIME ZONE 'America/Sao_Paulo')::date <= ${to}::date`);
+    if (typeof from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(from.trim()))
+      conditions.push(sql`(${column} AT TIME ZONE 'America/Sao_Paulo')::date >= ${from.trim()}::date`);
+    if (typeof to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(to.trim()))
+      conditions.push(sql`(${column} AT TIME ZONE 'America/Sao_Paulo')::date <= ${to.trim()}::date`);
   }
 
-  if (filters.title?.trim()) conditions.push(ilike(crmDeals.title, `%${filters.title.trim()}%`));
-  if (filters.rating !== undefined && Number.isInteger(filters.rating) && filters.rating >= 0 && filters.rating <= 5)
-    conditions.push(eq(crmDeals.rating, filters.rating));
-  if (filters.companyId) conditions.push(eq(crmDeals.accountId, filters.companyId));
-  if (filters.campaign) conditions.push(eq(crmDeals.campaign, filters.campaign));
-  if (filters.source) conditions.push(eq(crmDeals.source, filters.source));
-  if (filters.productId) conditions.push(sql`EXISTS (SELECT 1 FROM crm_deal_products dp WHERE dp.deal_id = ${crmDeals.id} AND dp.tenant_id = ${tenantId} AND dp.product_id = ${filters.productId})`);
-  if (filters.rdStationOnly) conditions.push(sql`${crmDeals.rdDealId} IS NOT NULL`);
-  if (filters.withoutTask) conditions.push(sql`NOT EXISTS (SELECT 1 FROM crm_deal_activities act WHERE act.deal_id = ${crmDeals.id} AND act.tenant_id = ${tenantId} AND act.status = 'pending' AND act.type != 'note')`);
+  if (typeof filters.title === "string" && filters.title.trim()) {
+    conditions.push(ilike(crmDeals.title, `%${filters.title.trim()}%`));
+  }
+
+  const ratingNum = filters.rating !== undefined && filters.rating !== null && filters.rating !== ""
+    ? Number(filters.rating)
+    : undefined;
+  if (ratingNum !== undefined && Number.isInteger(ratingNum) && ratingNum >= 0 && ratingNum <= 5) {
+    conditions.push(eq(crmDeals.rating, ratingNum));
+  }
+
+  if (typeof filters.companyId === "string" && filters.companyId.trim()) {
+    conditions.push(eq(crmDeals.accountId, filters.companyId.trim()));
+  }
+  if (typeof filters.campaign === "string" && filters.campaign.trim()) {
+    conditions.push(eq(crmDeals.campaign, filters.campaign.trim()));
+  }
+  if (typeof filters.source === "string" && filters.source.trim()) {
+    conditions.push(eq(crmDeals.source, filters.source.trim()));
+  }
+  if (typeof filters.productId === "string" && filters.productId.trim()) {
+    conditions.push(sql`EXISTS (SELECT 1 FROM crm_deal_products dp WHERE dp.deal_id = ${crmDeals.id} AND dp.tenant_id = ${tenantId} AND dp.product_id = ${filters.productId.trim()})`);
+  }
+
+  const isRdStationOnly = filters.rdStationOnly === true || filters.rdStationOnly === "true";
+  if (isRdStationOnly) {
+    conditions.push(sql`${crmDeals.rdDealId} IS NOT NULL`);
+  }
+
+  const isWithoutTask = filters.withoutTask === true || filters.withoutTask === "true";
+  if (isWithoutTask) {
+    conditions.push(sql`NOT EXISTS (SELECT 1 FROM crm_deal_activities act WHERE act.deal_id = ${crmDeals.id} AND act.tenant_id = ${tenantId} AND act.status = 'pending' AND act.type != 'note')`);
+  }
 
   const emptyFieldConditions: Record<string, ReturnType<typeof sql>> = {
     value: sql`${crmDeals.value} IS NULL`,
@@ -333,64 +357,90 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
     nextTask: sql`${nextTaskDate} IS NULL`,
     products: sql`NOT EXISTS (SELECT 1 FROM crm_deal_products dp WHERE dp.deal_id = ${crmDeals.id} AND dp.tenant_id = ${tenantId})`,
   };
-  if (filters.emptyFields?.length) {
-    const selected = filters.emptyFields.map((field) => emptyFieldConditions[field]).filter(Boolean);
+
+  const emptyFieldsList = Array.isArray(filters.emptyFields)
+    ? filters.emptyFields.map((f: any) => String(f).trim()).filter(Boolean)
+    : typeof filters.emptyFields === "string"
+      ? filters.emptyFields.split(",").map((f: string) => f.trim()).filter(Boolean)
+      : [];
+
+  if (emptyFieldsList.length > 0) {
+    const selected = emptyFieldsList.map((field) => emptyFieldConditions[field]).filter(Boolean);
     if (selected.length) conditions.push(or(...selected)!);
   }
 
-  if (filters.pipelineId) {
-    conditions.push(eq(crmDeals.pipelineId, filters.pipelineId));
+  if (typeof filters.pipelineId === "string" && filters.pipelineId.trim()) {
+    conditions.push(eq(crmDeals.pipelineId, filters.pipelineId.trim()));
   }
 
-  if (filters.stageIds && filters.stageIds.length > 0) {
-    if (filters.stageIds.length === 1) {
-      conditions.push(eq(crmDeals.stageId, filters.stageIds[0]));
+  // Normalização defensiva de stageIds (suporta array nativo ou string serializada)
+  const normalizedStageIds = Array.isArray(filters.stageIds)
+    ? filters.stageIds.map((s: any) => String(s).trim()).filter(Boolean)
+    : typeof filters.stageIds === "string"
+      ? filters.stageIds.split(",").map((s: string) => s.trim()).filter(Boolean)
+      : [];
+
+  if (normalizedStageIds.length > 0) {
+    if (normalizedStageIds.length === 1) {
+      conditions.push(eq(crmDeals.stageId, normalizedStageIds[0]));
     } else {
-      conditions.push(inArray(crmDeals.stageId, filters.stageIds));
+      conditions.push(inArray(crmDeals.stageId, normalizedStageIds));
     }
-  } else if (filters.stageId) {
-    conditions.push(eq(crmDeals.stageId, filters.stageId));
+  } else if (typeof filters.stageId === "string" && filters.stageId.trim()) {
+    conditions.push(eq(crmDeals.stageId, filters.stageId.trim()));
   }
 
   if (filters.status === "not_paused") {
     conditions.push(ne(crmDeals.status, "paused"));
-  } else if (filters.status && filters.status !== "all") {
-    conditions.push(eq(crmDeals.status, filters.status));
+  } else if (filters.status && filters.status !== "all" && typeof filters.status === "string" && filters.status.trim()) {
+    conditions.push(eq(crmDeals.status, filters.status.trim() as any));
   }
 
-  if (filters.operatorIds && filters.operatorIds.length > 0) {
-    if (filters.operatorIds.length === 1) {
-      conditions.push(eq(crmDeals.operatorId, filters.operatorIds[0]));
+  // Normalização defensiva de operatorIds (suporta array nativo ou string serializada)
+  const normalizedOperatorIds = Array.isArray(filters.operatorIds)
+    ? filters.operatorIds.map((o: any) => String(o).trim()).filter(Boolean)
+    : typeof filters.operatorIds === "string"
+      ? filters.operatorIds.split(",").map((o: string) => o.trim()).filter(Boolean)
+      : [];
+
+  if (normalizedOperatorIds.length > 0) {
+    if (normalizedOperatorIds.length === 1) {
+      conditions.push(eq(crmDeals.operatorId, normalizedOperatorIds[0]));
     } else {
-      conditions.push(inArray(crmDeals.operatorId, filters.operatorIds));
+      conditions.push(inArray(crmDeals.operatorId, normalizedOperatorIds));
     }
-  } else if (filters.operatorId) {
-    conditions.push(eq(crmDeals.operatorId, filters.operatorId));
+  } else if (typeof filters.operatorId === "string" && filters.operatorId.trim()) {
+    conditions.push(eq(crmDeals.operatorId, filters.operatorId.trim()));
   }
 
-  if (filters.accountId) {
-    conditions.push(eq(crmDeals.accountId, filters.accountId));
+  if (typeof filters.accountId === "string" && filters.accountId.trim()) {
+    conditions.push(eq(crmDeals.accountId, filters.accountId.trim()));
   }
 
-  if (filters.minValue !== undefined && filters.minValue !== null && !isNaN(filters.minValue)) {
-    conditions.push(sql`${crmDeals.value} >= ${filters.minValue}`);
+  const minVal = filters.minValue !== undefined && filters.minValue !== null && filters.minValue !== ""
+    ? Number(filters.minValue)
+    : undefined;
+  if (minVal !== undefined && !isNaN(minVal)) {
+    conditions.push(sql`${crmDeals.value} >= ${minVal}`);
   }
 
-  if (filters.maxValue !== undefined && filters.maxValue !== null && !isNaN(filters.maxValue)) {
-    conditions.push(sql`${crmDeals.value} <= ${filters.maxValue}`);
+  const maxVal = filters.maxValue !== undefined && filters.maxValue !== null && filters.maxValue !== ""
+    ? Number(filters.maxValue)
+    : undefined;
+  if (maxVal !== undefined && !isNaN(maxVal)) {
+    conditions.push(sql`${crmDeals.value} <= ${maxVal}`);
   }
 
-  if (filters.createdAfter) {
-    if (typeof filters.createdAfter === "string" && /^\d{4}-\d{2}-\d{2}$/.test(filters.createdAfter))
-      conditions.push(sql`(${crmDeals.createdAt} AT TIME ZONE 'America/Sao_Paulo')::date >= ${filters.createdAfter}::date`);
+  if (typeof filters.createdAfter === "string" && /^\d{4}-\d{2}-\d{2}$/.test(filters.createdAfter.trim())) {
+    conditions.push(sql`(${crmDeals.createdAt} AT TIME ZONE 'America/Sao_Paulo')::date >= ${filters.createdAfter.trim()}::date`);
   }
 
-  if (filters.createdBefore) {
-    if (typeof filters.createdBefore === "string" && /^\d{4}-\d{2}-\d{2}$/.test(filters.createdBefore))
-      conditions.push(sql`(${crmDeals.createdAt} AT TIME ZONE 'America/Sao_Paulo')::date <= ${filters.createdBefore}::date`);
+  if (typeof filters.createdBefore === "string" && /^\d{4}-\d{2}-\d{2}$/.test(filters.createdBefore.trim())) {
+    conditions.push(sql`(${crmDeals.createdAt} AT TIME ZONE 'America/Sao_Paulo')::date <= ${filters.createdBefore.trim()}::date`);
   }
 
-  if (filters.hasOverdueTask) {
+  const isHasOverdueTask = filters.hasOverdueTask === true || filters.hasOverdueTask === "true";
+  if (isHasOverdueTask) {
     conditions.push(
       sql`EXISTS (
         SELECT 1 FROM crm_deal_activities act
@@ -403,14 +453,18 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
     );
   }
 
-  if (filters.coolingOnly) {
-    const days = Math.max(1, filters.coolingDays || 10);
+  const isCoolingOnly = filters.coolingOnly === true || filters.coolingOnly === "true";
+  if (isCoolingOnly) {
+    const rawDays = filters.coolingDays !== undefined && filters.coolingDays !== null && filters.coolingDays !== ""
+      ? Number(filters.coolingDays)
+      : 10;
+    const days = Math.max(1, !isNaN(rawDays) ? rawDays : 10);
     conditions.push(
       sql`COALESCE(${crmDeals.lastActivityAt}, ${crmDeals.updatedAt}, ${crmDeals.createdAt}) < (NOW() - (${days} || ' days')::interval)`
     );
   }
 
-  if (filters.search && filters.search.trim()) {
+  if (typeof filters.search === "string" && filters.search.trim()) {
     const cleanTerm = filters.search.trim();
     const term = `%${cleanTerm.toLowerCase()}%`;
     const numOnly = cleanTerm.replace(/\D/g, "");
@@ -3376,8 +3430,8 @@ export class CrmService {
       // 1. Busca todos os deals no tenant
       let foundDeals: CrmDeal[] = [];
 
-      if (params.allFiltered && params.filterParams) {
-        const conditions = buildDealFilterConditions(tenantId, params.filterParams);
+      if (params.allFiltered) {
+        const conditions = buildDealFilterConditions(tenantId, params.filterParams || {});
         foundDeals = await tx
           .select()
           .from(crmDeals)
@@ -3405,7 +3459,10 @@ export class CrmService {
       if (params.action === "delete_permanent") {
         const idsToDelete = foundDeals.map((d) => d.id);
         await audit("delete_permanent", idsToDelete, {
-          deals: foundDeals.map((d) => ({ id: d.id, title: d.title })),
+          deals: foundDeals.length > 500
+            ? foundDeals.slice(0, 100).map((d) => ({ id: d.id, title: d.title }))
+            : foundDeals.map((d) => ({ id: d.id, title: d.title })),
+          totalCount: idsToDelete.length,
           allFiltered: !!params.allFiltered,
         });
         for (let i = 0; i < idsToDelete.length; i += 500) {
@@ -3439,23 +3496,35 @@ export class CrmService {
             .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)));
         }
 
-        for (const deal of foundDeals) {
-          await this.logDealEvent(
-            tenantId,
-            deal.id,
-            "status_changed",
-            operatorId,
-            {
-              previousStatus: deal.status,
-              newStatus: "paused",
-              pausedReason: "Lixeira",
-            },
-            tx
-          );
+        // Inserção em lotes de 500 eventos de status (evita milhares de round-trips sequenciais no banco)
+        const eventRows = foundDeals.map((deal) => ({
+          id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`,
+          tenantId,
+          dealId: deal.id,
+          eventType: "status_changed",
+          fromStageId: null,
+          toStageId: null,
+          fromStatus: deal.status,
+          toStatus: "paused",
+          metadata: {
+            previousStatus: deal.status,
+            newStatus: "paused",
+            pausedReason: "Lixeira",
+          },
+          operatorId,
+          createdAt: now,
+        }));
+
+        for (let i = 0; i < eventRows.length; i += 500) {
+          const chunk = eventRows.slice(i, i + 500);
+          await tx.insert(crmDealEvents).values(chunk);
         }
 
         await audit("delete_trash", idsToTrash, {
-          deals: foundDeals.map((d) => ({ id: d.id, title: d.title })),
+          deals: foundDeals.length > 500
+            ? foundDeals.slice(0, 100).map((d) => ({ id: d.id, title: d.title }))
+            : foundDeals.map((d) => ({ id: d.id, title: d.title })),
+          totalCount: idsToTrash.length,
           allFiltered: !!params.allFiltered,
         });
 
@@ -6086,8 +6155,8 @@ export class CrmService {
     // 1. Busca os deals no tenant sem travas ou cortes
     let deals: (typeof crmDeals.$inferSelect)[] = [];
 
-    if (params.allFiltered && params.filterParams) {
-      const conditions = buildDealFilterConditions(tenantId, params.filterParams);
+    if (params.allFiltered) {
+      const conditions = buildDealFilterConditions(tenantId, params.filterParams || {});
       deals = await db
         .select()
         .from(crmDeals)
