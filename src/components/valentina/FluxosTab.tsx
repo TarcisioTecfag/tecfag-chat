@@ -45,7 +45,7 @@ import {
   FlowOperator,
   FLOW_AREAS,
   ALL_FLOW_FUNNELS,
-} from "@/lib/valentina/rodizio-engine";
+} from "@/lib/valentina/rodizio-types";
 
 // ─── Ícone por Área ─────────────────────────────────────────────────────────
 
