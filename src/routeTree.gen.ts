@@ -129,6 +129,8 @@ import { Route as ApiSettingsWhatsappUsageRouteImport } from './routes/api/setti
 import { Route as ApiSettingsWhatsappTestSendRouteImport } from './routes/api/settings/whatsapp/test-send'
 import { Route as ApiSettingsWhatsappActionsRouteImport } from './routes/api/settings/whatsapp/actions'
 import { Route as ApiSettingsRdMarketingDiagnosticsRouteImport } from './routes/api/settings/rd-marketing/diagnostics'
+import { Route as ApiSettingsRdMarketingConnectionRouteImport } from './routes/api/settings/rd-marketing/connection'
+import { Route as ApiSettingsRdMarketingCallbackRouteImport } from './routes/api/settings/rd-marketing/callback'
 import { Route as ApiSettingsRdCrmFieldsRouteImport } from './routes/api/settings/rd-crm/fields'
 import { Route as ApiSettingsRdCrmCallbackRouteImport } from './routes/api/settings/rd-crm/callback'
 import { Route as ApiLivechatVisitorVisitorIdRouteImport } from './routes/api/livechat/visitor/$visitorId'
@@ -783,6 +785,18 @@ const ApiSettingsRdMarketingDiagnosticsRoute =
     path: '/diagnostics',
     getParentRoute: () => ApiSettingsRdMarketingRoute,
   } as any)
+const ApiSettingsRdMarketingConnectionRoute =
+  ApiSettingsRdMarketingConnectionRouteImport.update({
+    id: '/connection',
+    path: '/connection',
+    getParentRoute: () => ApiSettingsRdMarketingRoute,
+  } as any)
+const ApiSettingsRdMarketingCallbackRoute =
+  ApiSettingsRdMarketingCallbackRouteImport.update({
+    id: '/callback',
+    path: '/callback',
+    getParentRoute: () => ApiSettingsRdMarketingRoute,
+  } as any)
 const ApiSettingsRdCrmFieldsRoute = ApiSettingsRdCrmFieldsRouteImport.update({
   id: '/fields',
   path: '/fields',
@@ -1128,6 +1142,8 @@ export interface FileRoutesByFullPath {
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/settings/rd-marketing/callback': typeof ApiSettingsRdMarketingCallbackRoute
+  '/api/settings/rd-marketing/connection': typeof ApiSettingsRdMarketingConnectionRoute
   '/api/settings/rd-marketing/diagnostics': typeof ApiSettingsRdMarketingDiagnosticsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
@@ -1287,6 +1303,8 @@ export interface FileRoutesByTo {
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/settings/rd-marketing/callback': typeof ApiSettingsRdMarketingCallbackRoute
+  '/api/settings/rd-marketing/connection': typeof ApiSettingsRdMarketingConnectionRoute
   '/api/settings/rd-marketing/diagnostics': typeof ApiSettingsRdMarketingDiagnosticsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
@@ -1447,6 +1465,8 @@ export interface FileRoutesById {
   '/api/livechat/visitor/$visitorId': typeof ApiLivechatVisitorVisitorIdRoute
   '/api/settings/rd-crm/callback': typeof ApiSettingsRdCrmCallbackRoute
   '/api/settings/rd-crm/fields': typeof ApiSettingsRdCrmFieldsRoute
+  '/api/settings/rd-marketing/callback': typeof ApiSettingsRdMarketingCallbackRoute
+  '/api/settings/rd-marketing/connection': typeof ApiSettingsRdMarketingConnectionRoute
   '/api/settings/rd-marketing/diagnostics': typeof ApiSettingsRdMarketingDiagnosticsRoute
   '/api/settings/whatsapp/actions': typeof ApiSettingsWhatsappActionsRoute
   '/api/settings/whatsapp/test-send': typeof ApiSettingsWhatsappTestSendRoute
@@ -1608,6 +1628,8 @@ export interface FileRouteTypes {
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/settings/rd-marketing/callback'
+    | '/api/settings/rd-marketing/connection'
     | '/api/settings/rd-marketing/diagnostics'
     | '/api/settings/whatsapp/actions'
     | '/api/settings/whatsapp/test-send'
@@ -1767,6 +1789,8 @@ export interface FileRouteTypes {
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/settings/rd-marketing/callback'
+    | '/api/settings/rd-marketing/connection'
     | '/api/settings/rd-marketing/diagnostics'
     | '/api/settings/whatsapp/actions'
     | '/api/settings/whatsapp/test-send'
@@ -1926,6 +1950,8 @@ export interface FileRouteTypes {
     | '/api/livechat/visitor/$visitorId'
     | '/api/settings/rd-crm/callback'
     | '/api/settings/rd-crm/fields'
+    | '/api/settings/rd-marketing/callback'
+    | '/api/settings/rd-marketing/connection'
     | '/api/settings/rd-marketing/diagnostics'
     | '/api/settings/whatsapp/actions'
     | '/api/settings/whatsapp/test-send'
@@ -2907,6 +2933,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSettingsRdMarketingDiagnosticsRouteImport
       parentRoute: typeof ApiSettingsRdMarketingRoute
     }
+    '/api/settings/rd-marketing/connection': {
+      id: '/api/settings/rd-marketing/connection'
+      path: '/connection'
+      fullPath: '/api/settings/rd-marketing/connection'
+      preLoaderRoute: typeof ApiSettingsRdMarketingConnectionRouteImport
+      parentRoute: typeof ApiSettingsRdMarketingRoute
+    }
+    '/api/settings/rd-marketing/callback': {
+      id: '/api/settings/rd-marketing/callback'
+      path: '/callback'
+      fullPath: '/api/settings/rd-marketing/callback'
+      preLoaderRoute: typeof ApiSettingsRdMarketingCallbackRouteImport
+      parentRoute: typeof ApiSettingsRdMarketingRoute
+    }
     '/api/settings/rd-crm/fields': {
       id: '/api/settings/rd-crm/fields'
       path: '/fields'
@@ -3461,11 +3501,16 @@ const ApiSettingsRdCrmRouteWithChildren =
   ApiSettingsRdCrmRoute._addFileChildren(ApiSettingsRdCrmRouteChildren)
 
 interface ApiSettingsRdMarketingRouteChildren {
+  ApiSettingsRdMarketingCallbackRoute: typeof ApiSettingsRdMarketingCallbackRoute
+  ApiSettingsRdMarketingConnectionRoute: typeof ApiSettingsRdMarketingConnectionRoute
   ApiSettingsRdMarketingDiagnosticsRoute: typeof ApiSettingsRdMarketingDiagnosticsRoute
 }
 
 const ApiSettingsRdMarketingRouteChildren: ApiSettingsRdMarketingRouteChildren =
   {
+    ApiSettingsRdMarketingCallbackRoute: ApiSettingsRdMarketingCallbackRoute,
+    ApiSettingsRdMarketingConnectionRoute:
+      ApiSettingsRdMarketingConnectionRoute,
     ApiSettingsRdMarketingDiagnosticsRoute:
       ApiSettingsRdMarketingDiagnosticsRoute,
   }

@@ -152,6 +152,10 @@ const migrations = [
     name: "0036_durable_recovery",
     url: new URL("../src/db/migrations/0036_durable_recovery.sql", import.meta.url),
   },
+  {
+    name: "0037_rd_marketing_oauth",
+    url: new URL("../src/db/migrations/0037_rd_marketing_oauth.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

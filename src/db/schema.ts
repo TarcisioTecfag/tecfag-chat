@@ -77,6 +77,30 @@ export const rdMarketingFlows = pgTable("rd_marketing_flows", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({ tenantIdx: index("idx_rd_marketing_flows_tenant").on(table.tenantId) }));
 
+// Conexão de leitura da API Marketing, independente dos webhooks e do RD CRM.
+export const rdMarketingConnections = pgTable("rd_marketing_connections", {
+  tenantId: text("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
+  clientId: text("client_id").notNull(),
+  clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  accessTokenEncrypted: text("access_token_encrypted"),
+  refreshTokenEncrypted: text("refresh_token_encrypted"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  version: text("version").notNull(),
+  connectedAt: timestamp("connected_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const rdMarketingOAuthStates = pgTable("rd_marketing_oauth_states", {
+  stateHash: text("state_hash").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  operatorId: text("operator_id").notNull(),
+  sessionHash: text("session_hash").notNull(),
+  connectionVersion: text("connection_version").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ tenantExpiryIdx: index("idx_rd_marketing_oauth_states_tenant_expiry").on(table.tenantId, table.expiresAt) }));
+
 export const rdMarketingReceipts = pgTable("rd_marketing_receipts", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
