@@ -1,345 +1,103 @@
+import { and, asc, eq, isNull, lt, lte, or, sql, inArray } from "drizzle-orm";
 import { db } from "../../db";
-import { messages, conversations, contacts, pendingInbounds, channelConfigs } from "../../db/schema";
-import { eq, and, lt, inArray, sql } from "drizzle-orm";
-import { metaAdapter } from "./adapters/meta";
-import { baileysAdapter } from "./adapters/baileys";
+import { channelConfigs, messages, pendingInbounds } from "../../db/schema";
+import { dispatchStored } from "./dispatch";
 import { inboundProcessor } from "./inbound";
-import { WhatsAppProviderType } from "./types";
+import { metaAdapter } from "./adapters/meta";
 import { applyMetaStatus } from "./meta-status";
+import { isMetaMediaType } from "./meta-message-text";
+import type { WhatsAppProviderType } from "./types";
 
 export interface RecoveryStats {
-  stuckOutboundsChecked: number;
-  recoveredOutbounds: number;
-  exhaustedOutbounds: number;
-  stuckInboundsChecked: number;
-  recoveredInbounds: number;
-  exhaustedInbounds: number;
+  stuckOutboundsChecked: number; recoveredOutbounds: number; exhaustedOutbounds: number;
+  stuckInboundsChecked: number; recoveredInbounds: number; exhaustedInbounds: number;
 }
-
 export class WhatsAppRecoveryService {
   private static instance: WhatsAppRecoveryService;
-  private intervalTimer: NodeJS.Timeout | null = null;
+  private intervalTimer: ReturnType<typeof setInterval> | null = null;
   private isRunningCycle = false;
-
-  private constructor() {}
-
-  static getInstance(): WhatsAppRecoveryService {
-    if (!WhatsAppRecoveryService.instance) {
-      WhatsAppRecoveryService.instance = new WhatsAppRecoveryService();
-    }
-    return WhatsAppRecoveryService.instance;
-  }
-
-  /**
-   * Executa um ciclo completo de verificação e recuperação de mensagens presas
-   * em status intermediários ('sending', 'processing') devido a crashes ou timeouts.
-   */
+  static getInstance() { return this.instance ||= new WhatsAppRecoveryService(); }
   async runRecoveryCycle(timeoutSeconds = 60): Promise<RecoveryStats> {
-    if (this.isRunningCycle) {
-      return {
-        stuckOutboundsChecked: 0,
-        recoveredOutbounds: 0,
-        exhaustedOutbounds: 0,
-        stuckInboundsChecked: 0,
-        recoveredInbounds: 0,
-        exhaustedInbounds: 0,
-      };
-    }
-
+    const stats = {stuckOutboundsChecked:0,recoveredOutbounds:0,exhaustedOutbounds:0,stuckInboundsChecked:0,recoveredInbounds:0,exhaustedInbounds:0};
+    if (this.isRunningCycle) return stats;
     this.isRunningCycle = true;
-    const stats: RecoveryStats = {
-      stuckOutboundsChecked: 0,
-      recoveredOutbounds: 0,
-      exhaustedOutbounds: 0,
-      stuckInboundsChecked: 0,
-      recoveredInbounds: 0,
-      exhaustedInbounds: 0,
-    };
-
     try {
-      const thresholdDate = new Date(Date.now() - timeoutSeconds * 1000);
-      const configuredTenants = await db.select({ tenantId: channelConfigs.tenantId }).from(channelConfigs);
-      for (const { tenantId } of configuredTenants) {
-
-      // ── 1. Recuperar mensagens de saída presas em 'sending' ────────────────
-      const stuckOutbounds = await db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.direction, "outbound"),
-            eq(messages.tenantId, tenantId),
-            eq(messages.status, "sending"),
-            lt(messages.updatedAt, thresholdDate)
-          )
-        );
-
-      stats.stuckOutboundsChecked += stuckOutbounds.length;
-
-      for (const msg of stuckOutbounds) {
-        try {
-          // Trava de concorrência atômica por mensagem para evitar duplo reenvio
-          try {
-            const [lockRes] = await db.execute<{ locked: boolean }>(
-              sql`SELECT pg_try_advisory_xact_lock(hashtext(${'outbound:' + msg.id})) as locked`
-            );
-            if (lockRes && lockRes.locked === false) {
-              continue; // outro processo ou worker já está processando
-            }
-          } catch {
-            // Suporte defensivo a ambientes de teste sem Postgres nativo
-          }
-
-          const currentRetries = msg.retryCount || 0;
-
-          // Um timeout da Cloud API pode ocorrer após a Meta aceitar a mensagem.
-          // Reenvio automático nessa situação cria duplicidade cobrável.
-          if (msg.provider === "meta") {
-            await db.update(messages).set({
-              status: "unknown",
-              errorMessage: "Envio Meta sem confirmação. Aguarde status do webhook ou reconcilie manualmente antes de reenviar.",
-              updatedAt: new Date(),
-            }).where(and(eq(messages.id, msg.id), eq(messages.tenantId, msg.tenantId)));
-            continue;
-          }
-
-          if (currentRetries >= 3) {
-            // Esgotou retentativas: marcar como falha definitiva
-            await db
-              .update(messages)
-              .set({
-                status: "failed",
-                errorMessage: "Tempo limite de envio excedido após 3 tentativas (timeout/crash).",
-                updatedAt: new Date(),
-              })
-              .where(and(eq(messages.id, msg.id), eq(messages.tenantId, msg.tenantId)));
-
-            stats.exhaustedOutbounds++;
-            console.warn(`[RecoveryWorker] Mensagem ${msg.id} marcada como 'failed' por exaustão de retentativas.`);
-          } else {
-            // Incrementar retentativa e tentar despacho novamente
-            await db
-              .update(messages)
-              .set({
-                retryCount: currentRetries + 1,
-                updatedAt: new Date(),
-              })
-              .where(and(eq(messages.id, msg.id), eq(messages.tenantId, msg.tenantId)));
-
-            const [channelConfig] = await db
-              .select()
-              .from(channelConfigs)
-              .where(eq(channelConfigs.tenantId, msg.tenantId));
-
-            // CRÍTICO: O reenvio DEVE usar o provedor original gravado na mensagem, NUNCA o ativo do canal
-            const provider: WhatsAppProviderType =
-              (msg.provider as WhatsAppProviderType) || (channelConfig?.activeProvider as WhatsAppProviderType) || "baileys";
-
-            // Resolver telefone de destino a partir do contato da conversa
-            let resolvedPhone = "";
-            if (msg.conversationId) {
-              const [conv] = await db
-                .select({ contactId: conversations.contactId })
-                .from(conversations)
-                .where(and(eq(conversations.id, msg.conversationId), eq(conversations.tenantId, msg.tenantId)));
-
-              if (conv?.contactId) {
-                const [contact] = await db
-                  .select({ phone: contacts.phone })
-                  .from(contacts)
-                  .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, msg.tenantId)));
-                if (contact?.phone) resolvedPhone = contact.phone;
-              }
-            }
-
-            let dispatchResult: { externalId?: string; status: any; error?: string };
-
-            if (provider === "meta") {
-              dispatchResult = await metaAdapter.send(msg.tenantId, {
-                tenantId: msg.tenantId,
-                conversationId: msg.conversationId || "",
-                recipientPhone: resolvedPhone,
-                text: msg.content || "",
-              });
-            } else {
-              dispatchResult = await baileysAdapter.send(msg.tenantId, {
-                tenantId: msg.tenantId,
-                conversationId: msg.conversationId || "",
-                recipientPhone: resolvedPhone,
-                text: msg.content || "",
-              });
-            }
-
-            if (dispatchResult.status === "accepted") {
-              await db
-                .update(messages)
-                .set({
-                  status: "accepted",
-                  externalId: dispatchResult.externalId || null,
-                  updatedAt: new Date(),
-                })
-                .where(and(eq(messages.id, msg.id), eq(messages.tenantId, msg.tenantId)));
-
-              stats.recoveredOutbounds++;
-              console.log(`[RecoveryWorker] Mensagem ${msg.id} recuperada e enviada com sucesso.`);
-            } else {
-              if (currentRetries + 1 >= 3) {
-                await db
-                  .update(messages)
-                  .set({
-                    status: "failed",
-                    errorMessage: dispatchResult.error || "Falha final no envio pelo provedor",
-                    updatedAt: new Date(),
-                  })
-                  .where(and(eq(messages.id, msg.id), eq(messages.tenantId, msg.tenantId)));
-
-                stats.exhaustedOutbounds++;
-              }
-            }
-          }
-        } catch (msgErr: any) {
-          console.error(`[RecoveryWorker] Erro ao recuperar mensagem ${msg.id}:`, msgErr);
+      const companies = await db.select({tenantId:channelConfigs.tenantId}).from(channelConfigs);
+      const now = new Date();
+      const threshold = new Date(now.getTime() - timeoutSeconds * 1000);
+      for (const {tenantId} of companies) {
+        // Um crash durante chamada externa é ambíguo em AMBOS os canais.
+        const abandoned = await db.update(messages).set({status:'unknown', leaseToken:null,leaseUntil:null,
+          errorMessage:'Envio interrompido sem confirmação. Verifique antes de reenviar.',updatedAt:now})
+          .where(and(eq(messages.tenantId,tenantId),eq(messages.direction,'outbound'),eq(messages.status,'sending'),
+            lt(messages.updatedAt,threshold),or(isNull(messages.leaseUntil),lte(messages.leaseUntil,now)))).returning({id:messages.id});
+        stats.stuckOutboundsChecked += abandoned.length;
+        const queued = await db.select({id:messages.id}).from(messages).where(and(eq(messages.tenantId,tenantId),
+          eq(messages.direction,'outbound'),eq(messages.status,'pending'),or(isNull(messages.nextRetryAt),lte(messages.nextRetryAt,now))))
+          .orderBy(asc(messages.sentAt)).limit(20);
+        for (const row of queued) {
+          const result = await dispatchStored(tenantId,row.id);
+          if(result?.status==='accepted') stats.recoveredOutbounds++;
+          if(result?.status==='failed') stats.exhaustedOutbounds++;
         }
-      }
-
-      // ── 2. Recuperar eventos de entrada presos em 'processing' ─────────────
-      const stuckInbounds = await db
-        .select()
-        .from(pendingInbounds)
-        .where(
-          and(
-            eq(pendingInbounds.tenantId, tenantId),
-            inArray(pendingInbounds.status, ["pending", "processing", "failed"]),
-            lt(pendingInbounds.createdAt, thresholdDate)
-          )
-        );
-
-      stats.stuckInboundsChecked += stuckInbounds.length;
-
-      for (const inb of stuckInbounds) {
-        try {
-          // Trava de concorrência atômica por evento de entrada
+        const inputs = await db.select().from(pendingInbounds).where(and(eq(pendingInbounds.tenantId,tenantId),
+          inArray(pendingInbounds.status,['pending','processing','failed']),lt(pendingInbounds.createdAt,threshold),
+          or(isNull(pendingInbounds.nextRetryAt),lte(pendingInbounds.nextRetryAt,now))))
+          .orderBy(asc(pendingInbounds.createdAt)).limit(20);
+        stats.stuckInboundsChecked += inputs.length;
+        for(const event of inputs) {
+          const identity = and(eq(pendingInbounds.tenantId,tenantId),eq(pendingInbounds.id,event.id));
           try {
-            const [lockRes] = await db.execute<{ locked: boolean }>(
-              sql`SELECT pg_try_advisory_xact_lock(hashtext(${'inbound:' + inb.id})) as locked`
-            );
-            if (lockRes && lockRes.locked === false) {
-              continue; // outro processo já está processando
-            }
-          } catch {
-            // Suporte defensivo
-          }
-
-          const attempts = inb.attempts || 0;
-          if (attempts >= 3) {
-            await db
-              .update(pendingInbounds)
-              .set({
-                status: "error",
-                errorMessage: "Excedido limite de 3 tentativas de processamento de entrada.",
-                processedAt: new Date(),
-              })
-              .where(and(eq(pendingInbounds.id, inb.id), eq(pendingInbounds.tenantId, inb.tenantId)));
-
-            stats.exhaustedInbounds++;
-          } else {
-            await db
-              .update(pendingInbounds)
-              .set({
-                attempts: attempts + 1,
-              })
-              .where(and(eq(pendingInbounds.id, inb.id), eq(pendingInbounds.tenantId, inb.tenantId)));
-
-            const payload: any = inb.payload || {};
-            if (payload.kind === "meta_status" && payload.statusObj) {
-              if (await applyMetaStatus(inb.tenantId, payload.statusObj, false)) {
-                await db.update(pendingInbounds).set({ status: "processed", processedAt: new Date() })
-                  .where(and(eq(pendingInbounds.id, inb.id), eq(pendingInbounds.tenantId, inb.tenantId)));
+            const claimed = await db.update(pendingInbounds).set({nextRetryAt:new Date(Date.now()+5*60_000)})
+              .where(and(identity,or(isNull(pendingInbounds.nextRetryAt),lte(pendingInbounds.nextRetryAt,now))))
+              .returning({id:pendingInbounds.id});
+            if(!claimed.length)continue;
+            const raw:any = event.payload || {};
+            if(raw.kind==='meta_status') {
+              if(await applyMetaStatus(tenantId,raw.statusObj,false)) {
+                await db.update(pendingInbounds).set({status:'processed',processedAt:new Date()}).where(identity);
                 stats.recoveredInbounds++;
-              }
+              } else await db.update(pendingInbounds).set({nextRetryAt:new Date(Date.now()+5*60_000)}).where(identity);
               continue;
             }
-
-            let recoveredMedia: any;
-            if (inb.provider === "meta" && ["image", "audio", "video", "document"].includes(payload.type)) {
-              const mediaObject = payload[payload.type];
-              const [config] = await db.select({ metaPhoneNumberId: channelConfigs.metaPhoneNumberId })
-                .from(channelConfigs).where(eq(channelConfigs.tenantId, inb.tenantId));
-              if (!config?.metaPhoneNumberId || !mediaObject?.id) throw new Error("Mídia Meta sem número ou ID para recuperação");
-              const downloaded = await metaAdapter.downloadInboundMedia(inb.tenantId, config.metaPhoneNumberId, mediaObject.id);
-              recoveredMedia = {
-                mediaType: payload.type,
-                mimeType: downloaded.mimeType,
-                fileName: mediaObject.filename || `${payload.type}_${payload.id}`,
-                dataBuffer: downloaded.buffer,
-              };
-            }
-            const result = await inboundProcessor.process({
-              externalEventId: inb.externalEventId || inb.id,
-              tenantId: inb.tenantId,
-              provider: (inb.provider as WhatsAppProviderType) || "meta",
-              fromPhone: /^\d{8,15}$/.test(payload.fromPhone || payload.from || "") ? (payload.fromPhone || payload.from) : "",
-              fromUserId: payload.fromUserId || payload.from_user_id,
-              whatsappUsername: payload.whatsappUsername,
-              senderName: payload.senderName || "",
-              text: typeof payload.text === "string" ? payload.text : payload.text?.body || payload[payload.type]?.caption || "",
-              media: recoveredMedia,
-              quotedExternalId: payload.context?.id,
-              rawPayload: payload,
-              timestamp: payload.timestamp ? new Date(Number(payload.timestamp) * 1000) : inb.createdAt,
-            });
-
-            if (result.success) {
+            if(raw.kind==='baileys_message') {
+              const { SessionManager } = await import('../baileys/session-manager');
+              await (SessionManager.getInstance() as any).recoverInbound(tenantId,raw.message,raw.historical);
               stats.recoveredInbounds++;
-              console.log(`[RecoveryWorker] Evento de entrada ${inb.id} reprocessado com sucesso.`);
+              continue;
             }
+            if(!raw.fromPhone && !raw.from && !raw.fromUserId && !raw.from_user_id) {
+              await db.update(pendingInbounds).set({status:'error',errorMessage:'Evento sem identidade; requer revisão do payload original.'}).where(identity);
+              stats.exhaustedInbounds++; continue;
+            }
+            let media:any;
+            if(event.provider==='meta' && isMetaMediaType(raw.type)) {
+              const source=raw[raw.type];
+              const [config]=await db.select({phone:channelConfigs.metaPhoneNumberId}).from(channelConfigs).where(eq(channelConfigs.tenantId,tenantId));
+              if(!config?.phone||!source?.id)throw Error('Mídia indisponível');
+              const downloaded=await metaAdapter.downloadInboundMedia(tenantId,config.phone,source.id);
+              media={mediaType:raw.type,mimeType:downloaded.mimeType,fileName:source.filename,dataBuffer:downloaded.buffer};
+            }
+            const result=await inboundProcessor.process({tenantId,provider:event.provider as WhatsAppProviderType,
+              externalEventId:event.externalEventId||event.id,fromPhone:raw.fromPhone||raw.from||'',
+              fromUserId:raw.fromUserId||raw.from_user_id,senderName:raw.senderName,whatsappUsername:raw.whatsappUsername,
+              text:typeof raw.text==='string'?raw.text:raw.text?.body||raw[raw.type]?.caption||'',media,
+              quotedExternalId:raw.context?.id,rawPayload:raw,timestamp:raw.timestamp?new Date(Number(raw.timestamp)*1000):event.createdAt});
+            if(result.success)stats.recoveredInbounds++;
+          } catch {
+            await db.update(pendingInbounds).set({nextRetryAt:new Date(Date.now()+Math.min(60_000*2**Math.min(event.attempts,5),30*60_000)),
+              attempts:sql`${pendingInbounds.attempts}+1`,errorMessage:'Dependência indisponível; nova tentativa programada.'}).where(identity);
           }
-        } catch (inbErr: any) {
-          console.error(`[RecoveryWorker] Erro ao recuperar inbound ${inb.id}:`, inbErr);
         }
       }
-      }
-    } finally {
-      this.isRunningCycle = false;
-    }
-
+    } finally {this.isRunningCycle=false;}
     return stats;
   }
-
-  /**
-   * Inicia o worker em segundo plano para rodar periodicamente.
-   */
-  startRecoveryWorker(intervalMs = 30000): void {
-    if (this.intervalTimer) return;
-
-    console.log(`[RecoveryWorker] 🔄 Serviço de recuperação iniciado (ciclo a cada ${intervalMs / 1000}s).`);
-    // Rodar imediatamente na inicialização
-    this.runRecoveryCycle().catch((err) =>
-      console.error("[RecoveryWorker] Erro no ciclo inicial de recuperação:", err)
-    );
-
-    this.intervalTimer = setInterval(() => {
-      this.runRecoveryCycle().catch((err) =>
-        console.error("[RecoveryWorker] Erro no ciclo periódico de recuperação:", err)
-      );
-    }, intervalMs);
-
-    // Permitir shutdown gracioso sem prender o event-loop
-    if (this.intervalTimer.unref) {
-      this.intervalTimer.unref();
-    }
+  startRecoveryWorker(intervalMs=30000) {
+    if(this.intervalTimer)return;
+    const run=()=>this.runRecoveryCycle().catch(()=>console.error('[Recovery] Falha de ciclo; pendências preservadas.'));
+    void run();this.intervalTimer=setInterval(run,intervalMs);this.intervalTimer.unref();
   }
-
-  /**
-   * Para o worker periódico.
-   */
-  stopRecoveryWorker(): void {
-    if (this.intervalTimer) {
-      clearInterval(this.intervalTimer);
-      this.intervalTimer = null;
-      console.log("[RecoveryWorker] ⏹️ Serviço de recuperação finalizado.");
-    }
-  }
+  stopRecoveryWorker(){if(this.intervalTimer)clearInterval(this.intervalTimer);this.intervalTimer=null;}
 }
-
-export const whatsAppRecoveryService = WhatsAppRecoveryService.getInstance();
+export const whatsAppRecoveryService=WhatsAppRecoveryService.getInstance();

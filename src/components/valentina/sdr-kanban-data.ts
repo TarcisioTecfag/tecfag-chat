@@ -43,6 +43,22 @@ export interface KanbanColumnDef {
   emptyText: string;
 }
 
+export interface SdrFilterState {
+  searchQuery: string;
+  unreadOnly: boolean;
+  showCompleted: boolean;
+  statusFilter: "all" | "analisando" | "concluida";
+  selectedDate: Date | null;
+}
+
+export const DEFAULT_SDR_FILTER_STATE: SdrFilterState = {
+  searchQuery: "",
+  unreadOnly: false,
+  showCompleted: true,
+  statusFilter: "all",
+  selectedDate: null,
+};
+
 export const KANBAN_COLUMNS: KanbanColumnDef[] = [
   {
     key: "triagem",

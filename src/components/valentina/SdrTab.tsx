@@ -15,9 +15,9 @@ import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { toast } from "sonner";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, SystemTooltip } from "@/components/ui/tooltip";
 import { SdrKanbanBoard } from "./SdrKanbanBoard";
-import { BENCHMARK_SDR_SESSIONS } from "./sdr-kanban-data";
+import { BENCHMARK_SDR_SESSIONS, SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
 
 export interface SdrTriageMessage {
   id?: string;
@@ -207,9 +207,18 @@ function StatusBadge({ status }: { status: SdrTriageSession["status"] }) {
 export interface SdrTabProps {
   sdrEnabled?: boolean;
   onSdrConfigChange?: (enabled: boolean) => void;
+  filterState?: SdrFilterState;
+  refreshKey?: number;
+  onLoadingChange?: (loading: boolean) => void;
 }
 
-export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: SdrTabProps = {}) {
+export function SdrTab({
+  sdrEnabled: externalSdrEnabled,
+  onSdrConfigChange,
+  filterState,
+  refreshKey,
+  onLoadingChange,
+}: SdrTabProps = {}) {
   const { tenant, setActiveView, setSelectedChatId } = useChat();
   const persona = getAiPersona(tenant || "valem");
 
@@ -217,12 +226,24 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Sincroniza estado de carregamento com o cabeçalho superior
+  useEffect(() => {
+    onLoadingChange?.(isLoading);
+  }, [isLoading, onLoadingChange]);
+
   // Sincroniza estado vindo do Header superior
   useEffect(() => {
     if (externalSdrEnabled !== undefined) {
       setSdrEnabled(externalSdrEnabled);
     }
   }, [externalSdrEnabled]);
+
+  // Atualização forçada vinda do botão Atualizar do header
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      fetchSdrData();
+    }
+  }, [refreshKey]);
 
   // Menu lateral direito de dados coletados (minimizado por padrão conforme solicitação de UX)
   const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
@@ -429,16 +450,39 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
       }
     }
 
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    const matchName = session.contactName.toLowerCase().includes(q);
-    const matchCompany = session.company.toLowerCase().includes(q);
-    const matchPhone = session.phone.toLowerCase().includes(q);
-    const matchMessages = (session.messages || []).some((msg) =>
-      msg.text.toLowerCase().includes(q)
-    );
-    return matchName || matchCompany || matchPhone || matchMessages;
+    const activeSearchQuery = (filterState?.searchQuery ?? searchQuery).trim().toLowerCase();
+    if (activeSearchQuery) {
+      const matchName = (session.contactName || "").toLowerCase().includes(activeSearchQuery);
+      const matchCompany = (session.company || "").toLowerCase().includes(activeSearchQuery);
+      const matchPhone = (session.phone || "").toLowerCase().includes(activeSearchQuery);
+      const matchMessages = (session.messages || []).some((msg) =>
+        (msg.text || "").toLowerCase().includes(activeSearchQuery)
+      );
+      if (!matchName && !matchCompany && !matchPhone && !matchMessages) return false;
+    }
+
+    if (filterState) {
+      if (filterState.statusFilter === "analisando" && session.status !== "active") return false;
+      if (filterState.statusFilter === "concluida" && session.status !== "completed") return false;
+      if (filterState.unreadOnly) {
+        const unread = (session as any).unreadCount || 0;
+        if (unread <= 0) return false;
+      }
+      if (!filterState.showCompleted && session.status === "completed") return false;
+      if (filterState.selectedDate && session.startedAt) {
+        const sessDate = new Date(session.startedAt);
+        const sameDay =
+          sessDate.getDate() === filterState.selectedDate.getDate() &&
+          sessDate.getMonth() === filterState.selectedDate.getMonth() &&
+          sessDate.getFullYear() === filterState.selectedDate.getFullYear();
+        if (!sameDay) return false;
+      }
+    }
+
+    return true;
   });
+
+  const effectiveFilterState = filterState || DEFAULT_SDR_FILTER_STATE;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-thin space-y-4 pr-1">
@@ -447,57 +491,16 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
         sessions={sessions}
         selectedSessionId={selectedSession?.id}
         onSelectSession={handleSelectSessionFromKanban}
-        sdrEnabled={sdrEnabled}
-        onToggleSdr={handleToggleSdr}
-        onRefresh={fetchSdrData}
-        isLoading={isLoading}
+        filterState={effectiveFilterState}
       />
 
-      {/* ── DIVISOR E HEADER DA SEÇÃO AO VIVO (CHAT DE CLIENTES) ───────────── */}
+      {/* ── PAINÉIS DE CONTEÚDO AO VIVO REAIS (3 COLUNAS) ────────────────────── */}
       <div
         id="sdr-live-chat-section"
-        className={`flex items-center justify-between px-5 py-3 bg-card rounded-2xl border transition-all duration-300 shadow-xs shrink-0 scroll-mt-2 ${
-          isChatHighlighted ? "border-primary ring-2 ring-primary/40 bg-primary-soft/10" : "border-border"
+        className={`flex gap-4 min-h-[640px] h-[700px] overflow-hidden shrink-0 transition-all duration-300 rounded-2xl scroll-mt-2 ${
+          isChatHighlighted ? "ring-2 ring-primary/40" : ""
         }`}
       >
-        <div className="flex items-center gap-3">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-          </span>
-          <div>
-            <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
-              <span>Triagens SDR ao Vivo</span>
-              {selectedSession && (
-                <span className="text-[10px] font-bold text-primary bg-primary-soft px-2 py-0.5 rounded-lg border border-primary/20">
-                  Conversa em foco: {selectedSession.contactName}
-                </span>
-              )}
-            </h3>
-            <p className="text-[10px] text-muted-foreground mt-0.5">
-              Diálogo em tempo real com {persona.name}, histórico completo, áudios e conferência dos dados coletados.
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => {
-            const container = document.querySelector(".overflow-y-auto");
-            if (container) {
-              container.scrollTo({ top: 0, behavior: "smooth" });
-            }
-          }}
-          className="px-3 py-1.5 rounded-xl text-xs font-bold border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-        >
-          <ChevronUp className="h-3.5 w-3.5" />
-          <span>Subir para o Kanban</span>
-        </button>
-      </div>
-
-      {/* ── PAINÉIS DE CONTEÚDO AO VIVO REAIS (3 COLUNAS) ────────────────────── */}
-      <div className={`flex gap-4 min-h-[640px] h-[700px] overflow-hidden shrink-0 transition-all duration-300 rounded-2xl ${
-        isChatHighlighted ? "ring-2 ring-primary/40" : ""
-      }`}>
         {/* ── PAINEL ESQUERDO — Lista de sessões reais (30%) ────────────────── */}
         <div className="w-[30%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
           <div className="px-4 py-3 border-b border-line shrink-0 flex flex-col gap-2.5">
@@ -511,13 +514,14 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
                   {sessions.filter((s) => s.status === "active").length} ativas de {sessions.length} total
                 </p>
               </div>
-              <button
-                onClick={fetchSdrData}
-                title="Atualizar sessões ao vivo"
-                className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-              </button>
+              <SystemTooltip content="Atualizar sessões ao vivo">
+                <button
+                  onClick={fetchSdrData}
+                  className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                </button>
+              </SystemTooltip>
             </div>
 
             {/* ── BOTÕES DE FILTRO DE HARMONIA VERDE: ATIVOS, CONCLUÍDOS, CANAL E PERÍODO ───────── */}
@@ -797,17 +801,18 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     {selectedSession.contactAvatar ? (
-                      <button
-                        onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
-                        className="cursor-pointer group focus:outline-none shrink-0"
-                        title="Clique para ver a foto do cliente em tela cheia"
-                      >
-                        <img
-                          src={selectedSession.contactAvatar}
-                          alt={selectedSession.contactName}
-                          className="h-8 w-8 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-105 group-hover:border-primary transition duration-200"
-                        />
-                      </button>
+                      <SystemTooltip content="Ver foto do cliente em tela cheia">
+                        <button
+                          onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
+                          className="cursor-pointer group focus:outline-none shrink-0"
+                        >
+                          <img
+                            src={selectedSession.contactAvatar}
+                            alt={selectedSession.contactName}
+                            className="h-8 w-8 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-105 group-hover:border-primary transition duration-200"
+                          />
+                        </button>
+                      </SystemTooltip>
                     ) : (
                       <div className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-primary font-bold text-xs shrink-0 border border-primary/20 shadow-soft">
                         {selectedSession.contactName[0]?.toUpperCase() || "C"}
@@ -831,7 +836,6 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
                                 ? "bg-primary-soft text-primary border-primary/30 hover:bg-primary-soft/80"
                                 : "bg-muted/60 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
                             }`}
-                            title={isInfoPanelOpen ? "Minimizar dados coletados" : "Expandir dados coletados"}
                             aria-label={isInfoPanelOpen ? "Minimizar dados coletados" : "Expandir dados coletados"}
                           >
                             {isInfoPanelOpen ? (
@@ -862,20 +866,21 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
                     >
                       {msg.sender === "client" && (
                         selectedSession.contactAvatar ? (
-                          <button
-                            onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
-                            className="shrink-0 mr-2 self-end group cursor-pointer focus:outline-none"
-                            title="Clique para ver a foto do cliente em tela cheia"
-                          >
-                            <img
-                              src={selectedSession.contactAvatar}
-                              alt={selectedSession.contactName}
-                              className="h-7 w-7 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display = "none";
-                              }}
-                            />
-                          </button>
+                          <SystemTooltip content="Ver foto do cliente em tela cheia">
+                            <button
+                              onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
+                              className="shrink-0 mr-2 self-end group cursor-pointer focus:outline-none"
+                            >
+                              <img
+                                src={selectedSession.contactAvatar}
+                                alt={selectedSession.contactName}
+                                className="h-7 w-7 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                                onError={(e) => {
+                                  (e.target as HTMLElement).style.display = "none";
+                                }}
+                              />
+                            </button>
+                          </SystemTooltip>
                         ) : (
                           <div className="grid h-7 w-7 place-items-center rounded-full bg-primary/15 text-primary shrink-0 mr-2 self-end font-bold text-[10px] shadow-soft border border-primary/20">
                             {selectedSession.contactName[0]?.toUpperCase() || "C"}
@@ -1009,16 +1014,17 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
                         </span>
                       </div>
                       {msg.sender === "bot" && (
-                        <button
-                          onClick={() => setPreviewModalImage({ url: (document.documentElement.classList.contains("dark") ? persona.avatarDarkUrl : persona.avatarLightUrl) || persona.avatarUrl, title: `${persona.name} IA — ${persona.company}` })}
-                          className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
-                          title={`Clique para ver a foto ${persona.gender === "female" ? "da" : "do"} ${persona.name} em tela cheia`}
-                        >
-                          <AiAvatar
-                            tenantId={tenant}
-                            className="h-7 w-7 rounded-full border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
-                          />
-                        </button>
+                        <SystemTooltip content={`Ver foto ${persona.gender === "female" ? "da" : "do"} ${persona.name} em tela cheia`}>
+                          <button
+                            onClick={() => setPreviewModalImage({ url: (document.documentElement.classList.contains("dark") ? persona.avatarDarkUrl : persona.avatarLightUrl) || persona.avatarUrl, title: `${persona.name} IA — ${persona.company}` })}
+                            className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
+                          >
+                            <AiAvatar
+                              tenantId={tenant}
+                              className="h-7 w-7 rounded-full border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                            />
+                          </button>
+                        </SystemTooltip>
                       )}
                     </motion.div>
                   ))}
@@ -1121,7 +1127,6 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
                                 <button
                                   onClick={() => setIsInfoPanelOpen(false)}
                                   className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer shrink-0"
-                                  title="Minimizar painel de dados coletados"
                                 >
                                   <PanelRightClose className="h-3.5 w-3.5" />
                                 </button>
@@ -1229,13 +1234,14 @@ export function SdrTab({ sdrEnabled: externalSdrEnabled, onSdrConfigChange }: Sd
               onClick={(e) => e.stopPropagation()}
               className="relative max-w-md w-full bg-card rounded-3xl border border-border shadow-2xl overflow-hidden p-5 flex flex-col items-center gap-4 text-center"
             >
-              <button
-                onClick={() => setPreviewModalImage(null)}
-                className="absolute top-4 right-4 p-2 rounded-full bg-muted/80 hover:bg-muted text-foreground transition cursor-pointer"
-                title="Fechar"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <SystemTooltip content="Fechar visualização">
+                <button
+                  onClick={() => setPreviewModalImage(null)}
+                  className="absolute top-4 right-4 p-2 rounded-full bg-muted/80 hover:bg-muted text-foreground transition cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </SystemTooltip>
 
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />

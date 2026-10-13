@@ -15,6 +15,9 @@ import { FluxosTab } from "./FluxosTab";
 import { SupervisorTab } from "./SupervisorTab";
 import { VendedorTab } from "./VendedorTab";
 import { KnowledgeTab } from "./KnowledgeTab";
+import { SdrHeaderControls } from "./SdrHeaderControls";
+import { SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -46,6 +49,9 @@ export function ValentinaView() {
   // Estado e Controle de SDR Triagem Automática (elevado ao Header para maximizar espaço de tela)
   const [sdrEnabled, setSdrEnabled] = useState(true);
   const [isSavingSdrConfig, setIsSavingSdrConfig] = useState(false);
+  const [sdrFilterState, setSdrFilterState] = useState<SdrFilterState>(DEFAULT_SDR_FILTER_STATE);
+  const [sdrRefreshKey, setSdrRefreshKey] = useState(0);
+  const [isSdrLoading, setIsSdrLoading] = useState(false);
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   useEffect(() => {
@@ -134,46 +140,67 @@ export function ValentinaView() {
 
         <div className="flex items-center gap-2.5">
           {activeTab === "sdr" && (
-            <div className="flex items-center gap-2 animate-fadeIn">
-              <div
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition-all ${
-                  sdrEnabled
-                    ? "bg-primary-soft text-primary border-primary/30"
-                    : "bg-muted text-muted-foreground border-border"
-                }`}
-                title={`${persona.name} responde e qualifica automaticamente todos os contatos que chegam sem responsável.`}
+            <div className="flex items-center gap-2 animate-fadeIn flex-wrap">
+              <SystemTooltip
+                content={`${persona.name} responde e qualifica automaticamente todos os contatos que chegam sem responsável.`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${sdrEnabled ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
-                <span className="hidden md:inline">Triagem Automática —</span>
-                <span>{sdrEnabled ? `${persona.name} SDR Ativo` : `${persona.name} SDR Pausado`}</span>
-              </div>
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition-all ${
+                    sdrEnabled
+                      ? "bg-primary-soft text-primary border-primary/30"
+                      : "bg-muted text-muted-foreground border-border"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${sdrEnabled ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
+                  <span className="hidden md:inline">Triagem Automática —</span>
+                  <span>{sdrEnabled ? `${persona.name} SDR Ativo` : `${persona.name} SDR Pausado`}</span>
+                </div>
+              </SystemTooltip>
 
-              <button
-                onClick={handleToggleSdr}
-                disabled={isSavingSdrConfig}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-soft border ${
-                  sdrEnabled
-                    ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
-                    : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
-                } ${isSavingSdrConfig ? "opacity-70 cursor-not-allowed" : ""}`}
-                title={
+              <SystemTooltip
+                content={
                   sdrEnabled
                     ? `Clique para pausar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`
                     : `Clique para ativar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`
                 }
               >
-                <Power className="h-3 w-3" />
-                <span>{sdrEnabled ? "SDR Ativo" : "SDR Inativo"}</span>
-              </button>
+                <button
+                  onClick={handleToggleSdr}
+                  disabled={isSavingSdrConfig}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-soft border ${
+                    sdrEnabled
+                      ? "bg-primary text-primary-foreground border-primary hover:bg-primary-hover"
+                      : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                  } ${isSavingSdrConfig ? "opacity-70 cursor-not-allowed" : ""}`}
+                >
+                  <Power className="h-3 w-3" />
+                  <span>{sdrEnabled ? "SDR Ativo" : "SDR Inativo"}</span>
+                </button>
+              </SystemTooltip>
+
+              {/* Controles de Busca, Filtros Avançados, Varredura e Atualizar */}
+              <SdrHeaderControls
+                filterState={sdrFilterState}
+                onFilterChange={setSdrFilterState}
+                onRefresh={() => setSdrRefreshKey((k) => k + 1)}
+                isLoading={isSdrLoading}
+                personaName={persona.name}
+                onVarredura={() => {
+                  toast.info(`Varredura ativa: ${persona.name} está monitorando 100% das mensagens recebidas.`);
+                  setSdrRefreshKey((k) => k + 1);
+                }}
+              />
 
               <div className="h-4 w-px bg-border mx-0.5" />
             </div>
           )}
 
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary-soft text-primary text-[10px] font-extrabold">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-            Online
-          </span>
+          <SystemTooltip content={`Serviço de inteligência artificial de ${persona.name} conectado e operando em tempo real`}>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary-soft text-primary text-[10px] font-extrabold cursor-default">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+              Online
+            </span>
+          </SystemTooltip>
         </div>
       </div>
 
@@ -215,6 +242,9 @@ export function ValentinaView() {
               <SdrTab
                 sdrEnabled={sdrEnabled}
                 onSdrConfigChange={setSdrEnabled}
+                filterState={sdrFilterState}
+                refreshKey={sdrRefreshKey}
+                onLoadingChange={setIsSdrLoading}
               />
             )}
             {activeTab === "rodizio" && <RodizioTab />}

@@ -1,89 +1,137 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 📌 SDR KANBAN BOARD — Visão de Funil de Triagem Fagner / Valentina
+// 📋 SDR KANBAN BOARD — Visão de Funil de Triagem Fagner / Valentina
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useMemo, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState, useMemo, useRef } from "react";
 import {
-  Search,
-  Filter,
-  RefreshCw,
-  Power,
-  EyeOff,
-  Eye,
-  X,
-  ChevronLeft,
-  ChevronRight,
   Clock,
   CheckCircle2,
-  AlertCircle,
-  MessageSquare,
-  Radio,
-  SlidersHorizontal,
   Bot,
-  Sparkles,
+  ChevronDown,
 } from "lucide-react";
 import { SdrTriageSession } from "./SdrTab";
-import { KANBAN_COLUMNS, KanbanColumnDef, classifySessionToColumn } from "./sdr-kanban-data";
+import {
+  KANBAN_COLUMNS,
+  KanbanColumnDef,
+  classifySessionToColumn,
+  SdrFilterState,
+} from "./sdr-kanban-data";
 import { getAiPersona } from "@/lib/ai-persona";
 import { useChat } from "@/hooks/useChatState";
-import { toast } from "sonner";
 
 export interface SdrKanbanBoardProps {
   sessions: SdrTriageSession[];
   selectedSessionId?: string | null;
   onSelectSession: (session: SdrTriageSession) => void;
-  sdrEnabled: boolean;
-  onToggleSdr: () => void;
-  onRefresh: () => void;
-  isLoading?: boolean;
+  filterState: SdrFilterState;
 }
 
 export function SdrKanbanBoard({
   sessions,
   selectedSessionId,
   onSelectSession,
-  sdrEnabled,
-  onToggleSdr,
-  onRefresh,
-  isLoading,
+  filterState,
 }: SdrKanbanBoardProps) {
   const { tenant } = useChat();
   const persona = getAiPersona(tenant || "tecfag");
 
-  // Busca e Filtros
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  const [showCompleted, setShowCompleted] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<"all" | "analisando" | "concluida">("all");
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [currentCalendarMonth, setCurrentCalendarMonth] = useState<Date>(new Date());
+  // Ref principal do container rolável do Kanban
+  const boardContainerRef = useRef<HTMLDivElement>(null);
 
-  const filterRef = useRef<HTMLDivElement | null>(null);
+  // ── ESTADO: PAN SCROLL HORIZONTAL (CLICAR E ARRASTAR A TELA COM O MOUSE) ──
+  const [isPanning, setIsPanning] = useState(false);
+  const panStateRef = useRef<{
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    hasMoved: boolean;
+  } | null>(null);
 
-  // Fechar popover ao clicar fora
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
-        setIsFilterOpen(false);
-      }
+  const handleBoardPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return; // apenas clique esquerdo
+    const target = e.target as HTMLElement;
+
+    // Ignora elementos interativos como botões, inputs, links
+    if (
+      target.closest(
+        'button, a, input, select, textarea, [role="button"], [data-no-pan]'
+      )
+    ) {
+      return;
     }
-    if (isFilterOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+
+    const container = boardContainerRef.current;
+    if (!container) return;
+
+    panStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      scrollLeft: container.scrollLeft,
+      hasMoved: false,
     };
-  }, [isFilterOpen]);
+
+    const handlePointerMove = (ev: PointerEvent) => {
+      if (!panStateRef.current || !boardContainerRef.current) return;
+      const dx = ev.clientX - panStateRef.current.startX;
+      const dy = ev.clientY - panStateRef.current.startY;
+
+      if (!panStateRef.current.hasMoved && Math.hypot(dx, dy) > 4) {
+        panStateRef.current.hasMoved = true;
+        setIsPanning(true);
+        document.body.style.userSelect = "none";
+      }
+
+      if (panStateRef.current.hasMoved) {
+        boardContainerRef.current.scrollLeft = panStateRef.current.scrollLeft - dx;
+      }
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+
+      document.body.style.userSelect = "";
+      setIsPanning(false);
+
+      if (panStateRef.current?.hasMoved) {
+        // Suprime clique se foi arrasto de tela para não disparar seleção de card
+        const suppressClick = (clickEv: MouseEvent) => {
+          clickEv.stopImmediatePropagation();
+          clickEv.preventDefault();
+          window.removeEventListener("click", suppressClick, true);
+        };
+        window.addEventListener("click", suppressClick, true);
+      }
+      panStateRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+  };
+
+  // Scroll horizontal suave com rodinha do mouse sobre áreas sem scroll vertical
+  const handleBoardWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const cardList = target.closest("[data-column-card-list]");
+    if (cardList && cardList.scrollHeight > cardList.clientHeight) {
+      return; // Permite scroll vertical nativo na lista de cards
+    }
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && boardContainerRef.current) {
+      boardContainerRef.current.scrollLeft += e.deltaY;
+    }
+  };
+
+  const { searchQuery, unreadOnly, showCompleted, statusFilter, selectedDate } = filterState;
 
   // Filtragem dos cards
   const filteredSessions = useMemo(() => {
     return sessions.filter((session) => {
       // 1. Busca por nome, empresa ou telefone
-      if (searchQuery.trim()) {
+      if (searchQuery && searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const matchName = session.contactName.toLowerCase().includes(q);
+        const matchName = (session.contactName || "").toLowerCase().includes(q);
         const matchCompany = (session.company || "").toLowerCase().includes(q);
         const matchPhone = (session.phone || "").toLowerCase().includes(q);
         if (!matchName && !matchCompany && !matchPhone) return false;
@@ -95,7 +143,7 @@ export function SdrKanbanBoard({
         if (unread <= 0) return false;
       }
 
-      // 3. Ver Ocultados (se desligado, esconde concluídas)
+      // 3. Ver Concluídos (se desligado, esconde concluídas)
       if (!showCompleted) {
         const isCompleted =
           session.status === "completed" ||
@@ -161,7 +209,7 @@ export function SdrKanbanBoard({
     return map;
   }, [filteredSessions]);
 
-  // Manipulação do clique do card com animação suave para o chat
+  // Manipulação do clique do card com scroll suave para o chat
   const handleCardClick = (session: SdrTriageSession) => {
     onSelectSession(session);
 
@@ -174,342 +222,17 @@ export function SdrKanbanBoard({
     }, 60);
   };
 
-  const handleVarreduraClick = () => {
-    toast.info(`Varredura ativa: ${persona.name} está monitorando 100% das mensagens recebidas.`);
-    onRefresh();
-  };
-
-  // Funções do mini calendário
-  const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
-  const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
-
-  const calendarDays = useMemo(() => {
-    const year = currentCalendarMonth.getFullYear();
-    const month = currentCalendarMonth.getMonth();
-    const totalDays = daysInMonth(year, month);
-    const startDay = firstDayOfMonth(year, month);
-
-    const days: (number | null)[] = [];
-    for (let i = 0; i < startDay; i++) {
-      days.push(null);
-    }
-    for (let d = 1; d <= totalDays; d++) {
-      days.push(d);
-    }
-    return days;
-  }, [currentCalendarMonth]);
-
-  const monthNames = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-  ];
-
   return (
-    <div className="flex flex-col gap-3 shrink-0">
-      {/* ── HEADER SUPERIOR DE CONTROLE (Fagner Conversas) ──────────────────── */}
-      <div className="flex items-center justify-between gap-3 px-5 py-3 bg-card rounded-2xl border border-border shadow-xs flex-wrap">
-        {/* Lado Esquerdo: Identificação do Agente */}
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="h-9 w-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm shadow-xs overflow-hidden">
-              <Bot className="h-5 w-5" />
-            </div>
-            <span
-              className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full ring-2 ring-card ${
-                sdrEnabled ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"
-              }`}
-            />
-          </div>
-
-          <div>
-            <h2 className="text-sm font-extrabold text-foreground flex items-center gap-2">
-              <span>{persona.name} Conversas</span>
-            </h2>
-            <p className="text-[11px] text-muted-foreground">
-              Conversas em tempo real pela Inteligência, sem intervenção humana.
-            </p>
-          </div>
-        </div>
-
-        {/* Lado Direito: Busca, Filtros, Varredura, Status e Atualizar */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Campo de Busca */}
-          <div className="relative min-w-[220px]">
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Nome, empresa ou telefone..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-border bg-muted/20 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/60 text-foreground transition"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-2 p-0.5 rounded-full hover:bg-muted text-muted-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-
-          {/* Botão Filtros com Popover */}
-          <div className="relative" ref={filterRef}>
-            <button
-              onClick={() => setIsFilterOpen(!isFilterOpen)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border cursor-pointer shadow-xs ${
-                isFilterOpen || unreadOnly || !showCompleted || statusFilter !== "all" || selectedDate
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-card text-foreground border-border hover:bg-muted/60"
-              }`}
-            >
-              <Filter className="h-3.5 w-3.5" />
-              <span>Filtros</span>
-              {(unreadOnly || !showCompleted || statusFilter !== "all" || selectedDate) && (
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              )}
-            </button>
-
-            {/* POPOVER FILTROS AVANÇADOS (Fiel à foto media_1791552956302.png) */}
-            <AnimatePresence>
-              {isFilterOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 6, scale: 0.97 }}
-                  transition={{ duration: 0.16 }}
-                  className="absolute right-0 mt-2 z-50 w-72 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-100 shadow-2xl p-4 space-y-4"
-                >
-                  {/* Cabeçalho */}
-                  <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
-                    <h4 className="text-xs font-extrabold tracking-wide uppercase text-zinc-100">
-                      Filtros Avançados
-                    </h4>
-                    <button
-                      onClick={() => setIsFilterOpen(false)}
-                      className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Switch 1: Apenas não lidas */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-bold block text-zinc-100">Apenas não lidas</span>
-                      <span className="text-[10px] text-zinc-400 block">
-                        Mostra somente chats com mensagens novas
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={unreadOnly}
-                      onClick={() => setUnreadOnly(!unreadOnly)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        unreadOnly ? "bg-emerald-500" : "bg-zinc-700"
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                          unreadOnly ? "translate-x-4" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Switch 2: Ver Ocultados */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-bold flex items-center gap-1.5 text-zinc-100">
-                        <EyeOff className="h-3.5 w-3.5 text-zinc-400" />
-                        Ver Ocultados
-                      </span>
-                      <span className="text-[10px] text-zinc-400 block">
-                        Exibe cards com triagem concluída
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={showCompleted}
-                      onClick={() => setShowCompleted(!showCompleted)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        showCompleted ? "bg-emerald-500" : "bg-zinc-700"
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                          showCompleted ? "translate-x-4" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Status da Triagem */}
-                  <div className="space-y-1.5 pt-1">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 block">
-                      Status da Triagem
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setStatusFilter(statusFilter === "analisando" ? "all" : "analisando")}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold transition flex-1 border ${
-                          statusFilter === "analisando"
-                            ? "bg-zinc-800 text-white border-zinc-600 shadow-inner"
-                            : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200"
-                        }`}
-                      >
-                        Analisando
-                      </button>
-                      <button
-                        onClick={() => setStatusFilter(statusFilter === "concluida" ? "all" : "concluida")}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold transition flex-1 border ${
-                          statusFilter === "concluida"
-                            ? "bg-zinc-800 text-white border-zinc-600 shadow-inner"
-                            : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200"
-                        }`}
-                      >
-                        Concluída
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Seletor de Período / Mini Calendário */}
-                  <div className="space-y-2 pt-1 border-t border-zinc-800/80">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">
-                        Período
-                      </span>
-                      {selectedDate && (
-                        <button
-                          onClick={() => setSelectedDate(null)}
-                          className="text-[10px] text-primary hover:underline"
-                        >
-                          Limpar data
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2">
-                      <div className="flex items-center justify-between text-xs font-bold px-1">
-                        <button
-                          onClick={() => {
-                            const prev = new Date(currentCalendarMonth);
-                            prev.setMonth(prev.getMonth() - 1);
-                            setCurrentCalendarMonth(prev);
-                          }}
-                          className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                        </button>
-                        <span>
-                          {monthNames[currentCalendarMonth.getMonth()]} {currentCalendarMonth.getFullYear()}
-                        </span>
-                        <button
-                          onClick={() => {
-                            const next = new Date(currentCalendarMonth);
-                            next.setMonth(next.getMonth() + 1);
-                            setCurrentCalendarMonth(next);
-                          }}
-                          className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100"
-                        >
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-
-                      {/* Grade de Dias */}
-                      <div className="grid grid-cols-7 gap-1 text-center text-[10px]">
-                        {["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => (
-                          <span key={i} className="text-zinc-500 font-bold py-0.5">
-                            {d}
-                          </span>
-                        ))}
-                        {calendarDays.map((day, idx) => {
-                          if (!day) {
-                            return <div key={`empty-${idx}`} />;
-                          }
-                          const isSel =
-                            selectedDate &&
-                            selectedDate.getDate() === day &&
-                            selectedDate.getMonth() === currentCalendarMonth.getMonth() &&
-                            selectedDate.getFullYear() === currentCalendarMonth.getFullYear();
-
-                          return (
-                            <button
-                              key={`day-${day}`}
-                              onClick={() => {
-                                const d = new Date(currentCalendarMonth);
-                                d.setDate(day);
-                                setSelectedDate(isSel ? null : d);
-                              }}
-                              className={`py-1 rounded text-[11px] font-semibold transition ${
-                                isSel
-                                  ? "bg-primary text-primary-foreground font-bold"
-                                  : "text-zinc-300 hover:bg-zinc-800"
-                              }`}
-                            >
-                              {day}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <p className="text-[9px] text-zinc-400 text-center pt-1">
-                        {selectedDate
-                          ? `Filtro ativo: ${selectedDate.toLocaleDateString("pt-BR")}`
-                          : "Selecione a data inicial"}
-                      </p>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Botão Varredura */}
-          <button
-            onClick={handleVarreduraClick}
-            title="Executar varredura ativa de novas mensagens e sincronizar clientes"
-            className="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-border bg-card text-foreground hover:bg-muted/60 cursor-pointer shadow-xs"
-          >
-            <Radio className="h-3.5 w-3.5 text-primary" />
-            <span>Varredura</span>
-          </button>
-
-          {/* Botão Status Ativo/Pausado */}
-          <button
-            onClick={onToggleSdr}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border cursor-pointer shadow-xs ${
-              sdrEnabled
-                ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800/60 hover:bg-emerald-100"
-                : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200"
-            }`}
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                sdrEnabled ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"
-              }`}
-            />
-            <span>
-              {persona.name} {sdrEnabled ? "(Ativo)" : "(Pausado)"}
-            </span>
-          </button>
-
-          {/* Botão Atualizar */}
-          <button
-            onClick={onRefresh}
-            title="Atualizar conversas e kanban"
-            className="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-border bg-card text-foreground hover:bg-muted/60 cursor-pointer shadow-xs"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 text-primary ${isLoading ? "animate-spin" : ""}`} />
-            <span>Atualizar</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ── QUADRO KANBAN COM SCROLL HORIZONTAL (11 COLUNAS) ───────────────── */}
-      <div className="w-full overflow-x-auto pb-3 pt-1 scrollbar-thin">
+    <div className="flex flex-col shrink-0">
+      {/* ── QUADRO KANBAN COM PAN SCROLL POR CLIQUE E ARRASTE (11 COLUNAS) ── */}
+      <div
+        ref={boardContainerRef}
+        onPointerDown={handleBoardPointerDown}
+        onWheel={handleBoardWheel}
+        className={`w-full overflow-x-auto overflow-y-hidden pb-3 pt-1 select-none transition-colors ${
+          isPanning ? "cursor-grabbing" : "cursor-grab"
+        } [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full`}
+      >
         <div className="flex items-start gap-3 min-w-max">
           {KANBAN_COLUMNS.map((column) => {
             const ColumnIcon = column.icon;
@@ -540,7 +263,10 @@ export function SdrKanbanBoard({
                 </div>
 
                 {/* Lista de Cards da Coluna */}
-                <div className="p-2.5 flex flex-col gap-2 min-h-[360px] max-h-[520px] overflow-y-auto scrollbar-thin">
+                <div
+                  data-column-card-list="true"
+                  className="p-2.5 flex flex-col gap-2 min-h-[360px] max-h-[520px] overflow-y-auto scrollbar-thin"
+                >
                   {columnSessions.length === 0 ? (
                     // Empty State da Coluna
                     <div className="flex-1 flex flex-col items-center justify-center p-4 text-center border border-dashed border-border/70 rounded-xl bg-card/40 my-auto min-h-[140px]">
@@ -685,7 +411,7 @@ export function SdrKanbanBoard({
                             </span>
 
                             <span className="text-[8px] opacity-0 group-hover:opacity-100 text-primary font-bold transition flex items-center gap-0.5">
-                              Abrir chat ↓
+                              Abrir chat <ChevronDown className="h-2.5 w-2.5" />
                             </span>
                           </div>
                         </div>
