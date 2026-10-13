@@ -887,21 +887,23 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp";
           const company = updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
 
-          // Alocação real do próximo vendedor disponível no rodízio
+          // Alocação real do próximo vendedor disponível no rodízio de acordo com a área/produto
+          const targetProduct = updatedCollectedData["PRODUTO DE INTERESSE"]?.value || updatedCollectedData["QUAL O TIPO DE PRODUTO"]?.value || updatedCollectedData["SETOR"]?.value || "";
           const { RodizioEngine } = await import("./rodizio-engine");
-          allocatedOp = await RodizioEngine.allocateNextOperator(tenantId, conversationId, clientName);
+          allocatedOp = await RodizioEngine.allocateNextOperator(tenantId, conversationId, clientName, targetProduct);
 
           const supervisorNotifId = `notif-${Date.now()}`;
           const targetOpId = allocatedOp?.id;
 
           if (targetOpId) {
+            const personaObj = aiPersona || getAiPersona(tenantId);
             await db.insert(internalMessages).values({
               id: supervisorNotifId,
               tenantId,
               operatorId: targetOpId,
               direction: "from_agent",
               agentType: "supervisor",
-              content: `🎯 Lead qualificado pela Valentina: *${clientName}* (${company}). Atendimento alocado automaticamente para *${allocatedOp.name}* no rodízio!`,
+              content: `🎯 Lead qualificado por ${personaObj.name}: *${clientName}* (${company}). Atendimento alocado automaticamente para *${allocatedOp.name}* no rodízio!`,
               metadata: { type: "lead_transfer", conversationId },
               read: 0,
               createdAt: new Date(),

@@ -29,6 +29,7 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
         const dateTo = url.searchParams.get("dateTo") || undefined;
 
         try {
+          const flowOperators = await RodizioEngine.getRodizioState(tenantId);
           const dashboardData = await RodizioEngine.getDashboardData(tenantId, {
             days,
             dateFrom,
@@ -37,7 +38,8 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
 
           return new Response(
             JSON.stringify({
-              operators: dashboardData.operators,
+              operators: flowOperators,
+              dashboardOperators: dashboardData.operators,
               stats: dashboardData.stats,
               byDay: dashboardData.byDay,
               byFunnel: dashboardData.byFunnel,
@@ -53,6 +55,7 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
           return new Response(
             JSON.stringify({
               operators: [],
+              dashboardOperators: [],
               stats: null,
               byDay: [],
               byFunnel: [],
@@ -85,43 +88,48 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
 
         try {
           const body = await request.json();
-          const { action, operators: updatedOps, cardId, toOperatorId, toOperatorName } = body;
+          const { action, cardId, toOperatorId, toOperatorName } = body;
 
-          if (action === "reassign" && cardId && toOperatorId) {
+          if (action === "add_operator" && body.operator) {
+            await RodizioEngine.addOperatorToFlow(tenantId, body.operator);
+          } else if (action === "update_operator" && body.operatorId) {
+            await RodizioEngine.updateOperatorInFlow(tenantId, body.operatorId, body.patch || {});
+          } else if (action === "remove_operator" && body.operatorId) {
+            await RodizioEngine.removeOperatorFromFlow(tenantId, body.operatorId);
+          } else if (action === "toggle_funnel" && body.operatorId && body.funnel) {
+            await RodizioEngine.toggleFunnel(tenantId, body.operatorId, body.funnel);
+          } else if (action === "toggle_leave" && body.operatorId) {
+            await RodizioEngine.toggleLeave(tenantId, body.operatorId);
+          } else if (action === "update_compensation" && body.operatorId) {
+            await RodizioEngine.updateCompensation(
+              tenantId,
+              body.operatorId,
+              typeof body.value === "number" ? body.value : (body.delta || 0),
+              Boolean(body.isAbsolute)
+            );
+          } else if (action === "reassign" && cardId && toOperatorId) {
             await RodizioEngine.reassignLead(tenantId, cardId, toOperatorId, toOperatorName || "Operador");
-            const dashboardData = await RodizioEngine.getDashboardData(tenantId);
-            return new Response(
-              JSON.stringify({ success: true, ...dashboardData }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          if (action === "remove_card" && cardId) {
+          } else if (action === "remove_card" && cardId) {
             await RodizioEngine.removeLeadCard(tenantId, cardId);
-            const dashboardData = await RodizioEngine.getDashboardData(tenantId);
-            return new Response(
-              JSON.stringify({ success: true, ...dashboardData }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
+          } else if (action === "reset") {
+            await RodizioEngine.resetRodizioCounters(tenantId);
+          } else if (Array.isArray(body.operators)) {
+            await RodizioEngine.saveRodizioState(tenantId, body.operators);
           }
 
-          if (action === "reset") {
-            const resetOps = await RodizioEngine.resetRodizioCounters(tenantId);
-            const dashboardData = await RodizioEngine.getDashboardData(tenantId);
-            return new Response(
-              JSON.stringify({ success: true, ...dashboardData, operators: resetOps }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          if (Array.isArray(updatedOps)) {
-            await RodizioEngine.saveRodizioState(tenantId, updatedOps);
-          }
-
+          const flowOperators = await RodizioEngine.getRodizioState(tenantId);
           const dashboardData = await RodizioEngine.getDashboardData(tenantId);
 
           return new Response(
-            JSON.stringify({ success: true, ...dashboardData }),
+            JSON.stringify({
+              success: true,
+              operators: flowOperators,
+              dashboardOperators: dashboardData.operators,
+              stats: dashboardData.stats,
+              byDay: dashboardData.byDay,
+              byFunnel: dashboardData.byFunnel,
+              deals: dashboardData.deals,
+            }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         } catch (e: any) {

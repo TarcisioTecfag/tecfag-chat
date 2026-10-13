@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   Copy,
   Check,
@@ -7,7 +7,6 @@ import {
   RefreshCw,
   Save,
   Trash2,
-  HelpCircle,
   Info,
   Sparkles,
   ChevronDown,
@@ -17,6 +16,8 @@ import {
   Target,
   GitBranch,
   User,
+  Users,
+  UserCheck,
   Layers,
   Megaphone,
   Play,
@@ -25,18 +26,24 @@ import {
   Calendar,
   Clock,
   ExternalLink,
-  FileJson,
   ShieldCheck,
   Sliders,
   CheckCircle,
   AlertTriangle,
   XCircle,
+  Search,
+  X,
+  Bookmark,
+  PauseCircle,
+  FileText,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import {
   availablePaths,
   attributionForLead,
@@ -74,6 +81,200 @@ type Log = {
 };
 
 type PreviewResult = Record<"contact" | "company" | "deal", Record<string, unknown>>;
+
+interface CustomSelectOption {
+  value: string;
+  label: string;
+  description?: string;
+  tooltip?: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  badge?: React.ReactNode;
+  group?: string;
+}
+
+interface CustomSelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  options: CustomSelectOption[];
+  placeholder?: string;
+  tooltip?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  className?: string;
+  triggerClassName?: string;
+  disabled?: boolean;
+}
+
+// Componente de Menu Suspenso 100% Estilizado com Suporte a Tooltip em cada Opção
+function CustomSelect({
+  value,
+  onChange,
+  options,
+  placeholder = "Selecione uma opção...",
+  tooltip,
+  searchable = false,
+  searchPlaceholder = "Buscar opção...",
+  icon: TriggerIcon,
+  className = "",
+  triggerClassName = "",
+  disabled = false,
+}: CustomSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const selectedOption = options.find((opt) => opt.value === value);
+
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return options;
+    const lower = search.toLowerCase();
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(lower) ||
+        (opt.description && opt.description.toLowerCase().includes(lower)) ||
+        (opt.group && opt.group.toLowerCase().includes(lower)),
+    );
+  }, [options, search]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, CustomSelectOption[]>();
+    for (const opt of filteredOptions) {
+      const g = opt.group || "";
+      if (!map.has(g)) map.set(g, []);
+      map.get(g)!.push(opt);
+    }
+    return map;
+  }, [filteredOptions]);
+
+  const triggerButton = (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => setOpen((prev) => !prev)}
+      className={cn(
+        "flex h-10 w-full items-center justify-between rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground shadow-xs transition-all hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer",
+        triggerClassName,
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2 truncate">
+        {selectedOption?.icon ? (
+          <selectedOption.icon className="h-4 w-4 shrink-0 text-primary" />
+        ) : TriggerIcon ? (
+          <TriggerIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : null}
+        <span className={cn("truncate", !selectedOption && "text-muted-foreground")}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        {selectedOption?.badge && <span className="shrink-0">{selectedOption.badge}</span>}
+      </div>
+      <ChevronDown
+        className={cn(
+          "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+          open && "rotate-180",
+        )}
+      />
+    </button>
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <SystemTooltip content={tooltip}>
+        <PopoverTrigger asChild>{triggerButton}</PopoverTrigger>
+      </SystemTooltip>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-trigger-width)] min-w-[260px] max-w-[460px] rounded-2xl border border-border bg-card p-1.5 shadow-card z-[9999]"
+      >
+        {searchable && (
+          <div className="p-1 border-b border-border mb-1">
+            <div className="relative flex items-center">
+              <Search className="absolute left-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full h-8 pl-8 pr-7 rounded-lg bg-muted/40 border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                autoFocus
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 cursor-pointer"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="max-h-60 overflow-y-auto space-y-1 p-0.5 scrollbar-thin">
+          {filteredOptions.length === 0 ? (
+            <div className="p-3 text-center text-xs text-muted-foreground">
+              Nenhuma opção encontrada
+            </div>
+          ) : (
+            Array.from(grouped.entries()).map(([groupName, groupOptions]) => (
+              <div key={groupName} className="space-y-0.5">
+                {groupName && (
+                  <div className="px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground bg-muted/30 rounded-lg">
+                    {groupName}
+                  </div>
+                )}
+                {groupOptions.map((opt) => {
+                  const isSelected = opt.value === value;
+                  const itemNode = (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        onChange(opt.value);
+                        setOpen(false);
+                        setSearch("");
+                      }}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-xs font-medium text-left transition-colors cursor-pointer",
+                        isSelected
+                          ? "bg-primary/10 text-primary font-bold"
+                          : "text-foreground hover:bg-muted/70 hover:text-foreground",
+                      )}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        {opt.icon && (
+                          <opt.icon
+                            className={cn(
+                              "h-4 w-4 shrink-0",
+                              isSelected ? "text-primary" : "text-muted-foreground",
+                            )}
+                          />
+                        )}
+                        <span className="truncate">{opt.label}</span>
+                        {opt.badge && <span className="shrink-0">{opt.badge}</span>}
+                      </div>
+                      {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                    </button>
+                  );
+
+                  if (opt.tooltip) {
+                    return (
+                      <SystemTooltip key={opt.value} content={opt.tooltip} side="right">
+                        {itemNode}
+                      </SystemTooltip>
+                    );
+                  }
+                  return itemNode;
+                })}
+              </div>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 const blank = (): FlowSettings => ({
   name: "",
@@ -113,7 +314,6 @@ const sample = JSON.stringify(
   2,
 );
 
-// Formatação amigável de datas e tempos relativos
 function formatFullDate(isoString: string): string {
   try {
     const d = new Date(isoString);
@@ -150,7 +350,6 @@ function formatRelativeTime(isoString: string): string {
   }
 }
 
-// Chips de sugestão rápida de campos comumente enviados pelo RD Station
 const QUICK_RD_FIELDS = [
   { field: "name", label: "Nome", desc: "Nome completo do lead" },
   { field: "email", label: "E-mail", desc: "Endereço de e-mail corporativo" },
@@ -309,6 +508,152 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
 
   const selectedFlow = flows.find((f) => f.id === id);
 
+  // OPÇÕES PARA OS MENUS SUSPENSOS CUSTOMIZADOS (RADIX)
+  const flowOptionsList: CustomSelectOption[] = useMemo(() => {
+    const list: CustomSelectOption[] = [
+      {
+        value: "",
+        label: "Criar Novo Fluxo de Integração",
+        icon: Plus,
+        tooltip: "Iniciar configuração de um novo fluxo e gerar URL de webhook exclusiva",
+      },
+    ];
+    for (const f of flows) {
+      list.push({
+        value: f.id,
+        label: f.settings.name || "Fluxo sem nome",
+        icon: f.settings.enabled ? CheckCircle2 : PauseCircle,
+        badge: (
+          <span
+            className={cn(
+              "px-2 py-0.5 rounded-full text-[10px] font-bold",
+              f.settings.enabled
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                : "bg-muted text-muted-foreground border border-border",
+            )}
+          >
+            {f.settings.enabled ? "Ativo" : "Pausado"}
+          </span>
+        ),
+        tooltip: f.settings.enabled
+          ? "Fluxo ativo recebendo leads e criando cards no CRM"
+          : "Fluxo pausado (novos webhooks não geram cards)",
+      });
+    }
+    return list;
+  }, [flows]);
+
+  const pipelineOptionsList: CustomSelectOption[] = useMemo(() => {
+    if (!options) return [];
+    return [
+      {
+        value: "",
+        label: "Selecione um Funil Comercial...",
+        tooltip: "Escolha para qual pipeline do CRM os leads devem ir",
+      },
+      ...options.pipelines.map((p) => ({
+        value: p.id,
+        label: p.name,
+        icon: Target,
+        tooltip: `Direcionar negociações para o funil ${p.name}`,
+      })),
+    ];
+  }, [options]);
+
+  const stageOptionsList: CustomSelectOption[] = useMemo(() => {
+    if (!options) return [];
+    const filtered = options.stages.filter((s) => s.pipelineId === form.pipelineId);
+    return [
+      {
+        value: "",
+        label: form.pipelineId ? "Selecione a Etapa Inicial..." : "Escolha o funil primeiro",
+        tooltip: "Selecione a fase inicial onde o novo card será alocado",
+      },
+      ...filtered.map((s) => ({
+        value: s.id,
+        label: s.name,
+        icon: GitBranch,
+        tooltip: `Inserir o novo negócio na etapa ${s.name}`,
+      })),
+    ];
+  }, [options, form.pipelineId]);
+
+  const ownerOptionsList: CustomSelectOption[] = useMemo(() => {
+    if (!options) return [];
+    return [
+      {
+        value: "",
+        label: "Sem responsável inicial (Triagem / Rodízio)",
+        icon: Users,
+        tooltip:
+          "O card entra sem vendedor fixo, disponível para triagem da equipe ou distribuição automática por rodízio",
+      },
+      ...options.owners.map((o) => ({
+        value: o.id,
+        label: o.name,
+        icon: User,
+        tooltip: `Atribuir este card diretamente ao consultor ${o.name}`,
+      })),
+    ];
+  }, [options]);
+
+  const deduplicationOptionsList: CustomSelectOption[] = [
+    {
+      value: "event",
+      label: "Um card por conversão (Recomendado — Padrão)",
+      icon: Layers,
+      tooltip:
+        "Cada preenchimento de formulário cria uma nova oportunidade comercial no funil, mantendo o histórico de contatos unificado",
+    },
+    {
+      value: "lead",
+      label: "Apenas um card por lead (Ignora novas conversões)",
+      icon: UserCheck,
+      tooltip:
+        "Mantém apenas uma oportunidade ativa no CRM por lead. Novas conversões do mesmo contato não gerarão novos negócios",
+    },
+  ];
+
+  const attributionOptionsList: CustomSelectOption[] = [
+    {
+      value: "last",
+      label: "Última Conversão (Recomendado — Canal recente que gerou o contato)",
+      icon: Clock,
+      tooltip:
+        "Grava no CRM a campanha e fonte da conversão mais recente anterior à oportunidade (ideal para medir ROI de campanhas ativas)",
+    },
+    {
+      value: "first",
+      label: "Primeira Conversão (Primeiro ponto de contato histórico do lead)",
+      icon: Calendar,
+      tooltip:
+        "Grava no CRM a primeira campanha e fonte que atraiu o lead originalmente",
+    },
+  ];
+
+  const mappingTargetOptionsList: CustomSelectOption[] = useMemo(() => {
+    const list: CustomSelectOption[] = [];
+    for (const [val, label] of Object.entries(standardTargets)) {
+      list.push({
+        value: val,
+        label,
+        group: "Campos Padrão do CRM",
+        icon: FileText,
+        tooltip: `Mapear para ${label} no CRM`,
+      });
+    }
+    for (const target of customTargets) {
+      list.push({
+        value: target.value,
+        label: target.label,
+        group: "Campos Personalizados",
+        icon: Sliders,
+        tooltip: `Campo personalizado: ${target.field.name} (${target.field.fieldType})`,
+      });
+    }
+    return list;
+  }, [customTargets]);
+
   if (loadError)
     return (
       <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive shadow-soft flex items-start gap-3">
@@ -370,9 +715,10 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 <div className="text-[11px] font-bold text-muted-foreground uppercase">Status do Fluxo</div>
                 <div className="text-xs font-extrabold text-foreground flex items-center justify-end gap-1.5 mt-0.5">
                   <span
-                    className={`h-2 w-2 rounded-full ${
-                      selectedFlow.settings.enabled ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"
-                    }`}
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      selectedFlow.settings.enabled ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground",
+                    )}
                   />
                   {selectedFlow.settings.enabled ? "Recebendo Leads" : "Fluxo Pausado"}
                 </div>
@@ -381,43 +727,32 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
           )}
         </div>
 
-        {/* BARRA DE CONTROLE: SELETOR DE FLUXO E BOTÃO NOVO FLUXO */}
+        {/* BARRA DE CONTROLE: SELETOR DE FLUXO COM CUSTOMSELECT E BOTÃO NOVO FLUXO */}
         <div className="pt-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="relative flex-1 max-w-md">
-              <label htmlFor="flow-selector" className="sr-only">
-                Selecionar Fluxo de Integração
-              </label>
-              <SystemTooltip content="Selecione um fluxo existente para editar suas regras ou crie um novo">
-                <select
-                  id="flow-selector"
-                  aria-label="Fluxo de integração"
-                  className="w-full h-11 rounded-2xl border border-border bg-background/80 px-4 text-xs font-semibold text-foreground shadow-sm transition-all hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
-                  value={id}
-                  disabled={busy}
-                  onChange={(event) => {
-                    const flow = flows.find((f) => f.id === event.target.value);
-                    setId(flow?.id || "");
-                    setForm(flow ? structuredClone(flow.settings) : blank());
-                    setUrl("");
-                    setPreview(null);
-                  }}
-                >
-                  <option value="">➕ Criar Novo Fluxo de Integração</option>
-                  {flows.map((flow) => (
-                    <option key={flow.id} value={flow.id}>
-                      {flow.settings.name || "Fluxo sem nome"} · {flow.settings.enabled ? "🟢 Ativo" : "⚪ Pausado"}
-                    </option>
-                  ))}
-                </select>
-              </SystemTooltip>
+              <CustomSelect
+                value={id}
+                onChange={(selectedId) => {
+                  const flow = flows.find((f) => f.id === selectedId);
+                  setId(flow?.id || "");
+                  setForm(flow ? structuredClone(flow.settings) : blank());
+                  setUrl("");
+                  setPreview(null);
+                }}
+                options={flowOptionsList}
+                placeholder="Selecione um Fluxo de Integração..."
+                tooltip="Selecione um fluxo existente para editar suas regras ou inicie um novo"
+                searchable={flows.length > 4}
+                searchPlaceholder="Buscar fluxo..."
+              />
             </div>
 
             <SystemTooltip content="Iniciar a criação de uma nova URL de webhook e regras para uma campanha ou landing page diferente">
               <button
                 type="button"
                 disabled={busy}
-                className="h-11 px-4 inline-flex items-center justify-center gap-2 rounded-2xl bg-muted/60 hover:bg-muted text-foreground text-xs font-bold transition-all border border-border hover:border-primary/40 cursor-pointer disabled:opacity-50"
+                className="h-10 px-4 inline-flex items-center justify-center gap-2 rounded-xl bg-muted/60 hover:bg-muted text-foreground text-xs font-bold transition-all border border-border hover:border-primary/40 cursor-pointer disabled:opacity-50"
                 onClick={() => {
                   setId("");
                   setForm(blank());
@@ -438,7 +773,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               <button
                 type="button"
                 disabled={busy || !form.name.trim()}
-                className="h-11 px-5 inline-flex items-center justify-center gap-2 rounded-2xl bg-primary text-primary-foreground text-xs font-extrabold shadow-soft transition-all hover:opacity-90 active:scale-[0.98] cursor-pointer disabled:opacity-50"
+                className="h-10 px-5 inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground text-xs font-extrabold shadow-soft transition-all hover:opacity-90 active:scale-[0.98] cursor-pointer disabled:opacity-50"
                 onClick={() => perform("save")}
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -450,7 +785,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       </div>
 
       <fieldset disabled={busy} className="space-y-6 disabled:opacity-75">
-        {/* 2. CARD: DESTINO & REGRAS DO FLUXO */}
+        {/* 2. CARD: DESTINO & REGRAS DO FLUXO COM CUSTOMSELECTS */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -523,7 +858,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               />
             </div>
 
-            {/* Funil de Destino */}
+            {/* Funil de Destino (CustomSelect) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -537,23 +872,19 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   </span>
                 </SystemTooltip>
               </div>
-              <SystemTooltip content="Selecione o funil comercial no CRM">
-                <select
-                  className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
-                  value={form.pipelineId}
-                  onChange={(e) => change({ pipelineId: e.target.value, stageId: "" })}
-                >
-                  <option value="">Selecione um Funil Comercial...</option>
-                  {options.pipelines.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </SystemTooltip>
+              <CustomSelect
+                value={form.pipelineId}
+                onChange={(val) => change({ pipelineId: val, stageId: "" })}
+                options={pipelineOptionsList}
+                placeholder="Selecione um Funil Comercial..."
+                tooltip="Selecione o funil comercial no CRM Tecfag"
+                searchable={pipelineOptionsList.length > 5}
+                searchPlaceholder="Buscar funil..."
+                icon={Target}
+              />
             </div>
 
-            {/* Etapa Inicial */}
+            {/* Etapa Inicial (CustomSelect) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -567,28 +898,20 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   </span>
                 </SystemTooltip>
               </div>
-              <SystemTooltip content="Selecione a etapa inicial deste funil">
-                <select
-                  className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer disabled:opacity-50"
-                  value={form.stageId}
-                  disabled={!form.pipelineId}
-                  onChange={(e) => change({ stageId: e.target.value })}
-                >
-                  <option value="">
-                    {form.pipelineId ? "Selecione a Etapa Inicial..." : "Escolha o funil primeiro"}
-                  </option>
-                  {options.stages
-                    .filter((s) => s.pipelineId === form.pipelineId)
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                </select>
-              </SystemTooltip>
+              <CustomSelect
+                value={form.stageId}
+                onChange={(val) => change({ stageId: val })}
+                options={stageOptionsList}
+                placeholder={form.pipelineId ? "Selecione a Etapa Inicial..." : "Escolha o funil primeiro"}
+                tooltip="Selecione a etapa inicial deste funil"
+                disabled={!form.pipelineId}
+                searchable={stageOptionsList.length > 5}
+                searchPlaceholder="Buscar etapa..."
+                icon={GitBranch}
+              />
             </div>
 
-            {/* Responsável Padrão */}
+            {/* Responsável Padrão (CustomSelect com Busca) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -601,23 +924,19 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   </span>
                 </SystemTooltip>
               </div>
-              <SystemTooltip content="Selecione o vendedor ou deixe em branco">
-                <select
-                  className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
-                  value={form.operatorId || ""}
-                  onChange={(e) => change({ operatorId: e.target.value || null })}
-                >
-                  <option value="">Sem responsável inicial (Triagem / Rodízio)</option>
-                  {options.owners.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
-              </SystemTooltip>
+              <CustomSelect
+                value={form.operatorId || ""}
+                onChange={(val) => change({ operatorId: val || null })}
+                options={ownerOptionsList}
+                placeholder="Sem responsável inicial (Triagem / Rodízio)"
+                tooltip="Selecione o vendedor responsável ou deixe sem responsável para triagem"
+                searchable={true}
+                searchPlaceholder="Buscar vendedor / consultor..."
+                icon={User}
+              />
             </div>
 
-            {/* Regra de Criação de Cards */}
+            {/* Regra de Criação de Cards (CustomSelect) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -630,24 +949,22 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   </span>
                 </SystemTooltip>
               </div>
-              <SystemTooltip content="Escolha a estratégia de criação de cards no CRM">
-                <select
-                  className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
-                  value={form.deduplication}
-                  onChange={(e) =>
-                    change({
-                      deduplication: e.target.value as FlowSettings["deduplication"],
-                      eventIdPath:
-                        e.target.value === "event" && !form.eventIdPath
-                          ? "rd_conversion.id"
-                          : form.eventIdPath,
-                    })
-                  }
-                >
-                  <option value="event">Um card por conversão (Recomendado — Padrão)</option>
-                  <option value="lead">Apenas um card por lead (Ignora novas conversões)</option>
-                </select>
-              </SystemTooltip>
+              <CustomSelect
+                value={form.deduplication}
+                onChange={(val) =>
+                  change({
+                    deduplication: val as FlowSettings["deduplication"],
+                    eventIdPath:
+                      val === "event" && !form.eventIdPath
+                        ? "rd_conversion.id"
+                        : form.eventIdPath,
+                  })
+                }
+                options={deduplicationOptionsList}
+                placeholder="Selecione a estratégia de cards..."
+                tooltip="Escolha a estratégia de criação de cards no CRM"
+                icon={Layers}
+              />
             </div>
 
             {/* Campo Identificador do Evento (Quando por evento) */}
@@ -729,7 +1046,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            {/* Conversão Usada na Atribuição */}
+            {/* Conversão Usada na Atribuição (CustomSelect) */}
             <div className="space-y-1.5 md:col-span-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
@@ -741,22 +1058,14 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   </span>
                 </SystemTooltip>
               </div>
-              <SystemTooltip content="Escolha entre a primeira ou a última conversão">
-                <select
-                  className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
-                  value={form.attributionConversion || "last"}
-                  onChange={(e) =>
-                    change({ attributionConversion: e.target.value as "first" | "last" })
-                  }
-                >
-                  <option value="last">
-                    Última Conversão (Recomendado — Canal recente que gerou o pedido de contato)
-                  </option>
-                  <option value="first">
-                    Primeira Conversão (Primeiro ponto de contato histórico do lead com a marca)
-                  </option>
-                </select>
-              </SystemTooltip>
+              <CustomSelect
+                value={form.attributionConversion || "last"}
+                onChange={(val) => change({ attributionConversion: val as "first" | "last" })}
+                options={attributionOptionsList}
+                placeholder="Escolha o momento de conversão..."
+                tooltip="Defina o modelo de atribuição (primeira ou última conversão)"
+                icon={Clock}
+              />
             </div>
 
             {/* Toggle 1: Nome do fluxo como campanha */}
@@ -833,7 +1142,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
             <SystemTooltip content="Adiciona uma nova linha de correspondência de campo">
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 text-xs font-extrabold text-primary-foreground bg-primary hover:bg-primary/90 px-4 py-2 rounded-2xl transition-all cursor-pointer shadow-soft active:scale-[0.98]"
+                className="inline-flex items-center gap-1.5 text-xs font-extrabold text-primary-foreground bg-primary hover:bg-primary/90 px-4 py-2 rounded-xl transition-all cursor-pointer shadow-soft active:scale-[0.98]"
                 onClick={() =>
                   change({
                     mappings: [
@@ -901,11 +1210,13 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
             ))}
           </datalist>
 
-          {/* TABELA / LISTA DE MAPEAMENTO DE CAMPOS COM ANIMAÇÃO */}
+          {/* TABELA / LISTA DE MAPEAMENTO DE CAMPOS COM CUSTOMSELECT */}
           <div className="space-y-3">
             <div className="hidden md:grid md:grid-cols-[1.2fr_auto_1.6fr_1fr_auto] gap-3 px-3 text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">
               <span>Campo no RD Station</span>
-              <span className="w-5 text-center">→</span>
+              <span className="w-5 text-center flex items-center justify-center">
+                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+              </span>
               <span>Inserir no CRM Tecfag</span>
               <span>Valor Padrão (Fallback Opcional)</span>
               <span className="w-8 text-center">Ações</span>
@@ -932,7 +1243,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                         <SystemTooltip content="Nome da chave/variável enviada no webhook (ex: name, email, mobile_phone, cf_produto)">
                           <input
                             aria-label={`Campo de origem ${index + 1}`}
-                            className="w-full h-9 rounded-xl border border-border bg-background px-3 text-xs font-mono text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                            className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs font-mono text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                             list="rd-marketing-paths"
                             value={mapping.source}
                             onChange={(e) => changeMapping(index, { source: e.target.value })}
@@ -946,38 +1257,23 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                         <ArrowRight className="h-4 w-4 text-primary" />
                       </div>
 
-                      {/* Campo de Destino */}
+                      {/* Campo de Destino com CustomSelect */}
                       <div className="space-y-1">
                         <label className="text-[11px] font-bold text-muted-foreground md:hidden">
                           Inserir no CRM
                         </label>
-                        <SystemTooltip content="Campo onde o dado será gravado no cadastro do contato, empresa ou negociação">
-                          <select
-                            aria-label={`Campo de destino ${index + 1}`}
-                            className="w-full h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
-                            value={mapping.target}
-                            onChange={(e) =>
-                              changeMapping(index, { target: e.target.value, valueMap: undefined })
-                            }
-                          >
-                            <optgroup label="Campos Padrão do CRM">
-                              {Object.entries(standardTargets).map(([value, label]) => (
-                                <option key={value} value={value}>
-                                  {label}
-                                </option>
-                              ))}
-                            </optgroup>
-                            {customTargets.length > 0 && (
-                              <optgroup label="Campos Personalizados">
-                                {customTargets.map((target) => (
-                                  <option key={target.value} value={target.value}>
-                                    {target.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            )}
-                          </select>
-                        </SystemTooltip>
+                        <CustomSelect
+                          value={mapping.target}
+                          onChange={(val) =>
+                            changeMapping(index, { target: val, valueMap: undefined })
+                          }
+                          options={mappingTargetOptionsList}
+                          placeholder="Selecione o campo de destino no CRM..."
+                          tooltip="Campo de contato, empresa ou negócio onde os dados serão salvos"
+                          searchable={true}
+                          searchPlaceholder="Buscar campo do CRM..."
+                          icon={FileText}
+                        />
                       </div>
 
                       {/* Valor Padrão (Fallback) */}
@@ -987,7 +1283,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                         </label>
                         <SystemTooltip content="Valor preenchido caso o formulário seja enviado com este campo em branco">
                           <input
-                            className="w-full h-9 rounded-xl border border-border bg-background px-3 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                            className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                             value={
                               Array.isArray(mapping.fallback)
                                 ? JSON.stringify(mapping.fallback)
@@ -1325,9 +1621,10 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
             </div>
 
             <div className="rounded-xl bg-card/60 border border-primary/20 p-3 text-xs text-muted-foreground space-y-1">
-              <p className="font-semibold text-foreground">
-                📌 Como configurar no painel do RD Station Marketing:
-              </p>
+              <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                <Bookmark className="h-4 w-4 text-primary" />
+                <span>Como configurar no painel do RD Station Marketing:</span>
+              </div>
               <p>
                 1. No RD Station, acesse <strong>Automações</strong> ou <strong>Fluxos de Automação</strong>.
               </p>
@@ -1411,7 +1708,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               onClick={handleRefreshLogs}
             >
               <RefreshCw
-                className={`h-3.5 w-3.5 text-primary ${refreshingLogs ? "animate-spin" : ""}`}
+                className={cn("h-3.5 w-3.5 text-primary", refreshingLogs && "animate-spin")}
               />
               Atualizar
             </button>
@@ -1434,7 +1731,6 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               const flowName = flows.find((f) => f.id === log.flowId)?.settings.name || "Fluxo Geral";
               const isSuccess = log.status === "created";
               const isDuplicate = log.status === "duplicate";
-              const isError = log.status === "error";
 
               return (
                 <div
@@ -1456,13 +1752,14 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                       <div className="flex items-center gap-2">
                         <Badge
                           variant={isSuccess ? "default" : isDuplicate ? "secondary" : "destructive"}
-                          className={`text-[10px] font-bold ${
+                          className={cn(
+                            "text-[10px] font-bold",
                             isSuccess
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                               : isDuplicate
                                 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                                : "bg-destructive/10 text-destructive border border-destructive/20"
-                          }`}
+                                : "bg-destructive/10 text-destructive border border-destructive/20",
+                          )}
                         >
                           {isSuccess
                             ? "Card Criado no CRM"
