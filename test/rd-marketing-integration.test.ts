@@ -119,6 +119,60 @@ describe.skipIf(!testUrl)("RD Marketing: PostgreSQL isolado", () => {
     if (database) await database.client.end();
   });
 
+  test("diagnóstico preserva falhas sem dados pessoais e exige admin do tenant correto", async () => {
+    const { listRdDiagnostics, recordRdDiagnostic } =
+      await import("../src/lib/rd-marketing/diagnostic-store");
+    const payload = {
+      leads: [
+        {
+          ...makeLead(),
+          mobile_phone: "",
+          personal_phone: "11987654321",
+          last_conversion: { conversion_origin: { source: "unknown", campaign: "unknown" } },
+        },
+      ],
+    };
+    const strictFlow = {
+      ...flow,
+      settings: { ...config, attributionConversion: "last" as const, requireAttribution: true },
+    };
+    await expect(service.receiveLeads(strictFlow, payload)).rejects.toThrow("Fonte e Campanha");
+    const samples = await listRdDiagnostics(tenantId, flow.id);
+    expect(samples).toHaveLength(1);
+    expect(JSON.stringify(samples)).not.toContain(payload.leads[0].email);
+    expect(
+      samples[0].diagnostic.sampledLeads[0].fields.find((field) => field.target === "contact.phone")
+        ?.source,
+    ).toBe("personal_phone");
+    expect(await listRdDiagnostics(otherTenantId, flow.id)).toHaveLength(0);
+    expect((await service.listFlows(tenantId)).logs).toHaveLength(0);
+    const handler = (await import("../src/routes/api/settings/rd-marketing/diagnostics")).Route
+      .options.server!.handlers!.GET!;
+    const invoke = (cookie?: string) =>
+      handler({
+        request: new Request(
+          "http://localhost/api/settings/rd-marketing/diagnostics?tenantId=ignored&flowId=" +
+            flow.id,
+          { headers: cookie ? { Cookie: cookie } : {} },
+        ),
+      } as never) as Promise<Response>;
+    expect((await invoke()).status).toBe(401);
+    expect((await invoke(agentCookie)).status).toBe(403);
+    expect((await invoke(adminCookie)).status).toBe(200);
+    for (let index = 0; index < 21; index++) await recordRdDiagnostic(flow, payload);
+    expect(await listRdDiagnostics(tenantId, flow.id)).toHaveLength(20);
+    const rows = await database.db
+      .select()
+      .from(schema.rdMarketingLogs)
+      .where(
+        and(
+          eq(schema.rdMarketingLogs.tenantId, tenantId),
+          eq(schema.rdMarketingLogs.status, "diagnostic"),
+        ),
+      );
+    expect(rows).toHaveLength(20);
+  });
+
   test("consulta a URL existente sem criar cards, recibos ou logs", async () => {
     const tables = [schema.crmDeals, schema.rdMarketingReceipts, schema.rdMarketingLogs];
     const before = await Promise.all(

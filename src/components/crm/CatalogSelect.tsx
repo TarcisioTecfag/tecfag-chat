@@ -91,7 +91,7 @@ export function CatalogSelect({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__none__">{placeholder}</SelectItem>
-          {legacy && <SelectItem value={value}>{value} (valor anterior)</SelectItem>}
+          {legacy && <SelectItem value={value}>{value} (fora do catálogo)</SelectItem>}
           {items.map((item) => (
             <SelectItem key={item.id} value={item.name}>
               {item.name}

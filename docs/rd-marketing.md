@@ -61,6 +61,35 @@ Rotacionar a URL invalida a anterior imediatamente para novos recebimentos. Atua
 
 Esta entrega cobre a entrada de leads e criação local. Não envia status de venda/perda de volta ao RD Marketing, não importa a base histórica e não inicia conversas ou mensagens de WhatsApp.
 
+## Diagnóstico e qualidade dos dados
+
+O painel mostra o e-mail salvo do contato e distingue ausência de empresa de ausência de contato.
+Fonte/Campanha fora do catálogo continuam preservadas, identificadas como “fora do catálogo”.
+O histórico mostra o ID completo do card para diferenciar negociações criadas na mesma data.
+
+O telefone padrão tenta `mobile_phone` e depois `personal_phone`, inclusive nos fluxos antigos
+que usavam somente o padrão. Cada mapeamento aceita até 10 campos alternativos, em ordem.
+Alternativas explícitas vazias desativam essa tentativa; caminhos personalizados não recebem
+alternativas automáticas. No painel, use **Usar celular ou telefone padrão do RD** ou preencha os
+campos alternativos e salve. Valor padrão é usado apenas se todos os campos estiverem vazios.
+
+Com **Exigir Fonte e Campanha** ativado, valores como `unknown`, `null`, `undefined` e
+“Não informada” são rejeitados. Com a exigência desativada, os valores recebidos continuam
+preservados e o diagnóstico aponta as ausências. Nunca substituir atribuição por outra conversão
+nem deduzir a campanha pelo nome de uma regra.
+
+**Diagnóstico dos dados recebidos** mostra as últimas 20 amostras de cada integração, com até
+5 leads por envio, caminhos encontrados, campos efetivamente usados e alertas de dados ausentes.
+O JSON é mascarado: textos, números e campos personalizados têm seus valores ocultados, mantendo
+a estrutura e campos vazios. A captura acontece antes da validação do payload dentro do serviço,
+incluindo falhas de atribuição. As amostras usam o histórico existente com status separado
+`diagnostic`, sem migration, e não aparecem como falhas na auditoria comum. A retenção remove
+somente amostras antigas do mesmo fluxo e tenant; os logs de criação e erro são preservados.
+A consulta exige sessão admin e usa exclusivamente o tenant da sessão.
+
+Eventos anteriores sem amostra não podem ser reconstruídos. Esta correção não altera em lote os
+cards, notas, atribuição ou cadastros já importados e não rotaciona os webhooks.
+
 ## Validação local
 
 Ao reabrir o painel, ele carrega as configurações do servidor e seleciona o último fluxo salvo

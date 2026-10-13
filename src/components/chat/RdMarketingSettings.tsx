@@ -50,11 +50,13 @@ import {
   conversionForLead,
   defaultMappings,
   extractLeads,
+  mappingSourceAlternatives,
   standardTargets,
   type FlowSettings,
   type Mapping,
 } from "@/lib/rd-marketing/mapping";
 import { rememberRdMarketingFlow, restoreRdMarketingFlow } from "@/lib/rd-marketing/selection";
+import { RdMarketingDiagnostics } from "./RdMarketingDiagnostics";
 
 type Field = {
   id: string;
@@ -645,8 +647,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       value: "first",
       label: "Primeira Conversão (Primeiro ponto de contato histórico do lead)",
       icon: Calendar,
-      tooltip:
-        "Grava no CRM a primeira campanha e fonte que atraiu o lead originalmente",
+      tooltip: "Grava no CRM a primeira campanha e fonte que atraiu o lead originalmente",
     },
   ];
 
@@ -688,8 +689,12 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
     return (
       <div className="flex flex-col items-center justify-center p-12 bg-card border border-border rounded-3xl shadow-soft min-h-[220px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
-        <span className="text-sm font-semibold text-foreground">Carregando integração RD Marketing...</span>
-        <span className="text-xs text-muted-foreground mt-1">Carregando funis, etapas, vendedores e mapeamento</span>
+        <span className="text-sm font-semibold text-foreground">
+          Carregando integração RD Marketing...
+        </span>
+        <span className="text-xs text-muted-foreground mt-1">
+          Carregando funis, etapas, vendedores e mapeamento
+        </span>
       </div>
     );
 
@@ -722,7 +727,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               </h3>
               <p className="text-xs text-muted-foreground mt-1 max-w-2xl leading-relaxed">
                 Capture leads instantaneamente via Webhook da RD Station. Os dados recebidos geram
-                automaticamente contatos, empresas e oportunidades no funil selecionado sem duplicidades.
+                automaticamente contatos, empresas e oportunidades no funil selecionado sem
+                duplicidades.
               </p>
             </div>
           </div>
@@ -731,12 +737,16 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
           {selectedFlow && (
             <div className="flex items-center gap-3 bg-muted/40 border border-border rounded-2xl p-3 shrink-0">
               <div className="text-right">
-                <div className="text-[11px] font-bold text-muted-foreground uppercase">Status do Fluxo</div>
+                <div className="text-[11px] font-bold text-muted-foreground uppercase">
+                  Status do Fluxo
+                </div>
                 <div className="text-xs font-extrabold text-foreground flex items-center justify-end gap-1.5 mt-0.5">
                   <span
                     className={cn(
                       "h-2 w-2 rounded-full",
-                      selectedFlow.settings.enabled ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground",
+                      selectedFlow.settings.enabled
+                        ? "bg-emerald-500 animate-pulse"
+                        : "bg-muted-foreground",
                     )}
                   />
                   {selectedFlow.settings.enabled ? "Recebendo Leads" : "Fluxo Pausado"}
@@ -828,7 +838,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   1. Destino e Regras do Fluxo no CRM
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  Nomeie o fluxo e escolha para qual funil e etapa comercial os cards serão enviados.
+                  Nomeie o fluxo e escolha para qual funil e etapa comercial os cards serão
+                  enviados.
                 </p>
               </div>
             </div>
@@ -928,7 +939,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 value={form.stageId}
                 onChange={(val) => change({ stageId: val })}
                 options={stageOptionsList}
-                placeholder={form.pipelineId ? "Selecione a Etapa Inicial..." : "Escolha o funil primeiro"}
+                placeholder={
+                  form.pipelineId ? "Selecione a Etapa Inicial..." : "Escolha o funil primeiro"
+                }
                 tooltip="Selecione a etapa inicial deste funil"
                 disabled={!form.pipelineId}
                 searchable={stageOptionsList.length > 5}
@@ -981,9 +994,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   change({
                     deduplication: val as FlowSettings["deduplication"],
                     eventIdPath:
-                      val === "event" && !form.eventIdPath
-                        ? "rd_conversion.id"
-                        : form.eventIdPath,
+                      val === "event" && !form.eventIdPath ? "rd_conversion.id" : form.eventIdPath,
                   })
                 }
                 options={deduplicationOptionsList}
@@ -1039,7 +1050,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   2. Atribuição de Marketing (Fonte & Campanha)
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  Configure como a origem do lead (Google, Meta, E-mail) e a campanha são associadas à negociação.
+                  Configure como a origem do lead (Google, Meta, E-mail) e a campanha são associadas
+                  à negociação.
                 </p>
               </div>
             </div>
@@ -1160,7 +1172,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Associe quais campos do RD Station Marketing preencherão os dados de Contato, Empresa e Negociação.
+                  Associe quais campos do RD Station Marketing preencherão os dados de Contato,
+                  Empresa e Negociação.
                 </p>
               </div>
             </div>
@@ -1171,10 +1184,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 className="inline-flex items-center gap-1.5 text-xs font-extrabold text-primary-foreground bg-primary hover:bg-primary/90 px-4 py-2 rounded-xl transition-all cursor-pointer shadow-soft active:scale-[0.98]"
                 onClick={() =>
                   change({
-                    mappings: [
-                      ...form.mappings,
-                      { source: "", target: "deal.initialNote" },
-                    ],
+                    mappings: [...form.mappings, { source: "", target: "deal.initialNote" }],
                   })
                 }
               >
@@ -1250,7 +1260,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
 
             <AnimatePresence initial={false}>
               {form.mappings.map((mapping, index) => {
-                const custom = customTargets.find((target) => target.value === mapping.target)?.field;
+                const custom = customTargets.find(
+                  (target) => target.value === mapping.target,
+                )?.field;
                 return (
                   <motion.div
                     key={`${index}-${mapping.target}`}
@@ -1328,9 +1340,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                               changeMapping(index, { fallback: value });
                             }}
                             placeholder={
-                              custom?.fieldType === "multiple"
-                                ? '["opcao-id"]'
-                                : "Se vier vazio..."
+                              custom?.fieldType === "multiple" ? '["opcao-id"]' : "Se vier vazio..."
                             }
                           />
                         </SystemTooltip>
@@ -1353,6 +1363,42 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                       </div>
                     </div>
 
+                    <label className="block space-y-1 text-xs text-muted-foreground">
+                      <span>Campos alternativos, em ordem (se o campo principal vier vazio)</span>
+                      <input
+                        aria-label={`Campos alternativos ${index + 1}`}
+                        className="w-full h-9 rounded-xl border border-border bg-background px-3 text-xs font-mono"
+                        value={mappingSourceAlternatives(mapping).join(", ")}
+                        placeholder="Ex.: personal_phone, cf_whatsapp"
+                        onChange={(e) =>
+                          changeMapping(index, {
+                            sourceAlternatives: e.target.value.trim()
+                              ? e.target.value.split(",").map((path) => path.trim())
+                              : [],
+                          })
+                        }
+                        onBlur={() =>
+                          changeMapping(index, {
+                            sourceAlternatives: mappingSourceAlternatives(mapping).filter(Boolean),
+                          })
+                        }
+                      />
+                      {mapping.target === "contact.phone" && (
+                        <button
+                          type="button"
+                          className="block text-primary hover:underline"
+                          onClick={() =>
+                            changeMapping(index, {
+                              source: "mobile_phone",
+                              sourceAlternatives: ["personal_phone"],
+                            })
+                          }
+                        >
+                          Usar celular ou telefone padrão do RD
+                        </button>
+                      )}
+                    </label>
+
                     {/* MAPEAMENTO DE VALORES PARA CAMPOS SELECT COM OPÇÕES */}
                     {!!custom?.options.length && (
                       <div className="mt-2 space-y-2 rounded-xl bg-muted/30 border border-border p-3 text-xs">
@@ -1366,7 +1412,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                               <span className="text-[11px] font-bold text-foreground block truncate">
                                 {option.label}
                               </span>
-                              <SystemTooltip content={`Digite como o valor de '${option.label}' chega no payload do RD`}>
+                              <SystemTooltip
+                                content={`Digite como o valor de '${option.label}' chega no payload do RD`}
+                              >
                                 <input
                                   className="w-full h-8 rounded-lg border border-border bg-background px-2.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40"
                                   placeholder="Valor no RD"
@@ -1418,7 +1466,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   4. Simulador e Validador de Integração
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  Cole um exemplo de JSON recebido do RD Station para testar os mapeamentos sem alterar dados reais.
+                  Cole um exemplo de JSON recebido do RD Station para testar os mapeamentos sem
+                  alterar dados reais.
                 </p>
               </div>
             </div>
@@ -1652,11 +1701,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                   onClick={() => handleCopyUrl(url)}
                   className="h-11 px-4 inline-flex items-center justify-center rounded-2xl bg-primary text-primary-foreground font-bold text-xs shadow-soft transition-all hover:opacity-90 active:scale-[0.98] cursor-pointer shrink-0"
                 >
-                  {copied ? (
-                    <Check className="h-4 w-4 text-white" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
+                  {copied ? <Check className="h-4 w-4 text-white" /> : <Copy className="h-4 w-4" />}
                 </button>
               </SystemTooltip>
             </div>
@@ -1667,13 +1712,15 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 <span>Como configurar no painel do RD Station Marketing:</span>
               </div>
               <p>
-                1. No RD Station, acesse <strong>Automações</strong> ou <strong>Fluxos de Automação</strong>.
+                1. No RD Station, acesse <strong>Automações</strong> ou{" "}
+                <strong>Fluxos de Automação</strong>.
               </p>
               <p>
                 2. Adicione a ação <strong>"Enviar Leads para Integração"</strong> (Webhook).
               </p>
               <p>
-                3. Cole a URL acima. Cada novo lead qualificado será importado automaticamente para o funil do CRM Tecfag.
+                3. Cole a URL acima. Cada novo lead qualificado será importado automaticamente para
+                o funil do CRM Tecfag.
               </p>
             </div>
           </motion.div>
@@ -1719,6 +1766,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
         </div>
       </fieldset>
 
+      {id && <RdMarketingDiagnostics tenant={tenant} flowId={id} />}
+
       {/* 8. CARD: HISTÓRICO DE EVENTOS E RECEBIMENTOS (LOGS) */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -1763,13 +1812,15 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
               Nenhum recebimento registrado recentemente.
             </p>
             <p className="text-[11px] text-muted-foreground/80 mt-0.5">
-              Quando o RD Station disparar o webhook deste fluxo, os eventos aparecerão listados aqui.
+              Quando o RD Station disparar o webhook deste fluxo, os eventos aparecerão listados
+              aqui.
             </p>
           </div>
         ) : (
           <div className="space-y-2.5">
             {logs.map((log) => {
-              const flowName = flows.find((f) => f.id === log.flowId)?.settings.name || "Fluxo Geral";
+              const flowName =
+                flows.find((f) => f.id === log.flowId)?.settings.name || "Fluxo Geral";
               const isSuccess = log.status === "created";
               const isDuplicate = log.status === "duplicate";
 
@@ -1792,7 +1843,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-2">
                         <Badge
-                          variant={isSuccess ? "default" : isDuplicate ? "secondary" : "destructive"}
+                          variant={
+                            isSuccess ? "default" : isDuplicate ? "secondary" : "destructive"
+                          }
                           className={cn(
                             "text-[10px] font-bold",
                             isSuccess
@@ -1810,14 +1863,12 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                         </Badge>
                         <span className="text-xs font-bold text-foreground">{flowName}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {log.message}
-                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{log.message}</p>
                     </div>
                   </div>
 
                   {/* Informações de Data / Hora com Tooltip do Sistema */}
-                  <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+                  <div className="flex flex-wrap items-center justify-end gap-3 min-w-0 self-end sm:self-center">
                     {log.dealId && (
                       <SystemTooltip content={`Ver negociação ${log.dealId} no CRM`}>
                         <a
@@ -1826,7 +1877,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-lg"
                         >
-                          Card #{log.dealId.slice(0, 8)}
+                          Card #{log.dealId}
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       </SystemTooltip>
@@ -1849,7 +1900,9 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                       <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground bg-muted/40 border border-border px-2.5 py-1 rounded-xl cursor-default">
                         <Clock className="h-3 w-3 text-primary" />
                         <span>{formatFullDate(log.createdAt).split(" ")[0]}</span>
-                        <span className="font-mono">{formatFullDate(log.createdAt).split(" ")[1]}</span>
+                        <span className="font-mono">
+                          {formatFullDate(log.createdAt).split(" ")[1]}
+                        </span>
                       </div>
                     </SystemTooltip>
                   </div>

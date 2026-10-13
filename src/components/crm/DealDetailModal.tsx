@@ -2073,6 +2073,12 @@ export function DealDetailModal({
                           {formatContactPhone(c.contact.phone)}
                         </div>
                       )}
+                      {c.contact?.email && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
+                          <Mail className="h-3 w-3 shrink-0" />
+                          <span className="break-all">{c.contact.email}</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between pt-1">
                         <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary uppercase">
                           {c.role || "buyer"}

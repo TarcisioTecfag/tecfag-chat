@@ -394,7 +394,7 @@ export const DealCard = React.memo(function DealCard({
           </>
         ) : (
           <span className="text-[11px] text-muted-foreground/60 italic truncate">
-            Cliente não definido
+            Sem empresa vinculada
           </span>
         )}
       </div>

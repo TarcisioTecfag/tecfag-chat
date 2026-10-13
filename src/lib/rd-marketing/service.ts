@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, or, sql, desc, isNull } from "drizzle-orm";
+import { and, eq, ne, or, sql, desc, isNull } from "drizzle-orm";
 import { db } from "../../db";
 import {
   contacts,
@@ -24,6 +24,7 @@ import {
   type CustomFieldValues,
 } from "../crm/custom-fields";
 import { buildPhoneSearchTerms, normalizeCanonicalPhone } from "../utils";
+import { recordRdDiagnostic } from "./diagnostic-store";
 import {
   availablePaths,
   deliveryIdentity,
@@ -246,6 +247,7 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
   const parsed = flowSettingsSchema.safeParse(flow.settings);
   if (!parsed.success) throw new CrmValidationError("Configuração do fluxo inválida.");
   if (!parsed.data.enabled) throw new CrmValidationError("Fluxo desativado.", "FLOW_DISABLED");
+  await recordRdDiagnostic({ ...flow, settings: parsed.data }, payload);
   const leads = extractLeads(payload);
   // Rejeitar problemas do payload antes de reservar conexões ou abrir uma transação.
   for (const lead of leads) {
@@ -429,7 +431,7 @@ export async function listFlows(tenantId: string) {
         createdAt: rdMarketingLogs.createdAt,
       })
       .from(rdMarketingLogs)
-      .where(eq(rdMarketingLogs.tenantId, tenantId))
+      .where(and(eq(rdMarketingLogs.tenantId, tenantId), ne(rdMarketingLogs.status, "diagnostic")))
       .orderBy(desc(rdMarketingLogs.createdAt))
       .limit(50),
   ]);

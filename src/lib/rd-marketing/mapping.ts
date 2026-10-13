@@ -52,6 +52,10 @@ export const flowSettingsSchema = z
       .array(
         z.object({
           source: safePath,
+          sourceAlternatives: z
+            .array(safePath.refine((path) => !!path))
+            .max(10)
+            .optional(),
           target: z.string().min(1).max(250),
           fallback: z
             .union([z.string().max(5000), z.number(), z.array(z.string().max(200))])
@@ -86,7 +90,7 @@ export type Mapping = FlowSettings["mappings"][number];
 export const defaultMappings: Mapping[] = [
   { source: "name", target: "contact.name" },
   { source: "email", target: "contact.email" },
-  { source: "mobile_phone", target: "contact.phone" },
+  { source: "mobile_phone", sourceAlternatives: ["personal_phone"], target: "contact.phone" },
   { source: "name", target: "deal.title" },
   { source: "rd_attribution.source", target: "deal.source", fallback: "Não informada" },
   { source: "rd_attribution.campaign", target: "deal.campaign" },
@@ -153,6 +157,42 @@ export function readPath(object: unknown, path: string): unknown {
   return value;
 }
 
+export function readMappingValue(lead: Record<string, unknown>, mapping: Mapping) {
+  for (const source of [mapping.source, ...mappingSourceAlternatives(mapping)]) {
+    const value = readPath(lead, source);
+    if (value !== undefined && value !== null && !(typeof value === "string" && !value.trim()))
+      return { value, source, usedFallback: false };
+  }
+  return { value: mapping.fallback, source: null, usedFallback: mapping.fallback !== undefined };
+}
+
+export function mappingSourceAlternatives(mapping: Mapping): string[] {
+  // Fluxos antigos que usavam o padrão recebem a mesma melhoria; [] desativa explicitamente.
+  return (
+    mapping.sourceAlternatives ??
+    (mapping.target === "contact.phone" && mapping.source === "mobile_phone"
+      ? ["personal_phone"]
+      : [])
+  );
+}
+
+export function hasMarketingAttribution(value: unknown): boolean {
+  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return (
+    !!text &&
+    ![
+      "unknown",
+      "undefined",
+      "null",
+      "não informada",
+      "não informado",
+      "desconhecido",
+      "desconhecida",
+      "rd station marketing",
+    ].includes(text)
+  );
+}
+
 export function extractLeads(payload: unknown): Record<string, unknown>[] {
   if (!payload || typeof payload !== "object" || Array.isArray(payload))
     throw new MappingError("Envie um objeto JSON do RD Marketing.");
@@ -210,8 +250,7 @@ export function mapLead(lead: Record<string, unknown>, settings: FlowSettings) {
     deal: { customFields: {} },
   };
   for (const mapping of settings.mappings) {
-    const raw = readPath(sourceLead, mapping.source);
-    let value: unknown = raw === undefined || raw === null || raw === "" ? mapping.fallback : raw;
+    let value: unknown = readMappingValue(sourceLead, mapping).value;
     if (value === undefined || value === null || value === "") continue;
     if (mapping.valueMap) {
       const translate = (entry: unknown) =>
@@ -248,9 +287,7 @@ export function mapLead(lead: Record<string, unknown>, settings: FlowSettings) {
     throw new MappingError("Mapeie o nome da empresa para importar seus dados.");
   if (
     settings.requireAttribution &&
-    (!result.deal.source ||
-      ["Não informada", "RD Station Marketing"].includes(String(result.deal.source)) ||
-      !result.deal.campaign)
+    (!hasMarketingAttribution(result.deal.source) || !hasMarketingAttribution(result.deal.campaign))
   ) {
     throw new MappingError(
       "Fonte e Campanha são obrigatórias neste fluxo. Revise os campos enviados pelo RD e os mapeamentos de marketing.",
