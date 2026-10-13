@@ -26,7 +26,12 @@ import type {
   PacingSellerRow,
   TeamPacingData,
 } from "./pacing-data";
-import type { PerdasCategory, PerdasPeriodData, PerdasPeriodKey } from "./perdas-data";
+import {
+  getLossCategoryMeta,
+  type PerdasCategory,
+  type PerdasPeriodData,
+  type PerdasPeriodKey,
+} from "./perdas-data";
 import type { TVCohortsResponse, TVCohortTierConfig } from "./safras-cohorts-data";
 import type { getCohortAnalysis, getGoalAnalysis, getLossAnalysis } from "./analysis-service";
 import type {
@@ -365,40 +370,6 @@ export function toPacingPresentation(
   };
 }
 
-const lossColors: Array<Pick<PerdasCategory, "iconName" | "colorHex" | "colorClass" | "badgeBg">> =
-  [
-    {
-      iconName: "users",
-      colorHex: "#3b82f6",
-      colorClass: "bg-blue-500 text-blue-400",
-      badgeBg: "border-blue-500/40 bg-blue-950/40 text-blue-300",
-    },
-    {
-      iconName: "zap",
-      colorHex: "#f59e0b",
-      colorClass: "bg-amber-500 text-amber-400",
-      badgeBg: "border-amber-500/40 bg-amber-950/40 text-amber-300",
-    },
-    {
-      iconName: "layers",
-      colorHex: "#a855f7",
-      colorClass: "bg-purple-500 text-purple-400",
-      badgeBg: "border-purple-500/40 bg-purple-950/40 text-purple-300",
-    },
-    {
-      iconName: "dollar",
-      colorHex: "#10b981",
-      colorClass: "bg-emerald-500 text-emerald-400",
-      badgeBg: "border-emerald-500/40 bg-emerald-950/40 text-emerald-300",
-    },
-    {
-      iconName: "clock",
-      colorHex: "#ef4444",
-      colorClass: "bg-red-500 text-red-400",
-      badgeBg: "border-red-500/40 bg-red-950/40 text-red-300",
-    },
-  ];
-
 export function toLossPresentation(data: LossAnalysis): Record<PerdasPeriodKey, PerdasPeriodData> {
   const keys: PerdasPeriodKey[] = ["mes_atual", "mes_passado", "geral_historico"];
   const entries = data.periods.map((period, index) => {
@@ -411,14 +382,20 @@ export function toLossPresentation(data: LossAnalysis): Record<PerdasPeriodKey, 
           timeZone: "UTC",
         }).format(monthDate)
       : "histórico completo";
-    const categories: PerdasCategory[] = period.categories.map((category, colorIndex) => ({
-      key: category.name.toLocaleLowerCase("pt-BR").replace(/\s+/g, "_"),
-      name: category.name,
-      ...lossColors[colorIndex % lossColors.length],
-      count: category.count,
-      percent: category.percent,
-      subReasons: category.subreasons.map((item) => ({ label: item.reason, count: item.count })),
-    }));
+    const categories: PerdasCategory[] = period.categories.map((category) => {
+      const meta = getLossCategoryMeta(category.name);
+      return {
+        key: meta.key,
+        name: category.name,
+        iconName: meta.iconName,
+        colorHex: meta.colorHex,
+        colorClass: meta.colorClass,
+        badgeBg: meta.badgeBg,
+        count: category.count,
+        percent: category.percent,
+        subReasons: category.subreasons.map((item) => ({ label: item.reason, count: item.count })),
+      };
+    });
     return [
       key,
       {

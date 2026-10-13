@@ -8,12 +8,15 @@ import {
   Gauge,
   Layers,
   Plus,
+  RotateCcw,
   Save,
   Sliders,
+  Sparkles,
   Trash2,
   Tv,
 } from "lucide-react";
 import { DEFAULT_MATURITY_RULES, type MaturityRule } from "@/lib/commercial/metrics";
+import { DEFAULT_LOSS_REASON_CATEGORIES } from "@/lib/commercial/perdas-data";
 import { useChat } from "@/hooks/useChatState";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
@@ -1324,25 +1327,63 @@ export function CommercialSettingsPanel() {
                   Agrupe motivos cadastrados no CRM para o ranking executivo do War Room.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSettings((curr) => {
-                    if (!curr) return curr;
-                    return {
-                      ...curr,
-                      lossReasonCategories: [
-                        ...curr.lossReasonCategories,
-                        { name: "", reasons: [] },
-                      ],
-                    };
-                  });
-                }}
-                className="flex items-center gap-1.5 rounded-[2px] font-mono border border-border/80 bg-background px-3 py-1.5 text-xs font-bold text-primary hover:bg-muted transition cursor-pointer dark:border-zinc-800 dark:bg-zinc-900"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Adicionar categoria</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <SystemTooltip content="Preencher o editor com as 5 categorias e os 26 motivos reais mapeados do CRM Tecfag">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettings((curr) => {
+                        if (!curr) return curr;
+                        return {
+                          ...curr,
+                          lossReasonCategories: DEFAULT_LOSS_REASON_CATEGORIES,
+                        };
+                      });
+                    }}
+                    className="flex items-center gap-1.5 rounded-[2px] font-mono border border-border/80 bg-background px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer dark:border-zinc-800 dark:bg-zinc-900"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 text-primary" />
+                    <span>Restaurar 5 Categorias Oficiais</span>
+                  </button>
+                </SystemTooltip>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettings((curr) => {
+                      if (!curr) return curr;
+                      return {
+                        ...curr,
+                        lossReasonCategories: [
+                          ...curr.lossReasonCategories,
+                          { name: "", reasons: [] },
+                        ],
+                      };
+                    });
+                  }}
+                  className="flex items-center gap-1.5 rounded-[2px] font-mono border border-border/80 bg-background px-3 py-1.5 text-xs font-bold text-primary hover:bg-muted transition cursor-pointer dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Adicionar categoria</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Banner do Motor Automático de Classificação */}
+            <div className="mt-3 rounded-[4px] border border-blue-500/30 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-950/20">
+              <div className="flex items-start gap-2">
+                <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                <div className="text-[11px] font-mono text-slate-700 dark:text-zinc-300 leading-relaxed">
+                  <span className="font-bold text-blue-700 dark:text-blue-400">Motor de Classificação Automática Ativo:</span> Motivos vindos do RD Station são analisados e classificados automaticamente nas 5 categorias oficiais pela ordem de precedência:{" "}
+                  <strong className="text-foreground">Concorrência / Solução</strong> (concorr, solucao, competitor) ➔{" "}
+                  <strong className="text-foreground">Preço / Financeiro</strong> (preco, financ, orcamento, valor, budget) ➔{" "}
+                  <strong className="text-foreground">Processo / Prazos</strong> (prazo, entrega, process, demora) ➔{" "}
+                  <strong className="text-foreground">Comportamento / Cliente</strong> (client, comporta, tecnic, especif) ➔{" "}
+                  <strong className="text-foreground">Outros Motivos</strong> (demais casos).
+                  <span className="block mt-1 text-slate-500 dark:text-zinc-400 italic">
+                    As categorias manuais abaixo têm prioridade máxima sobre o motor automático.
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -1417,9 +1458,30 @@ export function CommercialSettingsPanel() {
                 </div>
               ))}
               {!settings.lossReasonCategories.length && (
-                <p className="text-xs font-mono text-muted-foreground italic">
-                  Nenhuma categoria cadastrada. Os motivos aparecerão sem agrupamento no BI.
-                </p>
+                <div className="rounded-[4px] border border-dashed border-border/80 bg-background/30 p-5 text-center">
+                  <p className="text-xs font-mono text-foreground font-semibold">
+                    Nenhuma categoria manual customizada salva no momento.
+                  </p>
+                  <p className="text-[11px] font-mono text-muted-foreground mt-1 max-w-lg mx-auto">
+                    O sistema está utilizando o motor inteligente de classificação automática para agrupar os 26 motivos reais nas 5 categorias oficiais no War Room.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettings((curr) => {
+                        if (!curr) return curr;
+                        return {
+                          ...curr,
+                          lossReasonCategories: DEFAULT_LOSS_REASON_CATEGORIES,
+                        };
+                      });
+                    }}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-[2px] font-mono border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20 transition cursor-pointer"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Carregar as 5 Categorias Oficiais (26 Motivos) no Editor</span>
+                  </button>
+                </div>
               )}
             </div>
           </section>

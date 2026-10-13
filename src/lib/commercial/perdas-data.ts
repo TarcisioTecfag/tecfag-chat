@@ -27,6 +27,195 @@ export interface PerdasPeriodData {
   categories: PerdasCategory[];
 }
 
+export interface LossCategoryDefinition {
+  key: string;
+  name: string;
+  iconName: "users" | "zap" | "layers" | "dollar" | "clock";
+  colorHex: string;
+  colorClass: string;
+  badgeBg: string;
+}
+
+// ─── 5 CATEGORIAS OFICIAIS DO SISTEMA (WAR ROOM & BI TV) ───
+export const OFFICIAL_LOSS_CATEGORIES: Record<string, LossCategoryDefinition> = {
+  "Comportamento / Cliente": {
+    key: "comportamento",
+    name: "Comportamento / Cliente",
+    iconName: "users",
+    colorHex: "#3b82f6",
+    colorClass: "bg-blue-500 text-blue-400",
+    badgeBg: "border-blue-500/40 bg-blue-950/40 text-blue-300",
+  },
+  "Outros Motivos": {
+    key: "outros",
+    name: "Outros Motivos",
+    iconName: "layers",
+    colorHex: "#06b6d4",
+    colorClass: "bg-cyan-500 text-cyan-400",
+    badgeBg: "border-cyan-500/40 bg-cyan-950/40 text-cyan-300",
+  },
+  "Concorrência / Solução": {
+    key: "concorrencia",
+    name: "Concorrência / Solução",
+    iconName: "zap",
+    colorHex: "#f59e0b",
+    colorClass: "bg-amber-500 text-amber-400",
+    badgeBg: "border-amber-500/40 bg-amber-950/40 text-amber-300",
+  },
+  "Preço / Financeiro": {
+    key: "preco",
+    name: "Preço / Financeiro",
+    iconName: "dollar",
+    colorHex: "#ef4444",
+    colorClass: "bg-red-500 text-red-400",
+    badgeBg: "border-red-500/40 bg-red-950/40 text-red-300",
+  },
+  "Processo / Prazos": {
+    key: "processo",
+    name: "Processo / Prazos",
+    iconName: "clock",
+    colorHex: "#a855f7",
+    colorClass: "bg-purple-500 text-purple-400",
+    badgeBg: "border-purple-500/40 bg-purple-950/40 text-purple-300",
+  },
+};
+
+// ─── MAPEAMENTO EXAUSTIVO DOS 26 MOTIVOS REAIS DO CRM TECFAG ───
+export const DEFAULT_LOSS_REASON_CATEGORIES: Array<{ name: string; reasons: string[] }> = [
+  {
+    name: "Comportamento / Cliente",
+    reasons: [
+      "Cliente não atende/responde aos contatos",
+      "Cliente desistiu do investimento",
+      "Lead desqualificado - Cliente fora do perfil",
+      "Cliente migrou para compra direta no site tecfag",
+      "Condições de pagamento incompatíveis ao esperado pelo cliente",
+      "Mudança estratégica da empresa do cliente",
+      "Layout / estrutura do cliente incompatível com o apresentado",
+      "Problemas com assistência técnica",
+      "Cliente não cumpriu com acordo de pagamento firmado",
+      "Empresa do cliente encerrou atividades",
+    ],
+  },
+  {
+    name: "Outros Motivos",
+    reasons: [
+      "Negociação parada sem interação",
+      "Oportunidade em duplicidade / outra oportunidade em andamento",
+      "Fornecedor",
+      "Negociação parada há muito tempo",
+      "Contato inexistente / número errado",
+      "Não gostou do atendimento",
+      "Problemas com frete / logística regional",
+      "Crédito não aprovado por bancos externos",
+      "Outros motivos / não especificado",
+    ],
+  },
+  {
+    name: "Concorrência / Solução",
+    reasons: [
+      "Solução não atende totalmente a necessidade do cliente",
+      "Concorrente com melhor custo benefício",
+      "Não gostou do produto / solução apresentada",
+    ],
+  },
+  {
+    name: "Preço / Financeiro",
+    reasons: [
+      "Valor do investimento acima do esperado pelo cliente",
+      "Crédito não aprovado — financeiro Tecfag",
+    ],
+  },
+  {
+    name: "Processo / Prazos",
+    reasons: [
+      "Prazo de entrega incompatível",
+      "Demora na elaboração da proposta comercial",
+    ],
+  },
+];
+
+/**
+ * Normaliza uma string de motivo de perda para comparação robusta (sem acentos, minúsculas, sem pontuações supérfluas).
+ */
+export function normalizeLossReason(value: string | null | undefined): string {
+  if (!value) return "";
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR")
+    .trim();
+}
+
+/**
+ * Motor de classificação determinística de motivos de perda vindo do RD Station / CRM Tecfag.
+ * Ordem de precedência estrita:
+ * 1. Contém concorr, solucao, competitor ➔ Concorrência / Solução
+ * 2. Contém preco, financ, orcamento, valor, budget ➔ Preço / Financeiro
+ * 3. Contém prazo, entrega, process, demora ➔ Processo / Prazos
+ * 4. Contém client, comporta, tecnic, especif ➔ Comportamento / Cliente
+ * 5. Qualquer outro valor (ou duplicidade, fornecedor, parada) ➔ Outros Motivos
+ */
+export function categorizeLossReason(reason: string | null | undefined): string {
+  if (!reason || !reason.trim()) return "Outros Motivos";
+  const normalized = normalizeLossReason(reason);
+
+  // 1. Contém concorr, solucao, competitor ➔ Concorrência / Solução
+  if (/concorr|solucao|competitor/.test(normalized)) {
+    return "Concorrência / Solução";
+  }
+
+  // 2. Contém preco, financ, orcamento, valor, budget ➔ Preço / Financeiro
+  if (/preco|financ|orcamento|valor|budget/.test(normalized)) {
+    return "Preço / Financeiro";
+  }
+
+  // 3. Contém prazo, entrega, process, demora ➔ Processo / Prazos
+  if (/prazo|entrega|process|demora/.test(normalized)) {
+    return "Processo / Prazos";
+  }
+
+  // 4. Contém client, comporta, tecnic, especif ➔ Comportamento / Cliente (exceto "não especificado" / "outros")
+  if (/client|comporta|tecnic|especif/.test(normalized) && !/nao especificado|outros/.test(normalized)) {
+    return "Comportamento / Cliente";
+  }
+
+  // 5. Qualquer outro valor (ou duplicidade, fornecedor, parada) ➔ Outros Motivos
+  return "Outros Motivos";
+}
+
+/**
+ * Alias funcional para o motor de categorização automática.
+ */
+export const categorize = categorizeLossReason;
+
+/**
+ * Retorna os metadados visuais (chave, cor hexadecimal, classes Tailwind e ícone) da categoria.
+ */
+export function getLossCategoryMeta(categoryName: string): LossCategoryDefinition {
+  const trimmed = categoryName?.trim() || "";
+  if (OFFICIAL_LOSS_CATEGORIES[trimmed]) {
+    return OFFICIAL_LOSS_CATEGORIES[trimmed];
+  }
+
+  const normalized = normalizeLossReason(trimmed);
+  for (const [name, meta] of Object.entries(OFFICIAL_LOSS_CATEGORIES)) {
+    if (normalizeLossReason(name) === normalized) {
+      return meta;
+    }
+  }
+
+  const safeKey = normalized.replace(/[^a-z0-9]/g, "_") || "custom";
+  return {
+    key: safeKey,
+    name: trimmed || "Outros Motivos",
+    iconName: "layers",
+    colorHex: "#06b6d4",
+    colorClass: "bg-cyan-500 text-cyan-400",
+    badgeBg: "border-cyan-500/40 bg-cyan-950/40 text-cyan-300",
+  };
+}
+
 // ─── DADOS DO MÊS ATUAL (FOTO 1 - 55 PERDAS) ───
 export const BASELINE_PERDAS_MES_ATUAL: PerdasPeriodData = {
   key: "mes_atual",

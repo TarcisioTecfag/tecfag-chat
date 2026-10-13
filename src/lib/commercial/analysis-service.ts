@@ -38,6 +38,10 @@ import {
   configuredPipelineId,
   type PipelineByDivision,
 } from "./pipeline-scope";
+import {
+  categorizeLossReason,
+  normalizeLossReason,
+} from "./perdas-data";
 
 type AnalysisOptions = {
   tenantId: string;
@@ -957,8 +961,17 @@ export async function getLossAnalysis(options: AnalysisOptions & { month: string
   const categoryByReason = new Map<string, string>();
   for (const category of scope.lossReasonCategories) {
     for (const reason of category.reasons)
-      categoryByReason.set(reason.trim().toLocaleLowerCase("pt-BR"), category.name);
+      categoryByReason.set(normalizeLossReason(reason), category.name);
   }
+
+  const officialBaseCategories = [
+    "Comportamento / Cliente",
+    "Outros Motivos",
+    "Concorrência / Solução",
+    "Preço / Financeiro",
+    "Processo / Prazos",
+  ];
+
   const periods = [options.month, previousMonth, "all"].map((period) => {
     const selected = period === "all" ? rows : rows.filter((row) => row.month === period);
     const countTotal = selected.reduce((sum, item) => sum + Number(item.count), 0);
@@ -968,13 +981,37 @@ export async function getLossAnalysis(options: AnalysisOptions & { month: string
       string,
       { count: number; value: number; subreasons: Map<string, { count: number; value: number }> }
     >();
+
+    // Pré-inicializar as 5 categorias oficiais para garantir integridade e consistência no War Room
+    for (const catName of officialBaseCategories) {
+      categories.set(catName, {
+        count: 0,
+        value: 0,
+        subreasons: new Map(),
+      });
+    }
+
+    // Inicializar quaisquer categorias customizadas configuradas pelo gestor
+    for (const customCat of scope.lossReasonCategories) {
+      if (customCat.name && !categories.has(customCat.name)) {
+        categories.set(customCat.name, {
+          count: 0,
+          value: 0,
+          subreasons: new Map(),
+        });
+      }
+    }
+
     for (const row of selected) {
       const name = row.reason?.trim() || "Motivo não informado";
-      const categoryName = categoryByReason.get(name.toLocaleLowerCase("pt-BR")) || "Sem categoria";
+      const normalized = normalizeLossReason(name);
+      // Precedência: 1. Associação manual nas configurações; 2. Motor automático inteligente categorize()
+      const categoryName = categoryByReason.get(normalized) || categorizeLossReason(name);
       const item = reasons.get(name) || { count: 0, value: 0 };
       item.count += Number(row.count);
       item.value += Number(row.value);
       reasons.set(name, item);
+
       const category = categories.get(categoryName) || {
         count: 0,
         value: 0,
@@ -1009,6 +1046,7 @@ export async function getLossAnalysis(options: AnalysisOptions & { month: string
             .map(([reason, sub]) => ({ reason, ...sub }))
             .sort((a, b) => b.count - a.count),
         }))
+        .filter((cat) => cat.count > 0 || officialBaseCategories.includes(cat.name))
         .sort((a, b) => b.count - a.count),
     };
   });
