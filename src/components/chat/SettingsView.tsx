@@ -17,6 +17,8 @@ import type { CatalogKind } from "@/lib/crm/catalogs";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { RdMarketingSettings } from "./RdMarketingSettings";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { motion } from "framer-motion";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 
@@ -358,30 +360,48 @@ export function SettingsView() {
   };
 
   const renderRdCrmCard = () => (
-    <div className="rounded-2xl bg-card border border-border p-6 shadow-soft space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, delay: 0.25 }}
+      className="rounded-3xl bg-card border border-border p-6 shadow-soft space-y-4"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary shrink-0 shadow-2xs">
             <Link className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-foreground">Integração RD Station CRM</h3>
-            <p className="text-xs text-muted-foreground">Sincronize contatos, deals e tarefas do CRM automaticamente com o Valem Chat.</p>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-extrabold text-foreground">Integração RD Station CRM</h3>
+              <span className="text-[10px] font-bold text-muted-foreground uppercase bg-muted/70 border border-border px-2 py-0.5 rounded-lg">
+                OAuth 2.0
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Sincronize contatos, oportunidades comerciais e tarefas agendadas diretamente com a conta da {tenant === "valem" ? "Valem" : "Tecfag"}.
+            </p>
           </div>
         </div>
         <div>
           {rdCrmConfigured === null ? (
-            <span className="inline-flex items-center gap-1.5 rounded-xl bg-muted px-3 py-1 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Verificando...
-            </span>
+            <SystemTooltip content="Verificando conexão OAuth 2.0 com os servidores da RD Station">
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-muted px-3 py-1.5 text-xs text-muted-foreground font-semibold">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Verificando...
+              </span>
+            </SystemTooltip>
           ) : rdCrmConfigured ? (
-            <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Conectado
-            </span>
+            <SystemTooltip content="Conexão OAuth 2.0 ativa com tokens renovados automaticamente">
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" /> Conectado Oficialmente
+              </span>
+            </SystemTooltip>
           ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
-              <AlertCircle className="h-3.5 w-3.5" /> Pendente
-            </span>
+            <SystemTooltip content="A integração com a API da RD Station CRM ainda não foi conectada">
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-1.5 text-xs font-bold text-amber-600 dark:text-amber-400">
+                <AlertCircle className="h-4 w-4" /> Pendente de Conexão
+              </span>
+            </SystemTooltip>
           )}
         </div>
       </div>
@@ -389,41 +409,43 @@ export function SettingsView() {
       {!rdCrmConfigured && (
         <div className="space-y-4 pt-2">
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Clique abaixo para autorizar o acesso do Valem Chat à sua conta do RD Station CRM. Você será redirecionado para o portal de login oficial da RD Station.
+            Clique no botão abaixo para autorizar o acesso da plataforma à sua conta do RD Station CRM. Você será redirecionado para o portal de login oficial e seguro da RD Station.
           </p>
-          <button
-            onClick={async () => {
-              setRdCrmConnecting(true);
-              try {
-                const clientId = "1f1aaf46-1ee3-423e-97cc-9f71409b77d6";
-                const redirectUri = encodeURIComponent(`${window.location.origin}/api/settings/rd-crm/callback`);
-                const authUrl = `https://accounts.rdstation.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${tenant}`;
-                window.location.href = authUrl;
-              } catch {
-                setRdCrmConnecting(false);
-              }
-            }}
-            disabled={rdCrmConnecting}
-            className="w-full inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold transition hover:opacity-90 disabled:opacity-60 cursor-pointer shadow-soft"
-          >
-            {rdCrmConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-            Conectar com a RD Station CRM
-          </button>
+          <SystemTooltip content="Iniciar fluxo de autorização segura OAuth 2.0 na RD Station">
+            <button
+              onClick={async () => {
+                setRdCrmConnecting(true);
+                try {
+                  const clientId = "1f1aaf46-1ee3-423e-97cc-9f71409b77d6";
+                  const redirectUri = encodeURIComponent(`${window.location.origin}/api/settings/rd-crm/callback`);
+                  const authUrl = `https://accounts.rdstation.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${tenant}`;
+                  window.location.href = authUrl;
+                } catch {
+                  setRdCrmConnecting(false);
+                }
+              }}
+              disabled={rdCrmConnecting}
+              className="w-full inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary text-primary-foreground text-xs font-extrabold shadow-soft transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 cursor-pointer"
+            >
+              {rdCrmConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+              Conectar com a RD Station CRM (OAuth 2.0)
+            </button>
+          </SystemTooltip>
         </div>
       )}
 
       {rdCrmConfigured && (
-        <div className="rounded-xl bg-muted/40 border border-border p-4 space-y-1">
+        <div className="rounded-2xl bg-muted/40 border border-border p-4 space-y-1.5">
           <div className="flex items-center gap-2 text-xs font-bold text-foreground">
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            Sincronização Ativa com o RD Station CRM
+            Sincronização Ativa em Tempo Real
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            As conversas em triagem, alocações de responsáveis e tarefas agendadas são sincronizadas em tempo real. Os tokens de acesso são renovados automaticamente.
+            As conversas em triagem, alocações de vendedores e tarefas agendadas são sincronizadas em tempo real. Os tokens de acesso são renovados automaticamente em segundo plano.
           </p>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 
   const { canAccessSettingsTab } = usePermissions();
@@ -485,18 +507,19 @@ export function SettingsView() {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as SettingsTab)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-soft"
-                    : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </button>
+              <SystemTooltip key={tab.id} content={`Acessar parâmetros de ${tab.label}`}>
+                <button
+                  onClick={() => setActiveTab(tab.id as SettingsTab)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-[0.98] ${
+                    isActive
+                      ? "bg-primary text-primary-foreground shadow-soft"
+                      : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              </SystemTooltip>
             );
           })}
         </div>
