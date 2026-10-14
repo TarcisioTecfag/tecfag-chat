@@ -2,7 +2,16 @@
  * Plugin Nitro: Inicialização do WhatsAppRecoveryService.
  * Monitora e recupera mensagens presas em 'sending' ou 'processing' após reinicialização/crash.
  */
-export default function recoveryPlugin(nitroApp: any) {
+export default function recoveryPlugin(nitroApp: {
+  hooks: { hook: (name: string, handler: () => void) => void };
+}) {
+  // Commercial delivery must start even if WhatsApp/inbox initialization fails or is busy.
+  void import("../../src/lib/rd-marketing/commercial-recovery.js")
+    .then(({ rdCommercialRecovery }) => {
+      rdCommercialRecovery.start();
+      nitroApp.hooks.hook("close", () => rdCommercialRecovery.stop());
+    })
+    .catch(() => console.error("[RecoveryPlugin] Falha ao iniciar o processador comercial RD."));
   // Nitro 3 não emite listen no runtime Node. Iniciar no carregamento do plugin.
   void (async () => {
     try {
@@ -31,10 +40,10 @@ export default function recoveryPlugin(nitroApp: any) {
         AuditService.getInstance().stop();
         SupervisorEngine.getInstance().stop();
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(
         "[RecoveryPlugin] Erro ao inicializar WhatsAppRecoveryService:",
-        err?.message || err,
+        err instanceof Error ? err.message : "Falha não identificada.",
       );
     }
   })();

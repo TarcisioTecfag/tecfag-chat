@@ -52,10 +52,11 @@ export async function rdRequest(
       401: "A autorização do RD expirou ou foi revogada. Reconecte a conta.",
       403: "O aplicativo não tem permissão para esta consulta no RD.",
       404: "Lead não encontrado no RD Marketing.",
+      422: "O RD recusou os campos enviados. Revise os dados do evento.",
       429: "Limite de consultas do RD atingido. Aguarde e tente novamente.",
     };
     throw new CrmError(
-      messages[response.status] || "Não foi possível consultar o RD.",
+      `${messages[response.status] || "Não foi possível concluir a operação no RD."} (HTTP ${response.status})`,
       `RD_HTTP_${response.status}`,
       response.status >= 500 ? 503 : response.status,
     );

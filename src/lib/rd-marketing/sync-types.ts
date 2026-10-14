@@ -5,6 +5,13 @@ export type RdTestContact = {
   phone: string | null;
 };
 export type RdOutboundScope = "test" | "all";
+export type RdCommercialWorkerStatus = {
+  startedAt: string | null;
+  running: boolean;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastError: string | null;
+};
 export type RdNotificationData = {
   label: string;
   source: string | null;
@@ -17,6 +24,15 @@ export type RdNotificationData = {
   raw: unknown;
 };
 export type RdSyncStatus = {
+  worker: RdCommercialWorkerStatus;
+  testDeals: {
+    id: string;
+    title: string;
+    status: string;
+    primaryContact: string | null;
+    reason: string;
+    latestStatus: string | null;
+  }[];
   outboundEnabled: boolean;
   outboundScope: RdOutboundScope;
   testContact: RdTestContact | null;
@@ -40,5 +56,10 @@ export type RdSyncStatus = {
     status: string;
     lastError: string | null;
     createdAt: string;
+    attempts: number;
+    nextRetryAt: string | null;
+    sentAt: string | null;
+    externalEventId: string | null;
+    waitsFor: { id: string; status: string } | null;
   }[];
 };

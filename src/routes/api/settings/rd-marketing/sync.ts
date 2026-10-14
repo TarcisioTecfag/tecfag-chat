@@ -10,6 +10,7 @@ import {
   saveRdSyncSettings,
   setRdJourneyEndpointEnabled,
 } from "../../../../lib/rd-marketing/sync-settings";
+import { rdCommercialRecovery } from "../../../../lib/rd-marketing/commercial-recovery";
 
 export const Route = createFileRoute("/api/settings/rd-marketing/sync")({
   server: {
@@ -72,6 +73,9 @@ export const Route = createFileRoute("/api/settings/rd-marketing/sync")({
               outboundScope: body.outboundScope,
               testContactUuid: body.testContactUuid as string | null | undefined,
             });
+          } else if (body.action === "process") {
+            // Existing queue only; does not recreate transitions or resend unknown outcomes.
+            void rdCommercialRecovery.processTenant(tenantId);
           } else if (body.action === "register") {
             for (const kind of ["CONVERSION", "OPPORTUNITY"] as const) {
               const hook = await createRdJourneyEndpoint(

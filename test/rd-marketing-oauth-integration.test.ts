@@ -994,6 +994,32 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     const attempts = sent.length;
     const unknown = (await outboxRows()).find((row) => row.status === "unknown")!;
     expect(unknown.eventType).toBe("SALE");
+    const waitingId = randomUUID();
+    await database.db.insert(schema.rdMarketingCommercialOutbox).values({
+      id: waitingId,
+      tenantId,
+      connectionVersion: unknown.connectionVersion,
+      dealId: manual.id,
+      contactId,
+      dealVersion: 100000,
+      eventType: "OPPORTUNITY",
+      payload: { email: "lead@example.com" },
+      snapshot: { title: "Aguarda confirmação anterior" },
+      createdAt: new Date(Date.now() + 1000),
+    });
+    const waiting = (await sync.rdSyncStatus(tenantId, "http://localhost")).deliveries.find(
+      (row) => row.id === waitingId,
+    )!;
+    expect(waiting.waitsFor).toEqual({ id: unknown.id, status: "unknown" });
+    expect(waiting.attempts).toBe(0);
+    await database.db
+      .delete(schema.rdMarketingCommercialOutbox)
+      .where(
+        and(
+          eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId),
+          eq(schema.rdMarketingCommercialOutbox.id, waitingId),
+        ),
+      );
     await runRdCommercialWorker(tenantId, commercialProvider);
     expect(sent).toHaveLength(attempts);
     await sync.reviewRdDelivery(tenantId, unknown.id, actor, "confirmed");
@@ -1321,6 +1347,37 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       .where(eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId));
     expect(rows.some((row) => row.dealId === real.id)).toBe(false);
     expect(rows.find((row) => row.dealId === old.id)?.status).toBe("blocked");
+    await database.db
+      .insert(schema.crmDealContacts)
+      .values({ id: randomUUID(), tenantId, dealId: real.id, contactId, isPrimary: false });
+    const noValue = await crmService.createDeal(tenantId, actor, {
+      ...data,
+      marketingOrigin: true,
+      value: null,
+    });
+    await crmService.updateDeal(tenantId, noValue.id, actor, { status: "won" });
+    const diagnosis = await sync.rdSyncStatus(tenantId, "http://localhost");
+    expect(diagnosis.testDeals.find((deal) => deal.id === real.id)?.reason).toContain(
+      "contato principal",
+    );
+    expect(diagnosis.testDeals.find((deal) => deal.id === noValue.id)?.reason).toContain("valor");
+    expect(
+      diagnosis.deliveries.find(
+        (delivery) => delivery.dealId === mine.id && delivery.eventType === "SALE",
+      ),
+    ).toMatchObject({ attempts: 1, status: "sent" });
+    const processAsAgent = await postSettings({
+      request: new Request("http://localhost/api/settings/rd-marketing/sync", {
+        method: "POST",
+        headers: {
+          Cookie: agentCookie,
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "process", tenantId: otherTenantId }),
+      }),
+    } as never);
+    expect(processAsAgent.status).toBe(403);
     await sync.reviewRdDelivery(
       tenantId,
       rows.find((row) => row.dealId === old.id)!.id,
@@ -1352,6 +1409,16 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect((await receiveLeads(flow, envelope))[0].status).toBe("created");
     const hook = await sync.createRdJourneyEndpoint(tenantId, "CONVERSION", "Entrada livre");
     expect((await notifications.storeJourneyNotification(hook, envelope)).stored).toBe(1);
+    const [rdImported] = await receiveLeads(flow, {
+      ...envelope,
+      event_timestamp: "2026-10-14T15:00:01Z",
+      contact: { uuid: testUuid, name: "Importado do RD", email: testEmail },
+    });
+    expect(
+      (await sync.rdSyncStatus(tenantId, "http://localhost")).testDeals.find(
+        (deal) => deal.id === rdImported.dealId,
+      )?.reason,
+    ).toContain("Card criado pelo RD");
     await crmService.updateDeal(tenantId, second.id, actor, { status: "open" });
     changeTargetOnRead = true;
     await runRdCommercialWorker(tenantId, isolatedProvider);
@@ -1361,9 +1428,9 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     changeTargetOnUnauthorized = true;
     await runRdCommercialWorker(tenantId, isolatedProvider);
     expect(posts).toHaveLength(3);
-    expect((await sync.rdSyncStatus(otherTenantId, "http://localhost")).outboundEnabled).toBe(
-      false,
-    );
+    const otherStatus = await sync.rdSyncStatus(otherTenantId, "http://localhost");
+    expect(otherStatus.outboundEnabled).toBe(false);
+    expect(otherStatus.testDeals).toHaveLength(0);
   }, 30000);
   test("dois contatos locais não recebem o mesmo UUID RD na conexão ativa", async () => {
     await connect();

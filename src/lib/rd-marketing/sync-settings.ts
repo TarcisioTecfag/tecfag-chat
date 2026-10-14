@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { db } from "../../db";
 import {
@@ -17,6 +17,8 @@ import { rdIdentityHash } from "./notifications";
 import { rdPhoneDigits } from "./sync-identity";
 import { normalizeRdContactUuid, rdTestContactUuidError } from "./outbound-scope";
 import type { RdOutboundScope, RdSyncStatus, RdTestContact } from "./sync-types";
+import { rdCommercialRecovery } from "./commercial-recovery";
+import { rdQueueHeads, rdTestDealDiagnostics } from "./commercial-diagnostics";
 
 export function rdJourneyEndpointUrl(requestUrl: string, token: string) {
   const url = new URL(requestUrl);
@@ -44,7 +46,23 @@ export async function rdSyncStatus(tenantId: string, requestUrl: string): Promis
     .where(eq(outbox.tenantId, tenantId))
     .orderBy(desc(outbox.createdAt))
     .limit(30);
+  const [testDeals, heads] = await Promise.all([
+    rdTestDealDiagnostics(tenantId, config, row?.version),
+    rdQueueHeads(tenantId, deliveries),
+  ]);
+  const missingHeads = heads
+    .filter((head) => !deliveries.some((item) => item.id === head.id))
+    .map((head) => head.id);
+  if (missingHeads.length)
+    deliveries.push(
+      ...(await db
+        .select()
+        .from(outbox)
+        .where(and(eq(outbox.tenantId, tenantId), inArray(outbox.id, missingHeads)))),
+    );
   return {
+    worker: rdCommercialRecovery.status(tenantId),
+    testDeals,
     connected: !!(row?.accessTokenEncrypted && row.refreshTokenEncrypted),
     outboundEnabled: !!config?.outboundEnabled && config.connectionVersion === row?.version,
     outboundScope: config?.outboundScope || "test",
@@ -71,6 +89,16 @@ export async function rdSyncStatus(tenantId: string, requestUrl: string): Promis
       status: item.status,
       lastError: item.lastError,
       createdAt: item.createdAt.toISOString(),
+      attempts: item.attempts,
+      nextRetryAt: item.status === "pending" ? item.nextRetryAt.toISOString() : null,
+      sentAt: item.sentAt?.toISOString() || null,
+      externalEventId: item.externalEventId,
+      waitsFor: (() => {
+        const first = heads.find((head) => head.key === (item.contactId || item.dealId));
+        return item.status === "pending" && first && first.id !== item.id
+          ? { id: first.id, status: first.status }
+          : null;
+      })(),
     })),
   };
 }

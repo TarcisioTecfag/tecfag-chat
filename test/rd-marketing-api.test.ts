@@ -115,5 +115,12 @@ describe("RD Marketing: criptografia e leitura", () => {
         throw new Error("secret");
       }) as unknown as typeof fetch),
     ).rejects.toMatchObject({ code: "RD_UNAVAILABLE" });
+    await expect(
+      rdRequest(
+        "/platform/events",
+        { method: "POST" },
+        (async () => new Response("client_secret=hidden", { status: 422 })) as typeof fetch,
+      ),
+    ).rejects.toMatchObject({ code: "RD_HTTP_422", message: expect.stringContaining("HTTP 422") });
   });
 });

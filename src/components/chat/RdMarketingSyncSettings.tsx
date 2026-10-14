@@ -10,7 +10,7 @@ const buttonClass =
 const statuses: Record<string, string> = {
   pending: "Aguardando envio",
   processing: "Enviando",
-  sent: "Registrado no RD",
+  sent: "Recebido pelo RD",
   blocked: "Dados ou conexão precisam de revisão",
   unknown: "Conferir resultado no RD",
   failed: "Falha",
@@ -25,6 +25,7 @@ export function RdMarketingSyncSettings() {
   const [error, setError] = useState("");
   const [commercialError, setCommercialError] = useState("");
   const [commercialSuccess, setCommercialSuccess] = useState("");
+  const [queueFeedback, setQueueFeedback] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [uuidTouched, setUuidTouched] = useState(false);
   const uuidInput = useRef<HTMLInputElement | null>(null);
@@ -104,6 +105,10 @@ export function RdMarketingSyncSettings() {
           }
           setReviewed({});
         }
+        if (body?.action === "process")
+          setQueueFeedback(
+            "Processamento solicitado. Confira o resultado de cada envio abaixo; isso não repete eventos com resultado desconhecido.",
+          );
         return !controller.signal.aborted;
       } catch (reason) {
         if (!controller.signal.aborted) {
@@ -136,6 +141,42 @@ export function RdMarketingSyncSettings() {
     void load();
     return () => pending.current?.abort();
   }, [load]);
+  useEffect(() => {
+    if (!status?.outboundEnabled) return;
+    const controller = new AbortController();
+    let polling = false;
+    const timer = setInterval(async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const response = await fetch(endpoint, { signal: controller.signal });
+        if (response.ok) {
+          const data: RdSyncStatus = await response.json();
+          if (!controller.signal.aborted)
+            setStatus((previous) =>
+              previous &&
+              previous.testContact?.uuid === data.testContact?.uuid &&
+              previous.outboundScope === data.outboundScope
+                ? {
+                    ...previous,
+                    deliveries: data.deliveries,
+                    testDeals: data.testDeals,
+                    worker: data.worker,
+                  }
+                : previous,
+            );
+        }
+      } catch {
+        /* Keep the last local snapshot; no RD API call is made by this refresh. */
+      } finally {
+        polling = false;
+      }
+    }, 10000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [status?.outboundEnabled, status?.outboundScope, status?.testContact?.uuid]);
   return (
     <section className="rounded-2xl border border-border bg-card p-6 space-y-5">
       <div className="flex flex-wrap justify-between gap-3">
@@ -305,6 +346,10 @@ export function RdMarketingSyncSettings() {
               contato precisa existir no Marketing. Alterar uma negociação já encerrada não reenvia
               sua venda ou perda.
             </p>
+            <p className="text-xs text-muted-foreground">
+              No RD Marketing, esses eventos atualizam o estado comercial do lead. Negociações do
+              mesmo contato compartilham esse estado; os dados de cada card permanecem neste CRM.
+            </p>
             <label className="block text-sm">
               Destino dos envios
               <select
@@ -422,11 +467,63 @@ export function RdMarketingSyncSettings() {
               </p>
             )}
           </div>
-          {!!status.deliveries.length && (
+          {(status.outboundEnabled || !!status.deliveries.length) && (
             <div className="space-y-3">
-              <h4 className="text-sm font-semibold">Últimos envios comerciais</h4>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Últimos envios comerciais</h4>
+                <button
+                  type="button"
+                  className={buttonClass}
+                  disabled={busy || !status.outboundEnabled || status.worker?.running}
+                  onClick={() => void load({ action: "process" })}
+                >
+                  Processar fila agora
+                </button>
+              </div>
+              {status.worker && (
+                <div className="rounded-lg bg-muted/30 p-3 text-xs space-y-1">
+                  <p>
+                    Processador neste servidor:{" "}
+                    {status.worker.running
+                      ? "processando"
+                      : status.worker.startedAt
+                        ? "ativo"
+                        : "inicialização automática não confirmada"}
+                    .
+                  </p>
+                  {status.worker.lastStartedAt && (
+                    <p>
+                      Último ciclo: {new Date(status.worker.lastStartedAt).toLocaleString("pt-BR")}.
+                    </p>
+                  )}
+                  {status.worker.lastError && (
+                    <p role="alert" className="text-destructive">
+                      {status.worker.lastError}
+                    </p>
+                  )}
+                  <p>
+                    Este painel atualiza os registros salvos a cada 10 segundos enquanto os envios
+                    estão ativos. Essa atualização não consulta o RD.
+                  </p>
+                </div>
+              )}
+              {queueFeedback && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  {queueFeedback}
+                </p>
+              )}
+              {!status.deliveries.length && (
+                <p className="text-xs text-muted-foreground">
+                  Ainda não há eventos comerciais enfileirados. Confira o diagnóstico das
+                  negociações deste contato abaixo.
+                </p>
+              )}
               {status.deliveries.map((item) => (
-                <div key={item.id} className="rounded-xl border border-border p-3 space-y-2">
+                <div
+                  key={item.id}
+                  id={`rd-delivery-${item.id}`}
+                  className="rounded-xl border border-border p-3 space-y-2 scroll-mt-4"
+                >
                   <div className="flex flex-wrap justify-between gap-2">
                     <a
                       className="text-sm font-semibold text-primary"
@@ -457,6 +554,49 @@ export function RdMarketingSyncSettings() {
                       {item.lastError}
                     </p>
                   )}
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer text-primary">Diagnóstico do envio</summary>
+                    <div className="mt-2 space-y-1">
+                      <p>Tentativas de processamento: {item.attempts ?? 0}.</p>
+                      {item.nextRetryAt && (
+                        <p>
+                          Próxima tentativa a partir de:{" "}
+                          {new Date(item.nextRetryAt).toLocaleString("pt-BR")}.
+                        </p>
+                      )}
+                      {item.sentAt && (
+                        <p>Confirmação: {new Date(item.sentAt).toLocaleString("pt-BR")}.</p>
+                      )}
+                      {item.externalEventId && (
+                        <p className="break-all">ID confirmado pelo RD: {item.externalEventId}.</p>
+                      )}
+                      {item.waitsFor && (
+                        <p className="text-amber-700">
+                          Aguarda um envio anterior deste contato:{" "}
+                          <a
+                            className="text-primary underline"
+                            href={`#rd-delivery-${item.waitsFor.id}`}
+                          >
+                            {statuses[item.waitsFor.status] || item.waitsFor.status}
+                          </a>
+                          . ID: {item.waitsFor.id}. Confira esse envio antes de repetir qualquer
+                          evento.
+                        </p>
+                      )}
+                      {item.status === "unknown" && (
+                        <p>
+                          O RD pode ter recebido este evento. Não será repetido automaticamente;
+                          confira a jornada antes de escolher uma revisão.
+                        </p>
+                      )}
+                      {item.eventType === "OPPORTUNITY_LOST" && (
+                        <p>
+                          A perda é enviada pela API do Marketing. Na jornada RD, ela pode aparecer
+                          como “Foi desmarcado como oportunidade”, em vez de “Negociação perdida”.
+                        </p>
+                      )}
+                    </div>
+                  </details>
                   {["blocked", "failed"].includes(item.status) && (
                     <button
                       className={buttonClass}
@@ -513,6 +653,39 @@ export function RdMarketingSyncSettings() {
                       </div>
                     </div>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+          {!!status.testDeals?.length && (
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold">
+                Diagnóstico das negociações do contato de teste
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                Últimas 30 negociações com esse contato, incluindo vínculos secundários. O envio
+                considera o contato principal e uma transição nova de status.
+              </p>
+              {status.testDeals.map((deal) => (
+                <div key={deal.id} className="rounded-xl border border-border p-3 space-y-1">
+                  <a
+                    className="text-sm font-semibold text-primary"
+                    href={`/crm/deals/${encodeURIComponent(deal.id)}`}
+                  >
+                    {deal.title}
+                  </a>
+                  <p className="text-xs text-muted-foreground">
+                    Status:{" "}
+                    {deal.status === "won"
+                      ? "Ganho"
+                      : deal.status === "lost"
+                        ? "Perdido"
+                        : deal.status === "open"
+                          ? "Em andamento"
+                          : deal.status}
+                    . Contato principal: {deal.primaryContact || "Não definido"}.
+                  </p>
+                  <p className="text-xs">{deal.reason}</p>
                 </div>
               ))}
             </div>
