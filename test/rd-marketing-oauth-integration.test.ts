@@ -1234,6 +1234,47 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       }),
     } as never);
     expect(missingScope.status).toBe(400);
+    const settingsRequest = (testContactUuid: string) =>
+      new Request("http://localhost/api/settings/rd-marketing/sync", {
+        method: "POST",
+        headers: {
+          Cookie: adminCookie,
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "save",
+          outboundEnabled: true,
+          currency: "BRL",
+          outboundScope: "test",
+          testContactUuid,
+          tenantId: otherTenantId,
+        }),
+      });
+    const beforeInvalid = contactReads;
+    const invalidNumber = await postSettings({ request: settingsRequest("1234567890") } as never);
+    expect(invalidNumber.status).toBe(400);
+    expect((await invalidNumber.json()).error).toContain("Um número sozinho não é um UUID");
+    expect(contactReads).toBe(beforeInvalid);
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = isolatedProvider;
+      const savedByRoute = await postSettings({
+        request: settingsRequest(testUuid.toUpperCase()),
+      } as never);
+      expect(savedByRoute.status).toBe(200);
+      expect((await savedByRoute.json()).testContact?.uuid).toBe(testUuid);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const getSettings = (await import("../src/routes/api/settings/rd-marketing/sync")).Route.options
+      .server!.handlers!.GET!;
+    const reloaded = await getSettings({
+      request: new Request("http://localhost/api/settings/rd-marketing/sync", {
+        headers: { Cookie: adminCookie },
+      }),
+    } as never);
+    expect((await reloaded.json()).testContact).toMatchObject({ uuid: testUuid, email: testEmail });
     expect(
       await rejected(
         sync.saveRdSyncSettings(tenantId, true, "BRL", restricted, (async () =>

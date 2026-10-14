@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { RdOutboundScope, RdSyncStatus } from "@/lib/rd-marketing/sync-types";
+import { rdTestContactUuidError } from "@/lib/rd-marketing/outbound-scope";
 
 const endpoint = "/api/settings/rd-marketing/sync";
 const buttonClass =
@@ -22,6 +23,11 @@ export function RdMarketingSyncSettings() {
   const [status, setStatus] = useState<RdSyncStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [commercialError, setCommercialError] = useState("");
+  const [commercialSuccess, setCommercialSuccess] = useState("");
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [uuidTouched, setUuidTouched] = useState(false);
+  const uuidInput = useRef<HTMLInputElement | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [outboundScope, setOutboundScope] = useState<RdOutboundScope>("test");
   const [testContactUuid, setTestContactUuid] = useState("");
@@ -29,60 +35,107 @@ export function RdMarketingSyncSettings() {
   const [label, setLabel] = useState("");
   const [reviewed, setReviewed] = useState<Record<string, boolean>>({});
   const pending = useRef<AbortController | null>(null);
-  async function load(body?: Record<string, unknown>) {
-    pending.current?.abort();
-    const controller = new AbortController();
-    pending.current = controller;
-    setBusy(true);
-    setError("");
-    try {
-      const response = await fetch(
-        endpoint,
-        body
-          ? {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-              signal: controller.signal,
+  const uuidError =
+    outboundScope === "test" ? rdTestContactUuidError(testContactUuid, enabled) : null;
+  const commercialDirty =
+    !!status &&
+    (enabled !== status.outboundEnabled ||
+      currency !== status.currency ||
+      outboundScope !== status.outboundScope ||
+      (outboundScope === "test" &&
+        testContactUuid.trim().toLowerCase() !== (status.testContact?.uuid || "")));
+  const changedCommercial = useCallback(() => {
+    setCommercialError("");
+    setCommercialSuccess("");
+  }, []);
+  function saveCommercial() {
+    changedCommercial();
+    setUuidTouched(true);
+    if (uuidError) {
+      toast.error(uuidError);
+      uuidInput.current?.focus();
+      return;
+    }
+    void load({
+      action: "save",
+      outboundEnabled: enabled,
+      currency,
+      outboundScope,
+      testContactUuid,
+    });
+  }
+  const load = useCallback(
+    async (body?: Record<string, unknown>) => {
+      pending.current?.abort();
+      const controller = new AbortController();
+      pending.current = controller;
+      setBusy(true);
+      const isCommercialSave = body?.action === "save";
+      setPendingAction(typeof body?.action === "string" ? body.action : null);
+      setError("");
+      if (isCommercialSave || !body) changedCommercial();
+      try {
+        const response = await fetch(
+          endpoint,
+          body
+            ? {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+                signal: controller.signal,
+              }
+            : { signal: controller.signal },
+        );
+        const data = await response.json();
+        if (!response.ok)
+          throw new Error(data.error || "Não foi possível carregar a sincronização.");
+        if (!controller.signal.aborted) {
+          setStatus(data);
+          if (!body || isCommercialSave) {
+            setEnabled(data.outboundEnabled);
+            setOutboundScope(data.outboundScope);
+            setTestContactUuid(data.testContact?.uuid || "");
+            setCurrency(data.currency);
+            setUuidTouched(false);
+          }
+          if (isCommercialSave) {
+            setCommercialSuccess("Configuração salva com sucesso no sistema.");
+            toast.success("Retorno comercial salvo com sucesso.");
+          }
+          setReviewed({});
+        }
+        return !controller.signal.aborted;
+      } catch (reason) {
+        if (!controller.signal.aborted) {
+          const message = reason instanceof Error ? reason.message : "Falha na sincronização.";
+          if (isCommercialSave) {
+            setCommercialError(message);
+            toast.error(message);
+          } else setError(message);
+          // Registration can succeed for one webhook and fail for the next; show the saved result.
+          if (body) {
+            try {
+              const response = await fetch(endpoint, { signal: controller.signal });
+              if (response.ok) {
+                const data = await response.json();
+                if (!controller.signal.aborted) setStatus(data);
+              }
+            } catch {
+              /* Keep the last saved status. */
             }
-          : { signal: controller.signal },
-      );
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Não foi possível carregar a sincronização.");
-      if (!controller.signal.aborted) {
-        setStatus(data);
-        setEnabled(data.outboundEnabled);
-        setOutboundScope(data.outboundScope);
-        setTestContactUuid(data.testContact?.uuid || "");
-        setCurrency(data.currency);
-        setReviewed({});
-      }
-      return !controller.signal.aborted;
-    } catch (reason) {
-      if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "Falha na sincronização.");
-        // Registration can succeed for one webhook and fail for the next; show the saved result.
-        if (body) {
-          try {
-            const response = await fetch(endpoint, { signal: controller.signal });
-            if (response.ok) {
-              const data = await response.json();
-              if (!controller.signal.aborted) setStatus(data);
-            }
-          } catch {
-            /* Keep the last saved status. */
           }
         }
+        return false;
+      } finally {
+        if (!controller.signal.aborted) setBusy(false);
       }
-      return false;
-    } finally {
-      if (!controller.signal.aborted) setBusy(false);
-    }
-  }
+    },
+    [changedCommercial],
+  );
   useEffect(() => {
     void load();
     return () => pending.current?.abort();
-  }, []);
+  }, [load]);
   return (
     <section className="rounded-2xl border border-border bg-card p-6 space-y-5">
       <div className="flex flex-wrap justify-between gap-3">
@@ -227,20 +280,23 @@ export function RdMarketingSyncSettings() {
           )}
           <div className="rounded-xl border border-border p-4 space-y-3">
             <h4 className="text-sm font-semibold">Enviar mudanças comerciais para o RD</h4>
-            {status.outboundEnabled && (
-              <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs font-medium">
-                Configuração salva:{" "}
-                {status.outboundScope === "test"
+            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs font-medium">
+              No sistema:{" "}
+              {!status.outboundEnabled
+                ? "envios desativados"
+                : status.outboundScope === "test"
                   ? `teste isolado · ${status.testContact?.name || status.testContact?.uuid || "contato não configurado"}`
                   : "envio para todos os contatos"}
-              </p>
-            )}
+            </p>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={enabled}
                 disabled={busy || !status.connected}
-                onChange={(event) => setEnabled(event.target.checked)}
+                onChange={(event) => {
+                  changedCommercial();
+                  setEnabled(event.target.checked);
+                }}
               />
               Enviar novas oportunidades, vendas e perdas
             </label>
@@ -256,7 +312,10 @@ export function RdMarketingSyncSettings() {
                 className="mt-1 block w-full rounded-lg border border-border bg-background p-2"
                 value={outboundScope}
                 disabled={busy}
-                onChange={(event) => setOutboundScope(event.target.value as RdOutboundScope)}
+                onChange={(event) => {
+                  changedCommercial();
+                  setOutboundScope(event.target.value as RdOutboundScope);
+                }}
               >
                 <option value="test">Teste isolado · apenas um contato</option>
                 <option value="all">Todos os contatos</option>
@@ -267,15 +326,31 @@ export function RdMarketingSyncSettings() {
                 <label className="block text-sm">
                   UUID do contato de teste no RD Marketing
                   <input
+                    ref={uuidInput}
                     aria-label="UUID do contato de teste"
+                    aria-invalid={uuidTouched && !!uuidError}
+                    aria-describedby="rd-commercial-uuid-help"
                     className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs"
                     placeholder="Cole o UUID exibido na consulta do lead"
                     value={testContactUuid}
                     maxLength={36}
                     disabled={busy}
-                    onChange={(event) => setTestContactUuid(event.target.value)}
+                    onBlur={() => setUuidTouched(true)}
+                    onChange={(event) => {
+                      changedCommercial();
+                      setTestContactUuid(event.target.value);
+                    }}
                   />
                 </label>
+                <p id="rd-commercial-uuid-help" className="text-xs text-muted-foreground">
+                  Use o campo “UUID” da consulta do lead, e não o ID numérico. Formato:
+                  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
+                </p>
+                {uuidTouched && uuidError && (
+                  <p role="alert" className="text-xs font-medium text-destructive">
+                    {uuidError}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   O sistema confere este cadastro ao salvar. Somente negociações desse contato
                   enviam oportunidades, vendas e perdas. O recebimento do RD para nossos cards
@@ -298,7 +373,11 @@ export function RdMarketingSyncSettings() {
                 <select
                   className="ml-2 rounded-lg border border-border bg-background p-2"
                   value={currency}
-                  onChange={(event) => setCurrency(event.target.value)}
+                  disabled={busy}
+                  onChange={(event) => {
+                    changedCommercial();
+                    setCurrency(event.target.value);
+                  }}
                 >
                   <option>BRL</option>
                   <option>USD</option>
@@ -308,20 +387,38 @@ export function RdMarketingSyncSettings() {
               <button
                 type="button"
                 className={buttonClass}
-                disabled={busy || (enabled && outboundScope === "test" && !testContactUuid.trim())}
-                onClick={() =>
-                  void load({
-                    action: "save",
-                    outboundEnabled: enabled,
-                    currency,
-                    outboundScope,
-                    testContactUuid,
-                  })
-                }
+                disabled={busy}
+                onClick={saveCommercial}
               >
-                Salvar retorno comercial
+                {busy && pendingAction === "save"
+                  ? "Salvando retorno comercial…"
+                  : "Salvar retorno comercial"}
               </button>
             </div>
+            {commercialDirty && (
+              <p className="text-xs text-muted-foreground">
+                Há alterações ainda não salvas. Clique em “Salvar retorno comercial” para
+                aplicá-las.
+              </p>
+            )}
+            {busy && pendingAction === "save" && (
+              <p role="status" className="text-xs text-muted-foreground">
+                Conferindo o contato no RD e salvando a configuração…
+              </p>
+            )}
+            {commercialError && (
+              <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                Não foi possível salvar. {commercialError}
+              </p>
+            )}
+            {commercialSuccess && (
+              <p
+                role="status"
+                className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+              >
+                {commercialSuccess}
+              </p>
+            )}
           </div>
           {!!status.deliveries.length && (
             <div className="space-y-3">

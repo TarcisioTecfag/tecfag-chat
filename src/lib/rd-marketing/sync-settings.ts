@@ -15,6 +15,7 @@ import { decryptRdSecret, encryptRdSecret } from "./api-crypto";
 import { listRdWebhooks, readRdContact, writeRd } from "./api-service";
 import { rdIdentityHash } from "./notifications";
 import { rdPhoneDigits } from "./sync-identity";
+import { rdTestContactUuidError } from "./outbound-scope";
 import type { RdOutboundScope, RdSyncStatus, RdTestContact } from "./sync-types";
 
 export function rdJourneyEndpointUrl(requestUrl: string, token: string) {
@@ -85,12 +86,9 @@ export async function saveRdSyncSettings(
   if (!["test", "all"].includes(scope.outboundScope))
     throw new CrmError("Escolha o destino dos envios.", "BAD_REQUEST", 400);
   const uuid = scope.testContactUuid?.trim().toLowerCase() || "";
-  if (
-    scope.outboundScope === "test" &&
-    (outboundEnabled || uuid) &&
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)
-  )
-    throw new CrmError("Informe o UUID do contato de teste no RD Marketing.", "BAD_REQUEST", 400);
+  const uuidError =
+    scope.outboundScope === "test" ? rdTestContactUuidError(uuid, outboundEnabled) : null;
+  if (uuidError) throw new CrmError(uuidError, "BAD_REQUEST", 400);
   const connection =
     outboundEnabled || (scope.outboundScope === "test" && uuid) ? await connected(tenantId) : null;
   let testContact: RdTestContact | null = null;

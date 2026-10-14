@@ -2,6 +2,15 @@ import { rdPhoneDigits } from "./sync-identity";
 import type { RdOutboundScope, RdTestContact } from "./sync-types";
 
 type Config = { outboundScope: RdOutboundScope; testContact: RdTestContact | null };
+export function rdTestContactUuidError(value: string, required: boolean): string | null {
+  const uuid = value.trim();
+  if (!uuid)
+    return required ? "Informe o UUID do contato de teste antes de ativar os envios." : null;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) return null;
+  return /^\d+$/.test(uuid)
+    ? "Um número sozinho não é um UUID. Consulte seu e-mail em ‘Conferir o histórico de um lead’ e copie o campo UUID, com letras, números e hífens."
+    : "UUID inválido. Copie o campo UUID da consulta do lead: ele tem 36 caracteres, incluindo os hífens.";
+}
 export function permitsRdRecipient(
   config: Config,
   payload: Record<string, unknown>,
