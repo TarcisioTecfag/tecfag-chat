@@ -3,7 +3,11 @@ import { parseRdNotification } from "../src/lib/rd-marketing/notifications";
 import { commercialTransition } from "../src/lib/rd-marketing/commercial-outbox";
 import { conversionAttribution } from "../src/lib/rd-marketing/attribution";
 import { rdPhoneDigits } from "../src/lib/rd-marketing/sync-identity";
-import { permitsRdRecipient } from "../src/lib/rd-marketing/outbound-scope";
+import {
+  normalizeRdContactUuid,
+  permitsRdRecipient,
+  rdTestContactUuidError,
+} from "../src/lib/rd-marketing/outbound-scope";
 
 const uuid = "12345678-1234-1234-1234-123456789abc";
 const hook = { id: "point-test", kind: "CONVERSION", label: "Conversões" };
@@ -21,6 +25,21 @@ const raw = {
   },
 };
 describe("RD Marketing: avisos e transições comerciais", () => {
+  test("colar UUID com espaço ou rótulo mantém o último caractere e não completa UUID truncado", () => {
+    for (const pasted of [
+      ` ${uuid}`,
+      `\u00a0${uuid}\u00a0`,
+      `UUID: ${uuid.toUpperCase()}`,
+      `"${uuid}"`,
+      `\u200b${uuid}\ufeff`,
+      uuid.replaceAll("-", "\u2011"),
+    ]) {
+      expect(normalizeRdContactUuid(pasted)).toBe(uuid);
+      expect(rdTestContactUuidError(pasted, true)).toBeNull();
+    }
+    expect(normalizeRdContactUuid(uuid.slice(0, -1))).toHaveLength(35);
+    expect(rdTestContactUuidError(uuid.slice(0, -1), true)).toContain("35 caracteres");
+  });
   test("teste isolado restringe UUID, rejeita vínculo conflitante e falha fechado sem contato", () => {
     const config = {
       outboundScope: "test" as const,

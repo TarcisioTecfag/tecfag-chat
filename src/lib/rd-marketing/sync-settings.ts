@@ -15,7 +15,7 @@ import { decryptRdSecret, encryptRdSecret } from "./api-crypto";
 import { listRdWebhooks, readRdContact, writeRd } from "./api-service";
 import { rdIdentityHash } from "./notifications";
 import { rdPhoneDigits } from "./sync-identity";
-import { rdTestContactUuidError } from "./outbound-scope";
+import { normalizeRdContactUuid, rdTestContactUuidError } from "./outbound-scope";
 import type { RdOutboundScope, RdSyncStatus, RdTestContact } from "./sync-types";
 
 export function rdJourneyEndpointUrl(requestUrl: string, token: string) {
@@ -85,7 +85,7 @@ export async function saveRdSyncSettings(
     throw new CrmError("Informe a moeda utilizada no Marketing.", "BAD_REQUEST", 400);
   if (!["test", "all"].includes(scope.outboundScope))
     throw new CrmError("Escolha o destino dos envios.", "BAD_REQUEST", 400);
-  const uuid = scope.testContactUuid?.trim().toLowerCase() || "";
+  const uuid = normalizeRdContactUuid(scope.testContactUuid || "");
   const uuidError =
     scope.outboundScope === "test" ? rdTestContactUuidError(uuid, outboundEnabled) : null;
   if (uuidError) throw new CrmError(uuidError, "BAD_REQUEST", 400);

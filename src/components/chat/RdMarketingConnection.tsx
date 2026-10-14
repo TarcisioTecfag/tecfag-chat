@@ -296,7 +296,25 @@ export function RdMarketingConnection() {
                 <p className="font-medium">{probe.contact.name || "Nome não informado pelo RD"}</p>
                 <p>E-mail: {probe.contact.email || "Não informado"}</p>
                 <p>Telefone: {probe.contact.phone || "Não informado"}</p>
-                <p className="text-xs break-all">UUID: {probe.contact.uuid}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs break-all">
+                    UUID: <code className="select-all">{probe.contact.uuid}</code>
+                  </p>
+                  <button
+                    type="button"
+                    className={buttonClass}
+                    aria-label="Copiar UUID do lead"
+                    onClick={() =>
+                      navigator.clipboard
+                        .writeText(probe.contact.uuid)
+                        .then(() => toast.success("UUID copiado completo."))
+                        .catch(() => toast.error("Não foi possível copiar o UUID."))
+                    }
+                  >
+                    <Copy className="inline h-3.5 w-3.5 mr-1" />
+                    Copiar UUID
+                  </button>
+                </div>
                 <details>
                   <summary className="cursor-pointer text-primary">JSON do contato</summary>
                   <pre className="max-h-80 overflow-auto text-xs whitespace-pre-wrap break-all mt-2">

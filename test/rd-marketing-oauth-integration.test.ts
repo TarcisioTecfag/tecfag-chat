@@ -1260,7 +1260,7 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     try {
       globalThis.fetch = isolatedProvider;
       const savedByRoute = await postSettings({
-        request: settingsRequest(testUuid.toUpperCase()),
+        request: settingsRequest(`\u00a0UUID: ${testUuid.toUpperCase()}\u00a0`),
       } as never);
       expect(savedByRoute.status).toBe(200);
       expect((await savedByRoute.json()).testContact?.uuid).toBe(testUuid);
@@ -1275,6 +1275,14 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       }),
     } as never);
     expect((await reloaded.json()).testContact).toMatchObject({ uuid: testUuid, email: testEmail });
+    const truncated = await postSettings({
+      request: settingsRequest(testUuid.slice(0, -1)),
+    } as never);
+    expect(truncated.status).toBe(400);
+    expect((await truncated.json()).error).toContain("35 caracteres");
+    expect((await sync.rdSyncStatus(tenantId, "http://localhost")).testContact?.uuid).toBe(
+      testUuid,
+    );
     expect(
       await rejected(
         sync.saveRdSyncSettings(tenantId, true, "BRL", restricted, (async () =>

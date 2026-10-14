@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { RdOutboundScope, RdSyncStatus } from "@/lib/rd-marketing/sync-types";
-import { rdTestContactUuidError } from "@/lib/rd-marketing/outbound-scope";
+import { normalizeRdContactUuid, rdTestContactUuidError } from "@/lib/rd-marketing/outbound-scope";
 
 const endpoint = "/api/settings/rd-marketing/sync";
 const buttonClass =
@@ -61,7 +61,7 @@ export function RdMarketingSyncSettings() {
       outboundEnabled: enabled,
       currency,
       outboundScope,
-      testContactUuid,
+      testContactUuid: normalizeRdContactUuid(testContactUuid),
     });
   }
   const load = useCallback(
@@ -333,18 +333,20 @@ export function RdMarketingSyncSettings() {
                     className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs"
                     placeholder="Cole o UUID exibido na consulta do lead"
                     value={testContactUuid}
-                    maxLength={36}
+                    maxLength={160}
                     disabled={busy}
                     onBlur={() => setUuidTouched(true)}
                     onChange={(event) => {
                       changedCommercial();
-                      setTestContactUuid(event.target.value);
+                      setTestContactUuid(normalizeRdContactUuid(event.target.value));
                     }}
                   />
                 </label>
                 <p id="rd-commercial-uuid-help" className="text-xs text-muted-foreground">
                   Use o campo “UUID” da consulta do lead, e não o ID numérico. Formato:
                   xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
+                  {testContactUuid &&
+                    ` ${normalizeRdContactUuid(testContactUuid).length}/36 caracteres.`}
                 </p>
                 {uuidTouched && uuidError && (
                   <p role="alert" className="text-xs font-medium text-destructive">
