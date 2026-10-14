@@ -16,8 +16,9 @@ export function useRdMarketingJourney(
   dealId: string | null,
   contactId: string | null,
   enabled: boolean,
+  viewerScope = "",
 ) {
-  const key = JSON.stringify([tenant, dealId, contactId]);
+  const key = JSON.stringify([tenant, viewerScope, dealId, contactId]);
   const [state, setState] = useState<{
     key: string;
     data: RdJourney | null;
@@ -66,7 +67,7 @@ export function useRdMarketingJourney(
     [key, dealId, contactId],
   );
   useEffect(() => {
-    if (enabled) void request({});
+    if (enabled) void request({}, true);
     return () => pending.current?.abort();
   }, [enabled, request]);
   const data = state.key === key ? state.data : null;

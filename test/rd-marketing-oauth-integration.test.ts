@@ -378,9 +378,13 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     await database.db
       .insert(schema.crmStages)
       .values({ id: stageId, tenantId, pipelineId, name: "Entrada", orderIndex: 0 });
-    await database.db
-      .insert(schema.contacts)
-      .values({ id: contactId, tenantId, name: "Contato teste", email: "lead@example.com" });
+    await database.db.insert(schema.contacts).values({
+      id: contactId,
+      tenantId,
+      name: "Contato teste",
+      email: "lead@example.com",
+      mainChannel: "whatsapp",
+    });
     await database.db.insert(schema.crmDeals).values([
       {
         id: dealA,
@@ -438,6 +442,7 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect(calls.length - before).toBe(3);
     expect(first.events).toHaveLength(1);
     expect(first.events[0].deals).toHaveLength(0);
+    expect(first.relatedDeals?.map((deal) => deal.id)).toEqual([dealA]);
     const cached = await dealRdJourney(
       tenantId,
       dealB,
@@ -449,6 +454,7 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect(cached.snapshotId).toBe(first.snapshotId);
     expect(calls.length - before).toBe(3);
     expect(cached.events[0].deals).toEqual([{ id: dealB, title: "Negociação B" }]);
+    expect(cached.relatedDeals).toHaveLength(2);
     const second = await dealRdJourney(
       tenantId,
       dealA,
@@ -547,5 +553,71 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect(
       await rejected(dealRdJourney(tenantId, dealA, viewer, { contactId }, provider)),
     ).toMatchObject({ code: "RD_NOT_CONNECTED" });
+  }, 30000);
+  test("dois contatos locais não recebem o mesmo UUID RD na conexão ativa", async () => {
+    await connect();
+    const { dealRdJourney } = await import("../src/lib/rd-marketing/journey");
+    const pipelineId = randomUUID(),
+      stageId = randomUUID(),
+      dealId = randomUUID();
+    const contactA = randomUUID(),
+      contactB = randomUUID();
+    await database.db
+      .insert(schema.crmPipelines)
+      .values({ id: pipelineId, tenantId, name: "Teste de identidade" });
+    await database.db
+      .insert(schema.crmStages)
+      .values({ id: stageId, tenantId, pipelineId, name: "Entrada", orderIndex: 0 });
+    await database.db.insert(schema.contacts).values([
+      {
+        id: contactA,
+        tenantId,
+        name: "Contato A",
+        email: "alias-a@example.com",
+        mainChannel: "whatsapp",
+      },
+      {
+        id: contactB,
+        tenantId,
+        name: "Contato B",
+        email: "alias-b@example.com",
+        mainChannel: "whatsapp",
+      },
+    ]);
+    await database.db
+      .insert(schema.crmDeals)
+      .values({ id: dealId, tenantId, title: "Identidade", pipelineId, stageId });
+    await database.db.insert(schema.crmDealContacts).values([
+      { id: randomUUID(), tenantId, dealId, contactId: contactA },
+      { id: randomUUID(), tenantId, dealId, contactId: contactB },
+    ]);
+    const aliasProvider = (async (input: unknown, init: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/platform/contacts/email:"))
+        return Response.json({
+          uuid,
+          email: decodeURIComponent(url.split("email:")[1]),
+          name: "Alias",
+        });
+      return provider(input as RequestInfo, init);
+    }) as typeof fetch;
+    const viewer = { operatorId: `${tenantId}-admin`, canViewAll: true };
+    await dealRdJourney(tenantId, dealId, viewer, { contactId: contactA }, aliasProvider);
+    expect(
+      await rejected(
+        dealRdJourney(tenantId, dealId, viewer, { contactId: contactB }, aliasProvider),
+      ),
+    ).toMatchObject({ code: "RD_IDENTITY_CONFLICT" });
+    expect(
+      await database.db
+        .select()
+        .from(schema.rdMarketingJourneyLinks)
+        .where(
+          and(
+            eq(schema.rdMarketingJourneyLinks.tenantId, tenantId),
+            eq(schema.rdMarketingJourneyLinks.contactId, contactB),
+          ),
+        ),
+    ).toHaveLength(0);
   }, 30000);
 });

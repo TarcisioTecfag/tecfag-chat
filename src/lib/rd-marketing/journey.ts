@@ -38,7 +38,7 @@ function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   if (value && typeof value === "object")
     return `{${Object.entries(value)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([key, item]) => `${JSON.stringify(key)}:${stable(item)}`)
       .join(",")}}`;
   return JSON.stringify(value) ?? "null";
@@ -343,13 +343,13 @@ export async function dealRdJourney(
     .select()
     .from(rdMarketingFlows)
     .where(eq(rdMarketingFlows.tenantId, tenantId));
-  const eligible = flows.filter((flow) => {
+  const eligible = flows.flatMap((flow) => {
     const parsed = flowSettingsSchema.safeParse(flow.settings);
-    return (
-      parsed.success &&
+    return parsed.success &&
       parsed.data.deduplication === "event" &&
       parsed.data.eventIdPath === "rd_conversion.id"
-    );
+      ? [{ id: flow.id, settings: parsed.data }]
+      : [];
   });
   const candidates = new Map<string, Set<string>>();
   for (const event of events) {
@@ -415,6 +415,25 @@ export async function dealRdJourney(
             event.deals.push({ id: match.id, title: match.title });
         }
   }
+  const related = await db
+    .select({
+      id: crmDeals.id,
+      title: crmDeals.title,
+      status: crmDeals.status,
+      owner: crmDeals.operatorId,
+    })
+    .from(crmDealContacts)
+    .innerJoin(
+      crmDeals,
+      and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
+    )
+    .where(
+      and(
+        eq(crmDealContacts.tenantId, tenantId),
+        eq(crmDealContacts.contactId, contact.id),
+        eq(crmDeals.tenantId, tenantId),
+      ),
+    );
   return {
     contactId: contact.id,
     contactName: contact.name || "Contato",
@@ -423,5 +442,8 @@ export async function dealRdJourney(
     cached: result.cached,
     pages: result.data.map((row) => row.data),
     events,
+    relatedDeals: related
+      .filter((deal) => canRead(deal.owner, viewer))
+      .map(({ id, title, status }) => ({ id, title, status })),
   };
 }

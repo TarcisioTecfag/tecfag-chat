@@ -415,12 +415,13 @@ export function DealDetailModal({
   const [historySourceFilter, setHistorySourceFilter] = useState<"all" | "conversas" | "crm" | "marketing">("all");
   const [journeySelection, setJourneySelection] = useState({ dealId: "", contactId: "" });
   const [journeyEnabledFor, setJourneyEnabledFor] = useState("");
-  const journeyContext = JSON.stringify([chatContext?.tenant, dealId]);
+  const journeyViewerScope = JSON.stringify([chatContext?.isAuthenticated, chatContext?.currentOperatorId, chatContext?.sessionRole, chatContext?.sessionPermissions?.crm, chatContext?.currentGroup?.permissions?.crm]);
+  const journeyContext = JSON.stringify([chatContext?.tenant, journeyViewerScope, dealId]);
   const journeyContacts = (deal?.id === dealId ? deal.contacts || [] : []).map((entry: { contactId: string; isPrimary: boolean; contact: { id: string; name: string } })=>({ id: entry.contactId, name: entry.contact.name, isPrimary: entry.isPrimary }));
   const journeyContactId = journeySelection.dealId === dealId && journeyContacts.some((entry: { id: string })=>entry.id === journeySelection.contactId)
     ? journeySelection.contactId : journeyContacts.find((entry: { isPrimary: boolean })=>entry.isPrimary)?.id || journeyContacts[0]?.id || "";
   const rdJourney = useRdMarketingJourney(chatContext?.tenant || null, dealId, journeyContactId || null,
-    isOpen && activeTab === "history" && (historySourceFilter === "marketing" || historyFilter === "conversion" || historyFilter === "opportunity" || journeyEnabledFor === journeyContext));
+    isOpen && activeTab === "history" && (historySourceFilter === "marketing" || historyFilter === "conversion" || historyFilter === "opportunity" || journeyEnabledFor === journeyContext), journeyViewerScope);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [inlineNoteText, setInlineNoteText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
@@ -1466,7 +1467,7 @@ export function DealDetailModal({
       author: "RD Marketing", date: new Date(event.date || NaN), iconType: "history", badgeColor: "bg-primary/10 text-primary", source: "marketing", marketingEvent: event,
     }));
     // Eventos sem data não recebem uma data inventada; aparecem após os eventos datados.
-    items.sort((a, b) => (Number.isFinite(b.date.getTime()) ? b.date.getTime() : 0) - (Number.isFinite(a.date.getTime()) ? a.date.getTime() : 0));
+    items.sort((a, b) => (Number.isFinite(b.date.getTime()) ? b.date.getTime() : -Infinity) - (Number.isFinite(a.date.getTime()) ? a.date.getTime() : -Infinity));
     return items;
   }, [deal, operatorsMap, pipelineStages, operators, operatorProfile, rdJourney.data]);
 
@@ -4142,8 +4143,8 @@ export function DealDetailModal({
 
                                 {/* Corpo do balão / Descrição */}
                                 {item.marketingEvent && <div className="mt-2 pl-9 space-y-2">
-                                  {item.marketingEvent.links.map(url=><a key={url} href={url} target="_blank" rel="noopener noreferrer" className="block text-xs text-primary break-all">{url}</a>)}
-                                  {item.marketingEvent.deals.map(link=><a key={link.id} href={`/crm/deals/${encodeURIComponent(link.id)}`} className="block text-xs font-semibold text-primary">{link.id === dealId ? "Esta negociação" : "Abrir negociação"}: {link.title}</a>)}
+                                  {item.marketingEvent.links.map((url: string)=><a key={url} href={url} target="_blank" rel="noopener noreferrer" className="block text-xs text-primary break-all">{url}</a>)}
+                                  {item.marketingEvent.deals.map((link: { id: string; title: string })=><a key={link.id} href={`/crm/deals/${encodeURIComponent(link.id)}`} className="block text-xs font-semibold text-primary">{link.id === dealId ? "Esta negociação" : "Abrir negociação"}: {link.title}</a>)}
                                   <details className="text-xs"><summary className="cursor-pointer text-primary">Detalhes da conversão/evento</summary><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] mt-2">{JSON.stringify(item.marketingEvent.raw, null, 2)}</pre></details>
                                 </div>}
                                 {item.description && (

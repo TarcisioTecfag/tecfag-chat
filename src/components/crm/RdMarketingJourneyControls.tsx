@@ -77,6 +77,31 @@ export function RdMarketingJourneyControls({
       )}
       {journey.data && (
         <>
+          {!!journey.data.relatedDeals?.length && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-primary">
+                Negociações deste contato ({journey.data.relatedDeals.length})
+              </summary>
+              <div className="mt-2 max-h-48 overflow-auto space-y-1">
+                {journey.data.relatedDeals.map((deal) => (
+                  <a
+                    key={deal.id}
+                    href={`/crm/deals/${encodeURIComponent(deal.id)}`}
+                    className="block text-primary"
+                  >
+                    {deal.title} ·{" "}
+                    {deal.status === "won"
+                      ? "Ganha"
+                      : deal.status === "lost"
+                        ? "Perdida"
+                        : deal.status === "paused"
+                          ? "Pausada"
+                          : "Em andamento"}
+                  </a>
+                ))}
+              </div>
+            </details>
+          )}
           <p className="text-[11px] text-muted-foreground">
             Consultado em {new Date(journey.data.syncedAt).toLocaleString("pt-BR")}
             {journey.data.cached ? " · Dados em cache" : ""}. Visitas, cliques e automações só

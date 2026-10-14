@@ -5,7 +5,7 @@ import { dealRdJourney } from "../../../../../lib/rd-marketing/journey";
 import { integrationError } from "../../../../../lib/rd-marketing/http";
 import { CrmError } from "../../../../../lib/crm/crm-service";
 
-export const Route = createFileRoute("/api/crm/deals/$dealId/rd-marketing" as any)({
+export const Route = createFileRoute("/api/crm/deals/$dealId/rd-marketing")({
   server: {
     handlers: {
       GET: async ({ request, params }) => {

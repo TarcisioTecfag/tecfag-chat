@@ -1,6 +1,6 @@
 # Conexão RD Marketing e consulta da jornada
 
-Esta primeira etapa adiciona autorização OAuth por tenant e uma consulta de leitura de um lead. A conexão existente por webhook continua responsável pela criação de cards. Esta etapa não envia vendas/perdas, não importa a jornada para os cards e não altera os contatos consultados.
+O módulo oferece autorização OAuth por tenant, consulta de prova de um lead nas configurações e jornada RD Marketing no histórico dos cards. A conexão por webhook continua responsável pela criação de cards. As consultas de jornada não enviam vendas/perdas e não alteram contatos, empresas ou negociações.
 
 ## Configuração
 
@@ -15,7 +15,7 @@ Esta primeira etapa adiciona autorização OAuth por tenant e uma consulta de le
 
 Consulta `GET /platform/contacts/{identifier}:{value}` e, com o UUID devolvido, `GET /platform/contacts/{uuid}/events` nos tipos `CONVERSION` e `OPPORTUNITY`. Não pressupõe que visitas, cliques, aberturas de e-mail, tarefas ou entradas em automações estarão disponíveis. Um formato de evento não reconhecido continua visível no JSON; não é convertido silenciosamente em histórico vazio. Fonte e campanha só aparecem quando constam no retorno, sem inventar atribuição.
 
-Os dados pessoais retornados são apresentados somente ao administrador autenticado do tenant e não são persistidos nem enviados a logs por esta funcionalidade. Credenciais são removidas do JSON de diagnóstico. A autorização precisa ser feita uma vez por tenant; não há compartilhamento de tokens entre tenants.
+Na consulta de prova das Configurações, os dados pessoais retornados são apresentados somente ao administrador autenticado do tenant e não são persistidos nem enviados a logs. Na jornada dos cards, as páginas são preservadas no cache local do tenant e apresentadas somente após validar as permissões do CRM. Credenciais são removidas dos JSONs. A autorização precisa ser feita uma vez por tenant; não há compartilhamento de tokens entre tenants.
 
 ## Retorno real validado em 13/10/2026
 
@@ -45,4 +45,18 @@ Campos `cf_plug_*` retornados no contato são valores do perfil, sem data ou lis
 - [Consultar contato](https://developers.rdstation.com/reference/get_platform-contacts-identifier-value-1)
 - [Consultar eventos do contato](https://developers.rdstation.com/reference/get_platform-contacts-uuid-events-1)
 
-Próxima etapa, após conferir o retorno real: identidade RD ↔ contato local, jornada compartilhada entre cards do contato e vínculo explícito com a negociação correta. Eventos de venda e perda serão independentes por negociação, conforme o desenho em `rd-marketing-sync-study.md`.
+## Jornada dentro dos cards
+
+No card, abra **Histórico → Do → RD Marketing**, ou use **Carregar jornada RD Marketing** no filtro Todos. O CRM consulta conversões e oportunidades do contato selecionado, inclusive anteriores à criação da negociação. Quando há vários contatos no card, o seletor permite consultar cada jornada separadamente.
+
+A associação entre contato local e UUID RD é persistida por tenant e versão da conexão. A primeira busca usa o e-mail local; sem e-mail, aceita telefone internacional explícito ou número brasileiro já salvo com `55` e DDD. Não usa nomes para vincular pessoas, nem cria contatos, empresas ou cards nesta consulta. Um mesmo UUID não pode ser associado automaticamente a dois contatos locais na mesma conexão.
+
+Cache de cinco minutos é compartilhado entre cards do contato e persiste entre deploys. **Atualizar jornada** consulta novamente o RD. Páginas seguintes são carregadas manualmente, reaproveitando páginas já consultadas. Atualizar o início da jornada invalida a paginação anterior; um card com uma versão antiga precisa atualizar antes de continuar. Alterar/autorizar novamente a conexão invalida o vínculo com a conta anterior.
+
+Conversões oferecem **Abrir negociação** quando o recibo de criação coincide com a identidade do lead, o identificador e a data original da conversão, em um fluxo com identificação por evento no formato padrão. A negociação precisa continuar vinculada ao mesmo contato. Cards sem recibo correspondente não recebem um vínculo inventado por proximidade de datas. Fluxos antigos com deduplicação por lead ou identificadores personalizados podem mostrar a conversão sem link.
+
+A rota exige sessão, `canViewCrm`, acesso ao card e participação do contato. Links de outros cards respeitam `canViewAllDeals` e o vendedor responsável; negociações sem permissão não têm nome/ID expostos. A UI mistura os eventos carregados do Marketing com o histórico atual do CRM em ordem cronológica e permite filtrar conversões e oportunidades. Dados sem data válida são sinalizados e colocados após os eventos datados.
+
+Migration `0038_rd_marketing_journey.sql` é aditiva. Eventos consultados ficam no cache local do tenant, com credenciais ocultadas, e não geram novas conversões, cards ou mensagens no RD. O envio de vendas/perdas ainda é uma etapa posterior, com eventos independentes por negociação, conforme `rd-marketing-sync-study.md`.
+
+O painel também lista **Negociações deste contato**, com links para os cards permitidos ao operador. Essa lista informa a relação com o contato; somente os links exibidos junto de uma conversão representam um recibo correspondente àquela conversão. A troca de operador, tenant ou permissões invalida a jornada carregada no navegador antes de consultar os dados novamente.
