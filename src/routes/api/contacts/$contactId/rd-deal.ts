@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../../db";
 import { contacts } from "../../../../db/schema";
 import { eq, and } from "drizzle-orm";
-import { rdRequest } from "../../../../lib/rdCrmService";
+import { rdRequest, isRdCrmConfigured } from "../../../../lib/rdCrmService";
 import { requireSession } from "../../../../lib/auth-session";
 
 const corsHeaders = {
@@ -37,6 +37,13 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
+          const integrated = await isRdCrmConfigured(tenantId);
+          if (!integrated) {
+            return new Response(JSON.stringify({ integrated: false, linked: false }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
           const { contactId } = params as { contactId: string };
           const [contact] = await db
             .select()
@@ -51,7 +58,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
           }
 
           if (!contact.rdCrmDealId) {
-            return new Response(JSON.stringify({ linked: false }), {
+            return new Response(JSON.stringify({ integrated: true, linked: false }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
@@ -160,6 +167,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
 
             return new Response(
               JSON.stringify({
+                integrated: true,
                 linked: true,
                 dealId: contact.rdCrmDealId,
                 dealLink: contact.rdCrmDealLink,
@@ -180,6 +188,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/rd-deal")({
             console.error("[RD Deal API] Erro ao buscar deal no CRM:", err.message);
             return new Response(
               JSON.stringify({
+                integrated: true,
                 linked: true,
                 dealId: contact.rdCrmDealId,
                 dealLink: contact.rdCrmDealLink,

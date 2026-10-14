@@ -56,7 +56,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { DealAddContactDrawer } from "./DealAddContactDrawer";
+import { DealAddContactDrawer, formatContactRoleLabel } from "./DealAddContactDrawer";
+import { DealLinkAccountDrawer } from "./DealLinkAccountDrawer";
 import { useChat } from "@/hooks/useChatState";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { CreateTaskModal } from "./CreateTaskModal";
@@ -96,9 +97,69 @@ import {
   invalidateDealCache,
 } from "@/lib/crm/deal-prefetch";
 
-function renderInlineMarkdown(text: string): React.ReactNode {
+export function normalizeMultilineMarkdown(rawText: string): string {
+  if (!rawText) return "";
+  let text = rawText.replace(/\r\n/g, "\n");
+
+  // Converte tags HTML caso presentes
+  text = text
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div)>/gi, "\n")
+    .replace(/<(p|div)(?:\s[^>]*)?>/gi, "")
+    .replace(/<li(?:\s[^>]*)?>([\s\S]*?)<\/li>/gi, "- $1\n")
+    .replace(/<\/?(ul|ol)(?:\s[^>]*)?>/gi, "\n")
+    .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
+    .replace(/<(strong|b)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi, "**$2**")
+    .replace(/<(em|i)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi, "*$2*")
+    .replace(/&nbsp;/gi, " ");
+
+  const wrapLinePreservingListPrefix = (line: string, marker: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    const listMatch = line.match(/^(\s*(?:[-*•]|\d+[.)])\s+)(.*)$/);
+    if (listMatch) {
+      const innerContent = listMatch[2].trim();
+      return innerContent ? `${listMatch[1]}${marker}${innerContent}${marker}` : line;
+    }
+    return `${marker}${trimmed}${marker}`;
+  };
+
+  // Expande blocos ***negrito e itálico*** multilinha linha por linha
+  text = text.replace(/\*\*\*([\s\S]+?)\*\*\*/g, (match, inner: string) => {
+    if (!inner.includes("\n")) return match;
+    return inner
+      .split("\n")
+      .map((line) => wrapLinePreservingListPrefix(line, "***"))
+      .join("\n");
+  });
+
+  // Expande blocos **negrito** multilinha linha por linha
+  text = text.replace(/\*\*([\s\S]+?)\*\*/g, (match, inner: string) => {
+    if (!inner.includes("\n")) return match;
+    return inner
+      .split("\n")
+      .map((line) => wrapLinePreservingListPrefix(line, "**"))
+      .join("\n");
+  });
+
+  // Expande blocos *itálico* multilinha linha por linha
+  text = text.replace(/(^|[^*])\*([^*][\s\S]*?[^*])\*(?!\*)/g, (match, prefix: string, inner: string) => {
+    if (!inner.includes("\n")) return match;
+    const expanded = inner
+      .split("\n")
+      .map((line) => wrapLinePreservingListPrefix(line, "*"))
+      .join("\n");
+    return `${prefix}${expanded}`;
+  });
+
+  return text;
+}
+
+export function renderInlineMarkdown(text: string, depth = 0): React.ReactNode {
   if (!text) return "";
-  const tokenRegex = /(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  if (depth > 4) return text;
+
+  const tokenRegex = /(\[[^\]]+\]\([^)]+\)|\*\*\*.+?\*\*\*|\*\*.+?\*\*|\*[^*]+\*)/g;
   const parts = text.split(tokenRegex);
 
   return parts.map((part, index) => {
@@ -107,7 +168,11 @@ function renderInlineMarkdown(text: string): React.ReactNode {
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
       const [, label, url] = linkMatch;
-      const href = url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
+      const cleanUrl = url.trim();
+      const href =
+        cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://") || cleanUrl.startsWith("mailto:")
+          ? cleanUrl
+          : `https://${cleanUrl}`;
       return (
         <a
           key={index}
@@ -116,15 +181,23 @@ function renderInlineMarkdown(text: string): React.ReactNode {
           rel="noopener noreferrer"
           className="text-primary font-semibold underline hover:opacity-80 transition-opacity break-all cursor-pointer"
         >
-          {label}
+          {renderInlineMarkdown(label, depth + 1)}
         </a>
+      );
+    }
+
+    if (part.startsWith("***") && part.endsWith("***") && part.length >= 6) {
+      return (
+        <strong key={index} className="font-extrabold italic text-foreground">
+          {renderInlineMarkdown(part.slice(3, -3), depth + 1)}
+        </strong>
       );
     }
 
     if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
       return (
         <strong key={index} className="font-extrabold text-foreground">
-          {part.slice(2, -2)}
+          {renderInlineMarkdown(part.slice(2, -2), depth + 1)}
         </strong>
       );
     }
@@ -132,7 +205,7 @@ function renderInlineMarkdown(text: string): React.ReactNode {
     if (part.startsWith("*") && part.endsWith("*") && part.length >= 2 && !part.startsWith("**")) {
       return (
         <em key={index} className="italic text-foreground/90">
-          {part.slice(1, -1)}
+          {renderInlineMarkdown(part.slice(1, -1), depth + 1)}
         </em>
       );
     }
@@ -141,10 +214,11 @@ function renderInlineMarkdown(text: string): React.ReactNode {
   });
 }
 
-function renderMarkdownContent(text: string) {
+export function renderMarkdownContent(text: string) {
   if (!text) return null;
 
-  const lines = text.split("\n");
+  const normalized = normalizeMultilineMarkdown(text);
+  const lines = normalized.split("\n");
   const nodes: React.ReactNode[] = [];
   let currentList: { type: "ul" | "ol"; items: string[] } | null = null;
 
@@ -172,8 +246,8 @@ function renderMarkdownContent(text: string) {
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
-    const bulletMatch = rawLine.match(/^[-*•]\s+(.*)$/);
-    const numMatch = rawLine.match(/^\d+[\.\)]\s+(.*)$/);
+    const bulletMatch = rawLine.match(/^\s*[-*•]\s+(.*)$/);
+    const numMatch = rawLine.match(/^\s*\d+[\.\)]\s+(.*)$/);
 
     if (bulletMatch) {
       if (currentList && currentList.type !== "ul") flushList();
@@ -199,6 +273,125 @@ function renderMarkdownContent(text: string) {
   flushList();
 
   return <div className="space-y-1">{nodes}</div>;
+}
+
+function serializeRichNoteNode(
+  node: Node,
+  ctx: { bold?: boolean; italic?: boolean; href?: string } = {}
+): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const raw = (node.textContent || "").replace(/\u00A0/g, " ");
+    if (!raw) return "";
+    return raw
+      .split("\n")
+      .map((segment) => {
+        if (!segment.trim()) return segment;
+        const leadMatch = segment.match(/^\s*/);
+        const trailMatch = segment.match(/\s*$/);
+        const lead = leadMatch ? leadMatch[0] : "";
+        const trail = trailMatch ? trailMatch[0] : "";
+        const core = segment.trim();
+        let formatted = core;
+        if (ctx.bold && ctx.italic) {
+          formatted = `***${core}***`;
+        } else if (ctx.bold) {
+          formatted = `**${core}**`;
+        } else if (ctx.italic) {
+          formatted = `*${core}*`;
+        }
+        if (ctx.href) {
+          formatted = `[${formatted}](${ctx.href})`;
+        }
+        return `${lead}${formatted}${trail}`;
+      })
+      .join("\n");
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  const el = node as HTMLElement;
+  const tag = el.tagName.toUpperCase();
+
+  if (tag === "BR") return "\n";
+
+  const styleWeight = el.style?.fontWeight || "";
+  const isBoldTag =
+    tag === "B" ||
+    tag === "STRONG" ||
+    styleWeight === "bold" ||
+    Number(styleWeight) >= 600;
+  const isItalicTag =
+    tag === "I" ||
+    tag === "EM" ||
+    el.style?.fontStyle === "italic";
+  const hrefAttr = tag === "A" ? el.getAttribute("href") || "https://" : ctx.href;
+
+  const nextCtx = {
+    bold: ctx.bold || isBoldTag,
+    italic: ctx.italic || isItalicTag,
+    href: hrefAttr,
+  };
+
+  if (tag === "UL") {
+    const items: string[] = [];
+    Array.from(el.children).forEach((child) => {
+      if (child.tagName.toUpperCase() === "LI") {
+        const itemText = Array.from(child.childNodes)
+          .map((c) => serializeRichNoteNode(c, nextCtx))
+          .join("")
+          .replace(/\n+/g, " ")
+          .trim();
+        if (itemText) items.push(`- ${itemText}`);
+      }
+    });
+    return items.length > 0 ? `\n${items.join("\n")}\n` : "";
+  }
+
+  if (tag === "OL") {
+    const items: string[] = [];
+    let counter = 1;
+    Array.from(el.children).forEach((child) => {
+      if (child.tagName.toUpperCase() === "LI") {
+        const itemText = Array.from(child.childNodes)
+          .map((c) => serializeRichNoteNode(c, nextCtx))
+          .join("")
+          .replace(/\n+/g, " ")
+          .trim();
+        if (itemText) {
+          items.push(`${counter}. ${itemText}`);
+          counter++;
+        }
+      }
+    });
+    return items.length > 0 ? `\n${items.join("\n")}\n` : "";
+  }
+
+  const inner = Array.from(el.childNodes)
+    .map((child) => serializeRichNoteNode(child, nextCtx))
+    .join("");
+
+  if (tag === "DIV" || tag === "P" || tag === "LI") {
+    return `\n${inner}\n`;
+  }
+
+  return inner;
+}
+
+export function serializeRichNoteToMarkdown(root: HTMLElement): string {
+  const raw = Array.from(root.childNodes)
+    .map((child) => serializeRichNoteNode(child, {}))
+    .join("");
+
+  return raw
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/\*\*([ \t]*)\*\*/g, "$1")
+        .replace(/(?<!\*)\*([ \t]*)\*(?!\*)/g, "$1")
+        .trimEnd()
+    )
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function formatContactPhone(phone?: string | null) {
@@ -299,8 +492,11 @@ export function DealDetailModal({
     "history" | "tasks" | "conversations" | "evidence" | "products" | "files" | "questionnaires" | "emails"
   >("history");
 
-  // Drawer de Adicionar Contato (Buscar existente ou Criar novo)
+  // Drawer de Adicionar/Gerenciar Contato e Empresa
   const [isAddContactDrawerOpen, setIsAddContactDrawerOpen] = useState(false);
+  const [editingContactIdForDrawer, setEditingContactIdForDrawer] = useState<string | null>(null);
+  const [isLinkAccountDrawerOpen, setIsLinkAccountDrawerOpen] = useState(false);
+  const [linkAccountDrawerMode, setLinkAccountDrawerMode] = useState<"search" | "create" | "edit">("search");
   const [openingChatContactId, setOpeningChatContactId] = useState<string | null>(null);
 
   const handleOpenChatForContact = async (contactId: string) => {
@@ -411,7 +607,7 @@ export function DealDetailModal({
 
   // Sub-abas e ações de atividades
   const [tasksSubTab, setTasksSubTab] = useState<"pending" | "completed" | "cancelled" | "notes">("pending");
-  const [historyFilter, setHistoryFilter] = useState<"all" | "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire" | "conversion" | "opportunity">("all");
+  const [historyFilter, setHistoryFilter] = useState<"all" | "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire" | "conversion" | "opportunity" | "automation" | "commercial">("all");
   const [historySourceFilter, setHistorySourceFilter] = useState<"all" | "conversas" | "crm" | "marketing">("all");
   const [journeySelection, setJourneySelection] = useState({ dealId: "", contactId: "" });
   const [journeyEnabledFor, setJourneyEnabledFor] = useState("");
@@ -421,46 +617,114 @@ export function DealDetailModal({
   const journeyContactId = journeySelection.dealId === dealId && journeyContacts.some((entry: { id: string })=>entry.id === journeySelection.contactId)
     ? journeySelection.contactId : journeyContacts.find((entry: { isPrimary: boolean })=>entry.isPrimary)?.id || journeyContacts[0]?.id || "";
   const rdJourney = useRdMarketingJourney(chatContext?.tenant || null, dealId, journeyContactId || null,
-    isOpen && activeTab === "history" && (historySourceFilter === "marketing" || historyFilter === "conversion" || historyFilter === "opportunity" || journeyEnabledFor === journeyContext), journeyViewerScope);
+    isOpen && activeTab === "history" && (historySourceFilter === "marketing" || ["conversion", "opportunity", "automation", "commercial"].includes(historyFilter) || journeyEnabledFor === journeyContext), journeyViewerScope);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [inlineNoteText, setInlineNoteText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
-  const noteTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const noteEditorRef = React.useRef<HTMLDivElement>(null);
+  const savedNoteRangeRef = React.useRef<Range | null>(null);
+  const [noteActiveFormats, setNoteActiveFormats] = useState({
+    bold: false,
+    italic: false,
+    bullet: false,
+    numbered: false,
+  });
+  const [isNoteLinkPromptOpen, setIsNoteLinkPromptOpen] = useState(false);
+  const [noteLinkLabel, setNoteLinkLabel] = useState("");
+  const [noteLinkUrl, setNoteLinkUrl] = useState("https://");
+
+  const updateNoteToolbarState = () => {
+    try {
+      setNoteActiveFormats({
+        bold: document.queryCommandState("bold"),
+        italic: document.queryCommandState("italic"),
+        bullet: document.queryCommandState("insertUnorderedList"),
+        numbered: document.queryCommandState("insertOrderedList"),
+      });
+    } catch {
+      // Ignora caso o documento não suporte queryCommandState no momento
+    }
+  };
+
+  const syncNoteEditorState = () => {
+    const editor = noteEditorRef.current;
+    if (!editor) return;
+    const serialized = serializeRichNoteToMarkdown(editor);
+    setInlineNoteText(serialized);
+    updateNoteToolbarState();
+  };
 
   const handleFormatNote = (format: "bold" | "italic" | "bullet" | "numbered" | "link") => {
-    const textarea = noteTextareaRef.current;
-    if (!textarea) return;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selected = inlineNoteText.substring(start, end);
+    const editor = noteEditorRef.current;
+    if (!editor) return;
 
-    let replacement = "";
-    if (format === "bold") {
-      replacement = selected ? `**${selected}**` : "**texto em negrito**";
-    } else if (format === "italic") {
-      replacement = selected ? `*${selected}*` : "*texto em itálico*";
-    } else if (format === "bullet") {
-      replacement = selected
-        ? selected.split("\n").map((l) => `- ${l}`).join("\n")
-        : "- item da lista";
-    } else if (format === "numbered") {
-      replacement = selected
-        ? selected.split("\n").map((l, i) => `${i + 1}. ${l}`).join("\n")
-        : "1. item numerado";
-    } else if (format === "link") {
-      replacement = selected ? `[${selected}](https://)` : "[link](https://)";
+    if (format === "link") {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+        savedNoteRangeRef.current = sel.getRangeAt(0).cloneRange();
+        const selectedText = sel.toString().trim();
+        setNoteLinkLabel(selectedText || "");
+      } else {
+        savedNoteRangeRef.current = null;
+        setNoteLinkLabel("");
+      }
+      setNoteLinkUrl("https://");
+      setIsNoteLinkPromptOpen((prev) => !prev);
+      return;
     }
 
-    const newText = inlineNoteText.substring(0, start) + replacement + inlineNoteText.substring(end);
-    setInlineNoteText(newText);
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + replacement.length, start + replacement.length);
-    }, 10);
+    editor.focus();
+    if (format === "bold") {
+      document.execCommand("bold", false);
+    } else if (format === "italic") {
+      document.execCommand("italic", false);
+    } else if (format === "bullet") {
+      document.execCommand("insertUnorderedList", false);
+    } else if (format === "numbered") {
+      document.execCommand("insertOrderedList", false);
+    }
+    syncNoteEditorState();
+  };
+
+  const handleInsertNoteLink = () => {
+    const editor = noteEditorRef.current;
+    if (!editor) return;
+    const rawUrl = noteLinkUrl.trim();
+    if (!rawUrl || rawUrl === "https://" || rawUrl === "http://") {
+      toast.error("Informe o endereço (URL) do link.");
+      return;
+    }
+    const href =
+      rawUrl.startsWith("http://") || rawUrl.startsWith("https://") || rawUrl.startsWith("mailto:")
+        ? rawUrl
+        : `https://${rawUrl}`;
+    const label = noteLinkLabel.trim() || href;
+
+    editor.focus();
+    const sel = window.getSelection();
+    if (savedNoteRangeRef.current && sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedNoteRangeRef.current);
+    }
+
+    const anchorHtml = `<a href="${href.replace(/"/g, "&quot;")}" target="_blank" rel="noopener noreferrer" class="text-primary font-semibold underline">${label
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")}</a>&nbsp;`;
+    document.execCommand("insertHTML", false, anchorHtml);
+
+    setIsNoteLinkPromptOpen(false);
+    setNoteLinkLabel("");
+    setNoteLinkUrl("https://");
+    savedNoteRangeRef.current = null;
+    syncNoteEditorState();
   };
 
   const handleSaveInlineNote = async () => {
-    if (!inlineNoteText.trim() || !deal) return;
+    const finalMarkdown = noteEditorRef.current
+      ? serializeRichNoteToMarkdown(noteEditorRef.current)
+      : inlineNoteText.trim();
+    if (!finalMarkdown.trim() || !deal) return;
     setIsSavingNote(true);
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}/activities`, {
@@ -469,7 +733,7 @@ export function DealDetailModal({
         body: JSON.stringify({
           type: "note",
           title: "Anotação",
-          description: inlineNoteText.trim(),
+          description: finalMarkdown.trim(),
           status: "completed",
           completed: true,
         }),
@@ -480,7 +744,11 @@ export function DealDetailModal({
       }
 
       toast.success("Anotação salva no histórico!");
+      if (noteEditorRef.current) {
+        noteEditorRef.current.innerHTML = "";
+      }
       setInlineNoteText("");
+      setIsNoteLinkPromptOpen(false);
       setIsCreatingNote(false);
       loadDealDetail();
     } catch (err: any) {
@@ -491,19 +759,16 @@ export function DealDetailModal({
     }
   };
 
-  const adjustNoteTextareaHeight = () => {
-    const el = noteTextareaRef.current;
-    if (el) {
-      el.style.height = "auto";
-      el.style.height = `${Math.max(el.scrollHeight, 90)}px`;
-    }
-  };
-
   useEffect(() => {
     if (isCreatingNote) {
-      setTimeout(adjustNoteTextareaHeight, 10);
+      setTimeout(() => {
+        noteEditorRef.current?.focus();
+      }, 20);
+    } else {
+      setIsNoteLinkPromptOpen(false);
+      setNoteActiveFormats({ bold: false, italic: false, bullet: false, numbered: false });
     }
-  }, [isCreatingNote, inlineNoteText]);
+  }, [isCreatingNote]);
 
   // Lista de funis para troca rápida pelo cabeçalho
   const [availablePipelines, setAvailablePipelines] = useState<Array<{ id: string; name: string; stages?: any[] }>>([]);
@@ -1296,7 +1561,7 @@ export function DealDetailModal({
     if (!deal) return [];
     const items: Array<{
       id: string;
-      category: "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire" | "conversion" | "opportunity";
+      category: "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire" | "conversion" | "opportunity" | "automation" | "commercial";
       title: string;
       description?: string | null;
       author: string;
@@ -1461,9 +1726,9 @@ export function DealDetailModal({
     });
 
     (rdJourney.data?.events || []).forEach(event=>items.push({
-      id: `rd-${event.key}`, category: event.eventType === "CONVERSION" ? "conversion" : "opportunity",
-      title: event.eventType === "CONVERSION" ? `Converteu em ${event.identifier || "evento sem identificador"}` : "Marcado como oportunidade",
-      description: [`Contato: ${rdJourney.data!.contactName}`, `Fonte: ${event.source || "Não informada"}`, `Campanha: ${event.campaign || "Não informada"}`, event.medium ? `Mídia: ${event.medium}` : "", event.funnelName ? `Funil RD Marketing: ${event.funnelName}` : ""].filter(Boolean).join("\n"),
+      id: `rd-${event.key}`, category: event.eventType === "CONVERSION" ? "conversion" : event.eventType === "AUTOMATION" ? "automation" : event.eventType === "SALE" || event.eventType === "OPPORTUNITY_LOST" ? "commercial" : "opportunity",
+      title: event.label || (event.eventType === "CONVERSION" ? `Converteu em ${event.identifier || "evento sem identificador"}` : "Marcado como oportunidade"),
+      description: [`Contato: ${rdJourney.data!.contactName}`, `Fonte: ${event.source || "Não informada"}`, `Campanha: ${event.campaign || "Não informada"}`, event.medium ? `Mídia: ${event.medium}` : "", event.funnelName ? `Funil RD Marketing: ${event.funnelName}` : "", event.observedSource ? `Origem do perfil no aviso: ${event.observedSource}` : "", event.observedCampaign ? `Campanha do perfil no aviso: ${event.observedCampaign}` : "", event.observedLifecycle ? `Estágio de Marketing no aviso: ${event.observedLifecycle}` : "", event.eventType === "AUTOMATION" ? "Data de recebimento do aviso deste ponto do fluxo." : ""].filter(Boolean).join("\n"),
       author: "RD Marketing", date: new Date(event.date || NaN), iconType: "history", badgeColor: "bg-primary/10 text-primary", source: "marketing", marketingEvent: event,
     }));
     // Eventos sem data não recebem uma data inventada; aparecem após os eventos datados.
@@ -2022,7 +2287,10 @@ export function DealDetailModal({
                   </span>
                   <button
                     type="button"
-                    onClick={() => setIsAddContactDrawerOpen(true)}
+                    onClick={() => {
+                      setEditingContactIdForDrawer(null);
+                      setIsAddContactDrawerOpen(true);
+                    }}
                     className="text-[10px] font-medium text-primary hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="h-3 w-3" />
@@ -2076,8 +2344,22 @@ export function DealDetailModal({
                             </button>
                           </SystemTooltip>
 
+                          {/* Editar Contato */}
+                          <SystemTooltip content="Editar dados deste contato">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingContactIdForDrawer(c.contactId);
+                                setIsAddContactDrawerOpen(true);
+                              }}
+                              className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          </SystemTooltip>
+
                           {/* Remover participante */}
-                          <SystemTooltip content="Remover participante">
+                          <SystemTooltip content="Desvincular participante da negociação">
                             <button
                               type="button"
                               onClick={() => handleRemoveParticipant(c.contactId)}
@@ -2101,7 +2383,7 @@ export function DealDetailModal({
                       )}
                       <div className="flex items-center justify-between pt-1">
                         <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary uppercase">
-                          {c.role || "buyer"}
+                          {formatContactRoleLabel(c.role)}
                         </span>
                         {c.isPrimary ? (
                           <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[9px] font-bold text-foreground">
@@ -2127,9 +2409,31 @@ export function DealDetailModal({
 
               {/* 3. Card da Empresa */}
               <div className="crm-side-account order-3 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                  Empresa
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                    Empresa
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkAccountDrawerMode("search");
+                      setIsLinkAccountDrawerOpen(true);
+                    }}
+                    className="text-[10px] font-medium text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {deal?.account ? (
+                      <>
+                        <Pencil className="h-3 w-3" />
+                        <span>Alterar</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-3 w-3" />
+                        <span>Adicionar</span>
+                      </>
+                    )}
+                  </button>
+                </div>
 
                 {deal?.account ? (
                   <div className="space-y-2">
@@ -2209,8 +2513,34 @@ export function DealDetailModal({
                     <CustomFieldsSummary entity="company" values={deal.account.customFields || {}} />
                   </div>
                 ) : (
-                  <div className="text-xs text-muted-foreground/60 italic py-2">
-                    Nenhum cliente ou empresa vinculado.
+                  <div className="space-y-2 py-1">
+                    <div className="text-xs text-muted-foreground/60 italic">
+                      Nenhum cliente ou empresa vinculado.
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLinkAccountDrawerMode("search");
+                          setIsLinkAccountDrawerOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-sm border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-semibold text-foreground hover:border-primary/40 hover:text-primary transition-colors cursor-pointer"
+                      >
+                        <Building2 className="h-3 w-3 text-primary" />
+                        <span>Vincular existente</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLinkAccountDrawerMode("create");
+                          setIsLinkAccountDrawerOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-sm border border-primary/25 bg-primary/[0.04] px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Criar nova</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2642,7 +2972,13 @@ export function DealDetailModal({
                                         </div>
 
                                         {act.description && (
-                                          <p className="text-xs text-muted-foreground whitespace-pre-wrap">{act.description}</p>
+                                          isNote ? (
+                                            <div className="text-xs text-foreground leading-relaxed break-words">
+                                              {renderMarkdownContent(act.description)}
+                                            </div>
+                                          ) : (
+                                            <p className="text-xs text-muted-foreground whitespace-pre-wrap">{act.description}</p>
+                                          )
                                         )}
                                       </div>
 
@@ -3925,6 +4261,8 @@ export function DealDetailModal({
                               <SelectItem value="questionnaire" className="text-xs font-medium">Questionários</SelectItem>
                               <SelectItem value="conversion" className="text-xs font-medium">Conversões RD Marketing</SelectItem>
                               <SelectItem value="opportunity" className="text-xs font-medium">Oportunidades RD Marketing</SelectItem>
+                              <SelectItem value="automation" className="text-xs font-medium">Pontos de automação</SelectItem>
+                              <SelectItem value="commercial" className="text-xs font-medium">Vendas e perdas informadas ao RD</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -3961,70 +4299,144 @@ export function DealDetailModal({
                             <span className="text-xs font-bold text-foreground">Anotação</span>
                           </div>
 
-                          {/* Toolbar de Formatação */}
+                          {/* Toolbar de Formatação Visual (WYSIWYG) */}
                           <div className="flex items-center gap-1 border-b border-border/60 pb-2">
                             <button
                               type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => handleFormatNote("bold")}
-                              title="Negrito"
-                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                              title="Negrito (Ctrl+B)"
+                              className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                noteActiveFormats.bold
+                                  ? "bg-primary/15 text-primary border border-primary/30"
+                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                              }`}
                             >
                               <Bold className="h-3.5 w-3.5" />
                             </button>
                             <button
                               type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => handleFormatNote("italic")}
-                              title="Itálico"
-                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                              title="Itálico (Ctrl+I)"
+                              className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                noteActiveFormats.italic
+                                  ? "bg-primary/15 text-primary border border-primary/30"
+                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                              }`}
                             >
                               <Italic className="h-3.5 w-3.5" />
                             </button>
                             <button
                               type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => handleFormatNote("bullet")}
                               title="Lista com marcadores"
-                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                              className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                noteActiveFormats.bullet
+                                  ? "bg-primary/15 text-primary border border-primary/30"
+                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                              }`}
                             >
                               <List className="h-3.5 w-3.5" />
                             </button>
                             <button
                               type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => handleFormatNote("numbered")}
                               title="Lista numerada"
-                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                              className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                noteActiveFormats.numbered
+                                  ? "bg-primary/15 text-primary border border-primary/30"
+                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                              }`}
                             >
                               <ListOrdered className="h-3.5 w-3.5" />
                             </button>
                             <button
                               type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => handleFormatNote("link")}
                               title="Inserir link"
-                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                              className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                isNoteLinkPromptOpen
+                                  ? "bg-primary/15 text-primary border border-primary/30"
+                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                              }`}
                             >
                               <Link2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
 
-                          {/* Área de Texto da Anotação com Auto-expansão Vertical */}
-                          <textarea
-                            ref={noteTextareaRef}
-                            rows={3}
-                            value={inlineNoteText}
-                            onChange={(e) => {
-                              setInlineNoteText(e.target.value);
-                              adjustNoteTextareaHeight();
-                            }}
-                            placeholder="Digite aqui os detalhes da anotação..."
-                            className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 resize-none overflow-hidden outline-none min-h-[90px] leading-relaxed transition-all"
-                            autoFocus
-                          />
+                          {/* Barra inline para inserir link real */}
+                          {isNoteLinkPromptOpen && (
+                            <div className="flex flex-wrap items-center gap-2 rounded-sm border border-border bg-muted/30 p-2">
+                              <input
+                                type="text"
+                                placeholder="Texto do link (opcional)"
+                                value={noteLinkLabel}
+                                onChange={(e) => setNoteLinkLabel(e.target.value)}
+                                className="flex-1 min-w-[130px] h-7 rounded-sm border border-border bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
+                              />
+                              <input
+                                type="url"
+                                placeholder="https://..."
+                                value={noteLinkUrl}
+                                onChange={(e) => setNoteLinkUrl(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleInsertNoteLink();
+                                  }
+                                }}
+                                className="flex-1 min-w-[160px] h-7 rounded-sm border border-border bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
+                                autoFocus
+                              />
+                              <button
+                                type="button"
+                                onClick={handleInsertNoteLink}
+                                className="h-7 rounded-sm bg-primary px-2.5 text-[11px] font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
+                              >
+                                Inserir
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsNoteLinkPromptOpen(false)}
+                                className="h-7 rounded-sm border border-border bg-card px-2 text-[11px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                              >
+                                Fechar
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Editor Rich-Text Visual (WYSIWYG) */}
+                          <div className="relative">
+                            {!inlineNoteText.trim() && (
+                              <div className="pointer-events-none absolute top-0 left-0 text-xs text-muted-foreground/60 select-none">
+                                Digite aqui os detalhes da anotação...
+                              </div>
+                            )}
+                            <div
+                              ref={noteEditorRef}
+                              contentEditable
+                              suppressContentEditableWarning
+                              onInput={syncNoteEditorState}
+                              onKeyUp={updateNoteToolbarState}
+                              onMouseUp={updateNoteToolbarState}
+                              className="w-full bg-transparent text-xs text-foreground outline-none min-h-[90px] leading-relaxed break-words [&_b]:font-extrabold [&_strong]:font-extrabold [&_i]:italic [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_a]:text-primary [&_a]:font-semibold [&_a]:underline"
+                            />
+                          </div>
 
                           {/* Rodapé: Cancelar e Salvar no histórico */}
                           <div className="flex items-center justify-between pt-2 border-t border-border/40">
                             <button
                               type="button"
                               onClick={() => {
+                                if (noteEditorRef.current) {
+                                  noteEditorRef.current.innerHTML = "";
+                                }
                                 setIsCreatingNote(false);
+                                setIsNoteLinkPromptOpen(false);
                                 setInlineNoteText("");
                               }}
                               className="text-xs font-semibold text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
@@ -4146,7 +4558,7 @@ export function DealDetailModal({
                                 {item.marketingEvent && <div className="mt-2 pl-9 space-y-2">
                                   {item.marketingEvent.links.map((url: string)=><a key={url} href={url} target="_blank" rel="noopener noreferrer" className="block text-xs text-primary break-all">{url}</a>)}
                                   {item.marketingEvent.deals.map((link: { id: string; title: string })=><a key={link.id} href={`/crm/deals/${encodeURIComponent(link.id)}`} className="block text-xs font-semibold text-primary">{link.id === dealId ? "Esta negociação" : "Abrir negociação"}: {link.title}</a>)}
-                                  <details className="text-xs"><summary className="cursor-pointer text-primary">Detalhes da conversão/evento</summary><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] mt-2">{JSON.stringify(item.marketingEvent.raw, null, 2)}</pre></details>
+                                  <details className="text-xs"><summary className="cursor-pointer text-primary">Detalhes da conversão/evento</summary><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] mt-2">{JSON.stringify(item.marketingEvent.webhookRaw ? { evento: item.marketingEvent.raw, avisoRecebido: item.marketingEvent.webhookRaw } : item.marketingEvent.raw, null, 2)}</pre></details>
                                 </div>}
                                 {item.description && (
                                   item.isNote ? (
@@ -4182,7 +4594,7 @@ export function DealDetailModal({
           accountId={deal.accountId}
           isOpen={isAccountDetailOpen}
           onClose={() => setIsAccountDetailOpen(false)}
-          onAccountUpdated={() => loadDealDetail()}
+          onAccountUpdated={() => loadDealDetail(true)}
           onOpenChat={(convId) => {
             setIsAccountDetailOpen(false);
             onOpenConversation(convId);
@@ -4211,18 +4623,35 @@ export function DealDetailModal({
         accountName={deal?.account?.name}
         operators={Array.from(operatorsMap.entries()).map(([id, name]) => ({ id, name }))}
         onTaskCreated={() => {
-          loadDealDetail();
+          loadDealDetail(true);
         }}
       />
 
-      {/* Drawer Lateral de Adicionar/Vincular Contato ao Negócio */}
+      {/* Drawer Lateral de Adicionar/Vincular/Editar Contato ao Negócio */}
       {deal && (
         <DealAddContactDrawer
           isOpen={isAddContactDrawerOpen}
-          onClose={() => setIsAddContactDrawerOpen(false)}
+          onClose={() => {
+            setIsAddContactDrawerOpen(false);
+            setEditingContactIdForDrawer(null);
+          }}
           dealId={deal.id}
           accountId={deal.accountId}
-          onContactLinked={() => loadDealDetail()}
+          linkedContacts={deal.contacts || []}
+          initialEditContactId={editingContactIdForDrawer}
+          onContactLinked={() => loadDealDetail(true)}
+        />
+      )}
+
+      {/* Drawer Lateral de Vincular/Criar/Editar Empresa do Negócio */}
+      {deal && (
+        <DealLinkAccountDrawer
+          isOpen={isLinkAccountDrawerOpen}
+          onClose={() => setIsLinkAccountDrawerOpen(false)}
+          dealId={deal.id}
+          currentAccount={deal.account || null}
+          initialMode={linkAccountDrawerMode}
+          onAccountChanged={() => loadDealDetail(true)}
         />
       )}
     </div>

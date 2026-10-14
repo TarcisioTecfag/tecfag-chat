@@ -399,6 +399,7 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
         null,
         {
           title: String(mapped.deal.title),
+          marketingOrigin: true,
           pipelineId: settings.pipelineId,
           stageId: settings.stageId,
           operatorId: settings.operatorId,

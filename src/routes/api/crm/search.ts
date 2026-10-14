@@ -25,7 +25,8 @@ export const Route = createFileRoute("/api/crm/search")({
         if (category && !["deals", "companies", "contacts"].includes(category)) {
           return Response.json({ error: "Categoria inválida." }, { status: 400 });
         }
-        if (query.length < 2) {
+        const minQueryLength = category === "contacts" ? 1 : 2;
+        if (query.length < minQueryLength) {
           return Response.json({
             deals: { items: [], total: 0 },
             companies: { items: [], total: 0 },

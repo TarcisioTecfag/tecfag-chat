@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "../../db";
 import {
@@ -13,9 +13,12 @@ import {
   rdMarketingJourneyLinks as links,
   rdMarketingJourneyPages as pages,
   rdMarketingReceipts,
+  rdMarketingJourneyNotifications,
+  rdMarketingCommercialOutbox,
 } from "../../db/schema";
 import { CrmError } from "../crm/crm-service";
-import { rdEventsPath, type RdFetch } from "./api-client";
+import { parseRdEventPage, rdEventsPath, type RdFetch } from "./api-client";
+import { notificationKey } from "./notifications";
 import { readRdEventPage, probeRdLead } from "./api-service";
 import { deliveryIdentity, flowSettingsSchema } from "./mapping";
 import type { RdJourney, JourneyEvent } from "./journey-types";
@@ -329,15 +332,98 @@ export async function dealRdJourney(
       "RD_CONNECTION_CHANGED",
       409,
     );
-  const received: JourneyEvent[] = result.data.flatMap((row) =>
-    row.data.events.map((event) => ({
+  // Reinterpret saved raw pages with the current reader; parser fixes do not require an RD call.
+  const normalizedPages = result.data.map((row) => {
+    const normalized = parseRdEventPage(row.data.raw, row.data.eventType, row.data.page);
+    return normalized.recognized ? normalized : row.data;
+  });
+  const received: JourneyEvent[] = normalizedPages.flatMap((page) =>
+    page.events.map((event) => ({
       ...event,
-      key: journeyEventKey(event, row.data.eventType),
-      eventType: row.data.eventType,
+      key:
+        event.date && Number.isFinite(new Date(event.date).getTime()) && event.identifier
+          ? notificationKey(
+              result.link.rdUuid,
+              page.eventType,
+              new Date(event.date),
+              page.eventType === "OPPORTUNITY" && event.identifier === "OPPORTUNITY"
+                ? "default"
+                : event.identifier,
+              event.raw,
+            )
+          : journeyEventKey(event, page.eventType),
+      eventType: page.eventType,
       deals: [],
     })),
   );
   const events = [...new Map(received.map((event) => [event.key, event])).values()];
+  const notices = await db
+    .select()
+    .from(rdMarketingJourneyNotifications)
+    .where(
+      and(
+        eq(rdMarketingJourneyNotifications.tenantId, tenantId),
+        eq(rdMarketingJourneyNotifications.connectionVersion, version),
+        or(
+          eq(rdMarketingJourneyNotifications.rdUuid, result.link.rdUuid),
+          and(
+            isNull(rdMarketingJourneyNotifications.rdUuid),
+            eq(rdMarketingJourneyNotifications.contactId, contact.id),
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(rdMarketingJourneyNotifications.receivedAt));
+  for (const notice of notices) {
+    const match =
+      notice.occurredAt &&
+      events.find(
+        (event) =>
+          event.eventType === notice.eventType &&
+          event.date &&
+          new Date(event.date).getTime() === notice.occurredAt!.getTime() &&
+          (event.identifier === notice.identifier ||
+            (notice.eventType === "OPPORTUNITY" &&
+              event.identifier === "OPPORTUNITY" &&
+              notice.identifier === "default")),
+      );
+    if (match) {
+      match.observedSource = notice.data.observedSource;
+      match.observedCampaign = notice.data.observedCampaign;
+      match.observedLifecycle = notice.data.observedLifecycle;
+      match.webhookRaw = notice.data.raw;
+      continue;
+    }
+    events.push({
+      id: notice.id,
+      key:
+        notice.occurredAt && notice.eventType !== "AUTOMATION"
+          ? notificationKey(
+              result.link.rdUuid,
+              notice.eventType,
+              notice.occurredAt,
+              notice.identifier,
+              notice.data.raw,
+            )
+          : `notice:${notice.eventKey}`,
+      eventType: notice.eventType as JourneyEvent["eventType"],
+      identifier: notice.identifier,
+      date:
+        notice.occurredAt?.toISOString() ||
+        (notice.eventType === "AUTOMATION" ? notice.receivedAt.toISOString() : null),
+      source: notice.data.source,
+      campaign: notice.data.campaign,
+      medium: notice.data.medium,
+      label: notice.eventType === "AUTOMATION" ? notice.data.label : undefined,
+      observedSource: notice.data.observedSource,
+      observedCampaign: notice.data.observedCampaign,
+      observedLifecycle: notice.data.observedLifecycle,
+      receivedAt: notice.receivedAt.toISOString(),
+      links: notice.data.links,
+      raw: notice.data.raw,
+      deals: [],
+    });
+  }
   const flows = await db
     .select()
     .from(rdMarketingFlows)
@@ -360,7 +446,8 @@ export async function dealRdJourney(
       !eligible.length
     )
       continue;
-    const payload = rawObject(rawObject(event.raw).payload);
+    const raw = rawObject(event.raw);
+    const payload = rawObject(raw.payload || raw.contact);
     const rdEvent = { event_timestamp: event.date, event_identifier: event.identifier };
     const identities: Record<string, unknown>[] = [{ uuid: result.link.rdUuid, rd_event: rdEvent }];
     if (typeof payload.email === "string" && payload.email.trim())
@@ -449,13 +536,59 @@ export async function dealRdJourney(
       ),
     )
     .orderBy(desc(crmDeals.createdAt), crmDeals.id);
+  const commercial = await db
+    .select({
+      delivery: rdMarketingCommercialOutbox,
+      owner: crmDeals.operatorId,
+      title: crmDeals.title,
+    })
+    .from(rdMarketingCommercialOutbox)
+    .innerJoin(
+      crmDeals,
+      and(eq(crmDeals.id, rdMarketingCommercialOutbox.dealId), eq(crmDeals.tenantId, tenantId)),
+    )
+    .where(
+      and(
+        eq(rdMarketingCommercialOutbox.tenantId, tenantId),
+        eq(rdMarketingCommercialOutbox.connectionVersion, version),
+        eq(rdMarketingCommercialOutbox.contactId, contact.id),
+        eq(rdMarketingCommercialOutbox.status, "sent"),
+      ),
+    );
+  for (const { delivery, owner, title } of commercial)
+    if (canRead(owner, viewer))
+      events.push({
+        id: delivery.externalEventId,
+        key: `commercial:${delivery.id}`,
+        eventType: delivery.eventType as JourneyEvent["eventType"],
+        label:
+          delivery.eventType === "SALE"
+            ? "Venda informada ao RD Marketing"
+            : delivery.eventType === "OPPORTUNITY_LOST"
+              ? "Perda informada ao RD Marketing"
+              : "Oportunidade informada ao RD Marketing",
+        identifier: delivery.dealId,
+        date: String(delivery.snapshot.occurredAt || delivery.sentAt?.toISOString() || "") || null,
+        source: typeof delivery.snapshot.source === "string" ? delivery.snapshot.source : null,
+        campaign:
+          typeof delivery.snapshot.campaign === "string" ? delivery.snapshot.campaign : null,
+        links: [],
+        raw: {
+          event_type: delivery.eventType,
+          event_uuid: delivery.externalEventId,
+          sent_at: delivery.sentAt?.toISOString(),
+          payload: delivery.payload,
+          negotiation: delivery.snapshot,
+        },
+        deals: [{ id: delivery.dealId, title }],
+      });
   return {
     contactId: contact.id,
     contactName: contact.name || "Contato",
     snapshotId: result.link.snapshotId,
     syncedAt: result.link.syncedAt.toISOString(),
     cached: result.cached,
-    pages: result.data.map((row) => row.data),
+    pages: normalizedPages,
     events,
     relatedDeals: related
       .filter((deal) => canRead(deal.owner, viewer))

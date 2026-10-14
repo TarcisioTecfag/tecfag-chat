@@ -58,6 +58,7 @@ import {
 import { rememberRdMarketingFlow, restoreRdMarketingFlow } from "@/lib/rd-marketing/selection";
 import { RdMarketingDiagnostics } from "./RdMarketingDiagnostics";
 import { RdMarketingConnection } from "./RdMarketingConnection";
+import { RdMarketingSyncSettings } from "./RdMarketingSyncSettings";
 
 type Field = {
   id: string;
@@ -718,6 +719,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
       className="space-y-6"
     >
       <RdMarketingConnection key={tenant} />
+      <RdMarketingSyncSettings key={`sync:${tenant}`} />
       {/* 1. CABEÇALHO DA INTEGRAÇÃO COM BARRA DE SELEÇÃO DE FLUXO */}
       <div className="rounded-3xl border border-border bg-card p-6 shadow-soft transition-all">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 border-b border-border pb-6">

@@ -57,6 +57,7 @@ import {
   type StageContext,
 } from "./custom-fields";
 import { validateCatalogChoice } from "./catalogs";
+import { enqueueRdCommercial } from "../rd-marketing/commercial-outbox";
 
 /**
  * Garante que nenhum campo de negócio com `isUnique: true` tenha valor duplicado
@@ -1758,6 +1759,7 @@ export class CrmService {
         .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)));
 
       const isFirst = existing.length === 0;
+      const already = existing.find((p) => p.contactId === finalContactId);
       const shouldBePrimary = isPrimary || isFirst;
 
       if (shouldBePrimary) {
@@ -1767,11 +1769,10 @@ export class CrmService {
           .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, dealId)));
       }
 
-      const already = existing.find((p) => p.contactId === finalContactId);
       if (already) {
         await tx
           .update(crmDealContacts)
-          .set({ role, isPrimary: shouldBePrimary })
+          .set({ role, isPrimary: shouldBePrimary || Boolean(already.isPrimary) })
           .where(eq(crmDealContacts.id, already.id));
       } else {
         await tx.insert(crmDealContacts).values({
@@ -1783,6 +1784,50 @@ export class CrmService {
           isPrimary: shouldBePrimary,
           createdAt: new Date(),
         });
+      }
+
+      // Sincroniza automaticamente as conversas deste contato com a negociação (crm_conversation_deals)
+      const contactConvs = await tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, finalContactId)));
+
+      for (const conv of contactConvs) {
+        const [existingConvDeal] = await tx
+          .select()
+          .from(crmConversationDeals)
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              eq(crmConversationDeals.conversationId, conv.id),
+              eq(crmConversationDeals.dealId, dealId)
+            )
+          )
+          .limit(1);
+
+        if (existingConvDeal) {
+          if (!existingConvDeal.isActive) {
+            await tx
+              .update(crmConversationDeals)
+              .set({
+                isActive: true,
+                unlinkedAt: null,
+                unlinkedByOperatorId: null,
+              })
+              .where(and(eq(crmConversationDeals.id, existingConvDeal.id), eq(crmConversationDeals.tenantId, tenantId)));
+          }
+        } else {
+          await tx.insert(crmConversationDeals).values({
+            id: `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            tenantId,
+            conversationId: conv.id,
+            dealId,
+            origin: "crm",
+            createdByOperatorId: null,
+            isActive: true,
+            createdAt: new Date(),
+          });
+        }
       }
 
       // Consulta lista atualizada de participantes
@@ -1852,6 +1897,29 @@ export class CrmService {
       }
 
       await tx.delete(crmDealContacts).where(eq(crmDealContacts.id, existing.id));
+
+      // Desativa o vínculo das conversas deste contato com esta negociação
+      const contactConvs = await tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)));
+
+      if (contactConvs.length > 0) {
+        await tx
+          .update(crmConversationDeals)
+          .set({
+            isActive: false,
+            unlinkedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              eq(crmConversationDeals.dealId, dealId),
+              inArray(crmConversationDeals.conversationId, contactConvs.map((c) => c.id)),
+              eq(crmConversationDeals.isActive, true)
+            )
+          );
+      }
 
       if (existing.isPrimary) {
         const [next] = await tx
@@ -2612,6 +2680,51 @@ export class CrmService {
       contact: r.contact,
     }));
 
+    // Garante que conversas existentes dos contatos participantes estejam vinculadas em crm_conversation_deals
+    if (mappedContacts.length > 0) {
+      const participantContactIds = Array.from(new Set(mappedContacts.map((c) => c.contactId).filter(Boolean)));
+      if (participantContactIds.length > 0) {
+        const contactConvs = await db
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.tenantId, tenantId),
+              inArray(conversations.contactId, participantContactIds)
+            )
+          );
+
+        if (contactConvs.length > 0) {
+          const existingLinks = await db
+            .select({ conversationId: crmConversationDeals.conversationId })
+            .from(crmConversationDeals)
+            .where(
+              and(
+                eq(crmConversationDeals.tenantId, tenantId),
+                eq(crmConversationDeals.dealId, dealId),
+                inArray(crmConversationDeals.conversationId, contactConvs.map((c) => c.id))
+              )
+            );
+
+          const existingConvIds = new Set(existingLinks.map((l) => l.conversationId));
+          const missingConvs = contactConvs.filter((c) => !existingConvIds.has(c.id));
+
+          for (const missingConv of missingConvs) {
+            await db.insert(crmConversationDeals).values({
+              id: `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              tenantId,
+              conversationId: missingConv.id,
+              dealId,
+              origin: "crm",
+              createdByOperatorId: null,
+              isActive: true,
+              createdAt: new Date(),
+            });
+          }
+        }
+      }
+    }
+
     // Conversas vinculadas ativas com joins de contato e operador (DTO completo)
     const convDealsRaw = await db
       .select({
@@ -2794,6 +2907,7 @@ export class CrmService {
       contactId?: string; // Contato principal a associar
       conversationId?: string; // Conversa de origem
       initialNote?: string | null;
+      marketingOrigin?: boolean; // Imported RD conversions must not echo a new opportunity.
       customFields?: CustomFieldValues;
     },
     executor: Pick<typeof db, "transaction"> = db,
@@ -3070,8 +3184,10 @@ export class CrmService {
         });
       }
 
-      // 11. Se originado de uma conversa, vincula N:N na mesma transação
+      // 11. Vincula conversa de origem e demais conversas existentes do contato
+      const linkedConversationIds = new Set<string>();
       if (data.conversationId) {
+        linkedConversationIds.add(data.conversationId);
         const linkId = `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         await tx.insert(crmConversationDeals).values({
           id: linkId,
@@ -3097,6 +3213,29 @@ export class CrmService {
         );
       }
 
+      if (linkedContactId) {
+        const contactConvs = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, linkedContactId)));
+
+        for (const conv of contactConvs) {
+          if (linkedConversationIds.has(conv.id)) continue;
+          linkedConversationIds.add(conv.id);
+          await tx.insert(crmConversationDeals).values({
+            id: `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            tenantId,
+            conversationId: conv.id,
+            dealId,
+            origin: "crm",
+            createdByOperatorId: operatorId,
+            isActive: true,
+            createdAt: now,
+          });
+        }
+      }
+
+      if (!data.marketingOrigin) await enqueueRdCommercial(tx, tenantId, deal, null);
       return deal;
     });
   }
@@ -3384,6 +3523,7 @@ export class CrmService {
         );
       }
 
+      if (statusChanged) await enqueueRdCommercial(tx, tenantId, updated, current.status);
       return updated;
     });
   }
@@ -3836,6 +3976,56 @@ export class CrmService {
       }
     >
   > {
+    // Sincroniza negociações onde o contato da conversa já é participante em crm_deal_contacts
+    const [conv] = await db
+      .select({ id: conversations.id, contactId: conversations.contactId })
+      .from(conversations)
+      .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+      .limit(1);
+
+    if (conv?.contactId) {
+      const contactDeals = await db
+        .select({ dealId: crmDealContacts.dealId })
+        .from(crmDealContacts)
+        .innerJoin(crmDeals, and(eq(crmDealContacts.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.contactId, conv.contactId)
+          )
+        );
+
+      if (contactDeals.length > 0) {
+        const existingConvLinks = await db
+          .select({ dealId: crmConversationDeals.dealId })
+          .from(crmConversationDeals)
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              eq(crmConversationDeals.conversationId, conversationId)
+            )
+          );
+
+        const existingDealIds = new Set(existingConvLinks.map((l) => l.dealId));
+        const missingDealIds = Array.from(
+          new Set(contactDeals.map((d) => d.dealId).filter((id) => !existingDealIds.has(id)))
+        );
+
+        for (const missingDealId of missingDealIds) {
+          await db.insert(crmConversationDeals).values({
+            id: `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            tenantId,
+            conversationId,
+            dealId: missingDealId,
+            origin: "crm",
+            createdByOperatorId: null,
+            isActive: true,
+            createdAt: new Date(),
+          });
+        }
+      }
+    }
+
     const rows = await db
       .select({
         deal: crmDeals,

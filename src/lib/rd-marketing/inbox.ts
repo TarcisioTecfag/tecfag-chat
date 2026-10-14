@@ -181,6 +181,10 @@ export async function runRdMarketingRecovery() {
         const claimed = await claimRdEvent(tenantId, row.id);
         if (claimed) await processRdEvent(claimed);
       }
+      const { runRdCommercialWorker } = await import("./commercial-outbox");
+      await runRdCommercialWorker(tenantId).catch(() =>
+        console.error("[RD Marketing] Falha no retorno comercial; pendências preservadas."),
+      );
     }
   } finally {
     running = false;

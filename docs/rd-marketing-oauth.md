@@ -1,6 +1,6 @@
 # Conexão RD Marketing e consulta da jornada
 
-O módulo oferece autorização OAuth por tenant, consulta de prova de um lead nas configurações e jornada RD Marketing no histórico dos cards. A conexão por webhook continua responsável pela criação de cards. As consultas de jornada não enviam vendas/perdas e não alteram contatos, empresas ou negociações.
+O módulo oferece autorização OAuth por tenant, consulta de prova de um lead nas configurações e jornada RD Marketing no histórico dos cards. O retorno comercial e os webhooks da jornada são configurados separadamente, conforme `rd-marketing-sync.md`. As consultas de jornada não enviam vendas/perdas e não alteram contatos, empresas ou negociações.
 
 ## Configuração
 
@@ -57,6 +57,6 @@ Conversões oferecem **Abrir negociação** quando o recibo de criação coincid
 
 A rota exige sessão, `canViewCrm`, acesso ao card e participação do contato. Links de outros cards respeitam `canViewAllDeals` e o vendedor responsável; negociações sem permissão não têm nome/ID expostos. A UI mistura os eventos carregados do Marketing com o histórico atual do CRM em ordem cronológica e permite filtrar conversões e oportunidades. Dados sem data válida são sinalizados e colocados após os eventos datados.
 
-Migration `0038_rd_marketing_journey.sql` é aditiva. Eventos consultados ficam no cache local do tenant, com credenciais ocultadas, e não geram novas conversões, cards ou mensagens no RD. O envio de vendas/perdas ainda é uma etapa posterior, com eventos independentes por negociação, conforme `rd-marketing-sync-study.md`.
+Migration `0038_rd_marketing_journey.sql` é aditiva. Eventos consultados ficam no cache local do tenant, com credenciais ocultadas, e não geram novas conversões, cards ou mensagens no RD. O envio de vendas/perdas é uma funcionalidade separada e depende de ativação explícita nas configurações de retorno comercial. A migration aditiva `0039_rd_marketing_sync.sql` preserva avisos recebidos e envios comerciais pendentes.
 
 O painel também apresenta **Negociações deste contato** em uma seção sempre aberta, com situação, funil, etapa, responsável, valor, data de criação e acesso direto aos cards permitidos ao operador. O card atual aparece primeiro e recebe uma identificação própria. Esses dados comerciais são lidos do banco local e não consomem consultas ao RD. Essa lista informa a relação com o contato; somente os links exibidos junto de uma conversão representam um recibo correspondente àquela conversão. A troca de operador, tenant ou permissões invalida a jornada carregada no navegador antes de consultar os dados novamente.

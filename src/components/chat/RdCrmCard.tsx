@@ -24,6 +24,7 @@ interface RdCrmCardProps {
 
 export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
   const [loading, setLoading] = useState(true);
+  const [integrated, setIntegrated] = useState<boolean | null>(null);
   const [linked, setLinked] = useState(false);
   const [dealId, setDealId] = useState("");
   const [dealLink, setDealLink] = useState("");
@@ -59,6 +60,13 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
         throw new Error("Erro ao buscar informações do CRM");
       }
       const data = await res.json();
+      if (data.integrated === false) {
+        setIntegrated(false);
+        setLinked(false);
+        setDeal(null);
+        return;
+      }
+      setIntegrated(true);
       if (data.linked) {
         console.log("[DEBUG RD DEAL]", data.debug);
         setLinked(true);
@@ -258,6 +266,10 @@ export function RdCrmCard({ contactId, tenantId }: RdCrmCardProps) {
     const val = getCustomFieldValueFromDeal(deal, field.id, field.slug);
     return val !== "" ? val : "Não informado";
   };
+
+  if (integrated === false || (loading && integrated === null)) {
+    return null;
+  }
 
   if (loading) {
     return (

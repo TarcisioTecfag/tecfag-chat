@@ -2,7 +2,13 @@ import type { RdEventPage, RdEventView } from "./api-types";
 
 export type JourneyEvent = RdEventView & {
   key: string;
-  eventType: "CONVERSION" | "OPPORTUNITY";
+  eventType: "CONVERSION" | "OPPORTUNITY" | "AUTOMATION" | "SALE" | "OPPORTUNITY_LOST";
+  label?: string;
+  observedSource?: string | null;
+  observedCampaign?: string | null;
+  observedLifecycle?: string | null;
+  webhookRaw?: unknown;
+  receivedAt?: string;
   deals: { id: string; title: string }[];
 };
 export type RdJourney = {

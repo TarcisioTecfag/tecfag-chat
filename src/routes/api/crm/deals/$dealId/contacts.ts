@@ -108,10 +108,16 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/contacts")({
           }
 
           let contacts;
-          if (body.isPrimary) {
+          if (body.role) {
+            contacts = await crmService.addDealContact(
+              tenantId,
+              dealId,
+              body.contactId,
+              body.role,
+              Boolean(body.isPrimary)
+            );
+          } else if (body.isPrimary) {
             contacts = await crmService.setPrimaryDealContact(tenantId, dealId, body.contactId);
-          } else if (body.role) {
-            contacts = await crmService.addDealContact(tenantId, dealId, body.contactId, body.role, false);
           } else {
             contacts = await crmService.getDealContacts(tenantId, dealId);
           }

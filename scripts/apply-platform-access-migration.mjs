@@ -160,6 +160,10 @@ const migrations = [
     name: "0038_rd_marketing_journey",
     url: new URL("../src/db/migrations/0038_rd_marketing_journey.sql", import.meta.url),
   },
+  {
+    name: "0039_rd_marketing_sync",
+    url: new URL("../src/db/migrations/0039_rd_marketing_sync.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

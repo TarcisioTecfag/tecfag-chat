@@ -305,6 +305,57 @@ async function readRd(tenantId: string, path: string, fetchImpl?: RdFetch) {
     return read();
   }
 }
+
+// Writes are restricted to the documented integrations/events APIs. Callers bind the account
+// version captured when the business event was committed, so reconnecting cannot reroute it.
+export async function writeRd(
+  tenantId: string,
+  path: "/platform/events" | "/integrations/webhooks",
+  body: Record<string, unknown>,
+  expectedVersion: string,
+  fetchImpl?: RdFetch,
+) {
+  const check = async () => {
+    const [row] = await db.select().from(connections).where(whereTenant(tenantId));
+    if (row?.version !== expectedVersion || !row.accessTokenEncrypted || !row.refreshTokenEncrypted)
+      throw new CrmError(
+        "A conta RD mudou. Revise a configuração antes de enviar.",
+        "RD_CONNECTION_CHANGED",
+        409,
+      );
+  };
+  await check();
+  let token = await accessToken(tenantId, fetchImpl);
+  const send = async () => {
+    await check();
+    try {
+      return await rdRequest(
+        path,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        fetchImpl,
+      );
+    } catch (error) {
+      // Once POST starts, a transport failure/5xx may conceal an accepted event.
+      if (error && typeof error === "object") Object.assign(error, { rdPostStarted: true });
+      throw error;
+    }
+  };
+  try {
+    return await send();
+  } catch (error) {
+    if (!(error instanceof CrmError) || error.code !== "RD_HTTP_401") throw error;
+    token = await accessToken(tenantId, fetchImpl, token);
+    return send();
+  }
+}
+
+export async function listRdWebhooks(tenantId: string, fetchImpl?: RdFetch) {
+  return readRd(tenantId, "/integrations/webhooks", fetchImpl);
+}
 export async function probeRdLead(
   tenantId: string,
   identifier: RdIdentifier,
@@ -320,6 +371,14 @@ export async function probeRdLead(
     ),
   );
   return { contact, pages };
+}
+export async function readRdContact(
+  tenantId: string,
+  identifier: RdIdentifier,
+  value: string,
+  fetchImpl?: RdFetch,
+) {
+  return parseRdContact(await readRd(tenantId, rdContactPath(identifier, value), fetchImpl));
 }
 export async function readRdEventPage(
   tenantId: string,

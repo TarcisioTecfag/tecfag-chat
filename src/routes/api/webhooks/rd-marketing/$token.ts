@@ -50,7 +50,14 @@ export const Route = createFileRoute("/api/webhooks/rd-marketing/$token")({
             .limit(1);
           if (!flow) return Response.json({ error: "Webhook inválido." }, { status: 401 });
           if (!flow.settings.enabled) throw new CrmError("Fluxo desativado.", "FLOW_DISABLED", 409);
-          const receipt = await storeRdWebhook(flow, await readIntegrationJson(request));
+          const payload = await readIntegrationJson(request);
+          const type = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>).event_type : null;
+          // Commercial markers (including our outbound opportunity) cannot become acquisition
+          // cards. Their dedicated journey endpoint preserves them without a feedback loop.
+          if (["WEBHOOK.MARKED_OPPORTUNITY", "OPPORTUNITY", "SALE", "OPPORTUNITY_LOST"].includes(String(type))) {
+            return Response.json({ accepted: true, ignored: "Evento comercial recebido; utilize o webhook da jornada." }, { status: 202 });
+          }
+          const receipt = await storeRdWebhook(flow, payload);
           if (!process.env.IS_TEST && process.env.NODE_ENV !== "test") {
             const tenantId = flow.tenantId;
             void claimRdEvent(tenantId, receipt.eventId)

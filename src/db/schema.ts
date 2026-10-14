@@ -136,6 +136,73 @@ export const rdMarketingJourneyPages = pgTable("rd_marketing_journey_pages", {
   pageUnique: uniqueIndex("idx_rd_journey_page").on(table.tenantId, table.linkId, table.snapshotId, table.eventType, table.page),
 }));
 
+export const rdMarketingSyncSettings = pgTable("rd_marketing_sync_settings", {
+  tenantId: text("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
+  connectionVersion: text("connection_version"),
+  outboundEnabled: boolean("outbound_enabled").default(false).notNull(),
+  currency: text("currency").default("BRL").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const rdMarketingJourneyEndpoints = pgTable("rd_marketing_journey_endpoints", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  connectionVersion: text("connection_version").notNull(),
+  kind: text("kind").notNull(),
+  label: text("label").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  tokenEncrypted: text("token_encrypted").notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  remoteId: text("remote_id"),
+  registrationStatus: text("registration_status").default("local").notNull(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({ tenantIdx: index("idx_rd_journey_endpoints_tenant").on(table.tenantId) }));
+
+export const rdMarketingJourneyNotifications = pgTable("rd_marketing_journey_notifications", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  connectionVersion: text("connection_version").notNull(),
+  endpointId: text("endpoint_id").references(() => rdMarketingJourneyEndpoints.id, { onDelete: "set null" }),
+  contactId: text("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  rdUuid: text("rd_uuid"),
+  email: text("email"),
+  phone: text("phone"),
+  eventType: text("event_type").notNull(),
+  eventKey: text("event_key").notNull(),
+  identifier: text("identifier"),
+  occurredAt: timestamp("occurred_at"),
+  data: jsonb("data").$type<import("../lib/rd-marketing/sync-types").RdNotificationData>().notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+}, table => ({
+  identityIdx: uniqueIndex("idx_rd_journey_notification_identity").on(table.tenantId, table.connectionVersion, table.eventKey),
+  contactIdx: index("idx_rd_journey_notification_contact").on(table.tenantId, table.connectionVersion, table.rdUuid),
+}));
+
+export const rdMarketingCommercialOutbox = pgTable("rd_marketing_commercial_outbox", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  connectionVersion: text("connection_version").notNull(),
+  dealId: text("deal_id").notNull(),
+  contactId: text("contact_id"),
+  dealVersion: integer("deal_version").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+  status: text("status").default("pending").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  nextRetryAt: timestamp("next_retry_at").defaultNow().notNull(),
+  leaseToken: text("lease_token"),
+  leaseUntil: timestamp("lease_until"),
+  externalEventId: text("external_event_id"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  sentAt: timestamp("sent_at"),
+}, table => ({
+  transitionIdx: uniqueIndex("idx_rd_commercial_transition").on(table.tenantId, table.dealId, table.dealVersion, table.eventType),
+  pendingIdx: index("idx_rd_commercial_pending").on(table.tenantId, table.status, table.nextRetryAt),
+}));
+
 export const rdMarketingLogs = pgTable("rd_marketing_logs", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
