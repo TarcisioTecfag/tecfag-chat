@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { ExternalLink, Bot, Clock } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
+import { DealStatusBadge } from "@/components/crm/deal-status-config";
 
 const money = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -420,9 +421,7 @@ export function CommercialCohortsPanel({
                   {deal.title}
                 </button>
                 <span className="text-muted-foreground">{deal.accountName || "Cliente sem nome"}</span>
-                <span className="rounded-[2px] bg-muted/60 dark:bg-zinc-800 px-2 py-0.5 text-[10px] text-muted-foreground">
-                  {deal.status}
-                </span>
+                <DealStatusBadge status={deal.status} size="sm" />
                 <span className="font-semibold text-foreground ml-auto">{money.format(deal.value)}</span>
               </div>
             ))}

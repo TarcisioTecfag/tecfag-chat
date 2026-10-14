@@ -58,6 +58,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { DealAddContactDrawer, formatContactRoleLabel } from "./DealAddContactDrawer";
 import { DealLinkAccountDrawer } from "./DealLinkAccountDrawer";
+import { DealStatusBadge } from "./deal-status-config";
 import { useChat } from "@/hooks/useChatState";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { CreateTaskModal } from "./CreateTaskModal";
@@ -1773,26 +1774,8 @@ export function DealDetailModal({
 
               {!loading && deal && (
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* 1. Status Badge */}
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
-                      deal.status === "lost"
-                        ? "bg-primary/10 text-primary border border-primary/20"
-                        : deal.status === "won"
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                        : deal.status === "paused"
-                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                        : "bg-muted text-foreground border border-border"
-                    }`}
-                  >
-                    {deal.status === "won"
-                      ? "Ganho"
-                      : deal.status === "lost"
-                      ? "Perdido"
-                      : deal.status === "paused"
-                      ? "Pausado"
-                      : "Em Aberto"}
-                  </span>
+                  {/* 1. Status Badge Padronizado */}
+                  <DealStatusBadge status={deal.status} size="sm" className="rounded-full" />
 
                   {/* 2. Funil com Menu Suspenso */}
                   <DropdownMenu>

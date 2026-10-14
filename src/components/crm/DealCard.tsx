@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { prefetchDealDetail } from "@/lib/crm/deal-prefetch";
+import { getDealStatusMeta } from "./deal-status-config";
 
 export interface DealCardData {
   id: string;
@@ -115,29 +116,13 @@ export const DealCard = React.memo(function DealCard({
     ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(rawValue)
     : null;
 
-  // Status visual harmonizado com a paleta do sistema (neutro no "Em andamento", sem azul destoante)
+  // Status visual padronizado em todo o sistema
+  const statusMeta = getDealStatusMeta(deal.status);
   const statusBadge = {
-    open: {
-      label: "Em andamento",
-      color: "text-muted-foreground bg-muted/80 border-border/80",
-      icon: Clock,
-    },
-    won: {
-      label: "Vendido",
-      color: "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
-      icon: CheckCircle2,
-    },
-    lost: {
-      label: "Perdido",
-      color: "text-destructive bg-destructive/10 border-destructive/30",
-      icon: XCircle,
-    },
-    paused: {
-      label: "Pausado",
-      color: "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30",
-      icon: PauseCircle,
-    },
-  }[deal.status];
+    label: statusMeta.label,
+    color: statusMeta.badgeColor,
+    icon: statusMeta.icon,
+  };
 
   // Pointer Down para Drag customizado fluido sem delay
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {

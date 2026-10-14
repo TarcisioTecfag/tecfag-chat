@@ -63,6 +63,7 @@ import {
 } from "lucide-react";
 import { DealCardData } from "./DealCard";
 import { CRM_TASK_TYPES, CrmTaskType } from "./CreateTaskModal";
+import { DEAL_STATUS_OPTIONS } from "./deal-status-config";
 
 export interface BulkActionsSuiteProps {
   selectedIds: Set<string>;
@@ -728,38 +729,20 @@ export function BulkActionsSuite({
                 ALTERAR STATUS
               </div>
               <div className="space-y-0.5 pt-1">
-                <button
-                  type="button"
-                  onClick={() => handleExecuteStatus("open")}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
-                >
-                  <Activity className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
-                  <span>Em andamento</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExecuteStatus("lost")}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
-                >
-                  <XCircle className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
-                  <span>Perdido</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExecuteStatus("paused")}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
-                >
-                  <PauseCircle className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
-                  <span>Pausado</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExecuteStatus("won")}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
-                >
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
-                  <span>Vendido</span>
-                </button>
+                {DEAL_STATUS_OPTIONS.map((opt) => {
+                  const OptionIcon = opt.icon;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleExecuteStatus(opt.value as "open" | "won" | "lost" | "paused")}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
+                    >
+                      <OptionIcon className={`h-4 w-4 shrink-0 transition-colors ${opt.iconColor}`} />
+                      <span>{opt.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </PopoverContent>
           </Popover>

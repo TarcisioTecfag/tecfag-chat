@@ -29,6 +29,7 @@ import {
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { BulkActionsSuite } from "./BulkActionsSuite";
 import { prefetchDealDetail } from "@/lib/crm/deal-prefetch";
+import { getDealStatusMeta } from "./deal-status-config";
 
 interface DealListProps {
   deals: DealCardData[];
@@ -370,31 +371,12 @@ export function DealList({
                       : undefined) ||
                     null;
 
+                  const statusMeta = getDealStatusMeta(deal.status);
+                  const StatusIcon = statusMeta.icon;
                   const statusBadge = {
-                    open: {
-                      label: "Em andamento",
-                      color: "text-muted-foreground",
-                      icon: <Activity className="h-4 w-4 text-muted-foreground" />,
-                    },
-                    won: {
-                      label: "Vendido",
-                      color: "text-muted-foreground",
-                      icon: <CheckCircle2 className="h-4 w-4 text-muted-foreground" />,
-                    },
-                    lost: {
-                      label: "Perdido",
-                      color: "text-muted-foreground",
-                      icon: <XCircle className="h-4 w-4 text-muted-foreground" />,
-                    },
-                    paused: {
-                      label: "Pausado",
-                      color: "text-muted-foreground",
-                      icon: <PauseCircle className="h-4 w-4 text-muted-foreground" />,
-                    },
-                  }[deal.status] || {
-                    label: deal.status,
-                    color: "text-muted-foreground",
-                    icon: <Activity className="h-4 w-4 text-muted-foreground" />,
+                    label: statusMeta.label,
+                    color: statusMeta.iconColor,
+                    icon: <StatusIcon className={`h-4 w-4 ${statusMeta.iconColor}`} />,
                   };
 
                   const formattedCreatedAt = new Date(deal.createdAt).toLocaleDateString("pt-BR", {

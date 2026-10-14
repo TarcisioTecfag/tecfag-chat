@@ -33,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DEAL_STATUS_OPTIONS, DealStatusBadge } from "./deal-status-config";
 
 interface ConversationDealsPanelProps {
   conversationId: string;
@@ -360,40 +361,10 @@ export function ConversationDealsPanel({
     return String(val);
   };
 
-  // Status badge helper
-  const renderStatusBadge = (status?: string | null) => {
-    switch (status) {
-      case "won":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-            <CheckCircle2 className="h-2.5 w-2.5" />
-            Vendido
-          </span>
-        );
-      case "lost":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[9px] font-bold text-red-600 dark:text-red-400 border border-red-500/30">
-            <XCircle className="h-2.5 w-2.5" />
-            Perdido
-          </span>
-        );
-      case "paused":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/30">
-            <PauseCircle className="h-2.5 w-2.5" />
-            Pausado
-          </span>
-        );
-      case "open":
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[9px] font-semibold text-muted-foreground border border-border/70">
-            <Activity className="h-2.5 w-2.5 text-primary" />
-            Em andamento
-          </span>
-        );
-    }
-  };
+  // Status badge helper padronizado
+  const renderStatusBadge = (status?: string | null) => (
+    <DealStatusBadge status={status} size="xs" className="rounded-full" />
+  );
 
   return (
     <div className="space-y-3 bg-muted/40 p-3.5 rounded-2xl border border-line animate-fade-in">
@@ -601,10 +572,17 @@ export function ConversationDealsPanel({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="open">Em andamento</SelectItem>
-                              <SelectItem value="won">Vendido</SelectItem>
-                              <SelectItem value="lost">Perdido</SelectItem>
-                              <SelectItem value="paused">Pausado</SelectItem>
+                              {DEAL_STATUS_OPTIONS.map((opt) => {
+                                const OptionIcon = opt.icon;
+                                return (
+                                  <SelectItem key={opt.value} value={opt.value}>
+                                    <span className="inline-flex items-center gap-2">
+                                      <OptionIcon className={`h-3.5 w-3.5 shrink-0 ${opt.iconColor}`} />
+                                      <span>{opt.label}</span>
+                                    </span>
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                         </div>
@@ -1024,7 +1002,8 @@ export function ConversationDealsPanel({
                   >
                     <div className="min-w-0 pr-2">
                       <p className="text-xs font-bold text-foreground truncate">{d.title}</p>
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                        {renderStatusBadge(d.status)}
                         {d.account?.name && (
                           <SystemTooltip content={`Empresa: ${d.account.name}`}>
                             <span className="inline-flex items-center gap-1 text-[10px] text-primary font-medium truncate max-w-[140px] cursor-default">

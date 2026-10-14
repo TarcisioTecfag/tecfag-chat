@@ -34,14 +34,19 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  CRM_STATUS_FILTER_OPTIONS,
+  getDealStatusFilterMeta,
+  type CrmStatusFilter,
+} from "./deal-status-config";
+
+export type { CrmStatusFilter };
 
 export interface PipelineOption {
   id: string;
   name: string;
   isDefault?: boolean;
 }
-
-export type CrmStatusFilter = "all" | "open" | "won" | "lost" | "paused" | "not_paused";
 
 interface CrmToolbarProps {
   viewMode: "kanban" | "list";
@@ -215,6 +220,9 @@ export function CrmToolbar({
     />
   );
 
+  const currentStatusMeta = getDealStatusFilterMeta(statusFilter);
+  const CurrentStatusIcon = currentStatusMeta.icon;
+
   const renderStatusFilter = () => (
     <Select
       value={statusFilter}
@@ -225,17 +233,24 @@ export function CrmToolbar({
         className="h-9 w-full gap-2 rounded-lg bg-background px-3 text-sm shadow-none"
       >
         <div className="flex min-w-0 items-center gap-2">
-          <Activity className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <SelectValue />
+          <CurrentStatusIcon className={`h-4 w-4 shrink-0 ${currentStatusMeta.iconColor}`} />
+          <span className="truncate">
+            <SelectValue>{currentStatusMeta.label}</SelectValue>
+          </span>
         </div>
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="all">Todos os status</SelectItem>
-        <SelectItem value="open">Em andamento</SelectItem>
-        <SelectItem value="won">Vendido</SelectItem>
-        <SelectItem value="lost">Perdido</SelectItem>
-        <SelectItem value="paused">Pausado</SelectItem>
-        <SelectItem value="not_paused">Não pausado</SelectItem>
+        {CRM_STATUS_FILTER_OPTIONS.map((opt) => {
+          const OptionIcon = opt.icon;
+          return (
+            <SelectItem key={opt.value} value={opt.value}>
+              <span className="inline-flex items-center gap-2">
+                <OptionIcon className={`h-4 w-4 shrink-0 ${opt.iconColor}`} />
+                <span>{opt.label}</span>
+              </span>
+            </SelectItem>
+          );
+        })}
       </SelectContent>
     </Select>
   );

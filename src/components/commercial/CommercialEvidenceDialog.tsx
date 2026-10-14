@@ -640,7 +640,7 @@ export function CommercialEvidenceDialog({
                       : "border border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
                   }`}
                 >
-                  <Trophy className="h-5 w-5 mb-1.5" />
+                  <CheckCircle2 className="h-5 w-5 mb-1.5" />
                   <span className="text-xs font-bold uppercase tracking-wider">VENDIDO</span>
                   <span className="text-[10px] text-zinc-400 mt-0.5">Negociação ganha</span>
                 </button>

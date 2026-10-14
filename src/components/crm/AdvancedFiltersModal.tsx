@@ -14,7 +14,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { CrmStatusFilter } from "./CrmToolbar";
+import {
+  CRM_STATUS_FILTER_MAP,
+  CRM_STATUS_FILTER_OPTIONS,
+  type CrmStatusFilter,
+} from "./deal-status-config";
+import type { LucideIcon } from "lucide-react";
 
 export interface AdvancedFiltersState {
   stageIds?: string[];
@@ -64,7 +69,12 @@ const emptyFieldOptions = [
   ["products", "Produto ou serviço"],
 ] as const;
 
-type Option = { value: string; label: string };
+type Option = {
+  value: string;
+  label: string;
+  icon?: LucideIcon;
+  iconColor?: string;
+};
 type PresetKey =
   | number
   | "yesterday"
@@ -355,12 +365,16 @@ function FilterSelect({
   options,
   onChange,
   emptyLabel = "Selecionar",
+  emptyIcon: EmptyIcon,
+  emptyIconColor = "text-muted-foreground",
 }: {
   label: string;
   value?: string;
   options: Option[];
   onChange: (value?: string) => void;
   emptyLabel?: string;
+  emptyIcon?: LucideIcon;
+  emptyIconColor?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -373,12 +387,31 @@ function FilterSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="__all__">{emptyLabel}</SelectItem>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
+          <SelectItem value="__all__">
+            {EmptyIcon ? (
+              <span className="inline-flex items-center gap-2">
+                <EmptyIcon className={`h-3.5 w-3.5 shrink-0 ${emptyIconColor}`} />
+                <span>{emptyLabel}</span>
+              </span>
+            ) : (
+              emptyLabel
+            )}
+          </SelectItem>
+          {options.map((option) => {
+            const OptionIcon = option.icon;
+            return (
+              <SelectItem key={option.value} value={option.value}>
+                {OptionIcon ? (
+                  <span className="inline-flex items-center gap-2">
+                    <OptionIcon className={`h-3.5 w-3.5 shrink-0 ${option.iconColor || "text-muted-foreground"}`} />
+                    <span>{option.label}</span>
+                  </span>
+                ) : (
+                  option.label
+                )}
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
     </div>
@@ -716,16 +749,17 @@ export function AdvancedFiltersModal({
           </div>
           <FilterSelect
             label="Status da negociação"
-            emptyLabel="Todos os status"
+            emptyLabel={CRM_STATUS_FILTER_MAP.all.label}
+            emptyIcon={CRM_STATUS_FILTER_MAP.all.icon}
+            emptyIconColor={CRM_STATUS_FILTER_MAP.all.iconColor}
             value={status === "all" ? undefined : status}
             onChange={(value) => setStatus((value || "all") as CrmStatusFilter)}
-            options={[
-              { value: "open", label: "Em andamento" },
-              { value: "won", label: "Vendido" },
-              { value: "lost", label: "Perdido" },
-              { value: "paused", label: "Pausado" },
-              { value: "not_paused", label: "Não pausado" },
-            ]}
+            options={CRM_STATUS_FILTER_OPTIONS.filter((opt) => opt.value !== "all").map((opt) => ({
+              value: opt.value,
+              label: opt.label,
+              icon: opt.icon,
+              iconColor: opt.iconColor,
+            }))}
           />
           <div className="space-y-1.5">
             <Label htmlFor="crm-filter-title" className="text-xs font-semibold">

@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/select";
 import type { RdJourney } from "@/lib/rd-marketing/journey-types";
 import type { RdEventPage } from "@/lib/rd-marketing/api-types";
+import { DealStatusBadge } from "./deal-status-config";
 
 type Props = {
   currentDealId: string;
@@ -99,28 +100,6 @@ export function RdMarketingJourneyControls({
                   .sort((a, b) => Number(b.id === currentDealId) - Number(a.id === currentDealId))
                   .map((deal) => {
                     const current = deal.id === currentDealId;
-                    const status =
-                      deal.status === "won"
-                        ? {
-                            label: "Ganha",
-                            color:
-                              "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-                          }
-                        : deal.status === "lost"
-                          ? {
-                              label: "Perdida",
-                              color: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
-                            }
-                          : deal.status === "paused"
-                            ? {
-                                label: "Pausada",
-                                color:
-                                  "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-                              }
-                            : {
-                                label: "Em andamento",
-                                color: "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
-                              };
                     let value = "Valor não informado";
                     if (deal.value !== null && Number.isFinite(Number(deal.value))) {
                       try {
@@ -140,11 +119,7 @@ export function RdMarketingJourneyControls({
                         className={`group min-w-0 rounded-lg border p-3 space-y-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${current ? "border-primary/30 bg-primary/5" : "border-border bg-background"}`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${status.color}`}
-                          >
-                            {status.label}
-                          </span>
+                          <DealStatusBadge status={deal.status} size="sm" className="rounded-full" />
                           {current && (
                             <span className="text-[11px] font-semibold text-primary">
                               Card atual

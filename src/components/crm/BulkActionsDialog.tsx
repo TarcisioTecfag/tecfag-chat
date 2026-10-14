@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Loader2, ArrowRightLeft, UserCheck, CheckCircle2, AlertTriangle } from "lucide-react";
+import { DEAL_STATUS_OPTIONS } from "./deal-status-config";
 
 export type BulkActionType = "stage" | "operator" | "status";
 
@@ -187,10 +188,17 @@ export function BulkActionsDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="open" className="text-xs">Em andamento</SelectItem>
-                    <SelectItem value="won" className="text-xs">Vendido (Ganho)</SelectItem>
-                    <SelectItem value="lost" className="text-xs">Perdido</SelectItem>
-                    <SelectItem value="paused" className="text-xs">Pausado</SelectItem>
+                    {DEAL_STATUS_OPTIONS.map((opt) => {
+                      const OptionIcon = opt.icon;
+                      return (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                          <span className="inline-flex items-center gap-2">
+                            <OptionIcon className={`h-3.5 w-3.5 shrink-0 ${opt.iconColor}`} />
+                            <span>{opt.label}</span>
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>

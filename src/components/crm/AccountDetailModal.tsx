@@ -22,6 +22,7 @@ import {
 import { toast } from "sonner";
 import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { CatalogSelect } from "./CatalogSelect";
+import { DealStatusBadge } from "./deal-status-config";
 import type { CrmAccountDetailDTO } from "../../lib/crm/crm-types";
 
 interface AccountDetailModalProps {
@@ -587,17 +588,7 @@ export function AccountDetailModal({
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
-                            <span
-                              className={`text-[11px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider ${
-                                d.status === "won"
-                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                                  : d.status === "lost"
-                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-                                  : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
-                              }`}
-                            >
-                              {d.status === "won" ? "Ganho" : d.status === "lost" ? "Perdido" : "Aberto"}
-                            </span>
+                            <DealStatusBadge status={d.status} size="sm" className="rounded-full" />
                             <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-sky-500" />
                           </div>
                         </div>

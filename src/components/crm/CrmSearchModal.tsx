@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DealStatusBadge } from "./deal-status-config";
 
 type DealResult = {
   id: string;
@@ -355,18 +356,11 @@ export function CrmSearchModal({
                               )}
                             </span>
                             {key === "deals" && (
-                              <span
-                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${(item as DealResult).status === "won" ? "bg-emerald-100 text-emerald-800" : (item as DealResult).status === "lost" ? "bg-rose-100 text-rose-800" : "bg-sky-100 text-sky-800"}`}
-                              >
-                                {(
-                                  {
-                                    won: "Ganha",
-                                    lost: "Perdida",
-                                    paused: "Pausada",
-                                    open: "Aberta",
-                                  } as Record<string, string>
-                                )[(item as DealResult).status] || (item as DealResult).status}
-                              </span>
+                              <DealStatusBadge
+                                status={(item as DealResult).status}
+                                size="sm"
+                                className="shrink-0"
+                              />
                             )}
                           </button>
                         );
