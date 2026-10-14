@@ -123,6 +123,7 @@ export function CustomFieldsEditor({
   definitions,
   requiredIds = [],
   hideTitle = false,
+  columns = 1,
 }: {
   entity: CustomFieldEntity;
   pipelineId?: string | null;
@@ -132,6 +133,7 @@ export function CustomFieldsEditor({
   definitions?: FieldDefinition[];
   requiredIds?: string[];
   hideTitle?: boolean;
+  columns?: 1 | 2;
 }) {
   const loaded = useCustomFields(entity, !definitions);
   const fields = useMemo(() => {
@@ -184,141 +186,157 @@ export function CustomFieldsEditor({
 
   if (!fields.length) return null;
   const update = (id: string, value: unknown) => onChange({ ...values, [id]: value });
+  const common =
+    "h-9 w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 outline-none transition-all hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15";
+
   return (
-    <div className={`space-y-3 ${hideTitle ? "" : "border-t border-border pt-4"}`}>
+    <div className={`space-y-3.5 ${hideTitle ? "" : "border-t border-border pt-4"}`}>
       {!hideTitle && (
         <h4 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
           Campos personalizados
         </h4>
       )}
-      {fields.map((field) => {
-        const value = values[field.id];
-        const common =
-          "h-9 w-full rounded-lg border border-border bg-card px-3 text-xs text-foreground outline-none focus:border-primary";
-        return (
-          <div key={field.id} className="space-y-1">
-            <label
-              className="block text-xs font-semibold text-foreground"
-              htmlFor={`cf-${field.id}`}
+      <div
+        className={
+          columns === 2
+            ? "grid grid-cols-1 md:grid-cols-2 gap-3.5"
+            : "space-y-3"
+        }
+      >
+        {fields.map((field) => {
+          const value = values[field.id];
+          const isFullSpan = columns === 2 && field.fieldType === "multiple";
+          return (
+            <div
+              key={field.id}
+              className={`space-y-1.5 ${isFullSpan ? "md:col-span-2" : ""}`}
             >
-              {field.name}
-              {create && (field.required || requiredIds.includes(field.id)) && (
-                <span className="ml-1 text-primary">*</span>
-              )}
-            </label>
-            {field.fieldType === "multiple" ? (
-              <div className="max-h-36 space-y-2 overflow-y-auto rounded-lg border border-border bg-card p-2.5">
-                {field.options.map((option) => {
-                  const selected = Array.isArray(value) ? (value as string[]) : [];
-                  const isChecked = selected.includes(option.id);
-                  return (
-                    <label
-                      key={option.id}
-                      className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none"
-                    >
-                      <Checkbox
-                        checked={isChecked}
-                        onCheckedChange={(checked) =>
-                          update(
-                            field.id,
-                            checked
-                              ? [...selected, option.id]
-                              : selected.filter((id) => id !== option.id),
-                          )
-                        }
-                      />
-                      <span>{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            ) : field.fieldType === "single" ? (
-              <Select
-                value={typeof value === "string" && value ? value : "__empty__"}
-                onValueChange={(val) => update(field.id, val === "__empty__" ? null : val)}
+              <label
+                className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wide"
+                htmlFor={`cf-${field.id}`}
               >
-                <SelectTrigger id={`cf-${field.id}`} className="h-9 w-full rounded-lg text-xs bg-background">
-                  <SelectValue placeholder="Selecionar..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__empty__" className="text-xs text-muted-foreground">
-                    Selecionar...
-                  </SelectItem>
-                  {field.options.map((option) => (
-                    <SelectItem key={option.id} value={option.id} className="text-xs">
-                      {option.label}
+                {field.name}
+                {create && (field.required || requiredIds.includes(field.id)) && (
+                  <span className="ml-1 text-primary">*</span>
+                )}
+              </label>
+              {field.fieldType === "multiple" ? (
+                <div className="max-h-36 space-y-2 overflow-y-auto rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 p-2.5">
+                  {field.options.map((option) => {
+                    const selected = Array.isArray(value) ? (value as string[]) : [];
+                    const isChecked = selected.includes(option.id);
+                    return (
+                      <label
+                        key={option.id}
+                        className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none"
+                      >
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={(checked) =>
+                            update(
+                              field.id,
+                              checked
+                                ? [...selected, option.id]
+                                : selected.filter((id) => id !== option.id),
+                            )
+                          }
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : field.fieldType === "single" ? (
+                <Select
+                  value={typeof value === "string" && value ? value : "__empty__"}
+                  onValueChange={(val) => update(field.id, val === "__empty__" ? null : val)}
+                >
+                  <SelectTrigger
+                    id={`cf-${field.id}`}
+                    className={common}
+                  >
+                    <SelectValue placeholder="Selecionar..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__empty__" className="text-xs text-muted-foreground">
+                      Selecionar...
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : field.fieldType === "number" ? (
-              <div className="relative flex items-center">
+                    {field.options.map((option) => (
+                      <SelectItem key={option.id} value={option.id} className="text-xs">
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : field.fieldType === "number" ? (
+                <div className="relative flex items-center">
+                  <input
+                    id={`cf-${field.id}`}
+                    className={`${common} pr-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                    type="number"
+                    step="any"
+                    value={value === null || value === undefined ? "" : String(value)}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      update(field.id, raw === "" ? null : Number(raw));
+                    }}
+                    required={create && (field.required || requiredIds.includes(field.id))}
+                  />
+                  <div className="absolute right-1.5 flex items-center gap-1">
+                    <SystemTooltip content="Diminuir valor (-1)">
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => {
+                          const currentNum = typeof value === "number" ? value : Number(value) || 0;
+                          update(field.id, currentNum - 1);
+                        }}
+                        className="flex h-6 w-6 items-center justify-center rounded-[6px] border border-slate-300/80 dark:border-slate-700 bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+                        aria-label="Diminuir valor"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
+                    <SystemTooltip content="Aumentar valor (+1)">
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => {
+                          const currentNum = typeof value === "number" ? value : Number(value) || 0;
+                          update(field.id, currentNum + 1);
+                        }}
+                        className="flex h-6 w-6 items-center justify-center rounded-[6px] border border-slate-300/80 dark:border-slate-700 bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+                        aria-label="Aumentar valor"
+                      >
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      </button>
+                    </SystemTooltip>
+                  </div>
+                </div>
+              ) : field.fieldType === "date" ? (
+                <CrmDatePicker
+                  value={value ? String(value) : null}
+                  onChange={(val) => update(field.id, val)}
+                  placeholder="Selecionar data..."
+                  tooltipText="Selecionar data personalizada"
+                />
+              ) : (
                 <input
                   id={`cf-${field.id}`}
-                  className={`${common} pr-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
-                  type="number"
-                  step="any"
+                  className={common}
+                  type={field.fieldType === "url" ? "url" : "text"}
                   value={value === null || value === undefined ? "" : String(value)}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    update(field.id, raw === "" ? null : Number(raw));
-                  }}
+                  onChange={(event) => update(field.id, event.target.value || null)}
                   required={create && (field.required || requiredIds.includes(field.id))}
+                  maxLength={
+                    field.fieldType === "url" ? 2048 : field.fieldType === "text" ? 5000 : undefined
+                  }
                 />
-                <div className="absolute right-1.5 flex items-center gap-1">
-                  <SystemTooltip content="Diminuir valor (-1)">
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => {
-                        const currentNum = typeof value === "number" ? value : Number(value) || 0;
-                        update(field.id, currentNum - 1);
-                      }}
-                      className="flex h-6 w-6 items-center justify-center rounded border border-border/80 bg-muted/40 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
-                      aria-label="Diminuir valor"
-                    >
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    </button>
-                  </SystemTooltip>
-                  <SystemTooltip content="Aumentar valor (+1)">
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => {
-                        const currentNum = typeof value === "number" ? value : Number(value) || 0;
-                        update(field.id, currentNum + 1);
-                      }}
-                      className="flex h-6 w-6 items-center justify-center rounded border border-border/80 bg-muted/40 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
-                      aria-label="Aumentar valor"
-                    >
-                      <ChevronUp className="h-3.5 w-3.5" />
-                    </button>
-                  </SystemTooltip>
-                </div>
-              </div>
-            ) : field.fieldType === "date" ? (
-              <CrmDatePicker
-                value={value ? String(value) : null}
-                onChange={(val) => update(field.id, val)}
-                placeholder="Selecionar data..."
-                tooltipText="Selecionar data personalizada"
-              />
-            ) : (
-              <input
-                id={`cf-${field.id}`}
-                className={common}
-                type={field.fieldType === "url" ? "url" : "text"}
-                value={value === null || value === undefined ? "" : String(value)}
-                onChange={(event) => update(field.id, event.target.value || null)}
-                required={create && (field.required || requiredIds.includes(field.id))}
-                maxLength={
-                  field.fieldType === "url" ? 2048 : field.fieldType === "text" ? 5000 : undefined
-                }
-              />
-            )}
-          </div>
-        );
-      })}
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

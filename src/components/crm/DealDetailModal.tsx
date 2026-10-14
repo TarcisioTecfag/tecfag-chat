@@ -4578,6 +4578,12 @@ export function DealDetailModal({
           isOpen={isAccountDetailOpen}
           onClose={() => setIsAccountDetailOpen(false)}
           onAccountUpdated={() => loadDealDetail(true)}
+          onOpenDeal={(targetDealId) => {
+            setIsAccountDetailOpen(false);
+            if (targetDealId && targetDealId !== deal.id && typeof window !== "undefined") {
+              window.location.assign(`/crm/deals/${targetDealId}?from=crm`);
+            }
+          }}
           onOpenChat={(convId) => {
             setIsAccountDetailOpen(false);
             onOpenConversation(convId);

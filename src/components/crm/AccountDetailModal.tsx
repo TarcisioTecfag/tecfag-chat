@@ -10,19 +10,18 @@ import {
   Save,
   Trash2,
   ExternalLink,
-  Plus,
   Loader2,
-  CheckCircle2,
-  AlertTriangle,
   Phone,
   Mail,
   Globe,
   FileText,
+  SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { CatalogSelect } from "./CatalogSelect";
 import { DealStatusBadge } from "./deal-status-config";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import type { CrmAccountDetailDTO } from "../../lib/crm/crm-types";
 
 interface AccountDetailModalProps {
@@ -62,6 +61,12 @@ function maskPhone(val: string): string {
     .replace(/(\d{2})(\d)/, "($1) $2")
     .replace(/(\d{5})(\d)/, "$1-$2");
 }
+
+const UNIFORM_INPUT_CLASS =
+  "h-9 w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 outline-none transition-all hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15";
+
+const UNIFORM_LABEL_CLASS =
+  "block text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5";
 
 export function AccountDetailModal({
   accountId,
@@ -131,10 +136,21 @@ export function AccountDetailModal({
     }
   }, [isOpen, accountId]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !saving) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, saving, onClose]);
+
   if (!isOpen || !accountId) return null;
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!name.trim()) {
       toast.error("O nome ou razão social é obrigatório.");
       return;
@@ -225,266 +241,329 @@ export function AccountDetailModal({
     }
   };
 
+  const tabs = [
+    {
+      id: "details" as const,
+      label: "Dados Cadastrais",
+      icon: Building2,
+      count: null as number | null,
+    },
+    {
+      id: "contacts" as const,
+      label: "Contatos",
+      icon: Users,
+      count: accountData?.contacts?.length ?? 0,
+    },
+    {
+      id: "deals" as const,
+      label: "Negociações",
+      icon: Briefcase,
+      count: accountData?.deals?.length ?? 0,
+    },
+    {
+      id: "conversations" as const,
+      label: "Atendimentos",
+      icon: MessageSquare,
+      count: accountData?.conversations?.length ?? 0,
+    },
+    {
+      id: "history" as const,
+      label: "Histórico",
+      icon: History,
+      count: accountData?.history?.length ?? 0,
+    },
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div
+      className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-[2px]"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose();
+      }}
+    >
+      <div className="bg-card text-foreground border border-slate-300/70 dark:border-slate-800 ring-1 ring-black/5 dark:ring-white/10 rounded-[14px] shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Cabeçalho */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-lg bg-sky-100 dark:bg-sky-900/50 text-sky-600 dark:text-sky-300">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary border border-primary/20">
               {type === "company" ? <Building2 className="w-5 h-5" /> : <User className="w-5 h-5" />}
             </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 truncate max-w-md">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-extrabold text-foreground truncate max-w-md">
                   {name || "Carregando..."}
                 </h2>
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                <span className="rounded-[6px] bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
                   {type === "company" ? "PJ" : "PF"}
                 </span>
               </div>
-              {tradeName && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Nome Fantasia: {tradeName}
-                </p>
-              )}
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5 flex-wrap">
+                {tradeName && (
+                  <span>
+                    Fantasia: <strong className="font-semibold text-foreground">{tradeName}</strong>
+                  </span>
+                )}
+                {tradeName && document && <span>•</span>}
+                {document && (
+                  <span className="font-mono">{document}</span>
+                )}
+                {!tradeName && !document && (
+                  <span>Ficha cadastral e vínculos comerciais do cliente</span>
+                )}
+              </div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <SystemTooltip content="Fechar (Esc)">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer shrink-0"
+              aria-label="Fechar modal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </SystemTooltip>
         </div>
 
-        {/* Abas */}
-        <div className="flex items-center px-6 border-b border-slate-200 dark:border-slate-800 space-x-6 text-sm font-medium text-slate-500 dark:text-slate-400">
-          <button
-            type="button"
-            onClick={() => setActiveTab("details")}
-            className={`py-3 flex items-center space-x-2 border-b-2 transition-colors ${
-              activeTab === "details"
-                ? "border-sky-600 text-sky-600 dark:text-sky-400 font-semibold"
-                : "border-transparent hover:text-slate-700 dark:hover:text-slate-200"
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            <span>Dados Cadastrais</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("contacts")}
-            className={`py-3 flex items-center space-x-2 border-b-2 transition-colors ${
-              activeTab === "contacts"
-                ? "border-sky-600 text-sky-600 dark:text-sky-400 font-semibold"
-                : "border-transparent hover:text-slate-700 dark:hover:text-slate-200"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Contatos ({accountData?.contacts?.length || 0})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("deals")}
-            className={`py-3 flex items-center space-x-2 border-b-2 transition-colors ${
-              activeTab === "deals"
-                ? "border-sky-600 text-sky-600 dark:text-sky-400 font-semibold"
-                : "border-transparent hover:text-slate-700 dark:hover:text-slate-200"
-            }`}
-          >
-            <Briefcase className="w-4 h-4" />
-            <span>Negociações ({accountData?.deals?.length || 0})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("conversations")}
-            className={`py-3 flex items-center space-x-2 border-b-2 transition-colors ${
-              activeTab === "conversations"
-                ? "border-sky-600 text-sky-600 dark:text-sky-400 font-semibold"
-                : "border-transparent hover:text-slate-700 dark:hover:text-slate-200"
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>Atendimentos ({accountData?.conversations?.length || 0})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("history")}
-            className={`py-3 flex items-center space-x-2 border-b-2 transition-colors ${
-              activeTab === "history"
-                ? "border-sky-600 text-sky-600 dark:text-sky-400 font-semibold"
-                : "border-transparent hover:text-slate-700 dark:hover:text-slate-200"
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>Histórico ({accountData?.history?.length || 0})</span>
-          </button>
+        {/* Barra de Abas */}
+        <div className="flex items-center px-6 border-b border-border bg-muted/20 gap-5 overflow-x-auto shrink-0">
+          {tabs.map((t) => {
+            const TabIcon = t.icon;
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                className={`py-3 flex items-center gap-2 border-b-2 text-xs transition-colors whitespace-nowrap cursor-pointer ${
+                  isActive
+                    ? "border-primary text-primary font-bold"
+                    : "border-transparent text-muted-foreground hover:text-foreground font-semibold"
+                }`}
+              >
+                <TabIcon className="w-3.5 h-3.5 shrink-0" />
+                <span>{t.label}</span>
+                {t.count !== null && (
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+                      isActive
+                        ? "bg-primary/15 text-primary"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Conteúdo das Abas */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 bg-muted/15">
           {loading ? (
-            <div className="flex flex-col items-center justify-center h-48 space-y-3">
-              <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
-              <p className="text-sm text-slate-500">Carregando dados do cliente...</p>
+            <div className="flex flex-col items-center justify-center h-56 space-y-3">
+              <Loader2 className="w-7 h-7 animate-spin text-primary" />
+              <p className="text-xs font-medium text-muted-foreground">
+                Carregando dados do cliente...
+              </p>
             </div>
           ) : (
             <>
               {/* ABA 1: DADOS CADASTRAIS */}
               {activeTab === "details" && (
-                <form onSubmit={handleSave} className="space-y-4 max-w-2xl">
-                  {/* Tipo PF/PJ */}
-                  <div className="flex items-center space-x-3 pb-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Tipo de Cliente:</span>
-                    <div className="flex rounded-lg border border-slate-200 dark:border-slate-800 p-0.5 bg-slate-100 dark:bg-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setType("company");
-                          if (document) setDocument(maskCnpj(document));
-                        }}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                          type === "company"
-                            ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-xs"
-                            : "text-slate-500 hover:text-slate-800"
-                        }`}
-                      >
-                        Pessoa Jurídica (PJ)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setType("person");
-                          if (document) setDocument(maskCpf(document));
-                        }}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                          type === "person"
-                            ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-xs"
-                            : "text-slate-500 hover:text-slate-800"
-                        }`}
-                      >
-                        Pessoa Física (PF)
-                      </button>
-                    </div>
-                  </div>
+                <form id="account-detail-form" onSubmit={handleSave} className="w-full space-y-4">
+                  {/* Bloco 1: Dados Principais & Canais de Contato */}
+                  <div className="rounded-[10px] border border-slate-200/90 dark:border-slate-800 bg-card p-4 shadow-2xs space-y-4">
+                    {/* Barra de Seção + Seletor Tipo PF/PJ */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-border/70">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-3.5 h-3.5 text-primary" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+                          Identificação Cadastral
+                        </span>
+                      </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        {type === "company" ? "Razão Social *" : "Nome Completo *"}
-                      </label>
-                      <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        required
-                        className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 dark:text-slate-100"
-                      />
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Tipo de Cliente:
+                        </span>
+                        <div className="inline-flex rounded-[8px] border border-slate-300/80 dark:border-slate-700/80 p-0.5 bg-muted/50">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setType("company");
+                              if (document) setDocument(maskCnpj(document));
+                            }}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-[6px] transition-all cursor-pointer ${
+                              type === "company"
+                                ? "bg-primary text-primary-foreground font-bold shadow-2xs"
+                                : "text-muted-foreground hover:text-foreground font-medium"
+                            }`}
+                          >
+                            <Building2 className="w-3 h-3" />
+                            <span>Pessoa Jurídica (PJ)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setType("person");
+                              if (document) setDocument(maskCpf(document));
+                            }}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-[6px] transition-all cursor-pointer ${
+                              type === "person"
+                                ? "bg-primary text-primary-foreground font-bold shadow-2xs"
+                                : "text-muted-foreground hover:text-foreground font-medium"
+                            }`}
+                          >
+                            <User className="w-3 h-3" />
+                            <span>Pessoa Física (PF)</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
 
-                    {type === "company" && (
+                    {/* Grid Simétrico de Identificação (2 Colunas) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                       <div>
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                          Nome Fantasia
+                        <label className={UNIFORM_LABEL_CLASS}>
+                          {type === "company" ? "Razão Social" : "Nome Completo"}{" "}
+                          <span className="text-primary">*</span>
                         </label>
                         <input
                           type="text"
-                          value={tradeName}
-                          onChange={(e) => setTradeName(e.target.value)}
-                          className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 dark:text-slate-100"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          required
+                          placeholder={type === "company" ? "Informe a razão social..." : "Informe o nome completo..."}
+                          className={UNIFORM_INPUT_CLASS}
                         />
                       </div>
-                    )}
-                    {type === "company" && <div><label className="mb-1 block text-xs font-medium text-foreground">Segmento</label><CatalogSelect kind="segment" value={segment} onChange={setSegment} /></div>}
 
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        {type === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"}
-                      </label>
-                      <input
-                        type="text"
-                        value={document}
-                        onChange={(e) =>
-                          setDocument(type === "company" ? maskCnpj(e.target.value) : maskCpf(e.target.value))
-                        }
-                        placeholder={type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
-                        className="w-full px-3 py-2 text-sm font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 dark:text-slate-100"
-                      />
+                      {type === "company" && (
+                        <div>
+                          <label className={UNIFORM_LABEL_CLASS}>
+                            Nome Fantasia
+                          </label>
+                          <input
+                            type="text"
+                            value={tradeName}
+                            onChange={(e) => setTradeName(e.target.value)}
+                            placeholder="Nome comercial da empresa..."
+                            className={UNIFORM_INPUT_CLASS}
+                          />
+                        </div>
+                      )}
+
+                      <div>
+                        <label className={UNIFORM_LABEL_CLASS}>
+                          {type === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"}
+                        </label>
+                        <input
+                          type="text"
+                          value={document}
+                          onChange={(e) =>
+                            setDocument(type === "company" ? maskCnpj(e.target.value) : maskCpf(e.target.value))
+                          }
+                          placeholder={type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
+                          className={`${UNIFORM_INPUT_CLASS} font-mono`}
+                        />
+                      </div>
+
+                      {type === "company" && (
+                        <div>
+                          <label className={UNIFORM_LABEL_CLASS}>Segmento</label>
+                          <CatalogSelect
+                            kind="segment"
+                            value={segment}
+                            onChange={setSegment}
+                            className={UNIFORM_INPUT_CLASS}
+                          />
+                        </div>
+                      )}
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        Telefone Principal
-                      </label>
-                      <input
-                        type="text"
-                        value={phone}
-                        onChange={(e) => setPhone(maskPhone(e.target.value))}
-                        placeholder="(00) 00000-0000"
-                        className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 dark:text-slate-100"
-                      />
+                    {/* Grid Simétrico de Canais de Contato (3 Colunas Iguais — Sem Campo Órfão) */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+                      <div>
+                        <label className={UNIFORM_LABEL_CLASS}>
+                          Telefone Principal
+                        </label>
+                        <div className="relative flex items-center">
+                          <Phone className="w-3.5 h-3.5 text-muted-foreground absolute left-3 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={phone}
+                            onChange={(e) => setPhone(maskPhone(e.target.value))}
+                            placeholder="(00) 00000-0000"
+                            className={`${UNIFORM_INPUT_CLASS} pl-8`}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className={UNIFORM_LABEL_CLASS}>
+                          E-mail de Contato
+                        </label>
+                        <div className="relative flex items-center">
+                          <Mail className="w-3.5 h-3.5 text-muted-foreground absolute left-3 pointer-events-none" />
+                          <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="contato@empresa.com"
+                            className={`${UNIFORM_INPUT_CLASS} pl-8`}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className={UNIFORM_LABEL_CLASS}>
+                          Website
+                        </label>
+                        <div className="relative flex items-center">
+                          <Globe className="w-3.5 h-3.5 text-muted-foreground absolute left-3 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={website}
+                            onChange={(e) => setWebsite(e.target.value)}
+                            placeholder="https://empresa.com.br"
+                            className={`${UNIFORM_INPUT_CLASS} pl-8`}
+                          />
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        E-mail de Contato
+                    {/* Observações Internas (Largura Total) */}
+                    <div className="pt-1">
+                      <label className={UNIFORM_LABEL_CLASS}>
+                        Observações Internas
                       </label>
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="contato@empresa.com"
-                        className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 dark:text-slate-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        Website
-                      </label>
-                      <input
-                        type="text"
-                        value={website}
-                        onChange={(e) => setWebsite(e.target.value)}
-                        placeholder="https://empresa.com.br"
-                        className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 dark:text-slate-100"
+                      <textarea
+                        rows={3}
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Notas contextuais sobre este cliente, ramo de atividade, perfil de compras..."
+                        className="w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 outline-none transition-all hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15 resize-y min-h-[72px]"
                       />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                      Observações Internas
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Notas contextuais sobre este cliente, ramo de atividade, perfil de compras..."
-                      className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-sky-500 dark:text-slate-100"
+                  {/* Bloco 2: Campos Personalizados em Grid de 2 Colunas */}
+                  <div className="rounded-[10px] border border-slate-200/90 dark:border-slate-800 bg-card p-4 shadow-2xs space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-border/70">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-primary" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+                        Campos Personalizados
+                      </span>
+                    </div>
+                    <CustomFieldsEditor
+                      entity="company"
+                      values={customFields}
+                      onChange={setCustomFields}
+                      hideTitle
+                      columns={2}
                     />
-                  </div>
-
-                  <CustomFieldsEditor entity="company" values={customFields} onChange={setCustomFields} />
-
-                  <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
-                    <button
-                      type="button"
-                      onClick={handleArchive}
-                      className="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      <span>Arquivar Cliente</span>
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="inline-flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-sky-600 hover:bg-sky-500 rounded-lg shadow-sm transition-all disabled:opacity-50"
-                    >
-                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      <span>Salvar Alterações</span>
-                    </button>
                   </div>
                 </form>
               )}
@@ -494,48 +573,51 @@ export function AccountDetailModal({
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                         Contatos vinculados a esta empresa
                       </h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         Pessoas físicas cadastradas na base que representam este cliente.
                       </p>
                     </div>
                   </div>
 
                   {accountData?.contacts && accountData.contacts.length > 0 ? (
-                    <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                    <div className="divide-y divide-border border border-slate-200/90 dark:border-slate-800 rounded-[10px] overflow-hidden bg-card shadow-2xs">
                       {accountData.contacts.map((c) => (
-                        <div key={c.id} className="p-3.5 flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 font-semibold text-xs">
+                        <div
+                          key={c.id}
+                          className="p-3.5 flex items-center justify-between bg-card hover:bg-muted/30 transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-[8px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
                               {c.name.substring(0, 2).toUpperCase()}
                             </div>
-                            <div>
-                              <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-foreground truncate">
                                 {c.name}
                               </div>
-                              <div className="text-xs text-slate-400 flex items-center space-x-3">
+                              <div className="text-[11px] text-muted-foreground flex items-center gap-3 mt-0.5 flex-wrap">
                                 {c.phone && (
-                                  <span className="flex items-center space-x-1">
-                                    <Phone className="w-3 h-3" />
-                                    <span>{c.phone}</span>
+                                  <span className="flex items-center gap-1 font-mono">
+                                    <Phone className="w-3 h-3 text-primary/70" />
+                                    <span>{maskPhone(c.phone)}</span>
                                   </span>
                                 )}
                                 {c.email && (
-                                  <span className="flex items-center space-x-1">
-                                    <Mail className="w-3 h-3" />
+                                  <span className="flex items-center gap-1 truncate">
+                                    <Mail className="w-3 h-3 text-primary/70" />
                                     <span>{c.email}</span>
                                   </span>
                                 )}
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center gap-2 shrink-0">
                             <button
                               type="button"
                               onClick={() => handleUnlinkContact(c.id)}
-                              className="px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-md transition-colors"
+                              className="px-2.5 py-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/25 bg-rose-500/5 hover:bg-rose-500/15 rounded-[6px] transition-colors cursor-pointer"
                             >
                               Desvincular
                             </button>
@@ -544,10 +626,10 @@ export function AccountDetailModal({
                       ))}
                     </div>
                   ) : (
-                    <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg text-slate-500">
-                      <Users className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                      <p className="text-sm font-medium">Nenhum contato vinculado ainda.</p>
-                      <p className="text-xs text-slate-400 mt-1">
+                    <div className="p-8 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-[10px] bg-card text-muted-foreground">
+                      <Users className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
+                      <p className="text-xs font-bold text-foreground">Nenhum contato vinculado ainda.</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
                         Ao criar ou editar contatos, defina esta conta como cliente principal.
                       </p>
                     </div>
@@ -559,45 +641,49 @@ export function AccountDetailModal({
               {activeTab === "deals" && (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                       Negociações deste Cliente
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Todos os cards vinculados a esta conta compradora nos funis de venda.
                     </p>
                   </div>
 
                   {accountData?.deals && accountData.deals.length > 0 ? (
-                    <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                    <div className="divide-y divide-border border border-slate-200/90 dark:border-slate-800 rounded-[10px] overflow-hidden bg-card shadow-2xs">
                       {accountData.deals.map((d) => (
                         <div
                           key={d.id}
                           onClick={() => onOpenDeal?.(d.id)}
-                          className="p-3.5 flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors group"
+                          className="p-3.5 flex items-center justify-between bg-card hover:bg-muted/30 cursor-pointer transition-colors group"
                         >
-                          <div>
-                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200 group-hover:text-sky-600 transition-colors">
+                          <div className="min-w-0 pr-3">
+                            <div className="text-xs font-bold text-foreground group-hover:text-primary transition-colors truncate">
                               {d.title}
                             </div>
-                            <div className="text-xs text-slate-400 flex items-center space-x-2 mt-0.5">
-                              <span className="font-semibold text-slate-600 dark:text-slate-300">
-                                {d.value !== null ? `R$ ${parseFloat(d.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "A combinar"}
+                            <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                              <span className="font-bold text-primary">
+                                {d.value !== null
+                                  ? `R$ ${parseFloat(d.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                                  : "A combinar"}
                               </span>
                               <span>•</span>
                               <span>Criado em {new Date(d.createdAt).toLocaleDateString("pt-BR")}</span>
                             </div>
                           </div>
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center gap-2.5 shrink-0">
                             <DealStatusBadge status={d.status} size="sm" className="rounded-full" />
-                            <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-sky-500" />
+                            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg text-slate-500">
-                      <Briefcase className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                      <p className="text-sm font-medium">Nenhuma negociação encontrada para este cliente.</p>
+                    <div className="p-8 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-[10px] bg-card text-muted-foreground">
+                      <Briefcase className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
+                      <p className="text-xs font-bold text-foreground">
+                        Nenhuma negociação encontrada para este cliente.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -607,37 +693,38 @@ export function AccountDetailModal({
               {activeTab === "conversations" && (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                       Atendimentos Vinculados à Conta
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Conversas de WhatsApp e canais associadas formalmente a esta conta compradora.
                     </p>
                   </div>
 
                   {accountData?.conversations && accountData.conversations.length > 0 ? (
-                    <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                    <div className="divide-y divide-border border border-slate-200/90 dark:border-slate-800 rounded-[10px] overflow-hidden bg-card shadow-2xs">
                       {accountData.conversations.map((cv) => (
                         <div
                           key={cv.id}
-                          className="p-3.5 flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                          className="p-3.5 flex items-center justify-between bg-card hover:bg-muted/30 transition-colors"
                         >
-                          <div className="space-y-1">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs font-semibold uppercase px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded">
+                          <div className="space-y-1 min-w-0 pr-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 bg-primary/10 text-primary border border-primary/20 rounded-[5px]">
                                 {cv.conversation?.channel || "chat"}
                               </span>
-                              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                              <span className="text-xs font-bold text-foreground truncate">
                                 {cv.conversation?.contactName || "Atendimento"}
                               </span>
                             </div>
                             {cv.contextNote && (
-                              <p className="text-xs text-slate-600 dark:text-slate-400 italic">
-                                "{cv.contextNote}"
+                              <p className="text-xs text-muted-foreground italic">
+                                &ldquo;{cv.contextNote}&rdquo;
                               </p>
                             )}
-                            <div className="text-[11px] text-slate-400">
-                              Vinculado por {cv.operatorName || "Sistema"} em {new Date(cv.createdAt).toLocaleDateString("pt-BR")}
+                            <div className="text-[11px] text-muted-foreground">
+                              Vinculado por {cv.operatorName || "Sistema"} em{" "}
+                              {new Date(cv.createdAt).toLocaleDateString("pt-BR")}
                             </div>
                           </div>
                           {onOpenChat && (
@@ -647,7 +734,7 @@ export function AccountDetailModal({
                                 onOpenChat(cv.conversationId);
                                 onClose();
                               }}
-                              className="px-3 py-1.5 text-xs font-medium text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded-lg transition-colors flex items-center space-x-1"
+                              className="px-3 py-1.5 text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-[8px] transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
                             >
                               <span>Ver no Chat</span>
                               <ExternalLink className="w-3.5 h-3.5" />
@@ -657,10 +744,12 @@ export function AccountDetailModal({
                       ))}
                     </div>
                   ) : (
-                    <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg text-slate-500">
-                      <MessageSquare className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                      <p className="text-sm font-medium">Nenhum atendimento vinculado diretamente.</p>
-                      <p className="text-xs text-slate-400 mt-1">
+                    <div className="p-8 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-[10px] bg-card text-muted-foreground">
+                      <MessageSquare className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
+                      <p className="text-xs font-bold text-foreground">
+                        Nenhum atendimento vinculado diretamente.
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
                         Conversas podem ser associadas pelo painel lateral do chat.
                       </p>
                     </div>
@@ -672,37 +761,42 @@ export function AccountDetailModal({
               {activeTab === "history" && (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                       Histórico de Transições de Contatos
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Registro auditável de contatos vinculados ou transferidos desta conta.
                     </p>
                   </div>
 
                   {accountData?.history && accountData.history.length > 0 ? (
-                    <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
-                      {accountData.history.map((h) => (
-                        <div key={h.id} className="relative group">
-                          <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-sky-500 ring-4 ring-white dark:ring-slate-900" />
-                          <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                            {h.contactName || "Contato"} associado à conta
+                    <div className="rounded-[10px] border border-slate-200/90 dark:border-slate-800 bg-card p-5 shadow-2xs">
+                      <div className="relative pl-6 space-y-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
+                        {accountData.history.map((h) => (
+                          <div key={h.id} className="relative group">
+                            <div className="absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full bg-primary ring-4 ring-card" />
+                            <div className="text-xs font-bold text-foreground">
+                              {h.contactName || "Contato"} associado à conta
+                            </div>
+                            {h.reason && (
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                Motivo: <span className="text-foreground/90 font-medium">{h.reason}</span>
+                              </p>
+                            )}
+                            <div className="text-[11px] text-muted-foreground mt-1">
+                              Alterado por <strong className="font-semibold text-foreground">{h.operatorName || "Operador"}</strong> em{" "}
+                              {new Date(h.createdAt).toLocaleString("pt-BR")}
+                            </div>
                           </div>
-                          {h.reason && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                              Motivo: {h.reason}
-                            </p>
-                          )}
-                          <div className="text-[11px] text-slate-400 mt-1">
-                            Alterado por {h.operatorName || "Operador"} em {new Date(h.createdAt).toLocaleString("pt-BR")}
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   ) : (
-                    <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg text-slate-500">
-                      <History className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                      <p className="text-sm font-medium">Nenhum evento histórico registrado para esta conta.</p>
+                    <div className="p-8 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-[10px] bg-card text-muted-foreground">
+                      <History className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
+                      <p className="text-xs font-bold text-foreground">
+                        Nenhum evento histórico registrado para esta conta.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -710,7 +804,42 @@ export function AccountDetailModal({
             </>
           )}
         </div>
+
+        {/* Rodapé Fixo de Ações (Sempre visível na aba de Dados Cadastrais) */}
+        {!loading && activeTab === "details" && (
+          <div className="flex items-center justify-between gap-3 px-6 py-3.5 border-t border-border bg-card shrink-0">
+            <button
+              type="button"
+              onClick={handleArchive}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/25 bg-rose-500/5 hover:bg-rose-500/15 rounded-[8px] transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Arquivar Cliente</span>
+            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving}
+                className="px-3.5 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground border border-border bg-card hover:bg-muted rounded-[8px] transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                form="account-detail-form"
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-primary-foreground bg-primary hover:opacity-90 rounded-[8px] shadow-xs transition-opacity cursor-pointer disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                <span>Salvar Alterações</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+

@@ -85,7 +85,10 @@ export function CatalogSelect({
         onValueChange={(next) => onChange(next === "__none__" ? "" : next)}
       >
         <SelectTrigger
-          className={className || "h-9 w-full rounded-lg border-border bg-card text-xs"}
+          className={
+            className ||
+            "h-9 w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 text-xs font-medium text-foreground hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15"
+          }
         >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
