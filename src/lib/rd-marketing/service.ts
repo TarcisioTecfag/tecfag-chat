@@ -203,29 +203,63 @@ async function resolveContact(
       ),
     )
     .for("update");
-  if (matches.length > 1)
-    throw new CrmValidationError(
-      "Telefone e e-mail apontam para contatos diferentes. Revise o cadastro antes de reenviar.",
-    );
-  const existing = matches[0];
+  const cleanDigits = (val: string | null | undefined) => (val || "").replace(/\D/g, "");
+  const phoneSet = new Set(phoneTerms);
+  const sortedMatches = [...matches].sort((a, b) => {
+    const aDigits = cleanDigits(a.phone);
+    const bDigits = cleanDigits(b.phone);
+    const aExactPhone = Boolean(phone && aDigits === phone);
+    const bExactPhone = Boolean(phone && bDigits === phone);
+    if (aExactPhone !== bExactPhone) return aExactPhone ? -1 : 1;
+    const aHasPhone = Boolean(aDigits && phoneSet.has(aDigits));
+    const bHasPhone = Boolean(bDigits && phoneSet.has(bDigits));
+    if (aHasPhone !== bHasPhone) return aHasPhone ? -1 : 1;
+    const aHasWhatsapp = Boolean(a.whatsappJid || a.whatsappUserId);
+    const bHasWhatsapp = Boolean(b.whatsappJid || b.whatsappUserId);
+    if (aHasWhatsapp !== bHasWhatsapp) return aHasWhatsapp ? -1 : 1;
+    const aHasAccount = Boolean(a.accountId);
+    const bHasAccount = Boolean(b.accountId);
+    if (aHasAccount !== bHasAccount) return aHasAccount ? -1 : 1;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
+  const existing = sortedMatches[0];
   if (existing) {
     // Enriquecer campos vazios; preservar alterações feitas pela equipe comercial.
-    const customFields = { ...existing.customFields };
+    const customFields: Record<string, unknown> = {};
+    for (const candidate of [...sortedMatches].reverse()) {
+      for (const [key, value] of Object.entries((candidate.customFields || {}) as Record<string, unknown>)) {
+        if (value !== undefined && value !== null && value !== "") customFields[key] = value;
+      }
+    }
     for (const [key, value] of Object.entries(
       mapped.contact.customFields as Record<string, unknown>,
     )) {
       if (customFields[key] === undefined || customFields[key] === null || customFields[key] === "")
         customFields[key] = value;
     }
+    const phoneOwnedByOther = Boolean(
+      phone && matches.some((m) => m.id !== existing.id && cleanDigits(m.phone) === phone),
+    );
+    const nextPhone = existing.phone || (!phoneOwnedByOther && phone ? phone : null);
+    const nextEmail = existing.email || email || sortedMatches.find((m) => m.email)?.email || null;
+    const nextAccountId =
+      existing.accountId || sortedMatches.find((m) => m.accountId)?.accountId || null;
     await tx
       .update(contacts)
       .set({
-        phone: existing.phone || phone || null,
-        email: existing.email || email || null,
+        phone: nextPhone,
+        email: nextEmail,
+        accountId: nextAccountId,
         customFields,
       })
       .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, existing.id)));
-    return { ...existing, customFields };
+    return {
+      ...existing,
+      phone: nextPhone,
+      email: nextEmail,
+      accountId: nextAccountId,
+      customFields,
+    };
   }
   const [created] = await tx
     .insert(contacts)
