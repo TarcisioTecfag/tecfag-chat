@@ -1,3 +1,10 @@
+export type RdTestContact = {
+  uuid: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+};
+export type RdOutboundScope = "test" | "all";
 export type RdNotificationData = {
   label: string;
   source: string | null;
@@ -11,6 +18,8 @@ export type RdNotificationData = {
 };
 export type RdSyncStatus = {
   outboundEnabled: boolean;
+  outboundScope: RdOutboundScope;
+  testContact: RdTestContact | null;
   currency: string;
   connected: boolean;
   endpoints: {

@@ -168,6 +168,10 @@ const migrations = [
     name: "0040_knowledge_and_media_indexes",
     url: new URL("../src/db/migrations/0040_knowledge_and_media_indexes.sql", import.meta.url),
   },
+  {
+    name: "0041_rd_marketing_outbound_test",
+    url: new URL("../src/db/migrations/0041_rd_marketing_outbound_test.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

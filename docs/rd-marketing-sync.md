@@ -7,10 +7,18 @@ Implementação de 14/10/2026. Complementa OAuth e o histórico salvo, sem subst
 1. Abra Configurações → RD Marketing e autorize a conta correta do tenant, caso ainda não esteja conectada.
 2. Em **Jornada e retorno comercial**, clique em **Conectar webhooks da jornada**. O servidor cria duas URLs próprias e registra as assinaturas de conversão e oportunidade pela API. A seção mostra o resultado individual; permissões insuficientes e falhas de validação não são apresentadas como sucesso. As assinaturas feitas pela API não aparecem na tela de webhooks do RD, conforme seu contrato público.
 3. Para registrar uma passagem dentro de uma automação, informe o nome do ponto e clique em **Gerar URL do ponto**. Copie a URL para uma ação de envio de webhook naquele trecho do fluxo RD. Nomeie, por exemplo, “Passou pela qualificação · Máquinas”. Use URLs diferentes para pontos distintos.
-4. Ative **Enviar novas oportunidades, vendas e perdas**, confira a moeda utilizada na conta Marketing e salve. Essa ativação vale apenas para acontecimentos novos. Cards antigos não são reenviados em lote.
+4. Para começar, escolha **Teste isolado · apenas um contato**, informe o UUID do seu lead de teste e ative **Enviar novas oportunidades, vendas e perdas**. Confira a moeda e salve. O sistema consulta o cadastro desse UUID e mostra o nome/email confirmados. Quando quiser liberar a operação, escolha **Todos os contatos** e salve novamente. Essa ativação vale apenas para acontecimentos novos. Cards antigos não são reenviados em lote.
 5. Valide uma conversão, uma passagem pelo ponto configurado e venda/perda de duas negociações do mesmo contato. Revise os fluxos RD que continuam criando cards no CRM anterior antes da substituição operacional.
 
 As configurações e tokens pertencem ao tenant da sessão autenticada. Somente administradores acessam as URLs de recebimento e o painel de envios. Cada URL contém um segredo aleatório armazenado cifrado; o recebimento identifica tenant, conexão e ponto por esse segredo, nunca pelo corpo do webhook. Ao trocar/autorizar novamente a conta, gere os vínculos da nova conexão e ative novamente o retorno comercial. Eventos pendentes da conta anterior não são redirecionados.
+
+## Testar o envio em um único contato
+
+Na consulta de teste do lead, busque o seu próprio email e copie o UUID retornado. Use esse UUID no destino **Teste isolado** e salve. Crie uma negociação manual vinculada a esse contato para testar oportunidade; marque outra negociação dele como ganha (com valor definido) e outra como perdida. Confira os resultados em **Últimos envios comerciais** e no histórico do seu lead no RD. As ocorrências são reais para esse lead, inclusive o valor da venda.
+
+A restrição existe no servidor: contatos fora do teste não geram novos envios comerciais, e pendências antigas de outros contatos são bloqueadas antes de consultar ou escrever no RD. Tentar reenviar uma pendência não contorna a restrição. O destinatário é conferido novamente antes de cada POST, inclusive após renovação do token; trocar o UUID durante o processamento impede o envio para o contato anterior. Uma chamada já iniciada pode concluir.
+
+Receber webhooks, criar cards e consultar jornadas de outros contatos continua funcionando normalmente. Liberação posterior para **Todos os contatos** não recupera as alterações ignoradas durante o teste. Configurações de envio geral que já estavam explicitamente ativas são preservadas pela migração; novas configurações começam com o destino de teste, sem ativação automática.
 
 ## O que chega e como aparece
 

@@ -3,6 +3,7 @@ import { parseRdNotification } from "../src/lib/rd-marketing/notifications";
 import { commercialTransition } from "../src/lib/rd-marketing/commercial-outbox";
 import { conversionAttribution } from "../src/lib/rd-marketing/attribution";
 import { rdPhoneDigits } from "../src/lib/rd-marketing/sync-identity";
+import { permitsRdRecipient } from "../src/lib/rd-marketing/outbound-scope";
 
 const uuid = "12345678-1234-1234-1234-123456789abc";
 const hook = { id: "point-test", kind: "CONVERSION", label: "Conversões" };
@@ -20,6 +21,29 @@ const raw = {
   },
 };
 describe("RD Marketing: avisos e transições comerciais", () => {
+  test("teste isolado restringe UUID, rejeita vínculo conflitante e falha fechado sem contato", () => {
+    const config = {
+      outboundScope: "test" as const,
+      testContact: { uuid, name: "Teste", email: "test@example.com", phone: "+5511999990000" },
+    };
+    expect(permitsRdRecipient(config, {}, uuid)).toBe(true);
+    expect(permitsRdRecipient(config, { email: " TEST@example.com " }, null)).toBe(true);
+    expect(permitsRdRecipient(config, { phone: "+55 (11) 99999-0000" }, null)).toBe(true);
+    expect(
+      permitsRdRecipient(
+        config,
+        { email: "test@example.com" },
+        "99999999-9999-9999-9999-999999999999",
+      ),
+    ).toBe(false);
+    expect(
+      permitsRdRecipient(config, { email: "other@example.com", phone: "+5511999990000" }, null),
+    ).toBe(false);
+    expect(
+      permitsRdRecipient({ ...config, testContact: null }, { email: "test@example.com" }, uuid),
+    ).toBe(false);
+    expect(permitsRdRecipient({ ...config, outboundScope: "all" }, {}, null)).toBe(true);
+  });
   test("perfil do webhook é um retrato separado, sem preencher atribuição histórica", () => {
     const event = parseRdNotification(raw, hook)[0];
     expect(event.email).toBe("lead@example.com");

@@ -314,6 +314,7 @@ export async function writeRd(
   body: Record<string, unknown>,
   expectedVersion: string,
   fetchImpl?: RdFetch,
+  beforeSend?: () => Promise<void>,
 ) {
   const check = async () => {
     const [row] = await db.select().from(connections).where(whereTenant(tenantId));
@@ -328,6 +329,7 @@ export async function writeRd(
   let token = await accessToken(tenantId, fetchImpl);
   const send = async () => {
     await check();
+    await beforeSend?.();
     try {
       return await rdRequest(
         path,

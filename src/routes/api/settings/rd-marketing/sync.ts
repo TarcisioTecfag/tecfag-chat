@@ -56,7 +56,22 @@ export const Route = createFileRoute("/api/settings/rd-marketing/sync")({
           if (body.action === "save") {
             if (typeof body.outboundEnabled !== "boolean" || typeof body.currency !== "string")
               throw new CrmError("Configuração inválida.", "BAD_REQUEST", 400);
-            await saveRdSyncSettings(tenantId, body.outboundEnabled, body.currency);
+            if (body.outboundScope !== "test" && body.outboundScope !== "all")
+              throw new CrmError(
+                "Escolha teste isolado ou todos os contatos. Atualize o painel se necessário.",
+                "BAD_REQUEST",
+                400,
+              );
+            if (
+              body.testContactUuid !== undefined &&
+              body.testContactUuid !== null &&
+              typeof body.testContactUuid !== "string"
+            )
+              throw new CrmError("UUID do contato de teste inválido.", "BAD_REQUEST", 400);
+            await saveRdSyncSettings(tenantId, body.outboundEnabled, body.currency, {
+              outboundScope: body.outboundScope,
+              testContactUuid: body.testContactUuid as string | null | undefined,
+            });
           } else if (body.action === "register") {
             for (const kind of ["CONVERSION", "OPPORTUNITY"] as const) {
               const hook = await createRdJourneyEndpoint(

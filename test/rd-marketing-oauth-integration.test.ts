@@ -135,6 +135,12 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     );
     await database.client.unsafe(syncMigration);
     await database.client.unsafe(syncMigration);
+    const isolationMigration = await readFile(
+      new URL("../src/db/migrations/0041_rd_marketing_outbound_test.sql", import.meta.url),
+      "utf8",
+    );
+    await database.client.unsafe(isolationMigration);
+    await database.client.unsafe(isolationMigration);
     await database.db.insert(schema.tenants).values([
       { id: tenantId, name: "OAuth teste", slug: tenantId, connectionType: "meta" },
       { id: otherTenantId, name: "Outro teste", slug: otherTenantId, connectionType: "meta" },
@@ -162,6 +168,35 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     if (database) await database.client.end();
   });
 
+  test("migração do teste isolado preserva envios gerais já ativos e é idempotente", async () => {
+    const migration = await readFile(
+      new URL("../src/db/migrations/0041_rd_marketing_outbound_test.sql", import.meta.url),
+      "utf8",
+    );
+    const rollback = new Error("rollback do teste de migração");
+    expect(
+      await rejected(
+        database.client.begin(async (tx) => {
+          await tx`ALTER TABLE rd_marketing_sync_settings DROP COLUMN outbound_scope`;
+          await tx`ALTER TABLE rd_marketing_sync_settings DROP COLUMN test_contact`;
+          await tx`INSERT INTO rd_marketing_sync_settings(tenant_id, outbound_enabled) VALUES (${tenantId}, true), (${otherTenantId}, false)`;
+          await tx.unsafe(migration);
+          const [active] =
+            await tx`SELECT outbound_scope FROM rd_marketing_sync_settings WHERE tenant_id = ${tenantId}`;
+          const [inactive] =
+            await tx`SELECT outbound_scope FROM rd_marketing_sync_settings WHERE tenant_id = ${otherTenantId}`;
+          expect(active.outbound_scope).toBe("all");
+          expect(inactive.outbound_scope).toBe("test");
+          await tx`UPDATE rd_marketing_sync_settings SET outbound_scope = 'test' WHERE tenant_id = ${tenantId}`;
+          await tx.unsafe(migration);
+          const [repeated] =
+            await tx`SELECT outbound_scope FROM rd_marketing_sync_settings WHERE tenant_id = ${tenantId}`;
+          expect(repeated.outbound_scope).toBe("test");
+          throw rollback;
+        }),
+      ),
+    ).toBe(rollback);
+  });
   test("rotas exigem admin, sessão e origem; tenant vem somente da sessão", async () => {
     expect((await invoke("GET", undefined, "")).status).toBe(401);
     expect((await invoke("GET", undefined, agentCookie)).status).toBe(403);
@@ -871,7 +906,7 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       name: "Contato comercial",
       mainChannel: "whatsapp",
     });
-    await sync.saveRdSyncSettings(tenantId, true, "BRL");
+    await sync.saveRdSyncSettings(tenantId, true, "BRL", { outboundScope: "all" });
     const actor = tenantId + "-admin";
     const data = {
       title: "Teste comercial",
@@ -1039,7 +1074,7 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       .select()
       .from(schema.rdMarketingConnections)
       .where(eq(schema.rdMarketingConnections.tenantId, tenantId));
-    await saveRdSyncSettings(tenantId, true, "BRL");
+    await saveRdSyncSettings(tenantId, true, "BRL", { outboundScope: "all" });
     const ids = [randomUUID(), randomUUID(), randomUUID()];
     const uuids = [randomUUID(), randomUUID()];
     const deals = [];
@@ -1109,6 +1144,177 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect(rows.find((row) => row.dealId === deals[0])?.status).toBe("sent");
     expect(rows.find((row) => row.dealId === deals[1])?.status).toBe("blocked");
     expect(rows.find((row) => row.dealId === deals[2])?.status).toBe("blocked");
+  }, 30000);
+  test("teste isolado envia só ao UUID escolhido, bloqueia fila antiga e mantém entrada irrestrita", async () => {
+    await connect();
+    const sync = await import("../src/lib/rd-marketing/sync-settings");
+    const { crmService } = await import("../src/lib/crm/crm-service");
+    const { receiveLeads } = await import("../src/lib/rd-marketing/service");
+    const { defaultMappings } = await import("../src/lib/rd-marketing/mapping");
+    const notifications = await import("../src/lib/rd-marketing/notifications");
+    const { runRdCommercialWorker } = await import("../src/lib/rd-marketing/commercial-outbox");
+    const testUuid = randomUUID(),
+      otherUuid = randomUUID();
+    const testEmail = `isolated-${randomUUID()}@example.com`,
+      otherEmail = `real-${randomUUID()}@example.com`;
+    const pipelineId = randomUUID(),
+      stageId = randomUUID(),
+      contactId = randomUUID(),
+      otherId = randomUUID();
+    await database.db
+      .insert(schema.crmPipelines)
+      .values({ id: pipelineId, tenantId, name: "Teste isolado" });
+    await database.db
+      .insert(schema.crmStages)
+      .values({ id: stageId, tenantId, pipelineId, name: "Entrada", orderIndex: 0 });
+    await database.db.insert(schema.contacts).values([
+      { id: contactId, tenantId, name: "Meu teste", email: testEmail, mainChannel: "whatsapp" },
+      { id: otherId, tenantId, name: "Outro lead", email: otherEmail, mainChannel: "whatsapp" },
+    ]);
+    const actor = tenantId + "-admin";
+    const data = { pipelineId, stageId, title: "Isolamento", value: "0", contactId };
+    const posts: Record<string, unknown>[] = [];
+    let contactReads = 0,
+      changeTargetOnRead = false,
+      changeTargetOnUnauthorized = false;
+    const switchTarget = () =>
+      database.db
+        .update(schema.rdMarketingSyncSettings)
+        .set({ testContact: { uuid: otherUuid, name: "Outro", email: otherEmail, phone: null } })
+        .where(eq(schema.rdMarketingSyncSettings.tenantId, tenantId));
+    const isolatedProvider = (async (input: unknown, init: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/platform/events") && init.method === "POST") {
+        if (changeTargetOnUnauthorized) {
+          changeTargetOnUnauthorized = false;
+          await switchTarget();
+          return new Response(null, { status: 401 });
+        }
+        posts.push(JSON.parse(String(init.body)));
+        return Response.json({ event_uuid: randomUUID() });
+      }
+      if (url.includes("/platform/contacts/uuid:")) {
+        contactReads++;
+        const requested = url.split("uuid:")[1];
+        if (changeTargetOnRead) {
+          changeTargetOnRead = false;
+          await switchTarget();
+        }
+        return Response.json({
+          uuid: requested,
+          name: "Meu teste",
+          email: requested === testUuid ? testEmail : otherEmail,
+        });
+      }
+      return provider(input as RequestInfo, init);
+    }) as typeof fetch;
+    await sync.saveRdSyncSettings(tenantId, true, "BRL", { outboundScope: "all" });
+    const old = await crmService.createDeal(tenantId, actor, { ...data, contactId: otherId });
+    const restricted = { outboundScope: "test" as const, testContactUuid: testUuid };
+    await sync.saveRdSyncSettings(tenantId, true, "BRL", restricted, isolatedProvider);
+    const saved = await sync.rdSyncStatus(tenantId, "http://localhost");
+    expect(saved.testContact).toMatchObject({ uuid: testUuid, email: testEmail });
+    expect(saved.outboundScope).toBe("test");
+    const postSettings = (await import("../src/routes/api/settings/rd-marketing/sync")).Route
+      .options.server!.handlers!.POST!;
+    const missingScope = await postSettings({
+      request: new Request("http://localhost/api/settings/rd-marketing/sync", {
+        method: "POST",
+        headers: {
+          Cookie: adminCookie,
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "save",
+          outboundEnabled: true,
+          currency: "BRL",
+          tenantId: otherTenantId,
+        }),
+      }),
+    } as never);
+    expect(missingScope.status).toBe(400);
+    expect(
+      await rejected(
+        sync.saveRdSyncSettings(tenantId, true, "BRL", restricted, (async () =>
+          Response.json({ uuid: otherUuid, name: "Outro", email: otherEmail })) as typeof fetch),
+      ),
+    ).toMatchObject({ code: "BAD_REQUEST" });
+    expect((await sync.rdSyncStatus(tenantId, "http://localhost")).testContact?.uuid).toBe(
+      testUuid,
+    );
+    expect(
+      await rejected(
+        sync.saveRdSyncSettings(tenantId, true, "BRL", { outboundScope: "test" }, isolatedProvider),
+      ),
+    ).toMatchObject({ code: "BAD_REQUEST" });
+    const real = await crmService.createDeal(tenantId, actor, { ...data, contactId: otherId });
+    await crmService.updateDeal(tenantId, real.id, actor, { status: "won" });
+    const mine = await crmService.createDeal(tenantId, actor, data);
+    const second = await crmService.createDeal(tenantId, actor, { ...data, marketingOrigin: true });
+    await crmService.updateDeal(tenantId, mine.id, actor, { status: "won" });
+    await crmService.updateDeal(tenantId, second.id, actor, { status: "lost" });
+    const readsBeforeWorker = contactReads;
+    await runRdCommercialWorker(tenantId, isolatedProvider);
+    expect(contactReads - readsBeforeWorker).toBe(3);
+    expect(posts).toHaveLength(3);
+    expect(
+      posts.every((post) => (post.payload as Record<string, unknown>).email === testEmail),
+    ).toBe(true);
+    expect(posts.map((post) => post.event_type).sort()).toEqual([
+      "OPPORTUNITY",
+      "OPPORTUNITY_LOST",
+      "SALE",
+    ]);
+    const rows = await database.db
+      .select()
+      .from(schema.rdMarketingCommercialOutbox)
+      .where(eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId));
+    expect(rows.some((row) => row.dealId === real.id)).toBe(false);
+    expect(rows.find((row) => row.dealId === old.id)?.status).toBe("blocked");
+    await sync.reviewRdDelivery(
+      tenantId,
+      rows.find((row) => row.dealId === old.id)!.id,
+      actor,
+      "retry",
+    );
+    await runRdCommercialWorker(tenantId, isolatedProvider);
+    expect(posts).toHaveLength(3);
+    const flowSettings = {
+      name: "Entrada livre",
+      enabled: true,
+      pipelineId,
+      stageId,
+      operatorId: null,
+      deduplication: "event" as const,
+      eventIdPath: "rd_conversion.id",
+      mappings: defaultMappings,
+    };
+    const [flow] = await database.db
+      .insert(schema.rdMarketingFlows)
+      .values({ id: randomUUID(), tenantId, tokenHash: randomUUID(), settings: flowSettings })
+      .returning();
+    const envelope = {
+      event_type: "WEBHOOK.CONVERTED",
+      event_timestamp: "2026-10-14T15:00:00Z",
+      event_identifier: "teste-entrada",
+      contact: { uuid: otherUuid, name: "Outro lead", email: otherEmail },
+    };
+    expect((await receiveLeads(flow, envelope))[0].status).toBe("created");
+    const hook = await sync.createRdJourneyEndpoint(tenantId, "CONVERSION", "Entrada livre");
+    expect((await notifications.storeJourneyNotification(hook, envelope)).stored).toBe(1);
+    await crmService.updateDeal(tenantId, second.id, actor, { status: "open" });
+    changeTargetOnRead = true;
+    await runRdCommercialWorker(tenantId, isolatedProvider);
+    expect(posts).toHaveLength(3);
+    await sync.saveRdSyncSettings(tenantId, true, "BRL", restricted, isolatedProvider);
+    await crmService.updateDeal(tenantId, second.id, actor, { status: "won" });
+    changeTargetOnUnauthorized = true;
+    await runRdCommercialWorker(tenantId, isolatedProvider);
+    expect(posts).toHaveLength(3);
+    expect((await sync.rdSyncStatus(otherTenantId, "http://localhost")).outboundEnabled).toBe(
+      false,
+    );
   }, 30000);
   test("dois contatos locais não recebem o mesmo UUID RD na conexão ativa", async () => {
     await connect();

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Copy, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import type { RdSyncStatus } from "@/lib/rd-marketing/sync-types";
+import type { RdOutboundScope, RdSyncStatus } from "@/lib/rd-marketing/sync-types";
 
 const endpoint = "/api/settings/rd-marketing/sync";
 const buttonClass =
@@ -23,6 +23,8 @@ export function RdMarketingSyncSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [enabled, setEnabled] = useState(false);
+  const [outboundScope, setOutboundScope] = useState<RdOutboundScope>("test");
+  const [testContactUuid, setTestContactUuid] = useState("");
   const [currency, setCurrency] = useState("BRL");
   const [label, setLabel] = useState("");
   const [reviewed, setReviewed] = useState<Record<string, boolean>>({});
@@ -50,6 +52,8 @@ export function RdMarketingSyncSettings() {
       if (!controller.signal.aborted) {
         setStatus(data);
         setEnabled(data.outboundEnabled);
+        setOutboundScope(data.outboundScope);
+        setTestContactUuid(data.testContact?.uuid || "");
         setCurrency(data.currency);
         setReviewed({});
       }
@@ -223,6 +227,14 @@ export function RdMarketingSyncSettings() {
           )}
           <div className="rounded-xl border border-border p-4 space-y-3">
             <h4 className="text-sm font-semibold">Enviar mudanças comerciais para o RD</h4>
+            {status.outboundEnabled && (
+              <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs font-medium">
+                Configuração salva:{" "}
+                {status.outboundScope === "test"
+                  ? `teste isolado · ${status.testContact?.name || status.testContact?.uuid || "contato não configurado"}`
+                  : "envio para todos os contatos"}
+              </p>
+            )}
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -237,6 +249,49 @@ export function RdMarketingSyncSettings() {
               contato precisa existir no Marketing. Alterar uma negociação já encerrada não reenvia
               sua venda ou perda.
             </p>
+            <label className="block text-sm">
+              Destino dos envios
+              <select
+                aria-label="Destino dos envios comerciais"
+                className="mt-1 block w-full rounded-lg border border-border bg-background p-2"
+                value={outboundScope}
+                disabled={busy}
+                onChange={(event) => setOutboundScope(event.target.value as RdOutboundScope)}
+              >
+                <option value="test">Teste isolado · apenas um contato</option>
+                <option value="all">Todos os contatos</option>
+              </select>
+            </label>
+            {outboundScope === "test" && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                <label className="block text-sm">
+                  UUID do contato de teste no RD Marketing
+                  <input
+                    aria-label="UUID do contato de teste"
+                    className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs"
+                    placeholder="Cole o UUID exibido na consulta do lead"
+                    value={testContactUuid}
+                    maxLength={36}
+                    disabled={busy}
+                    onChange={(event) => setTestContactUuid(event.target.value)}
+                  />
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  O sistema confere este cadastro ao salvar. Somente negociações desse contato
+                  enviam oportunidades, vendas e perdas. O recebimento do RD para nossos cards
+                  continua livre para todos os contatos.
+                </p>
+                {status.testContact?.uuid === testContactUuid.trim().toLowerCase() && (
+                  <p className="text-xs font-medium">
+                    Contato conferido: {status.testContact.name || "Sem nome"}
+                    {status.testContact.email ? ` · ${status.testContact.email}` : ""}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Os eventos enviados são reais e aparecerão no RD para este contato de teste.
+                </p>
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-3">
               <label className="text-xs">
                 Moeda utilizada na conta Marketing{" "}
@@ -253,8 +308,16 @@ export function RdMarketingSyncSettings() {
               <button
                 type="button"
                 className={buttonClass}
-                disabled={busy}
-                onClick={() => void load({ action: "save", outboundEnabled: enabled, currency })}
+                disabled={busy || (enabled && outboundScope === "test" && !testContactUuid.trim())}
+                onClick={() =>
+                  void load({
+                    action: "save",
+                    outboundEnabled: enabled,
+                    currency,
+                    outboundScope,
+                    testContactUuid,
+                  })
+                }
               >
                 Salvar retorno comercial
               </button>

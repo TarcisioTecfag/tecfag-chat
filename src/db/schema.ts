@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, integer, boolean, jsonb, numeric, index, uniqueIndex } from "drizzle-orm/pg-core";
 import type { FlowSettings } from "../lib/rd-marketing/mapping";
+import type { RdTestContact, RdOutboundScope } from "../lib/rd-marketing/sync-types";
 
 // ─── 1. TENANTS (Empresas: Valem, Tecfag) ──────────────────────────────────
 export const tenants = pgTable("tenants", {
@@ -140,6 +141,8 @@ export const rdMarketingSyncSettings = pgTable("rd_marketing_sync_settings", {
   tenantId: text("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
   connectionVersion: text("connection_version"),
   outboundEnabled: boolean("outbound_enabled").default(false).notNull(),
+  outboundScope: text("outbound_scope").$type<RdOutboundScope>().default("test").notNull(),
+  testContact: jsonb("test_contact").$type<RdTestContact | null>(),
   currency: text("currency").default("BRL").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

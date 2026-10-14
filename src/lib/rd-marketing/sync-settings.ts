@@ -12,10 +12,10 @@ import {
 } from "../../db/schema";
 import { CrmError } from "../crm/crm-service";
 import { decryptRdSecret, encryptRdSecret } from "./api-crypto";
-import { listRdWebhooks, writeRd } from "./api-service";
+import { listRdWebhooks, readRdContact, writeRd } from "./api-service";
 import { rdIdentityHash } from "./notifications";
 import { rdPhoneDigits } from "./sync-identity";
-import type { RdSyncStatus } from "./sync-types";
+import type { RdOutboundScope, RdSyncStatus, RdTestContact } from "./sync-types";
 
 export function rdJourneyEndpointUrl(requestUrl: string, token: string) {
   const url = new URL(requestUrl);
@@ -46,6 +46,8 @@ export async function rdSyncStatus(tenantId: string, requestUrl: string): Promis
   return {
     connected: !!(row?.accessTokenEncrypted && row.refreshTokenEncrypted),
     outboundEnabled: !!config?.outboundEnabled && config.connectionVersion === row?.version,
+    outboundScope: config?.outboundScope || "test",
+    testContact: config?.connectionVersion === row?.version ? config?.testContact || null : null,
     currency: config?.currency || "BRL",
     endpoints: hooks.map((hook) => ({
       id: hook.id,
@@ -75,13 +77,45 @@ export async function saveRdSyncSettings(
   tenantId: string,
   outboundEnabled: boolean,
   currency: string,
+  scope: { outboundScope: RdOutboundScope; testContactUuid?: string | null },
+  fetchImpl?: typeof fetch,
 ) {
   if (!/^[A-Z]{3}$/.test(currency))
     throw new CrmError("Informe a moeda utilizada no Marketing.", "BAD_REQUEST", 400);
-  const connection = outboundEnabled ? await connected(tenantId) : null;
+  if (!["test", "all"].includes(scope.outboundScope))
+    throw new CrmError("Escolha o destino dos envios.", "BAD_REQUEST", 400);
+  const uuid = scope.testContactUuid?.trim().toLowerCase() || "";
+  if (
+    scope.outboundScope === "test" &&
+    (outboundEnabled || uuid) &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)
+  )
+    throw new CrmError("Informe o UUID do contato de teste no RD Marketing.", "BAD_REQUEST", 400);
+  const connection =
+    outboundEnabled || (scope.outboundScope === "test" && uuid) ? await connected(tenantId) : null;
+  let testContact: RdTestContact | null = null;
+  if (scope.outboundScope === "test" && uuid) {
+    const contact = await readRdContact(tenantId, "uuid", uuid, fetchImpl);
+    if (contact.uuid.toLowerCase() !== uuid)
+      throw new CrmError(
+        "O RD retornou outro contato. Confira o UUID de teste.",
+        "BAD_REQUEST",
+        400,
+      );
+    const [current] = await db.select().from(connections).where(eq(connections.tenantId, tenantId));
+    if (current?.version !== connection?.version)
+      throw new CrmError(
+        "A conta RD mudou. Salve a configuração novamente.",
+        "RD_CONNECTION_CHANGED",
+        409,
+      );
+    testContact = { uuid, name: contact.name, email: contact.email, phone: contact.phone };
+  }
   const values = {
     tenantId,
     outboundEnabled,
+    outboundScope: scope.outboundScope,
+    testContact,
     currency,
     connectionVersion: connection?.version || null,
     updatedAt: new Date(),

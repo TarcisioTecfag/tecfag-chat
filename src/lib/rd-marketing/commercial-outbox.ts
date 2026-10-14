@@ -11,6 +11,7 @@ import {
   type CrmDeal,
 } from "../../db/schema";
 import { rdPhoneDigits } from "./sync-identity";
+import { permitsRdRecipient } from "./outbound-scope";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export function commercialTransition(previous: string | null, status: string) {
@@ -77,10 +78,13 @@ export async function enqueueRdCommercial(
   const payload: Record<string, unknown> = { funnel_name: "default" };
   if (contact?.email?.trim()) payload.email = contact.email.trim().toLowerCase();
   else if (/^\d{10,15}$/.test(phone)) payload.phone = `+${phone}`;
+  if (!permitsRdRecipient(settings, payload, link?.rdUuid || null)) return;
+  const recipientUuid =
+    link?.rdUuid || (settings.outboundScope === "test" ? settings.testContact?.uuid : null);
   if (eventType === "SALE") payload.value = deal.value === null ? null : Number(deal.value);
   const reason = !contact
     ? "Vincule o contato principal antes de enviar ao RD."
-    : !payload.email && !payload.phone && !link?.rdUuid
+    : !payload.email && !payload.phone && !recipientUuid
       ? "Contato sem e-mail ou telefone para o RD."
       : eventType === "SALE" &&
           (payload.value === null ||
@@ -114,7 +118,8 @@ export async function enqueueRdCommercial(
         configuredCurrency: settings.currency,
         value: deal.value,
         lossReason: deal.lossReason,
-        rdUuid: link?.rdUuid || null,
+        rdUuid: recipientUuid || null,
+        outboundScope: settings.outboundScope,
         occurredAt: deal.updatedAt.toISOString(),
       },
       status: reason ? "blocked" : "pending",
@@ -210,7 +215,29 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
           .where(scope);
         continue;
       }
-      const rdUuid = typeof row.snapshot.rdUuid === "string" ? row.snapshot.rdUuid : null;
+      const [deliveryConfig] = await db
+        .select()
+        .from(rdMarketingSyncSettings)
+        .where(eq(rdMarketingSyncSettings.tenantId, tenantId));
+      if (
+        !deliveryConfig?.outboundEnabled ||
+        deliveryConfig.connectionVersion !== row.connectionVersion
+      ) {
+        await db
+          .update(outbox)
+          .set({ status: "pending", leaseToken: null, leaseUntil: null })
+          .where(scope);
+        break;
+      }
+      const savedUuid = typeof row.snapshot.rdUuid === "string" ? row.snapshot.rdUuid : null;
+      if (!permitsRdRecipient(deliveryConfig, row.payload, savedUuid))
+        throw Object.assign(
+          new Error("Envio bloqueado: fora do contato autorizado para teste isolado."),
+          { code: "RD_TEST_RECIPIENT_BLOCKED" },
+        );
+      const rdUuid =
+        savedUuid ||
+        (deliveryConfig.outboundScope === "test" ? deliveryConfig.testContact?.uuid || null : null);
       const identity = rdUuid || String(row.payload.email || row.payload.phone || "");
       const contact = await readRdContact(
         tenantId,
@@ -275,6 +302,22 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
         { event_type: row.eventType, event_family: "CDP", payload },
         row.connectionVersion,
         fetchImpl,
+        async () => {
+          // Recheck the restriction for every POST, including a retry after token refresh.
+          const [latest] = await db
+            .select()
+            .from(rdMarketingSyncSettings)
+            .where(eq(rdMarketingSyncSettings.tenantId, tenantId));
+          if (!latest?.outboundEnabled || latest.connectionVersion !== row.connectionVersion)
+            throw Object.assign(new Error("Envio comercial desativado ou conexão alterada."), {
+              code: "RD_OUTBOUND_PAUSED",
+            });
+          if (!permitsRdRecipient(latest, payload, contact.uuid))
+            throw Object.assign(
+              new Error("Envio bloqueado: fora do contato autorizado para teste isolado."),
+              { code: "RD_TEST_RECIPIENT_BLOCKED" },
+            );
+        },
       )) as { event_uuid?: unknown };
       if (typeof result?.event_uuid !== "string" || !result.event_uuid)
         throw Object.assign(
