@@ -297,8 +297,9 @@ export function parseExtraDealFilters(params: URLSearchParams): Pick<CrmDealFilt
 export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilters | Record<string, any>) {
   const conditions = [eq(crmDeals.tenantId, tenantId)];
   const nextTaskDate = sql`(SELECT MIN(act.due_date) FROM crm_deal_activities act WHERE act.deal_id = ${crmDeals.id} AND act.tenant_id = ${tenantId} AND act.status = 'pending' AND act.type != 'note')`;
+  const effectiveLastContact = sql`COALESCE(${crmDeals.lastActivityAt}, ${crmDeals.updatedAt}, ${crmDeals.createdAt})`;
   const dateFields = {
-    lastContact: crmDeals.lastActivityAt,
+    lastContact: effectiveLastContact,
     nextTask: nextTaskDate,
     closed: crmDeals.closedAt,
     expectedClose: crmDeals.expectedCloseDate,
@@ -347,8 +348,8 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
   }
 
   const emptyFieldConditions: Record<string, ReturnType<typeof sql>> = {
-    value: sql`${crmDeals.value} IS NULL`,
-    rating: sql`${crmDeals.rating} = 0`,
+    value: sql`(${crmDeals.value} IS NULL OR ${crmDeals.value} = 0)`,
+    rating: sql`(${crmDeals.rating} = 0 OR ${crmDeals.rating} IS NULL)`,
     company: sql`${crmDeals.accountId} IS NULL`,
     campaign: sql`NULLIF(TRIM(${crmDeals.campaign}), '') IS NULL`,
     source: sql`NULLIF(TRIM(${crmDeals.source}), '') IS NULL`,

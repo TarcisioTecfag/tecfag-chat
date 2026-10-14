@@ -65,6 +65,9 @@ import { CrmDatePicker } from "./CrmDatePicker";
 import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
 import { DealEmailTab } from "./DealEmailTab";
 import { CatalogSelect } from "./CatalogSelect";
+import { useRdMarketingJourney } from "@/hooks/useRdMarketingJourney";
+import { RdMarketingJourneyControls } from "./RdMarketingJourneyControls";
+import type { JourneyEvent } from "@/lib/rd-marketing/journey-types";
 import {
   DealFilePreviewModal,
   DealFileItem,
@@ -408,8 +411,16 @@ export function DealDetailModal({
 
   // Sub-abas e ações de atividades
   const [tasksSubTab, setTasksSubTab] = useState<"pending" | "completed" | "cancelled" | "notes">("pending");
-  const [historyFilter, setHistoryFilter] = useState<"all" | "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire">("all");
-  const [historySourceFilter, setHistorySourceFilter] = useState<"all" | "conversas" | "crm">("all");
+  const [historyFilter, setHistoryFilter] = useState<"all" | "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire" | "conversion" | "opportunity">("all");
+  const [historySourceFilter, setHistorySourceFilter] = useState<"all" | "conversas" | "crm" | "marketing">("all");
+  const [journeySelection, setJourneySelection] = useState({ dealId: "", contactId: "" });
+  const [journeyEnabledFor, setJourneyEnabledFor] = useState("");
+  const journeyContext = JSON.stringify([chatContext?.tenant, dealId]);
+  const journeyContacts = (deal?.id === dealId ? deal.contacts || [] : []).map((entry: { contactId: string; isPrimary: boolean; contact: { id: string; name: string } })=>({ id: entry.contactId, name: entry.contact.name, isPrimary: entry.isPrimary }));
+  const journeyContactId = journeySelection.dealId === dealId && journeyContacts.some((entry: { id: string })=>entry.id === journeySelection.contactId)
+    ? journeySelection.contactId : journeyContacts.find((entry: { isPrimary: boolean })=>entry.isPrimary)?.id || journeyContacts[0]?.id || "";
+  const rdJourney = useRdMarketingJourney(chatContext?.tenant || null, dealId, journeyContactId || null,
+    isOpen && activeTab === "history" && (historySourceFilter === "marketing" || historyFilter === "conversion" || historyFilter === "opportunity" || journeyEnabledFor === journeyContext));
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [inlineNoteText, setInlineNoteText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
@@ -1284,7 +1295,7 @@ export function DealDetailModal({
     if (!deal) return [];
     const items: Array<{
       id: string;
-      category: "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire";
+      category: "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire" | "conversion" | "opportunity";
       title: string;
       description?: string | null;
       author: string;
@@ -1293,7 +1304,8 @@ export function DealDetailModal({
       iconType: string;
       badgeColor: string;
       isNote?: boolean;
-      source: "conversas" | "crm";
+      source: "conversas" | "crm" | "marketing";
+      marketingEvent?: JourneyEvent;
     }> = [];
 
     // 1. Eventos de auditoria
@@ -1447,15 +1459,22 @@ export function DealDetailModal({
       });
     });
 
-    // Ordenação cronológica decrescente (mais recente primeiro)
-    items.sort((a, b) => b.date.getTime() - a.date.getTime());
+    (rdJourney.data?.events || []).forEach(event=>items.push({
+      id: `rd-${event.key}`, category: event.eventType === "CONVERSION" ? "conversion" : "opportunity",
+      title: event.eventType === "CONVERSION" ? `Converteu em ${event.identifier || "evento sem identificador"}` : "Marcado como oportunidade",
+      description: [`Contato: ${rdJourney.data!.contactName}`, `Fonte: ${event.source || "Não informada"}`, `Campanha: ${event.campaign || "Não informada"}`, event.medium ? `Mídia: ${event.medium}` : "", event.funnelName ? `Funil RD Marketing: ${event.funnelName}` : ""].filter(Boolean).join("\n"),
+      author: "RD Marketing", date: new Date(event.date || NaN), iconType: "history", badgeColor: "bg-primary/10 text-primary", source: "marketing", marketingEvent: event,
+    }));
+    // Eventos sem data não recebem uma data inventada; aparecem após os eventos datados.
+    items.sort((a, b) => (Number.isFinite(b.date.getTime()) ? b.date.getTime() : 0) - (Number.isFinite(a.date.getTime()) ? a.date.getTime() : 0));
     return items;
-  }, [deal, operatorsMap, pipelineStages, operators, operatorProfile]);
+  }, [deal, operatorsMap, pipelineStages, operators, operatorProfile, rdJourney.data]);
 
   const filteredTimeline = React.useMemo(() => {
     return unifiedTimeline.filter((item) => {
       if (historySourceFilter === "conversas" && item.source !== "conversas") return false;
       if (historySourceFilter === "crm" && item.source !== "crm") return false;
+      if (historySourceFilter === "marketing" && item.source !== "marketing") return false;
       if (historyFilter !== "all" && item.category !== historyFilter) return false;
       return true;
     });
@@ -3877,6 +3896,7 @@ export function DealDetailModal({
                               <SelectItem value="all" className="text-xs font-medium">Todos</SelectItem>
                               <SelectItem value="conversas" className="text-xs font-medium">Conversas</SelectItem>
                               <SelectItem value="crm" className="text-xs font-medium">CRM</SelectItem>
+                              <SelectItem value="marketing" className="text-xs font-medium">RD Marketing</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -3902,6 +3922,8 @@ export function DealDetailModal({
                               <SelectItem value="file" className="text-xs font-medium">Arquivos</SelectItem>
                               <SelectItem value="email" className="text-xs font-medium">E-mails</SelectItem>
                               <SelectItem value="questionnaire" className="text-xs font-medium">Questionários</SelectItem>
+                              <SelectItem value="conversion" className="text-xs font-medium">Conversões RD Marketing</SelectItem>
+                              <SelectItem value="opportunity" className="text-xs font-medium">Oportunidades RD Marketing</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -3919,6 +3941,11 @@ export function DealDetailModal({
                     </div>
 
                     {/* Campo Animado para Criar e Salvar Anotação (Conforme Foto 3) */}
+                    {(historySourceFilter === "all" || historySourceFilter === "marketing") && <RdMarketingJourneyControls
+                      contacts={journeyContacts} contactId={journeyContactId}
+                      onContact={contactId=>setJourneySelection({ dealId: dealId || "", contactId })}
+                      onLoad={()=>{ setJourneyEnabledFor(journeyContext); if (rdJourney.error) void rdJourney.refresh(); }} journey={rdJourney}
+                    />}
                     <AnimatePresence>
                       {isCreatingNote && (
                         <motion.div
@@ -4077,7 +4104,7 @@ export function DealDetailModal({
                                           : item.title}
                                       </span>
                                       <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide uppercase ${item.badgeColor}`}>
-                                        {item.category === "event"
+                                        {item.source === "marketing" ? "RD Marketing" : item.category === "event"
                                           ? "Auditoria"
                                           : item.category === "activity"
                                           ? item.isNote
@@ -4102,18 +4129,23 @@ export function DealDetailModal({
                                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 font-medium shrink-0">
                                     <Clock className="h-3 w-3 opacity-60" />
                                     <span>
-                                      {item.date.toLocaleDateString("pt-BR", {
+                                      {Number.isFinite(item.date.getTime()) ? item.date.toLocaleDateString("pt-BR", {
                                         day: "2-digit",
                                         month: "2-digit",
                                         year: "numeric",
                                         hour: "2-digit",
                                         minute: "2-digit",
-                                      })}
+                                      }) : "Data não informada"}
                                     </span>
                                   </div>
                                 </div>
 
                                 {/* Corpo do balão / Descrição */}
+                                {item.marketingEvent && <div className="mt-2 pl-9 space-y-2">
+                                  {item.marketingEvent.links.map(url=><a key={url} href={url} target="_blank" rel="noopener noreferrer" className="block text-xs text-primary break-all">{url}</a>)}
+                                  {item.marketingEvent.deals.map(link=><a key={link.id} href={`/crm/deals/${encodeURIComponent(link.id)}`} className="block text-xs font-semibold text-primary">{link.id === dealId ? "Esta negociação" : "Abrir negociação"}: {link.title}</a>)}
+                                  <details className="text-xs"><summary className="cursor-pointer text-primary">Detalhes da conversão/evento</summary><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] mt-2">{JSON.stringify(item.marketingEvent.raw, null, 2)}</pre></details>
+                                </div>}
                                 {item.description && (
                                   item.isNote ? (
                                     <div className="mt-3 rounded-sm border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed font-normal break-words shadow-2xs">

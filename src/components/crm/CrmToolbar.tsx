@@ -51,7 +51,7 @@ interface CrmToolbarProps {
   onPipelineChange: (pipelineId: string) => void;
   statusFilter: CrmStatusFilter;
   onStatusFilterChange: (status: CrmStatusFilter) => void;
-  operators: Array<{ id: string; name: string }>;
+  operators: Array<{ id: string; name: string; avatar?: string | null }>;
   currentOperatorId?: string | null;
   selectedOperatorIds: string[];
   onOperatorIdsChange: (operatorIds: string[]) => void;
@@ -390,8 +390,8 @@ export function CrmToolbar({
           <span className="truncate">Buscar negociações, empresas ou contatos...</span>
         </button>
         <div className="hidden shrink-0 items-center gap-2 @[64rem]/crm-toolbar:flex">
-          <div className="w-56">{renderResponsibleFilter()}</div>
-          <div className="w-44">{renderStatusFilter()}</div>
+          <div className="w-auto shrink-0">{renderResponsibleFilter()}</div>
+          <div className="w-auto min-w-[11rem] shrink-0">{renderStatusFilter()}</div>
           {renderAdvancedButton()}
           <div className="ml-1 border-l border-border pl-2">{renderSort()}</div>
         </div>

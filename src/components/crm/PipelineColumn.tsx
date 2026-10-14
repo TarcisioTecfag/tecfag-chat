@@ -166,7 +166,7 @@ export const PipelineColumn = React.memo(function PipelineColumn({
         {/* Totalizador Financeiro da Etapa */}
         <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>Total conhecido:</span>
-          <span className="font-medium tabular-nums text-foreground/80">{displayFormattedTotal}</span>
+          <span className="font-semibold tabular-nums text-primary">{displayFormattedTotal}</span>
         </div>
       </div>
 

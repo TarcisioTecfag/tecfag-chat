@@ -108,6 +108,35 @@ describe("CRM Deals - Normalização de Filtros em Massa (buildDealFilterConditi
     expect(query.params).toContain(3);
   });
 
+  it("deve gerar condições SQL válidas para todos os 5 filtros de data e filtro de Empresa (companyId)", () => {
+    const conditions = buildDealFilterConditions("tecfag", {
+      createdAfter: "2026-10-01",
+      createdBefore: "2026-10-14",
+      lastContactFrom: "2026-10-01",
+      lastContactTo: "2026-10-14",
+      nextTaskFrom: "2026-10-14",
+      nextTaskTo: "2026-10-31",
+      closedFrom: "2026-09-01",
+      closedTo: "2026-09-30",
+      expectedCloseFrom: "2026-10-15",
+      expectedCloseTo: "2026-11-15",
+      companyId: "acc-tecfag-001",
+    });
+
+    const query = db
+      .select()
+      .from(crmDeals)
+      .where(and(...conditions))
+      .toSQL();
+
+    expect(query.sql).toContain("created_at");
+    expect(query.sql).toContain("COALESCE");
+    expect(query.sql).toContain("closed_at");
+    expect(query.sql).toContain("expected_close_date");
+    expect(query.sql).toContain('"account_id" = $');
+    expect(query.params).toContain("acc-tecfag-001");
+  });
+
   it("deve executar a query reproduzida no banco real sem erro de sintaxe SQL", async () => {
     const conditions = buildDealFilterConditions("tecfag", {
       pipelineId: "pipe-tecfag-sdr",

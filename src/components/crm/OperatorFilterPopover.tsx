@@ -106,14 +106,14 @@ export function OperatorFilterPopover({
           type="button"
           disabled={disabled}
           aria-label={`Responsável: ${triggerLabel}`}
-          className={`flex h-9 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+          className={`flex h-9 w-full min-w-max items-center justify-between gap-2 whitespace-nowrap rounded-lg border px-3.5 text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             selectedOperatorIds.length > 0
               ? "border-primary bg-primary/10 text-primary font-bold"
               : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
           }`}
         >
           <Users className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
+          <span className="flex-1 whitespace-nowrap text-left">{triggerLabel}</span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>

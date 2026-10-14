@@ -17,7 +17,7 @@ import { AiAvatar } from "@/components/ui/AiAvatar";
 import { toast } from "sonner";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, SystemTooltip } from "@/components/ui/tooltip";
 import { SdrKanbanBoard } from "./SdrKanbanBoard";
-import { BENCHMARK_SDR_SESSIONS, SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
+import { SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
 
 export interface SdrTriageMessage {
   id?: string;
@@ -259,9 +259,9 @@ export function SdrTab({
   // Modal de visualização em tela cheia da foto de perfil
   const [previewModalImage, setPreviewModalImage] = useState<{ url: string; title: string } | null>(null);
 
-  // SESSÕES DE TRIAGEM (Reais do banco + Benchmark das fotos para preenchimento de funis)
-  const [sessions, setSessions] = useState<SdrTriageSession[]>(BENCHMARK_SDR_SESSIONS);
-  const [selectedSession, setSelectedSession] = useState<SdrTriageSession | null>(() => BENCHMARK_SDR_SESSIONS[0] || null);
+  // SESSÕES DE TRIAGEM (100% Reais do banco de dados)
+  const [sessions, setSessions] = useState<SdrTriageSession[]>([]);
+  const [selectedSession, setSelectedSession] = useState<SdrTriageSession | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isChatHighlighted, setIsChatHighlighted] = useState(false);
 
@@ -309,24 +309,19 @@ export function SdrTab({
             outcome: s.outcome,
             responsibleName: s.responsibleName,
             messages: s.messages || [],
+            ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
+            ...(s.unreadCount !== undefined ? { unreadCount: s.unreadCount } : {}),
+            ...(s.channel ? { channel: s.channel } : {}),
+            ...(s.timeAgo ? { timeAgo: s.timeAgo } : {}),
           }));
 
-          const liveIds = new Set(formattedLiveSessions.map((s) => s.id));
-          const liveConvIds = new Set(formattedLiveSessions.map((s) => s.conversationId));
-          const mergedSessions = [
-            ...formattedLiveSessions,
-            ...BENCHMARK_SDR_SESSIONS.filter(
-              (b) => !liveIds.has(b.id) && !liveConvIds.has(b.conversationId)
-            ),
-          ];
-
-          setSessions(mergedSessions);
+          setSessions(formattedLiveSessions);
           setSelectedSession((prev) => {
-            if (!prev) return mergedSessions[0] || null;
-            const match = mergedSessions.find(
+            if (!prev) return formattedLiveSessions[0] || null;
+            const match = formattedLiveSessions.find(
               (s) => s.id === prev.id || (s.conversationId && s.conversationId === prev.conversationId)
             );
-            return match || mergedSessions[0] || null;
+            return match || formattedLiveSessions[0] || null;
           });
         }
       }

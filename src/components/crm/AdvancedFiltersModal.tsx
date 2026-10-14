@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { CalendarDays, ChevronDown, Filter } from "lucide-react";
+import { Building2, CalendarDays, Check, ChevronDown, Filter, Loader2, Search, X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,12 +45,13 @@ export interface AdvancedFiltersState {
 }
 
 const dateFields = [
-  { label: "Data de criação", from: "createdAfter", to: "createdBefore" },
-  { label: "Data de último contato", from: "lastContactFrom", to: "lastContactTo" },
-  { label: "Data da próxima tarefa", from: "nextTaskFrom", to: "nextTaskTo" },
-  { label: "Data de fechamento", from: "closedFrom", to: "closedTo" },
-  { label: "Data de previsão de fechamento", from: "expectedCloseFrom", to: "expectedCloseTo" },
+  { label: "Data de criação", from: "createdAfter", to: "createdBefore", allowFuture: false },
+  { label: "Data de último contato", from: "lastContactFrom", to: "lastContactTo", allowFuture: false },
+  { label: "Data da próxima tarefa", from: "nextTaskFrom", to: "nextTaskTo", allowFuture: true },
+  { label: "Data de fechamento", from: "closedFrom", to: "closedTo", allowFuture: false },
+  { label: "Data de previsão de fechamento", from: "expectedCloseFrom", to: "expectedCloseTo", allowFuture: true },
 ] as const;
+
 const emptyFieldOptions = [
   ["value", "Valor total"],
   ["rating", "Qualificação"],
@@ -58,10 +59,22 @@ const emptyFieldOptions = [
   ["campaign", "Campanha"],
   ["source", "Fonte"],
   ["expectedClose", "Previsão de fechamento"],
+  ["lastContact", "Último contato"],
   ["nextTask", "Próxima tarefa"],
   ["products", "Produto ou serviço"],
 ] as const;
+
 type Option = { value: string; label: string };
+type PresetKey =
+  | number
+  | "yesterday"
+  | "tomorrow"
+  | "week"
+  | "month"
+  | "sixMonths"
+  | "next7"
+  | "next14"
+  | "next30";
 
 export function countActiveAdvancedFilters(filters: AdvancedFiltersState): number {
   return (
@@ -88,42 +101,95 @@ export function countActiveAdvancedFilters(filters: AdvancedFiltersState): numbe
 function localDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
-function preset(value: number | "week" | "month" | "sixMonths") {
+
+function preset(value: PresetKey): readonly [string, string] {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (value === "week") start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-  else if (value === "month") start.setDate(1);
-  else if (value === "sixMonths") start.setMonth(start.getMonth() - 6);
-  else start.setDate(start.getDate() - value);
-  return [localDate(start), localDate(now)] as const;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(today);
+  const end = new Date(today);
+
+  if (value === "yesterday") {
+    start.setDate(start.getDate() - 1);
+    end.setDate(end.getDate() - 1);
+  } else if (value === "tomorrow") {
+    start.setDate(start.getDate() + 1);
+    end.setDate(end.getDate() + 1);
+  } else if (value === "week") {
+    const dayOffset = (start.getDay() + 6) % 7; // Segunda-feira = 0
+    start.setDate(start.getDate() - dayOffset);
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 6); // Domingo da mesma semana
+  } else if (value === "month") {
+    start.setDate(1);
+    end.setMonth(end.getMonth() + 1, 0); // Último dia do mês atual
+  } else if (value === "sixMonths") {
+    start.setMonth(start.getMonth() - 6);
+  } else if (value === "next7") {
+    end.setDate(end.getDate() + 6);
+  } else if (value === "next14") {
+    end.setDate(end.getDate() + 13);
+  } else if (value === "next30") {
+    end.setDate(end.getDate() + 29);
+  } else {
+    start.setDate(start.getDate() - value);
+  }
+
+  return [localDate(start), localDate(end)] as const;
+}
+
+function formatShortDate(iso?: string) {
+  if (!iso) return "…";
+  const parts = iso.split("-");
+  if (parts.length !== 3) return iso;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
 function DateFilter({
   label,
   from,
   to,
+  allowFuture = false,
   onChange,
 }: {
   label: string;
   from?: string;
   to?: string;
+  allowFuture?: boolean;
   onChange: (from?: string, to?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState(false);
-  const presets: Array<[string, number | "week" | "month" | "sixMonths"]> = [
-    ["Hoje", 0],
-    ["Esta semana", "week"],
-    ["Este mês", "month"],
-    ["Últimos 7 dias", 6],
-    ["Últimos 14 dias", 13],
-    ["Últimos 30 dias", 29],
-    ["Últimos 6 meses", "sixMonths"],
-  ];
-  const display =
-    from || to
-      ? `${from?.split("-").reverse().join("/") || "…"} até ${to?.split("-").reverse().join("/") || "…"}`
-      : "Selecionar";
+
+  const presets: Array<[string, PresetKey]> = allowFuture
+    ? [
+        ["Hoje", 0],
+        ["Amanhã", "tomorrow"],
+        ["Esta semana", "week"],
+        ["Este mês", "month"],
+        ["Próximos 7 dias", "next7"],
+        ["Próximos 14 dias", "next14"],
+        ["Próximos 30 dias", "next30"],
+        ["Últimos 7 dias", 6],
+        ["Últimos 30 dias", 29],
+      ]
+    : [
+        ["Hoje", 0],
+        ["Ontem", "yesterday"],
+        ["Esta semana", "week"],
+        ["Este mês", "month"],
+        ["Últimos 7 dias", 6],
+        ["Últimos 14 dias", 13],
+        ["Últimos 30 dias", 29],
+        ["Últimos 6 meses", "sixMonths"],
+      ];
+
+  const hasValue = Boolean(from || to);
+  const display = hasValue
+    ? from && to && from === to
+      ? formatShortDate(from)
+      : `${formatShortDate(from)} até ${formatShortDate(to)}`
+    : "Selecionar";
+
   return (
     <div className="space-y-1.5">
       <Label className="text-xs font-semibold">{label}</Label>
@@ -137,81 +203,145 @@ function DateFilter({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-background px-3 text-left text-xs"
+            className={`flex h-9 w-full items-center gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
+              hasValue
+                ? "border-primary/50 bg-primary/5 text-foreground font-medium"
+                : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+            }`}
           >
-            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+            <CalendarDays className={`h-4 w-4 shrink-0 ${hasValue ? "text-primary" : "text-muted-foreground"}`} />
             <span className="min-w-0 flex-1 truncate">{display}</span>
-            <ChevronDown className="h-3.5 w-3.5" />
+            {hasValue ? (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={`Limpar ${label}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange(undefined, undefined);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    onChange(undefined, undefined);
+                  }
+                }}
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </span>
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            )}
           </button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
           side="bottom"
-          className="w-60 max-w-[calc(100vw-2rem)] p-1 text-xs"
+          className="z-[200] w-64 max-w-[calc(100vw-2rem)] p-1.5 text-xs shadow-2xl"
         >
           {custom ? (
-            <div className="space-y-2 p-2">
-              <button type="button" onClick={() => setCustom(false)}>
-                ‹ Voltar
+            <div className="space-y-2.5 p-2">
+              <button
+                type="button"
+                onClick={() => setCustom(false)}
+                className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                ‹ Voltar para atalhos
               </button>
-              <Label className="block text-xs">De</Label>
-              <Input
-                type="date"
-                value={from || ""}
-                max={to}
-                onChange={(event) => onChange(event.target.value || undefined, to)}
-                className="h-8 text-xs"
-              />
-              <Label className="block text-xs">Até</Label>
-              <Input
-                type="date"
-                value={to || ""}
-                min={from}
-                onChange={(event) => onChange(from, event.target.value || undefined)}
-                className="h-8 text-xs"
-              />
-              <Button type="button" size="sm" className="w-full" onClick={() => setOpen(false)}>
-                Concluir
-              </Button>
-            </div>
-          ) : (
-            <>
-              {presets.map(([text, value], index) => (
-                <React.Fragment key={text}>
-                  {(index === 3 || index === 6) && <div className="my-1 border-t border-border" />}
-                  <button
+              <div className="space-y-1">
+                <Label className="block text-[11px] text-muted-foreground">De (data inicial)</Label>
+                <Input
+                  type="date"
+                  value={from || ""}
+                  max={to}
+                  onChange={(event) => onChange(event.target.value || undefined, to)}
+                  className="h-8 text-xs cursor-pointer"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="block text-[11px] text-muted-foreground">Até (data final)</Label>
+                <Input
+                  type="date"
+                  value={to || ""}
+                  min={from}
+                  onChange={(event) => onChange(from, event.target.value || undefined)}
+                  className="h-8 text-xs cursor-pointer"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 pt-1">
+                {hasValue && (
+                  <Button
                     type="button"
-                    className="block w-full rounded px-3 py-2 text-left hover:bg-muted"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 flex-1 text-xs"
                     onClick={() => {
-                      onChange(...preset(value));
+                      onChange(undefined, undefined);
                       setOpen(false);
                     }}
                   >
-                    {text}
-                  </button>
-                </React.Fragment>
-              ))}
+                    Limpar
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 flex-1 text-xs font-semibold"
+                  onClick={() => setOpen(false)}
+                >
+                  Concluir
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="max-h-72 overflow-y-auto">
+              {presets.map(([text, value], index) => {
+                const [pFrom, pTo] = preset(value);
+                const isSelected = from === pFrom && to === pTo;
+                return (
+                  <React.Fragment key={text}>
+                    {(index === 4 || index === 7) && <div className="my-1 border-t border-border" />}
+                    <button
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition-colors cursor-pointer ${
+                        isSelected
+                          ? "bg-primary/15 text-primary font-semibold"
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                      onClick={() => {
+                        onChange(pFrom, pTo);
+                        setOpen(false);
+                      }}
+                    >
+                      <span>{text}</span>
+                      {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
               <div className="my-1 border-t border-border" />
               <button
                 type="button"
-                className="flex w-full justify-between rounded px-3 py-2 text-left hover:bg-muted"
+                className="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left font-medium hover:bg-muted cursor-pointer"
                 onClick={() => setCustom(true)}
               >
-                Período personalizado <span>›</span>
+                <span>Período personalizado</span>
+                <span>›</span>
               </button>
-              {(from || to) && (
+              {hasValue && (
                 <button
                   type="button"
-                  className="block w-full rounded px-3 py-2 text-left hover:bg-muted"
+                  className="mt-0.5 block w-full rounded-md px-3 py-1.5 text-left text-rose-500 hover:bg-rose-500/10 cursor-pointer font-medium"
                   onClick={() => {
-                    onChange();
+                    onChange(undefined, undefined);
                     setOpen(false);
                   }}
                 >
                   Limpar período
                 </button>
               )}
-            </>
+            </div>
           )}
         </PopoverContent>
       </Popover>
@@ -279,12 +409,18 @@ export function AdvancedFiltersModal({
   const [products, setProducts] = useState<Option[]>([]);
   const [companies, setCompanies] = useState<Option[]>([]);
   const [companySearch, setCompanySearch] = useState("");
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
+  const [emptyFieldsPopoverOpen, setEmptyFieldsPopoverOpen] = useState(false);
+  const [selectedCompanyCache, setSelectedCompanyCache] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (isOpen) {
       setDraft(filters);
       setStatus(statusFilter);
     }
   }, [isOpen, filters, statusFilter]);
+
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
@@ -321,25 +457,36 @@ export function AdvancedFiltersModal({
       active = false;
     };
   }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
     const controller = new AbortController();
+    setLoadingCompanies(true);
     const timer = setTimeout(
       () =>
         fetch(
-          `/api/crm/accounts?type=company&limit=50&search=${encodeURIComponent(companySearch)}`,
+          `/api/crm/accounts?limit=50&search=${encodeURIComponent(companySearch)}`,
           { signal: controller.signal },
         )
           .then((res) => (res.ok ? res.json() : { accounts: [] }))
-          .then((data) =>
-            setCompanies(
-              (data.accounts || []).map((account: { id: string; name: string }) => ({
+          .then((data) => {
+            const list: Option[] = (data.accounts || []).map(
+              (account: { id: string; name: string; tradeName?: string | null }) => ({
                 value: account.id,
-                label: account.name,
-              })),
-            ),
-          )
-          .catch(() => {}),
+                label: account.name || account.tradeName || "Empresa sem nome",
+              }),
+            );
+            setCompanies(list);
+            setSelectedCompanyCache((prev) => {
+              const next = { ...prev };
+              for (const item of list) {
+                next[item.value] = item.label;
+              }
+              return next;
+            });
+          })
+          .catch(() => {})
+          .finally(() => setLoadingCompanies(false)),
       200,
     );
     return () => {
@@ -381,6 +528,24 @@ export function AdvancedFiltersModal({
         ? draft.emptyFields.filter((item) => item !== value)
         : [...(draft.emptyFields || []), value],
     );
+
+  const selectedEmptyLabels = (draft.emptyFields || [])
+    .map((val) => emptyFieldOptions.find(([k]) => k === val)?.[1])
+    .filter(Boolean) as string[];
+
+  const emptyFieldsDisplay =
+    selectedEmptyLabels.length === 0
+      ? "Selecione campos"
+      : selectedEmptyLabels.length <= 2
+        ? selectedEmptyLabels.join(", ")
+        : `${selectedEmptyLabels.length} campo(s) selecionado(s)`;
+
+  const selectedCompanyLabel = draft.companyId
+    ? companies.find((company) => company.value === draft.companyId)?.label ||
+      selectedCompanyCache[draft.companyId] ||
+      "Empresa selecionada"
+    : undefined;
+
   const apply = () => {
     const clean = Object.fromEntries(
       Object.entries(draft).filter(
@@ -485,31 +650,67 @@ export function AdvancedFiltersModal({
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">Campos vazios</Label>
-            <Popover>
+            <Popover open={emptyFieldsPopoverOpen} onOpenChange={setEmptyFieldsPopoverOpen}>
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-3 text-left text-xs"
+                  className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
+                    draft.emptyFields?.length
+                      ? "border-primary/50 bg-primary/5 text-foreground font-medium"
+                      : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
                 >
-                  {draft.emptyFields?.length
-                    ? `${draft.emptyFields.length} campo(s) selecionado(s)`
-                    : "Selecione campos"}
-                  <ChevronDown className="h-3.5 w-3.5" />
+                  <span className="min-w-0 flex-1 truncate">{emptyFieldsDisplay}</span>
+                  {draft.emptyFields?.length ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Limpar campos vazios"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        update("emptyFields", []);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.stopPropagation();
+                          update("emptyFields", []);
+                        }
+                      }}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </span>
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  )}
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-64 space-y-1 p-2">
-                {emptyFieldOptions.map(([value, label]) => (
-                  <label
-                    key={value}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
-                  >
-                    <Checkbox
-                      checked={draft.emptyFields?.includes(value) || false}
-                      onCheckedChange={() => toggleEmpty(value)}
-                    />
-                    {label}
-                  </label>
-                ))}
+              <PopoverContent align="start" className="z-[200] w-72 space-y-1 p-2 shadow-2xl">
+                <div className="max-h-60 space-y-0.5 overflow-y-auto">
+                  {emptyFieldOptions.map(([value, label]) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted"
+                    >
+                      <Checkbox
+                        checked={draft.emptyFields?.includes(value) || false}
+                        onCheckedChange={() => toggleEmpty(value)}
+                      />
+                      <span className="flex-1">{label}</span>
+                    </label>
+                  ))}
+                </div>
+                {Boolean(draft.emptyFields?.length) && (
+                  <div className="border-t border-border pt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => update("emptyFields", [])}
+                      className="w-full rounded-md px-2 py-1 text-left text-xs font-medium text-rose-500 hover:bg-rose-500/10 cursor-pointer"
+                    >
+                      Limpar seleção
+                    </button>
+                  </div>
+                )}
               </PopoverContent>
             </Popover>
           </div>
@@ -585,12 +786,13 @@ export function AdvancedFiltersModal({
               />
             </div>
           </div>
-          {dateFields.map(({ label, from, to }) => (
+          {dateFields.map(({ label, from, to, allowFuture }) => (
             <DateFilter
               key={label}
               label={label}
               from={draft[from]}
               to={draft[to]}
+              allowFuture={allowFuture}
               onChange={(start, end) =>
                 setDraft((current) => ({ ...current, [from]: start, [to]: end }))
               }
@@ -598,42 +800,113 @@ export function AdvancedFiltersModal({
           ))}
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">Empresa</Label>
-            <Popover>
+            <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-3 text-left text-xs"
+                  className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
+                    draft.companyId
+                      ? "border-primary/50 bg-primary/5 text-foreground font-medium"
+                      : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
                 >
-                  {companies.find((company) => company.value === draft.companyId)?.label ||
-                    (draft.companyId ? "Empresa selecionada" : "Selecionar")}
-                  <ChevronDown className="h-3.5 w-3.5" />
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <Building2
+                      className={`h-3.5 w-3.5 shrink-0 ${
+                        draft.companyId ? "text-primary" : "text-muted-foreground"
+                      }`}
+                    />
+                    <span className="truncate">{selectedCompanyLabel || "Selecionar"}</span>
+                  </div>
+                  {draft.companyId ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Limpar empresa"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        update("companyId", undefined);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.stopPropagation();
+                          update("companyId", undefined);
+                        }
+                      }}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </span>
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  )}
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-72 max-w-[calc(100vw-2rem)] p-2">
-                <Input
-                  value={companySearch}
-                  onChange={(event) => setCompanySearch(event.target.value)}
-                  placeholder="Buscar empresa"
-                  className="mb-2 h-8 text-xs"
-                />
-                <div className="max-h-48 overflow-y-auto">
+              <PopoverContent
+                align="start"
+                className="z-[200] w-80 max-w-[calc(100vw-2rem)] p-2 shadow-2xl"
+              >
+                <div className="relative mb-2">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={companySearch}
+                    onChange={(event) => setCompanySearch(event.target.value)}
+                    placeholder="Buscar empresa por nome ou CNPJ..."
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+                <div className="max-h-52 space-y-0.5 overflow-y-auto">
                   <button
                     type="button"
-                    className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
-                    onClick={() => update("companyId", undefined)}
+                    className={`flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs transition-colors cursor-pointer ${
+                      !draft.companyId
+                        ? "bg-primary/15 text-primary font-semibold"
+                        : "hover:bg-muted text-muted-foreground"
+                    }`}
+                    onClick={() => {
+                      update("companyId", undefined);
+                      setCompanyPopoverOpen(false);
+                    }}
                   >
-                    Selecionar
+                    <span>Todas as empresas (Selecionar)</span>
+                    {!draft.companyId && <Check className="h-3.5 w-3.5 text-primary" />}
                   </button>
-                  {companies.map((company) => (
-                    <button
-                      key={company.value}
-                      type="button"
-                      className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
-                      onClick={() => update("companyId", company.value)}
-                    >
-                      {company.label}
-                    </button>
-                  ))}
+                  {loadingCompanies ? (
+                    <div className="flex items-center justify-center gap-1.5 py-4 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Buscando empresas...</span>
+                    </div>
+                  ) : companies.length === 0 ? (
+                    <div className="py-3 text-center text-xs text-muted-foreground">
+                      Nenhuma empresa encontrada.
+                    </div>
+                  ) : (
+                    companies.map((company) => {
+                      const isSelected = draft.companyId === company.value;
+                      return (
+                        <button
+                          key={company.value}
+                          type="button"
+                          className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors cursor-pointer ${
+                            isSelected
+                              ? "bg-primary/15 text-primary font-semibold"
+                              : "hover:bg-muted text-foreground"
+                          }`}
+                          onClick={() => {
+                            setSelectedCompanyCache((prev) => ({
+                              ...prev,
+                              [company.value]: company.label,
+                            }));
+                            update("companyId", company.value);
+                            setCompanyPopoverOpen(false);
+                          }}
+                        >
+                          <span className="truncate">{company.label}</span>
+                          {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
               </PopoverContent>
             </Popover>

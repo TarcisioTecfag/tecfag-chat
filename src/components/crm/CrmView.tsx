@@ -24,7 +24,7 @@ type CrmViewSnapshot = {
   deals: DealCardData[];
   stagesSummary: any[];
   stageSettings: Record<string, { coolingEnabled: boolean; coolingDays: number }>;
-  operators: Array<{ id: string; name: string }>;
+  operators: Array<{ id: string; name: string; avatar?: string | null }>;
 };
 
 // Armazenamento duradouro do funil ativo por tenant e operador no navegador (localStorage)
@@ -76,7 +76,7 @@ const crmViewSnapshots = new Map<string, CrmViewSnapshot>();
 const CRM_SNAPSHOT_TTL_MS = 10 * 60 * 1000;
 
 export function CrmView() {
-  const { tenant, currentOperatorId } = useChat();
+  const { tenant, currentOperatorId, operators: globalOperators, operatorProfile } = useChat();
   const navigate = useNavigate();
   const snapshotKey = `${tenant}:${currentOperatorId}`;
   const initialSnapshot = useRef<CrmViewSnapshot | null>(
@@ -154,7 +154,32 @@ export function CrmView() {
   >(initialSnapshot.current?.stageSettings || {});
 
   // Operadores
-  const [operators, setOperators] = useState<Array<{ id: string; name: string }>>(initialSnapshot.current?.operators || []);
+  const [operators, setOperators] = useState<Array<{ id: string; name: string; avatar?: string | null }>>(
+    initialSnapshot.current?.operators || [],
+  );
+
+  const effectiveOperators = useMemo(() => {
+    const globalById = new Map<string, { name: string; avatar?: string | null }>();
+    for (const gOp of globalOperators || []) {
+      globalById.set(gOp.id, { name: gOp.name, avatar: gOp.avatar || null });
+    }
+    if (currentOperatorId && operatorProfile?.avatar) {
+      globalById.set(currentOperatorId, {
+        name: operatorProfile.name,
+        avatar: operatorProfile.avatar,
+      });
+    }
+
+    const baseList = operators.length > 0 ? operators : globalOperators || [];
+    return baseList.map((op) => {
+      const globalMatch = globalById.get(op.id);
+      return {
+        ...op,
+        name: globalMatch?.name || op.name,
+        avatar: globalMatch?.avatar || op.avatar || null,
+      };
+    });
+  }, [operators, globalOperators, currentOperatorId, operatorProfile]);
 
   // Modais de Ação
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -166,11 +191,11 @@ export function CrmView() {
   // Mapas para consulta rápida
   const operatorsMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const op of operators) {
+    for (const op of effectiveOperators) {
       map.set(op.id, op.name);
     }
     return map;
-  }, [operators]);
+  }, [effectiveOperators]);
 
   // Funil ativo
   const activePipeline = pipelines.find((p) => p.id === selectedPipelineId);
@@ -445,9 +470,9 @@ export function CrmView() {
       Object.keys(advancedFilters).length) return;
     crmViewSnapshots.set(snapshotKey, {
       savedAt: Date.now(), pipelines, pipelineId: selectedPipelineId, deals,
-      stagesSummary, stageSettings, operators,
+      stagesSummary, stageSettings, operators: effectiveOperators,
     });
-  }, [snapshotKey, loading, pipelines, selectedPipelineId, deals, stagesSummary, stageSettings, operators,
+  }, [snapshotKey, loading, pipelines, selectedPipelineId, deals, stagesSummary, stageSettings, effectiveOperators,
     viewMode, statusFilter, selectedOperatorIds, sortBy, advancedFilters]);
 
   useEffect(() => {
@@ -549,7 +574,7 @@ export function CrmView() {
             setStatusFilter(st);
             setListOffset(0);
           }}
-          operators={operators}
+          operators={effectiveOperators}
           currentOperatorId={currentOperatorId}
           selectedOperatorIds={selectedOperatorIds}
           onOperatorIdsChange={(opIds) => {
@@ -642,7 +667,7 @@ export function CrmView() {
             <DealList
               deals={deals}
               stages={activeStages}
-              operators={operators}
+              operators={effectiveOperators}
               stagesMap={stagesMap}
               operatorsMap={operatorsMap}
               pipelines={pipelines}
@@ -709,7 +734,7 @@ export function CrmView() {
             });
         }}
         pipelines={pipelines}
-        operators={operators}
+        operators={effectiveOperators}
         defaultPipelineId={selectedPipelineId}
         defaultStageId={createAtStageId}
         currentOperatorId={currentOperatorId}
@@ -722,7 +747,7 @@ export function CrmView() {
           fetchDeals();
           fetchStagesSummary();
         }}
-        operators={operators}
+        operators={effectiveOperators}
         currentOperatorId={currentOperatorId}
       />
 
@@ -737,7 +762,7 @@ export function CrmView() {
         dealTitle={taskModalDeal?.title}
         accountId={taskModalDeal?.accountId || taskModalDeal?.account?.id}
         accountName={taskModalDeal?.account?.name}
-        operators={operators}
+        operators={effectiveOperators}
         currentOperatorId={currentOperatorId}
         onTaskCreated={() => {
           fetchDeals();

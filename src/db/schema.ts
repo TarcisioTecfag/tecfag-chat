@@ -110,6 +110,32 @@ export const rdMarketingReceipts = pgTable("rd_marketing_receipts", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({ identityUnique: uniqueIndex("idx_rd_marketing_receipt_identity").on(table.tenantId, table.flowId, table.identityHash) }));
 
+export const rdMarketingJourneyLinks = pgTable("rd_marketing_journey_links", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  contactId: text("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  connectionVersion: text("connection_version").notNull(),
+  rdUuid: text("rd_uuid").notNull(),
+  snapshotId: text("snapshot_id").notNull(),
+  syncedAt: timestamp("synced_at").defaultNow().notNull(),
+}, table => ({
+  contactUnique: uniqueIndex("idx_rd_journey_contact").on(table.tenantId, table.contactId),
+  uuidUnique: uniqueIndex("idx_rd_journey_uuid").on(table.tenantId, table.connectionVersion, table.rdUuid),
+}));
+
+export const rdMarketingJourneyPages = pgTable("rd_marketing_journey_pages", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  linkId: text("link_id").notNull().references(() => rdMarketingJourneyLinks.id, { onDelete: "cascade" }),
+  snapshotId: text("snapshot_id").notNull(),
+  eventType: text("event_type").notNull(),
+  page: integer("page").notNull(),
+  data: jsonb("data").$type<import("../lib/rd-marketing/api-types").RdEventPage>().notNull(),
+  syncedAt: timestamp("synced_at").defaultNow().notNull(),
+}, table => ({
+  pageUnique: uniqueIndex("idx_rd_journey_page").on(table.tenantId, table.linkId, table.snapshotId, table.eventType, table.page),
+}));
+
 export const rdMarketingLogs = pgTable("rd_marketing_logs", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),

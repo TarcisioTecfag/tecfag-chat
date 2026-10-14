@@ -5,6 +5,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   KANBAN_COLUMNS,
+  NEUTRAL_STAGE_STYLE,
   classifySessionToColumn,
   BENCHMARK_SDR_SESSIONS,
   KanbanColumnKey,
@@ -47,6 +48,20 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
     expect(labels).toContain("SEM RESPOSTA");
     expect(labels).not.toContain("AVULSO");
     expect(labels).not.toContain("PROBLEMAS");
+  });
+
+  it("deve padronizar todas as etapas com a mesma cor neutra da etapa TRIAGEM", () => {
+    const triagemCol = KANBAN_COLUMNS.find((c) => c.key === "triagem")!;
+    expect(triagemCol).toBeDefined();
+
+    for (const col of KANBAN_COLUMNS) {
+      expect(col.headerBg).toBe(NEUTRAL_STAGE_STYLE.headerBg);
+      expect(col.headerBorder).toBe(NEUTRAL_STAGE_STYLE.headerBorder);
+      expect(col.badgeBg).toBe(NEUTRAL_STAGE_STYLE.badgeBg);
+      expect(col.badgeText).toBe(NEUTRAL_STAGE_STYLE.badgeText);
+      expect(col.accentColor).toBe(NEUTRAL_STAGE_STYLE.accentColor);
+      expect(col.headerBg).toBe(triagemCol.headerBg);
+    }
   });
 
   it("deve classificar sessões abandonadas ou sem resposta na coluna sem_resposta", () => {
@@ -188,13 +203,9 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
     expect(classifySessionToColumn(sessionNew)).toBe("triagem");
   });
 
-  it("deve conter os contatos do benchmark ativo (Teirs, Florencio, Lara, Rodrigo) e não conter os de problemas", () => {
-    const names = BENCHMARK_SDR_SESSIONS.map((s) => s.contactName);
-    expect(names).toContain("Teirs acessórios para maquinas");
-    expect(names).toContain("Florencio Nascimento");
-    expect(names).toContain("Lara");
-    expect(names).toContain("Rodrigo");
-    expect(names).not.toContain("STARK");
+  it("não deve conter dados mockados em BENCHMARK_SDR_SESSIONS (apenas atendimentos reais)", () => {
+    expect(BENCHMARK_SDR_SESSIONS).toEqual([]);
+    expect(BENCHMARK_SDR_SESSIONS.length).toBe(0);
   });
 
   it("deve respeitar a persona correta por tenant (Fagner para tecfag, Valentina para valem)", () => {

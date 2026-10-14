@@ -33,7 +33,7 @@ import { prefetchDealDetail } from "@/lib/crm/deal-prefetch";
 interface DealListProps {
   deals: DealCardData[];
   stages: Array<{ id: string; name: string; isWinStage?: boolean; isLossStage?: boolean }>;
-  operators: Array<{ id: string; name: string }>;
+  operators: Array<{ id: string; name: string; avatar?: string | null }>;
   stagesMap: Map<string, string>;
   operatorsMap: Map<string, string>;
   pipelines?: Array<{
@@ -59,9 +59,64 @@ interface DealListProps {
 
 function getInitials(name: string): string {
   if (!name || name === "Não atribuído" || name === "Sem responsável") return "—";
-  const parts = name.trim().split(/\s+/);
+  const cleaned = name.replace(/\s*-\s*\d+\s*$/, "").trim();
+  const parts = (cleaned || name.trim()).split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function normalizeOperatorNameKey(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s*-\s*\d+\s*$/, "")
+    .replace(/\(inativo\)/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isValidAvatarSource(avatar?: string | null): avatar is string {
+  if (!avatar) return false;
+  const trimmed = avatar.trim();
+  return (
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("blob:")
+  );
+}
+
+function ResponsibleAvatar({
+  name,
+  avatar,
+}: {
+  name: string;
+  avatar?: string | null;
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  React.useEffect(() => {
+    setImgError(false);
+  }, [avatar]);
+
+  if (isValidAvatarSource(avatar) && !imgError) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        className="h-6 w-6 rounded-full object-cover shrink-0 border border-border/80 shadow-2xs"
+        onError={() => setImgError(true)}
+      />
+    );
+  }
+
+  return (
+    <div className="h-6 w-6 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px] flex items-center justify-center shrink-0 shadow-2xs">
+      {getInitials(name)}
+    </div>
+  );
 }
 
 export function DealList({
@@ -94,6 +149,21 @@ export function DealList({
 
   const currentPage = Math.floor(offset / limit) + 1;
   const totalPages = Math.ceil(total / limit) || 1;
+
+  // Mapa rápido de avatares por ID e por nome normalizado do operador
+  const operatorsAvatarLookup = useMemo(() => {
+    const byId = new Map<string, string>();
+    const byName = new Map<string, string>();
+    for (const op of operators) {
+      if (isValidAvatarSource(op.avatar)) {
+        byId.set(op.id, op.avatar);
+        if (op.name) {
+          byName.set(normalizeOperatorNameKey(op.name), op.avatar);
+        }
+      }
+    }
+    return { byId, byName };
+  }, [operators]);
 
   // Verifica se todos os itens da página atual estão selecionados
   const isAllCurrentSelected = useMemo(() => {
@@ -293,6 +363,12 @@ export function DealList({
                   const operatorName = sellerId
                     ? operatorsMap.get(sellerId) || "Não atribuído"
                     : "Sem responsável";
+                  const operatorAvatar =
+                    (sellerId && operatorsAvatarLookup.byId.get(sellerId)) ||
+                    (operatorName !== "Não atribuído" && operatorName !== "Sem responsável"
+                      ? operatorsAvatarLookup.byName.get(normalizeOperatorNameKey(operatorName))
+                      : undefined) ||
+                    null;
 
                   const statusBadge = {
                     open: {
@@ -375,12 +451,10 @@ export function DealList({
                         )}
                       </td>
 
-                      {/* Responsável (Avatar com iniciais idêntico ao screenshot) */}
+                      {/* Responsável (Foto do usuário com fallback para iniciais) */}
                       <td className="py-3 px-3 max-w-[140px] truncate">
                         <div className="flex items-center gap-2 truncate">
-                          <div className="h-6 w-6 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px] flex items-center justify-center shrink-0 shadow-2xs">
-                            {getInitials(operatorName)}
-                          </div>
+                          <ResponsibleAvatar name={operatorName} avatar={operatorAvatar} />
                           <span className="font-medium text-foreground truncate text-xs">
                             {operatorName}
                           </span>

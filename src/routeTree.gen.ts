@@ -153,6 +153,7 @@ import { Route as ApiChatsChatIdMessagesRouteImport } from './routes/api/chats/$
 import { Route as ApiValentinaVoiceV1ChatCompletionsRouteImport } from './routes/api/valentina-voice/v1/chat/completions'
 import { Route as ApiCrmPipelinesPipelineIdStagesSummaryRouteImport } from './routes/api/crm/pipelines/$pipelineId/stages-summary'
 import { Route as ApiCrmPipelinesPipelineIdStagesRouteImport } from './routes/api/crm/pipelines/$pipelineId/stages'
+import { Route as ApiCrmDealsDealIdRdMarketingRouteImport } from './routes/api/crm/deals/$dealId/rd-marketing'
 import { Route as ApiCrmDealsDealIdQuestionnairesRouteImport } from './routes/api/crm/deals/$dealId/questionnaires'
 import { Route as ApiCrmDealsDealIdProposalsRouteImport } from './routes/api/crm/deals/$dealId/proposals'
 import { Route as ApiCrmDealsDealIdProductsRouteImport } from './routes/api/crm/deals/$dealId/products'
@@ -919,6 +920,12 @@ const ApiCrmPipelinesPipelineIdStagesRoute =
     path: '/stages',
     getParentRoute: () => ApiCrmPipelinesPipelineIdRoute,
   } as any)
+const ApiCrmDealsDealIdRdMarketingRoute =
+  ApiCrmDealsDealIdRdMarketingRouteImport.update({
+    id: '/rd-marketing',
+    path: '/rd-marketing',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
 const ApiCrmDealsDealIdQuestionnairesRoute =
   ApiCrmDealsDealIdQuestionnairesRouteImport.update({
     id: '/questionnaires',
@@ -1162,6 +1169,7 @@ export interface FileRoutesByFullPath {
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
+  '/api/crm/deals/$dealId/rd-marketing': typeof ApiCrmDealsDealIdRdMarketingRoute
   '/api/crm/pipelines/$pipelineId/stages': typeof ApiCrmPipelinesPipelineIdStagesRoute
   '/api/crm/pipelines/$pipelineId/stages-summary': typeof ApiCrmPipelinesPipelineIdStagesSummaryRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
@@ -1323,6 +1331,7 @@ export interface FileRoutesByTo {
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
+  '/api/crm/deals/$dealId/rd-marketing': typeof ApiCrmDealsDealIdRdMarketingRoute
   '/api/crm/pipelines/$pipelineId/stages': typeof ApiCrmPipelinesPipelineIdStagesRoute
   '/api/crm/pipelines/$pipelineId/stages-summary': typeof ApiCrmPipelinesPipelineIdStagesSummaryRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
@@ -1485,6 +1494,7 @@ export interface FileRoutesById {
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
+  '/api/crm/deals/$dealId/rd-marketing': typeof ApiCrmDealsDealIdRdMarketingRoute
   '/api/crm/pipelines/$pipelineId/stages': typeof ApiCrmPipelinesPipelineIdStagesRoute
   '/api/crm/pipelines/$pipelineId/stages-summary': typeof ApiCrmPipelinesPipelineIdStagesSummaryRoute
   '/api/valentina-voice/v1/chat/completions': typeof ApiValentinaVoiceV1ChatCompletionsRoute
@@ -1648,6 +1658,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
     | '/api/crm/deals/$dealId/questionnaires'
+    | '/api/crm/deals/$dealId/rd-marketing'
     | '/api/crm/pipelines/$pipelineId/stages'
     | '/api/crm/pipelines/$pipelineId/stages-summary'
     | '/api/valentina-voice/v1/chat/completions'
@@ -1809,6 +1820,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
     | '/api/crm/deals/$dealId/questionnaires'
+    | '/api/crm/deals/$dealId/rd-marketing'
     | '/api/crm/pipelines/$pipelineId/stages'
     | '/api/crm/pipelines/$pipelineId/stages-summary'
     | '/api/valentina-voice/v1/chat/completions'
@@ -1970,6 +1982,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
     | '/api/crm/deals/$dealId/questionnaires'
+    | '/api/crm/deals/$dealId/rd-marketing'
     | '/api/crm/pipelines/$pipelineId/stages'
     | '/api/crm/pipelines/$pipelineId/stages-summary'
     | '/api/valentina-voice/v1/chat/completions'
@@ -3101,6 +3114,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmPipelinesPipelineIdStagesRouteImport
       parentRoute: typeof ApiCrmPipelinesPipelineIdRoute
     }
+    '/api/crm/deals/$dealId/rd-marketing': {
+      id: '/api/crm/deals/$dealId/rd-marketing'
+      path: '/rd-marketing'
+      fullPath: '/api/crm/deals/$dealId/rd-marketing'
+      preLoaderRoute: typeof ApiCrmDealsDealIdRdMarketingRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
     '/api/crm/deals/$dealId/questionnaires': {
       id: '/api/crm/deals/$dealId/questionnaires'
       path: '/questionnaires'
@@ -3413,6 +3433,7 @@ interface ApiCrmDealsDealIdRouteChildren {
   ApiCrmDealsDealIdProductsRoute: typeof ApiCrmDealsDealIdProductsRoute
   ApiCrmDealsDealIdProposalsRoute: typeof ApiCrmDealsDealIdProposalsRoute
   ApiCrmDealsDealIdQuestionnairesRoute: typeof ApiCrmDealsDealIdQuestionnairesRoute
+  ApiCrmDealsDealIdRdMarketingRoute: typeof ApiCrmDealsDealIdRdMarketingRoute
 }
 
 const ApiCrmDealsDealIdRouteChildren: ApiCrmDealsDealIdRouteChildren = {
@@ -3427,6 +3448,7 @@ const ApiCrmDealsDealIdRouteChildren: ApiCrmDealsDealIdRouteChildren = {
   ApiCrmDealsDealIdProductsRoute: ApiCrmDealsDealIdProductsRoute,
   ApiCrmDealsDealIdProposalsRoute: ApiCrmDealsDealIdProposalsRoute,
   ApiCrmDealsDealIdQuestionnairesRoute: ApiCrmDealsDealIdQuestionnairesRoute,
+  ApiCrmDealsDealIdRdMarketingRoute: ApiCrmDealsDealIdRdMarketingRoute,
 }
 
 const ApiCrmDealsDealIdRouteWithChildren =

@@ -512,18 +512,21 @@ export function SdrKanbanBoard({
                           .join("")
                           .toUpperCase() || "C";
 
+                      const filledFieldsCount = Object.values(session.collectedData || {}).filter((f: any) => {
+                        if (!f) return false;
+                        if (typeof f === "object" && f.status === "filled") return true;
+                        const textVal = typeof f === "string" ? f : f.value;
+                        return Boolean(
+                          textVal &&
+                            String(textVal).trim() !== "" &&
+                            String(textVal) !== "Aguardando..." &&
+                            !String(textVal).toLowerCase().includes("mantem")
+                        );
+                      }).length;
+
                       const progress =
                         (session as any).progressPct ??
-                        Math.min(
-                          100,
-                          Math.round(
-                            (Object.values(session.collectedData || {}).filter(
-                              (f) => f && f.status === "filled"
-                            ).length /
-                              6) *
-                              100
-                          )
-                        );
+                        Math.min(100, Math.round((filledFieldsCount / 6) * 100));
 
                       const isConcluida =
                         session.status === "completed" ||
@@ -537,9 +540,23 @@ export function SdrKanbanBoard({
 
                       const botAtivo = (session as any).botStatus === "ativo" || session.status === "active";
 
-                      const timeAgo =
-                        (session as any).timeAgo ||
-                        (session.startedAt ? "Hoje" : "Recente");
+                      const timeAgo = (() => {
+                        if ((session as any).timeAgo) return (session as any).timeAgo;
+                        if (!session.startedAt) return "Recente";
+                        const startedMs = new Date(session.startedAt).getTime();
+                        if (isNaN(startedMs)) return "Recente";
+                        const diffMin = Math.max(0, Math.floor((Date.now() - startedMs) / 60000));
+                        if (diffMin < 1) return "Agora";
+                        if (diffMin < 60) return `${diffMin} min`;
+                        const hours = Math.floor(diffMin / 60);
+                        const mins = diffMin % 60;
+                        if (hours < 24) {
+                          return mins > 0 ? `${hours}h ${mins} min` : `${hours}h`;
+                        }
+                        const days = Math.floor(hours / 24);
+                        const remHours = hours % 24;
+                        return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
+                      })();
 
                       return (
                         <div

@@ -123,6 +123,12 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     );
     await database.client.unsafe(migration);
     await database.client.unsafe(migration);
+    const journeyMigration = await readFile(
+      new URL("../src/db/migrations/0038_rd_marketing_journey.sql", import.meta.url),
+      "utf8",
+    );
+    await database.client.unsafe(journeyMigration);
+    await database.client.unsafe(journeyMigration);
     await database.db.insert(schema.tenants).values([
       { id: tenantId, name: "OAuth teste", slug: tenantId, connectionType: "meta" },
       { id: otherTenantId, name: "Outro teste", slug: otherTenantId, connectionType: "meta" },
@@ -355,4 +361,191 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(await response.text()).not.toContain("secret-code");
   });
+
+  test("jornada é compartilhada por contato, pagina com cache e só liga recibos comprovados", async () => {
+    const { dealRdJourney } = await import("../src/lib/rd-marketing/journey");
+    const { defaultMappings, deliveryIdentity } = await import("../src/lib/rd-marketing/mapping");
+    const { hashToken } = await import("../src/lib/rd-marketing/service");
+    const pipelineId = randomUUID(),
+      stageId = randomUUID();
+    const contactId = randomUUID(),
+      dealA = randomUUID(),
+      dealB = randomUUID(),
+      flowId = randomUUID();
+    await database.db
+      .insert(schema.crmPipelines)
+      .values({ id: pipelineId, tenantId, name: "Teste" });
+    await database.db
+      .insert(schema.crmStages)
+      .values({ id: stageId, tenantId, pipelineId, name: "Entrada", orderIndex: 0 });
+    await database.db
+      .insert(schema.contacts)
+      .values({ id: contactId, tenantId, name: "Contato teste", email: "lead@example.com" });
+    await database.db.insert(schema.crmDeals).values([
+      {
+        id: dealA,
+        tenantId,
+        title: "Negociação A",
+        pipelineId,
+        stageId,
+        operatorId: `${tenantId}-agent`,
+      },
+      {
+        id: dealB,
+        tenantId,
+        title: "Negociação B",
+        pipelineId,
+        stageId,
+        operatorId: `${tenantId}-admin`,
+      },
+    ]);
+    await database.db.insert(schema.crmDealContacts).values([
+      { id: randomUUID(), tenantId, dealId: dealA, contactId, isPrimary: true },
+      { id: randomUUID(), tenantId, dealId: dealB, contactId, isPrimary: true },
+    ]);
+    const settings = {
+      name: "Teste",
+      enabled: true,
+      pipelineId,
+      stageId,
+      operatorId: null,
+      deduplication: "event" as const,
+      eventIdPath: "rd_conversion.id",
+      mappings: defaultMappings,
+    };
+    await database.db
+      .insert(schema.rdMarketingFlows)
+      .values({ id: flowId, tenantId, tokenHash: randomUUID(), settings });
+    const identityHash = hashToken(
+      deliveryIdentity(
+        {
+          uuid,
+          rd_event: {
+            event_timestamp: "2026-10-13T13:32:00-03:00",
+            event_identifier: "formulario",
+          },
+        },
+        settings,
+      ),
+    );
+    await database.db
+      .insert(schema.rdMarketingReceipts)
+      .values({ id: randomUUID(), tenantId, flowId, identityHash, dealId: dealB });
+    const viewer = { operatorId: `${tenantId}-agent`, canViewAll: false };
+    const before = calls.length;
+    const first = await dealRdJourney(tenantId, dealA, viewer, { contactId }, provider);
+    expect(first.cached).toBe(false);
+    expect(calls.length - before).toBe(3);
+    expect(first.events).toHaveLength(1);
+    expect(first.events[0].deals).toHaveLength(0);
+    const cached = await dealRdJourney(
+      tenantId,
+      dealB,
+      { ...viewer, canViewAll: true },
+      { contactId },
+      provider,
+    );
+    expect(cached.cached).toBe(true);
+    expect(cached.snapshotId).toBe(first.snapshotId);
+    expect(calls.length - before).toBe(3);
+    expect(cached.events[0].deals).toEqual([{ id: dealB, title: "Negociação B" }]);
+    const second = await dealRdJourney(
+      tenantId,
+      dealA,
+      viewer,
+      { contactId, eventType: "CONVERSION", page: 2, snapshotId: first.snapshotId },
+      provider,
+    );
+    expect(second.pages[0].page).toBe(2);
+    expect(calls.at(-1)?.url).toContain("page=2");
+    const pageCalls = calls.length;
+    expect(
+      (
+        await dealRdJourney(
+          tenantId,
+          dealA,
+          viewer,
+          { contactId, eventType: "CONVERSION", page: 2, snapshotId: first.snapshotId },
+          provider,
+        )
+      ).cached,
+    ).toBe(true);
+    expect(calls.length).toBe(pageCalls);
+    expect(
+      (await rejected(dealRdJourney(tenantId, dealB, viewer, { contactId }, provider))) as Error,
+    ).toMatchObject({ code: "FORBIDDEN" });
+    expect(
+      await rejected(
+        dealRdJourney(
+          otherTenantId,
+          dealA,
+          { ...viewer, canViewAll: true },
+          { contactId },
+          provider,
+        ),
+      ),
+    ).toMatchObject({ code: "NOT_FOUND" });
+    expect(
+      await rejected(dealRdJourney(tenantId, dealA, viewer, { contactId: "unlinked" }, provider)),
+    ).toMatchObject({ code: "RD_CONTACT_REQUIRED" });
+    expect(calls.length).toBe(pageCalls);
+    const updated = await dealRdJourney(
+      tenantId,
+      dealA,
+      viewer,
+      { contactId, refresh: true },
+      provider,
+    );
+    expect(updated.snapshotId).not.toBe(first.snapshotId);
+    expect(
+      await rejected(
+        dealRdJourney(
+          tenantId,
+          dealA,
+          viewer,
+          { contactId, eventType: "CONVERSION", page: 2, snapshotId: first.snapshotId },
+          provider,
+        ),
+      ),
+    ).toMatchObject({ code: "RD_SNAPSHOT_CHANGED" });
+    const route = (await import("../src/routes/api/crm/deals/$dealId/rd-marketing")).Route.options
+      .server!.handlers!.GET!;
+    const response = await route({
+      request: new Request(
+        `http://localhost/api/crm/deals/${dealA}/rd-marketing?tenantId=${otherTenantId}&contactId=${contactId}`,
+        { headers: { Cookie: adminCookie } },
+      ),
+      params: { dealId: dealA },
+    } as never);
+    expect(response.status).toBe(200);
+    expect((await response.json()).contactId).toBe(contactId);
+    expect(
+      (
+        await route({
+          request: new Request(`http://localhost/api/crm/deals/${dealA}/rd-marketing`),
+          params: { dealId: dealA },
+        } as never)
+      ).status,
+    ).toBe(401);
+    const contactsCount = await database.db
+      .select()
+      .from(schema.contacts)
+      .where(eq(schema.contacts.tenantId, tenantId));
+    expect(contactsCount).toHaveLength(1);
+    expect(
+      await database.db
+        .select()
+        .from(schema.crmDeals)
+        .where(eq(schema.crmDeals.tenantId, tenantId)),
+    ).toHaveLength(2);
+    expect(
+      calls
+        .filter((call) => call.url.includes("/platform/"))
+        .every((call) => call.method === "GET"),
+    ).toBe(true);
+    await service.disconnectRd(tenantId);
+    expect(
+      await rejected(dealRdJourney(tenantId, dealA, viewer, { contactId }, provider)),
+    ).toMatchObject({ code: "RD_NOT_CONNECTED" });
+  }, 30000);
 });

@@ -160,12 +160,20 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 responsibleName = "Interrompido (Atendimento Manual)";
               }
 
+              const meta = (fs.metadata as Record<string, any>) || {};
+              const companyVal =
+                collectedData["EMPRESA"]?.value ||
+                collectedData["empresa"]?.value ||
+                (typeof collectedData["EMPRESA"] === "string" ? collectedData["EMPRESA"] : "") ||
+                (contact?.cnpjDetails as any)?.razaoSocial ||
+                "Empresa não informada";
+
               sessions.push({
                 id: fs.id,
                 conversationId: fs.conversationId,
                 contactName: contact?.name || collectedData["NOME COMPLETO"]?.value || "Contato WhatsApp",
                 contactAvatar: contact?.avatar || null,
-                company: collectedData["EMPRESA"]?.value || "Empresa não informada",
+                company: companyVal,
                 phone: contact?.phone || "",
                 currentStep: fs.currentStep,
                 collectedData,
@@ -173,6 +181,9 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 status,
                 outcome: fs.outcome || undefined,
                 responsibleName,
+                unreadCount: conv?.unread || 0,
+                channel: conv?.channel || "whatsapp",
+                funnelStage: meta.funnelStage || meta.targetArea || undefined,
                 messages: formattedMessages.length > 0 ? formattedMessages : [
                   { sender: "bot", text: "Atendimento em andamento...", time: "Agora" }
                 ],
@@ -195,7 +206,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             .limit(50);
 
           for (const c of allConvs) {
-            if (c.id === "tec-1" || c.id === "tec-2") continue;
+            if (c.id === "tec-1" || c.id === "tec-2" || c.id === "val-1" || c.id === "val-2") continue;
 
             if (!addedConvIds.has(c.id)) {
               try {
@@ -231,19 +242,23 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   };
                 });
 
+                const isFinished = c.status === "closed" || c.queueState === "finalizados";
+
                 sessions.push({
                   id: `fs-auto-${c.id}`,
                   conversationId: c.id,
                   contactName: contact?.name || "Contato WhatsApp",
                   contactAvatar: contact?.avatar || null,
-                  company: "Empresa não informada",
+                  company: (contact?.cnpjDetails as any)?.razaoSocial || "Empresa não informada",
                   phone: contact?.phone || "",
-                  currentStep: "Em Qualificação",
+                  currentStep: isFinished ? "Concluído" : "Em Qualificação",
                   collectedData: {},
                   startedAt: safeFormatIso(c.createdAt),
-                  status: "active",
-                  outcome: "in_progress",
+                  status: isFinished ? "completed" : "active",
+                  outcome: isFinished ? "completed" : "in_progress",
                   responsibleName: operator?.name || "IA (Em Triagem)",
+                  unreadCount: c.unread || 0,
+                  channel: c.channel || "whatsapp",
                   messages: formattedMessages.length > 0 ? formattedMessages : [
                     { sender: "bot", text: "Atendimento iniciado...", time: "Agora" }
                   ],
