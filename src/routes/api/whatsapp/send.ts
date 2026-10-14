@@ -170,16 +170,33 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           }
           if (pendingFile) {
             try {
-              await db.insert(mediaFiles).values({
-                id: pendingFile.id,
-                tenantId: session.tenantId,
-                conversationId,
-                fileName: pendingFile.name,
-                mimeType: pendingFile.mime,
-                fileSize: pendingFile.buffer.length,
-                base64Data: pendingFile.buffer.toString("base64"),
-                createdAt: new Date(),
-              }).onConflictDoNothing();
+              const [existingMedia] = await db
+                .select({ id: mediaFiles.id })
+                .from(mediaFiles)
+                .where(
+                  and(
+                    eq(mediaFiles.tenantId, session.tenantId),
+                    eq(mediaFiles.fileName, pendingFile.name),
+                    eq(mediaFiles.fileSize, pendingFile.buffer.length)
+                  )
+                )
+                .limit(1);
+
+              if (existingMedia?.id) {
+                pendingFile.id = existingMedia.id;
+                mediaUrl = `/api/baileys/media?messageId=${existingMedia.id}`;
+              } else {
+                await db.insert(mediaFiles).values({
+                  id: pendingFile.id,
+                  tenantId: session.tenantId,
+                  conversationId,
+                  fileName: pendingFile.name,
+                  mimeType: pendingFile.mime,
+                  fileSize: pendingFile.buffer.length,
+                  base64Data: pendingFile.buffer.toString("base64"),
+                  createdAt: new Date(),
+                }).onConflictDoNothing();
+              }
             } catch (dbErr) {
               console.error("[WhatsApp Send] Erro ao persistir mídia no banco:", dbErr);
               return Response.json(
@@ -193,8 +210,11 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             try {
               const mediaDir = path.join(process.cwd(), "media");
               if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
-              fs.writeFileSync(path.join(mediaDir, pendingFile.id), pendingFile.buffer);
-              fs.writeFileSync(path.join(mediaDir, `${pendingFile.id}.mime`), pendingFile.mime);
+              const targetDiskPath = path.join(mediaDir, pendingFile.id);
+              if (!fs.existsSync(targetDiskPath)) {
+                await fs.promises.writeFile(targetDiskPath, pendingFile.buffer);
+                await fs.promises.writeFile(path.join(mediaDir, `${pendingFile.id}.mime`), pendingFile.mime);
+              }
             } catch (fsErr) {
               console.error("[WhatsApp Send] Erro ao salvar arquivo em disco:", fsErr);
             }
@@ -275,10 +295,22 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             isInternalNote: !!isInternalNote,
           });
 
-          return new Response(JSON.stringify({ ...result, ...(templateName && result.success ? { renderedText: text } : {}) }), {
-            status: result.success ? 200 : result.code === "META_TEMPLATE_REQUIRED" ? 409 : 400,
-            headers: { "Content-Type": "application/json" },
-          });
+          const persistedMediaContent =
+            pendingFile && mediaType
+              ? `[MEDIA:${mediaType}]${pendingFile.id}${pendingFile.name ? `:${pendingFile.name}` : ""}${text ? `\n${text}` : ""}`
+              : undefined;
+
+          return new Response(
+            JSON.stringify({
+              ...result,
+              ...(pendingFile ? { mediaId: pendingFile.id, mediaContent: persistedMediaContent } : {}),
+              ...(templateName && result.success ? { renderedText: text } : {}),
+            }),
+            {
+              status: result.success ? 200 : result.code === "META_TEMPLATE_REQUIRED" ? 409 : 400,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
         } catch (err: any) {
           console.error("[WhatsApp Send Route] Erro:", err);
           return new Response(JSON.stringify({ error: err.message }), {

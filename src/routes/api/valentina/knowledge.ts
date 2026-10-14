@@ -7,6 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireSession } from "../../../lib/auth-session";
+import { invalidateKnowledgeCache } from "../../../lib/valentina/knowledge-service";
+import { invalidateCatalogImagesCache } from "./catalog-images";
 
 // Diretório de mídia estático para arquivos de Formato Real
 const __dirname_es = path.dirname(fileURLToPath(import.meta.url));
@@ -132,6 +134,7 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
         const url = new URL(request.url);
         const action = url.searchParams.get("action");
         const fileId = url.searchParams.get("fileId");
+        const includeBase64 = url.searchParams.get("includeBase64") === "1";
 
         // ── GET ?action=getContent&fileId=xxx — retorna o content de UM arquivo específico
         if (action === "getContent" && fileId) {
@@ -147,7 +150,14 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
               });
             }
-            return new Response(JSON.stringify({ content: file.content || "" }), {
+            const raw = file.content || "";
+            // Evita despejar 250KB de Base64 puro no inspetor de texto RAG a menos que explicitamente solicitado
+            const safeContent =
+              !includeBase64 && raw.includes("[BASE64:")
+                ? raw.split("[BASE64:")[0]
+                : raw;
+
+            return new Response(JSON.stringify({ content: safeContent }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           } catch (e: any) {
@@ -298,6 +308,9 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
               });
             }
 
+            invalidateKnowledgeCache(tenantId);
+            invalidateCatalogImagesCache(tenantId);
+
             return new Response(
               JSON.stringify({ success: true, folder: { id: folderId, name: cleanName, parentId: targetParentId } }),
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -313,6 +326,9 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
               .update(knowledgeFiles)
               .set({ folderId: targetFolderId })
               .where(and(eq(knowledgeFiles.id, id), eq(knowledgeFiles.tenantId, tenantId)));
+
+            invalidateKnowledgeCache(tenantId);
+            invalidateCatalogImagesCache(tenantId);
 
             return new Response(
               JSON.stringify({ success: true, fileId: id, folderId: targetFolderId }),
@@ -380,7 +396,7 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
               try {
                 const filePath = path.join(MEDIA_DIR, safeFileName);
                 const buf = Buffer.from(item.base64, "base64");
-                fs.writeFileSync(filePath, buf);
+                await fs.promises.writeFile(filePath, buf);
               } catch (saveErr: any) {
                 console.warn(`[knowledge.ts] Aviso ao gravar arquivo em disco (${safeFileName}):`, saveErr?.message);
               }
@@ -458,6 +474,8 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
             const validFolderIdsSet = new Set(tenantFolders.map((f) => f.id));
 
             const savedFile = await processSingleFileUpload(body, validFolderIdsSet);
+            invalidateKnowledgeCache(tenantId);
+            invalidateCatalogImagesCache(tenantId);
 
             return new Response(
               JSON.stringify({
@@ -482,6 +500,8 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
               const saved = await processSingleFileUpload(item, validFolderIdsSet);
               savedFiles.push(saved);
             }
+            invalidateKnowledgeCache(tenantId);
+            invalidateCatalogImagesCache(tenantId);
 
             return new Response(
               JSON.stringify({
@@ -548,6 +568,9 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
             .set({ content: String(content).slice(0, 200000) })
             .where(and(eq(knowledgeFiles.id, fileId), eq(knowledgeFiles.tenantId, tenantId)));
 
+          invalidateKnowledgeCache(tenantId);
+          invalidateCatalogImagesCache(tenantId);
+
           return new Response(JSON.stringify({ success: true, chars: String(content).length }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -604,6 +627,9 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
               itemCount: deletedFiles.length + deletedFolders.length,
               details: { folders: deletedFolders, files: deletedFiles } });
           }
+
+          invalidateKnowledgeCache(tenantId);
+          invalidateCatalogImagesCache(tenantId);
 
           return new Response(JSON.stringify({ success: true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

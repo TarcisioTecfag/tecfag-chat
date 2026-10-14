@@ -1700,6 +1700,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let sentRenderedText: string | undefined;
     const sentAttachmentMessageIds: string[] = [];
     const sentAttachmentStatuses: string[] = [];
+    const sentAttachmentMediaContents: string[] = [];
 
     console.log("[SendMessage Frontend] Diagnóstico de envio:", {
       tenant,
@@ -1785,6 +1786,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const mediaResult = await mediaRes.json().catch(() => ({}));
               sentAttachmentMessageIds.push(mediaResult.messageId || "");
               sentAttachmentStatuses.push(mediaResult.status || "");
+              sentAttachmentMediaContents.push(mediaResult.mediaContent || "");
               partAlreadySent = true;
             } catch (err) {
               console.error("Falha ao enviar anexo:", err);
@@ -1879,10 +1881,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     }
 
-    // Mensagens de mídia — preview local com objectURL
+    // Mensagens de mídia — usa URL persistente do servidor ([MEDIA:...]) sempre que disponível, evitando vazamento de blob: URL
     if (attachments && attachments.length > 0) {
       attachments.forEach((file, i) => {
-        const objectUrl = URL.createObjectURL(file);
         const mime = file.type || "application/octet-stream";
         const fileName = file.name || "arquivo";
 
@@ -1891,16 +1892,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         else if (mime.startsWith("video/")) mediaType = "video";
         else if (mime.startsWith("audio/")) mediaType = "audio";
 
+        const serverMediaContent = sentAttachmentMediaContents[i];
+        const mediaText = serverMediaContent
+          ? serverMediaContent
+          : `[LOCAL_MEDIA:${mediaType}:${URL.createObjectURL(file)}:${fileName}]`;
+
+        const attachQuote = !text.trim() && !metaTemplate && i === 0;
+
         messagesToAdd.push({
           id: sentAttachmentMessageIds[i] || `msg-media-${Date.now()}-${i}`,
           clientMessageId: `${clientMessageId}-att-${i}`,
           author: "Você",
-          // Formato especial para preview local: [LOCAL_MEDIA:type:url:filename]
-          text: `[LOCAL_MEDIA:${mediaType}:${objectUrl}:${fileName}]`,
+          text: mediaText,
           time: now,
           sentAtISO: new Date().toISOString(),
           side: "out",
           isInternalNote: false,
+          quotedMessageId: attachQuote ? quotedMessage?.id || null : null,
+          quotedMessageSender: attachQuote ? quotedMessage?.sender || null : null,
+          quotedMessageContent: attachQuote ? quotedMessage?.content || null : null,
           status: sentAttachmentStatuses[i] || undefined,
           provider: sentProvider,
         });

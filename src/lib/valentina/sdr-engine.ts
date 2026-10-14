@@ -369,7 +369,7 @@ INSTRUÇÕES OBRIGATÓRIAS:
         }
       }
 
-      const knowledgeContext = await getKnowledgeBaseContext(tenantId);
+      const knowledgeContext = await getKnowledgeBaseContext(tenantId, `${batchSummary}\n${conversationHistoryText}`);
 
       const promptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) da ${aiPersona.company} (${aiPersona.segment}).
 ${knowledgeContext}
@@ -1179,8 +1179,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           const realJid = sock ? await resolveRealJid(sock, contactPhone) : null;
 
           if (sock && realJid) {
-            // Carrega base64 das imagens do banco (sobrevive a redeploys Railway)
-            const realMediaFiles = await getRealMediaFiles(tenantId);
+            // Carrega base64 APENAS das imagens solicitadas do banco (evitando puxar 99 MB de todas as 447 fotos)
+            const realMediaFiles = await getRealMediaFiles(tenantId, imageUrlsToSend);
             console.log(`[SdrEngine] 🔍 realMediaFiles carregados: ${realMediaFiles.length} arquivo(s) | base64 presente: ${realMediaFiles.filter(f => f.base64Data).length}`);
 
 

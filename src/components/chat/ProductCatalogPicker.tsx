@@ -48,6 +48,12 @@ function normalizeSearchText(str: string): string {
     .trim();
 }
 
+const CLIENT_CATALOG_CACHE_TTL_MS = 180_000; // 3 minutos em memória no cliente
+const clientCatalogCache = new Map<
+  string,
+  { items: CatalogImageItem[]; categories: CatalogCategorySummary[]; timestamp: number }
+>();
+
 export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
   tenantId: propTenantId,
   onAttachFiles,
@@ -56,36 +62,54 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
   const { tenant } = useChat();
   const tenantId = propTenantId || tenant || "valem";
 
-  const [images, setImages] = useState<CatalogImageItem[]>([]);
-  const [categories, setCategories] = useState<CatalogCategorySummary[]>([]);
+  const cachedInitial = clientCatalogCache.get(tenantId);
+  const hasValidCache =
+    !!cachedInitial && Date.now() - cachedInitial.timestamp < CLIENT_CATALOG_CACHE_TTL_MS;
+
+  const [images, setImages] = useState<CatalogImageItem[]>(cachedInitial?.items || []);
+  const [categories, setCategories] = useState<CatalogCategorySummary[]>(
+    cachedInitial?.categories || []
+  );
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!hasValidCache);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [zoomImage, setZoomImage] = useState<CatalogImageItem | null>(null);
   const [isAttaching, setIsAttaching] = useState(false);
   const [visibleLimit, setVisibleLimit] = useState(60);
 
-  const fetchCatalogImages = async () => {
+  const fetchCatalogImages = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = clientCatalogCache.get(tenantId);
+      if (cached && Date.now() - cached.timestamp < CLIENT_CATALOG_CACHE_TTL_MS) {
+        setImages(cached.items);
+        setCategories(cached.categories);
+        setIsLoading(false);
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/valentina/catalog-images?tenantId=${tenantId}`, {
+      const url = `/api/valentina/catalog-images?tenantId=${tenantId}${
+        forceRefresh ? "&refresh=1" : ""
+      }`;
+      const res = await fetch(url, {
         credentials: "include",
       });
       if (!res.ok) {
         throw new Error(`Status ${res.status}`);
       }
       const data = await res.json();
-      if (Array.isArray(data.items)) {
-        setImages(data.items);
-      } else {
-        setImages([]);
-      }
-      if (Array.isArray(data.categories)) {
-        setCategories(data.categories);
-      } else {
-        setCategories([]);
-      }
+      const loadedItems = Array.isArray(data.items) ? data.items : [];
+      const loadedCategories = Array.isArray(data.categories) ? data.categories : [];
+      setImages(loadedItems);
+      setCategories(loadedCategories);
+      clientCatalogCache.set(tenantId, {
+        items: loadedItems,
+        categories: loadedCategories,
+        timestamp: Date.now(),
+      });
     } catch (err) {
       console.error("[ProductCatalogPicker] Erro ao carregar imagens:", err);
       toast.error("Erro ao carregar catálogo de fotos.");
@@ -96,7 +120,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
   };
 
   useEffect(() => {
-    fetchCatalogImages();
+    fetchCatalogImages(false);
   }, [tenantId]);
 
   // Resetar limite de paginação ao filtrar
@@ -264,7 +288,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
 
         <button
           type="button"
-          onClick={fetchCatalogImages}
+          onClick={() => fetchCatalogImages(true)}
           title="Recarregar catálogo"
           className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer shrink-0"
         >
@@ -367,6 +391,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
                           src={imgSrc}
                           alt={cleanTitle}
                           loading="lazy"
+                          decoding="async"
                           className="h-full w-full object-contain p-1 group-hover:scale-105 transition-transform duration-200 relative z-1"
                           onError={(e) => {
                             (e.target as HTMLElement).style.display = "none";

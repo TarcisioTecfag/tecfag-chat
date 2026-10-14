@@ -501,7 +501,10 @@ export const mediaFiles = pgTable("media_files", {
   fileSize: integer("file_size"),
   base64Data: text("base64_data").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_media_files_tenant_conv").on(table.tenantId, table.conversationId),
+  index("idx_media_files_tenant_name_size").on(table.tenantId, table.fileName, table.fileSize),
+]);
 
 // ─── 8.5. RECEBIMENTOS PENDENTES (Caixa de entrada durável para Webhooks / Eventos) ───────
 export const pendingInbounds = pgTable(
@@ -1325,7 +1328,9 @@ export const knowledgeFolders = pgTable("knowledge_folders", {
   name: text("name").notNull(),
   parentId: text("parent_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_knowledge_folders_tenant").on(table.tenantId),
+]);
 
 export const knowledgeFiles = pgTable("knowledge_files", {
   id: text("id").primaryKey(),
@@ -1337,7 +1342,11 @@ export const knowledgeFiles = pgTable("knowledge_files", {
   format: text("format").notNull(), // 'embeddings' | 'real'
   content: text("content"), // Conteúdo textual extraído para aprendizado da IA
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_knowledge_files_tenant_folder").on(table.tenantId, table.folderId),
+  index("idx_knowledge_files_tenant_name").on(table.tenantId, table.name),
+  index("idx_knowledge_files_tenant_format").on(table.tenantId, table.format),
+]);
 
 // ─── 20. TELEMETRIA E CUSTOS DE I.A. (Vertex AI / Gemini) ─────────────────────
 // Guarda o consumo real de tokens, latência e custo calculado em USD/BRL por requisição.

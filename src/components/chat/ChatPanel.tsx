@@ -423,20 +423,35 @@ export function renderMessageContent(
     const lastColon = afterType.lastIndexOf(":");
     const blobUrl = afterType.slice(0, lastColon);
     const fileName = afterType.slice(lastColon + 1).replace(/\]$/, "");
+    const catalogFallbackUrl = fileName
+      ? `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(fileName)}`
+      : "";
 
     if (type === "image") {
       return wrapMediaWithCaption(
         <div
           className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
-          onClick={() => {
+          onClick={(e) => {
+            const imgEl = e.currentTarget.querySelector("img");
+            const activeSrc = imgEl?.src || blobUrl;
             if (onMediaClick) {
-              onMediaClick("image", blobUrl);
+              onMediaClick("image", activeSrc);
             } else {
-              window.open(blobUrl, "_blank");
+              window.open(activeSrc, "_blank");
             }
           }}
         >
-          <img src={blobUrl} alt={fileName} className="max-h-72 sm:max-h-80 w-full object-contain rounded-2xl" />
+          <img
+            src={blobUrl}
+            alt={fileName}
+            className="max-h-72 sm:max-h-80 w-full object-contain rounded-2xl"
+            onError={(e) => {
+              if (catalogFallbackUrl && !e.currentTarget.dataset.fallbackTried) {
+                e.currentTarget.dataset.fallbackTried = "1";
+                e.currentTarget.src = catalogFallbackUrl;
+              }
+            }}
+          />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition rounded-2xl" />
         </div>
       );
@@ -491,20 +506,35 @@ export function renderMessageContent(
     if (match) {
       const [, type, messageId, extra] = match;
       const mediaUrl = `${BACKEND_URL}/api/baileys/media?messageId=${messageId}`;
+      const catalogFallbackUrl = extra
+        ? `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(extra)}`
+        : "";
 
       if (type === "image") {
         return wrapMediaWithCaption(
           <div
             className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
-            onClick={() => {
+            onClick={(e) => {
+              const imgEl = e.currentTarget.querySelector("img");
+              const activeSrc = imgEl?.src || mediaUrl;
               if (onMediaClick) {
-                onMediaClick("image", mediaUrl);
+                onMediaClick("image", activeSrc);
               } else {
-                window.open(mediaUrl, "_blank");
+                window.open(activeSrc, "_blank");
               }
             }}
           >
-            <img src={mediaUrl} alt="Imagem" className="max-h-72 sm:max-h-80 w-full object-contain rounded-2xl" />
+            <img
+              src={mediaUrl}
+              alt={extra || "Imagem"}
+              className="max-h-72 sm:max-h-80 w-full object-contain rounded-2xl"
+              onError={(e) => {
+                if (catalogFallbackUrl && !e.currentTarget.dataset.fallbackTried) {
+                  e.currentTarget.dataset.fallbackTried = "1";
+                  e.currentTarget.src = catalogFallbackUrl;
+                }
+              }}
+            />
           </div>
         );
       }
@@ -588,24 +618,255 @@ export function isEmojiOnly(text: string): boolean {
   return emojiRegex.test(stripped);
 }
 
+export interface QuotedMediaInfo {
+  isMedia: boolean;
+  mediaType: "image" | "video" | "audio" | "document" | "sticker" | null;
+  label: string;
+  thumbnailUrl: string | null;
+  fallbackThumbnailUrl: string | null;
+  fileName: string | null;
+}
+
+export function parseQuotedMedia(content: string | null | undefined): QuotedMediaInfo {
+  if (!content) {
+    return {
+      isMedia: false,
+      mediaType: null,
+      label: "",
+      thumbnailUrl: null,
+      fallbackThumbnailUrl: null,
+      fileName: null,
+    };
+  }
+
+  const newlineIndex = content.indexOf("\n");
+  const mediaTag = newlineIndex !== -1 ? content.slice(0, newlineIndex).trim() : content.trim();
+  const captionText = newlineIndex !== -1 ? content.slice(newlineIndex + 1).trim() : "";
+
+  const getDefaultMediaLabel = (
+    type: "image" | "video" | "audio" | "document" | "sticker",
+    fileName?: string | null
+  ) => {
+    if (captionText) return captionText;
+    if (type === "image") return "Foto";
+    if (type === "video") return "Vídeo";
+    if (type === "audio") return "Áudio";
+    if (type === "sticker") return "Figurinha";
+    return fileName || "Documento";
+  };
+
+  if (mediaTag.startsWith("[LOCAL_MEDIA:")) {
+    const inner = mediaTag.slice("[LOCAL_MEDIA:".length).replace(/\]$/, "");
+    const typeEnd = inner.indexOf(":");
+    const rawType = (typeEnd !== -1 ? inner.slice(0, typeEnd) : inner).toLowerCase();
+    const mediaType = (
+      ["image", "video", "audio", "document", "sticker"].includes(rawType) ? rawType : "document"
+    ) as "image" | "video" | "audio" | "document" | "sticker";
+
+    const afterType = typeEnd !== -1 ? inner.slice(typeEnd + 1) : "";
+    const lastColon = afterType.lastIndexOf(":");
+    const rawUrl = lastColon !== -1 ? afterType.slice(0, lastColon).trim() : afterType.trim();
+    const fileName = lastColon !== -1 ? afterType.slice(lastColon + 1).trim() : null;
+    const catalogFallbackUrl = fileName
+      ? `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(fileName)}`
+      : null;
+
+    const isVisual = mediaType === "image" || mediaType === "sticker";
+    return {
+      isMedia: true,
+      mediaType,
+      label: getDefaultMediaLabel(mediaType, fileName),
+      thumbnailUrl: isVisual ? rawUrl || catalogFallbackUrl : null,
+      fallbackThumbnailUrl: isVisual ? catalogFallbackUrl : null,
+      fileName,
+    };
+  }
+
+  if (mediaTag.startsWith("[MEDIA:")) {
+    const match = mediaTag.match(
+      /^\[MEDIA:(image|video|audio|document|sticker)\]([^:\]]*)(?::([^\]]+))?$/
+    );
+    if (match) {
+      const [, rawType, rawMessageId, rawFileName] = match;
+      const mediaType = rawType as "image" | "video" | "audio" | "document" | "sticker";
+      const messageId = rawMessageId?.trim() || "";
+      const fileName = rawFileName?.trim() || null;
+      const mediaUrl = messageId
+        ? `${BACKEND_URL}/api/baileys/media?messageId=${encodeURIComponent(messageId)}`
+        : null;
+      const catalogFallbackUrl = fileName
+        ? `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(fileName)}`
+        : null;
+
+      const isVisual = mediaType === "image" || mediaType === "sticker";
+      return {
+        isMedia: true,
+        mediaType,
+        label: getDefaultMediaLabel(mediaType, fileName),
+        thumbnailUrl: isVisual ? mediaUrl || catalogFallbackUrl : null,
+        fallbackThumbnailUrl: isVisual ? catalogFallbackUrl : null,
+        fileName,
+      };
+    }
+  }
+
+  if (mediaTag.startsWith("[MEDIA_URL:")) {
+    const inner = mediaTag.slice("[MEDIA_URL:".length).replace(/\]$/, "");
+    const typeEnd = inner.indexOf(":");
+    const rawType = (typeEnd !== -1 ? inner.slice(0, typeEnd) : inner).toLowerCase();
+    const mediaType = (
+      ["image", "video", "audio", "document", "sticker"].includes(rawType) ? rawType : "document"
+    ) as "image" | "video" | "audio" | "document" | "sticker";
+    const afterType = typeEnd !== -1 ? inner.slice(typeEnd + 1) : "";
+    const lastColon = afterType.lastIndexOf(":");
+    const hasHttpAfterLastColon =
+      lastColon !== -1 && /^\/\//.test(afterType.slice(lastColon + 1));
+    const rawUrl =
+      lastColon !== -1 && !hasHttpAfterLastColon
+        ? afterType.slice(0, lastColon).trim()
+        : afterType.trim();
+    const fileName =
+      lastColon !== -1 && !hasHttpAfterLastColon ? afterType.slice(lastColon + 1).trim() : null;
+    const isVisual = mediaType === "image" || mediaType === "sticker";
+    return {
+      isMedia: true,
+      mediaType,
+      label: getDefaultMediaLabel(mediaType, fileName),
+      thumbnailUrl: isVisual ? rawUrl : null,
+      fallbackThumbnailUrl: null,
+      fileName,
+    };
+  }
+
+  return {
+    isMedia: false,
+    mediaType: null,
+    label: content,
+    thumbnailUrl: null,
+    fallbackThumbnailUrl: null,
+    fileName: null,
+  };
+}
+
 export function getFriendlyQuotedContent(content: string | null | undefined): string {
-  if (!content) return "";
-  if (content.startsWith("[MEDIA:audio]") || content.startsWith("[LOCAL_MEDIA:audio]")) {
-    return "Áudio";
+  return parseQuotedMedia(content).label;
+}
+
+export interface QuotedMessagePreviewProps {
+  sender: string;
+  content: string | null | undefined;
+  variant?: "outgoing" | "incoming" | "card" | "composer";
+  onClick?: (e: React.MouseEvent) => void;
+  className?: string;
+}
+
+export function QuotedMessagePreview({
+  sender,
+  content,
+  variant = "incoming",
+  onClick,
+  className = "",
+}: QuotedMessagePreviewProps) {
+  const parsed = useMemo(() => parseQuotedMedia(content), [content]);
+  const [thumbSrc, setThumbSrc] = useState<string | null>(parsed.thumbnailUrl);
+  const [thumbHidden, setThumbHidden] = useState(false);
+
+  useEffect(() => {
+    setThumbSrc(parsed.thumbnailUrl);
+    setThumbHidden(false);
+  }, [parsed.thumbnailUrl]);
+
+  const renderMediaIcon = () => {
+    if (!parsed.isMedia) return null;
+    const iconClass = "h-3.5 w-3.5 shrink-0 inline-block opacity-85";
+    switch (parsed.mediaType) {
+      case "image":
+        return <Image className={iconClass} />;
+      case "video":
+        return <Film className={iconClass} />;
+      case "audio":
+        return <Mic className={iconClass} />;
+      case "document":
+        return <FileText className={iconClass} />;
+      case "sticker":
+        return <Sparkles className={iconClass} />;
+      default:
+        return null;
+    }
+  };
+
+  if (variant === "composer") {
+    return (
+      <div className={`flex items-center justify-between gap-3 flex-1 min-w-0 ${className}`}>
+        <div className="min-w-0 flex-1">
+          <div className="font-bold text-primary mb-0.5 truncate">Respondendo a {sender}</div>
+          <div className="truncate text-muted-foreground font-medium text-[11px] flex items-center gap-1.5">
+            {renderMediaIcon()}
+            <span className="truncate">{parsed.label}</span>
+          </div>
+        </div>
+        {thumbSrc && !thumbHidden && (
+          <div className="h-11 w-11 shrink-0 rounded-lg overflow-hidden border border-border/60 bg-black/5">
+            <img
+              src={thumbSrc}
+              alt={parsed.label || "Miniatura"}
+              className="h-full w-full object-cover"
+              onError={() => {
+                if (parsed.fallbackThumbnailUrl && thumbSrc !== parsed.fallbackThumbnailUrl) {
+                  setThumbSrc(parsed.fallbackThumbnailUrl);
+                } else {
+                  setThumbHidden(true);
+                }
+              }}
+            />
+          </div>
+        )}
+      </div>
+    );
   }
-  if (content.startsWith("[MEDIA:image]") || content.startsWith("[LOCAL_MEDIA:image]")) {
-    return "Foto";
-  }
-  if (content.startsWith("[MEDIA:video]") || content.startsWith("[LOCAL_MEDIA:video]")) {
-    return "Vídeo";
-  }
-  if (content.startsWith("[MEDIA:document]") || content.startsWith("[LOCAL_MEDIA:document]")) {
-    return "Documento";
-  }
-  if (content.startsWith("[MEDIA:sticker]")) {
-    return "Figurinha";
-  }
-  return content;
+
+  const containerStyles =
+    variant === "outgoing"
+      ? "border-l-white/75 bg-black/15 hover:bg-black/25 text-white/95"
+      : variant === "card"
+        ? "border-l-primary bg-card/95 border border-border/80 hover:bg-card text-muted-foreground shadow-xs"
+        : "border-l-primary bg-muted hover:bg-muted/80 text-muted-foreground";
+
+  const senderStyles =
+    variant === "outgoing" ? "text-white font-bold opacity-95" : "text-primary font-bold";
+
+  return (
+    <div
+      onClick={onClick}
+      className={`flex items-stretch justify-between gap-2.5 rounded-lg border-l-4 overflow-hidden select-none max-w-full cursor-pointer transition ${containerStyles} ${className}`}
+    >
+      <div className="flex flex-col justify-center min-w-0 flex-1 py-1.5 pl-2.5 pr-1">
+        <div className={`text-[10px] leading-tight mb-0.5 truncate ${senderStyles}`}>
+          {sender}
+        </div>
+        <div className="truncate font-medium text-[11px] flex items-center gap-1">
+          {renderMediaIcon()}
+          <span className="truncate">{parsed.label}</span>
+        </div>
+      </div>
+      {thumbSrc && !thumbHidden && (
+        <div className="h-12 w-12 shrink-0 overflow-hidden bg-black/10 self-center">
+          <img
+            src={thumbSrc}
+            alt={parsed.label || "Foto citada"}
+            className="h-full w-full object-cover"
+            onError={() => {
+              if (parsed.fallbackThumbnailUrl && thumbSrc !== parsed.fallbackThumbnailUrl) {
+                setThumbSrc(parsed.fallbackThumbnailUrl);
+              } else {
+                setThumbHidden(true);
+              }
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
@@ -788,6 +1049,19 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [transferModalSubmitting, setTransferModalSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState<string[]>([]);
+
+  useEffect(() => {
+    const urls = attachments.map((file) =>
+      file.type.startsWith("image/") ? URL.createObjectURL(file) : ""
+    );
+    setAttachmentPreviewUrls(urls);
+    return () => {
+      for (const u of urls) {
+        if (u) URL.revokeObjectURL(u);
+      }
+    };
+  }, [attachments]);
   type OutgoingQueueItem = BrowserIntent;
   const [localPending, setLocalPending] = useState<BrowserIntent[]>([]);
   useEffect(() => {
@@ -2319,11 +2593,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const showDateSeparator = Boolean(currDate && (!prevDate || currDate !== prevDate));
             const dateLabel = showDateSeparator ? currDate : null;
 
-            const quotedTarget =
-              m.quotedMessageId && !m.quotedMessageContent
-                ? messageMap.get(m.quotedMessageId)
-                : null;
-            const displayQuotedContent = m.quotedMessageContent || quotedTarget?.text || null;
+            const quotedTarget = m.quotedMessageId ? messageMap.get(m.quotedMessageId) : null;
+            const displayQuotedContent =
+              (m.quotedMessageContent && !m.quotedMessageContent.startsWith("[LOCAL_MEDIA:")
+                ? m.quotedMessageContent
+                : quotedTarget?.text || m.quotedMessageContent) || null;
             const displayQuotedSender =
               m.quotedMessageSender ||
               (quotedTarget
@@ -2870,10 +3144,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           className="relative group flex items-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 max-w-[200px]"
                         >
                           {/* Image preview thumbnail */}
-                          {file.type.startsWith("image/") ? (
+                          {file.type.startsWith("image/") && attachmentPreviewUrls[i] ? (
                             <div className="h-10 w-10 shrink-0 rounded-lg overflow-hidden bg-black/5">
                               <img
-                                src={URL.createObjectURL(file)}
+                                src={attachmentPreviewUrls[i]}
                                 alt={file.name}
                                 className="h-full w-full object-cover"
                               />
@@ -2906,15 +3180,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
                   {/* Reply preview panel */}
                   {replyingTo && (
-                    <div className="flex items-center justify-between gap-4 mb-2 rounded-xl bg-muted/60 border border-border px-4 py-2 text-xs leading-relaxed animate-in slide-in-from-bottom-2 duration-150 border-l-4 border-l-primary">
-                      <div className="min-w-0">
-                        <div className="font-bold text-primary mb-0.5">
-                          Respondendo a {replyingTo.author}
-                        </div>
-                        <div className="truncate text-muted-foreground font-medium text-[11px]">
-                          {getFriendlyQuotedContent(replyingTo.text)}
-                        </div>
-                      </div>
+                    <div className="flex items-center justify-between gap-3 mb-2 rounded-xl bg-muted/60 border border-border px-3.5 py-2 text-xs leading-relaxed animate-in slide-in-from-bottom-2 duration-150 border-l-4 border-l-primary">
+                      <QuotedMessagePreview
+                        sender={replyingTo.author}
+                        content={replyingTo.text}
+                        variant="composer"
+                      />
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button

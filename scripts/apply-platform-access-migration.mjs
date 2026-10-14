@@ -164,6 +164,10 @@ const migrations = [
     name: "0039_rd_marketing_sync",
     url: new URL("../src/db/migrations/0039_rd_marketing_sync.sql", import.meta.url),
   },
+  {
+    name: "0040_knowledge_and_media_indexes",
+    url: new URL("../src/db/migrations/0040_knowledge_and_media_indexes.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

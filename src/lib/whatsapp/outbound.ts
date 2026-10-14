@@ -2,7 +2,7 @@ import { dispatchStored, storedResult } from "./dispatch";
 import { outboundEnvelope } from "./envelope";
 import { db } from "../../db";
 import { messages, conversations, channelConfigs } from "../../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { UniversalOutboundMessage, UniversalOutboundResult, WhatsAppProviderType } from "./types";
 
 import { getMetaServiceWindow } from "./meta-policy";
@@ -134,6 +134,37 @@ export class OutboundQueue {
       ? payload.text?.trim() || `[Template Meta: ${payload.templateName}]`
       : mediaContent || payload.text || "";
 
+    let quotedMessageSender: string | null = null;
+    let quotedMessageContent: string | null = null;
+    if (payload.quotedMessageId) {
+      try {
+        const [quotedRow] = await db
+          .select({
+            senderName: messages.senderName,
+            senderType: messages.senderType,
+            content: messages.content,
+          })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.tenantId, tenantId),
+              or(
+                eq(messages.id, payload.quotedMessageId),
+                eq(messages.externalId, payload.quotedMessageId)
+              )
+            )
+          )
+          .limit(1);
+        if (quotedRow) {
+          quotedMessageSender =
+            quotedRow.senderName || (quotedRow.senderType === "agent" ? "Operador" : "Cliente");
+          quotedMessageContent = quotedRow.content || null;
+        }
+      } catch (qErr) {
+        console.warn("[OutboundQueue] Falha ao buscar metadados da mensagem citada:", qErr);
+      }
+    }
+
     // 4. Preservar a intenção pendente antes de reservar o despacho.
     try {
       await db.insert(messages).values({
@@ -144,6 +175,8 @@ export class OutboundQueue {
         senderName: payload.senderName || "Operador",
         content,
         quotedMessageId: payload.quotedMessageId || null,
+        quotedMessageSender,
+        quotedMessageContent,
         isInternalNote: false,
         direction: "outbound",
         provider: activeProvider,

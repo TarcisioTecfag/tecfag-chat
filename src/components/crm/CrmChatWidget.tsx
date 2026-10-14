@@ -56,6 +56,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
+import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
 import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
 import { toast } from "sonner";
 import type { Conversation, Message } from "@/lib/mockData";
@@ -1819,16 +1820,34 @@ export function CrmChatWidget() {
                               );
                             }
 
+                            const quotedTarget = message.quotedMessageId
+                              ? threadMessages.find((m: any) => m.id === message.quotedMessageId)
+                              : null;
+                            const resolvedQuotedContent =
+                              (message.quotedMessageContent &&
+                              !message.quotedMessageContent.startsWith("[LOCAL_MEDIA:")
+                                ? message.quotedMessageContent
+                                : quotedTarget?.text || message.quotedMessageContent) || null;
+                            const resolvedQuotedSender =
+                              message.quotedMessageSender ||
+                              (quotedTarget
+                                ? quotedTarget.side === "out"
+                                  ? "Você"
+                                  : quotedTarget.author || selected.name
+                                : "Mensagem");
+
                             // Mensagem do Operador (Enviada / Eu)
                             if (isMe) {
                               return (
                                 <div key={message.id || i} className="flex justify-end w-full group">
                                   <div className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text">
-                                    {message.quotedMessageContent && (
-                                      <div className="mb-1.5 rounded-lg border-l-2 border-white/70 bg-white/15 px-2 py-1 text-[10px] text-white/95">
-                                        <div className="font-bold opacity-90">{message.quotedMessageSender || "Mensagem"}</div>
-                                        <div className="truncate opacity-80">{message.quotedMessageContent}</div>
-                                      </div>
+                                    {resolvedQuotedContent && (
+                                      <QuotedMessagePreview
+                                        sender={resolvedQuotedSender}
+                                        content={resolvedQuotedContent}
+                                        variant="outgoing"
+                                        className="mb-1.5"
+                                      />
                                     )}
                                     <MiniMediaRenderer
                                       text={message.text}
@@ -1858,11 +1877,13 @@ export function CrmChatWidget() {
                                   className="mb-1"
                                 />
                                 <div className="max-w-[85%] rounded-2xl rounded-bl-xs border border-border/80 bg-card px-3.5 py-2.5 text-foreground shadow-xs text-xs leading-relaxed select-text">
-                                  {message.quotedMessageContent && (
-                                    <div className="mb-1.5 rounded-lg border-l-2 border-primary bg-muted/60 px-2 py-1 text-[10px] text-muted-foreground">
-                                      <div className="font-bold text-primary">{message.quotedMessageSender || "Mensagem"}</div>
-                                      <div className="truncate">{message.quotedMessageContent}</div>
-                                    </div>
+                                  {resolvedQuotedContent && (
+                                    <QuotedMessagePreview
+                                      sender={resolvedQuotedSender}
+                                      content={resolvedQuotedContent}
+                                      variant="incoming"
+                                      className="mb-1.5"
+                                    />
                                   )}
                                   <MiniMediaRenderer
                                     text={message.text}

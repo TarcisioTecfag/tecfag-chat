@@ -1153,40 +1153,37 @@ export function KnowledgeTab() {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      {/* Botão de Ver Conteúdo Extraído (RAG Inspector) */}
-                      <button
-                        type="button"
-                        disabled={loadingContentId === file.id}
-                        onClick={async () => {
-                          const content = await fetchFileContent(file.id);
-                          setPreviewFile({ ...file, content } as any);
-                        }}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-primary-soft/40 text-[10px] font-bold text-foreground hover:text-primary transition cursor-pointer shadow-soft disabled:opacity-50"
-                        title="Ver o texto que a IA aprendeu deste arquivo"
-                      >
-                        {loadingContentId === file.id
-                          ? <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                          : <Eye className="h-3 w-3 text-primary" />
-                        }
-                        <span>Ver RAG</span>
-                      </button>
-
-                      {/* Botão Ver Foto — apenas para Formato Real + imagem */}
-                      {file.format === "real" && file.type === "image" && (
+                      {/* Botão de Ver Conteúdo Extraído (RAG Inspector) — oculto para fotos em Formato Real */}
+                      {!(file.format === "real" && file.type === "image") && (
                         <button
                           type="button"
                           disabled={loadingContentId === file.id}
                           onClick={async () => {
                             const content = await fetchFileContent(file.id);
-                            setPreviewImageFile({ ...file, content } as any);
+                            setPreviewFile({ ...file, content } as any);
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/20 text-[10px] font-bold text-foreground hover:text-amber-600 transition cursor-pointer shadow-soft disabled:opacity-50"
-                          title={`Visualizar a imagem real que ${persona.name} envia`}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-primary-soft/40 text-[10px] font-bold text-foreground hover:text-primary transition cursor-pointer shadow-soft disabled:opacity-50"
+                          title="Ver o texto que a IA aprendeu deste arquivo"
                         >
                           {loadingContentId === file.id
-                            ? <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
-                            : <ImageIcon className="h-3 w-3 text-amber-500" />
+                            ? <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                            : <Eye className="h-3 w-3 text-primary" />
                           }
+                          <span>Ver RAG</span>
+                        </button>
+                      )}
+
+                      {/* Botão Ver Foto — apenas para Formato Real + imagem (abre instantaneamente via stream binário) */}
+                      {file.format === "real" && file.type === "image" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewImageFile(file as any);
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/20 text-[10px] font-bold text-foreground hover:text-amber-600 transition cursor-pointer shadow-soft"
+                          title={`Visualizar a imagem real que ${persona.name} envia`}
+                        >
+                          <ImageIcon className="h-3 w-3 text-amber-500" />
                           <span>Ver Foto</span>
                         </button>
                       )}
@@ -1285,15 +1282,19 @@ export function KnowledgeTab() {
 
       {/* ── MODAL: Preview de Imagem Real (Ver Foto) ──────────────────────────── */}
       {previewImageFile && (() => {
-        // Extrai base64 do content: "[FORMATO_REAL:url][BASE64:xxxxx]"
         const content = previewImageFile.content || "";
-        const base64Match = content.match(/\[BASE64:([A-Za-z0-9+/=]+)\]/);
-        const base64Data = base64Match ? base64Match[1] : null;
-        // Detecta mime type pela extensão do nome
+        const base64Start = content.indexOf("[BASE64:");
+        let base64Data: string | null = null;
+        if (base64Start !== -1) {
+          const base64End = content.indexOf("]", base64Start + 8);
+          base64Data = base64End !== -1 ? content.slice(base64Start + 8, base64End) : content.slice(base64Start + 8);
+        }
         const ext = previewImageFile.name.split(".").pop()?.toLowerCase() || "jpeg";
         const mimeMap: Record<string, string> = { jpg: "jpeg", jpeg: "jpeg", png: "png", webp: "webp", gif: "gif" };
         const mime = `image/${mimeMap[ext] || "jpeg"}`;
-        const imgSrc = base64Data ? `data:${mime};base64,${base64Data}` : null;
+        const imgSrc = base64Data
+          ? `data:${mime};base64,${base64Data}`
+          : `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(previewImageFile.id)}`;
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">

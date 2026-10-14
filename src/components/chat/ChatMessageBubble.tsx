@@ -18,7 +18,7 @@ import {
   renderTextWithLinks,
   renderMessageContent,
   isEmojiOnly,
-  getFriendlyQuotedContent,
+  QuotedMessagePreview,
 } from "./ChatPanel";
 
 export interface ChatMessageBubbleProps {
@@ -232,17 +232,13 @@ function ChatMessageBubbleComponent({
             {isSticker ? (
               <div className="leading-relaxed">
                 {displayQuotedContent && (
-                  <div
+                  <QuotedMessagePreview
+                    sender={displayQuotedSender}
+                    content={displayQuotedContent}
+                    variant="card"
+                    className="mb-1"
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
-                    className="mb-1 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
-                  >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">
-                      {displayQuotedSender}
-                    </div>
-                    <div className="truncate font-medium">
-                      {getFriendlyQuotedContent(displayQuotedContent)}
-                    </div>
-                  </div>
+                  />
                 )}
                 {renderMessageContent(
                   m.text,
@@ -256,17 +252,13 @@ function ChatMessageBubbleComponent({
             ) : isAudioOrDoc ? (
               <div className="flex flex-col items-end gap-1.5">
                 {displayQuotedContent && (
-                  <div
+                  <QuotedMessagePreview
+                    sender={displayQuotedSender}
+                    content={displayQuotedContent}
+                    variant="card"
+                    className="mb-0.5"
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
-                    className="mb-0.5 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
-                  >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">
-                      {displayQuotedSender}
-                    </div>
-                    <div className="truncate font-medium">
-                      {getFriendlyQuotedContent(displayQuotedContent)}
-                    </div>
-                  </div>
+                  />
                 )}
                 {renderMessageContent(
                   m.text,
@@ -302,17 +294,13 @@ function ChatMessageBubbleComponent({
                 }}
               >
                 {displayQuotedContent && (
-                  <div
+                  <QuotedMessagePreview
+                    sender={displayQuotedSender}
+                    content={displayQuotedContent}
+                    variant="outgoing"
+                    className="mb-1.5"
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
-                    className="mb-1.5 rounded-lg border-l-4 border-l-white/60 bg-white/10 px-2.5 py-1.5 text-[11px] text-white/95 select-none max-w-full cursor-pointer hover:bg-white/20 transition"
-                  >
-                    <div className="font-bold text-[10px] mb-0.5 opacity-90">
-                      {displayQuotedSender}
-                    </div>
-                    <div className="truncate font-medium">
-                      {getFriendlyQuotedContent(displayQuotedContent)}
-                    </div>
-                  </div>
+                  />
                 )}
                 {renderMessageContent(
                   m.text,
@@ -445,17 +433,13 @@ function ChatMessageBubbleComponent({
             {isSticker ? (
               <div className="leading-relaxed">
                 {displayQuotedContent && (
-                  <div
+                  <QuotedMessagePreview
+                    sender={displayQuotedSender}
+                    content={displayQuotedContent}
+                    variant="card"
+                    className="mb-1"
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
-                    className="mb-1 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
-                  >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">
-                      {displayQuotedSender}
-                    </div>
-                    <div className="truncate font-medium">
-                      {getFriendlyQuotedContent(displayQuotedContent)}
-                    </div>
-                  </div>
+                  />
                 )}
                 {renderMessageContent(
                   m.text,
@@ -469,17 +453,13 @@ function ChatMessageBubbleComponent({
             ) : isAudioOrDoc && !m.isWarning ? (
               <div className="flex flex-col items-start gap-1.5">
                 {displayQuotedContent && (
-                  <div
+                  <QuotedMessagePreview
+                    sender={displayQuotedSender}
+                    content={displayQuotedContent}
+                    variant="card"
+                    className="mb-0.5"
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
-                    className="mb-0.5 rounded-lg border-l-4 border-l-primary bg-card/90 border border-border/80 px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-card transition shadow-xs"
-                  >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">
-                      {displayQuotedSender}
-                    </div>
-                    <div className="truncate font-medium">
-                      {getFriendlyQuotedContent(displayQuotedContent)}
-                    </div>
-                  </div>
+                  />
                 )}
                 {renderMessageContent(
                   m.text,
@@ -525,17 +505,13 @@ function ChatMessageBubbleComponent({
                   </div>
                 )}
                 {displayQuotedContent && (
-                  <div
+                  <QuotedMessagePreview
+                    sender={displayQuotedSender}
+                    content={displayQuotedContent}
+                    variant="incoming"
+                    className="mb-1.5"
                     onClick={(e) => quotedTargetId && onScrollToQuoted(e, quotedTargetId)}
-                    className="mb-1.5 rounded-lg border-l-4 border-l-primary bg-muted px-2.5 py-1.5 text-[11px] text-muted-foreground select-none max-w-full cursor-pointer hover:bg-muted/80 transition"
-                  >
-                    <div className="font-bold text-[10px] mb-0.5 text-primary">
-                      {displayQuotedSender}
-                    </div>
-                    <div className="truncate font-medium">
-                      {getFriendlyQuotedContent(displayQuotedContent)}
-                    </div>
-                  </div>
+                  />
                 )}
                 {renderMessageContent(
                   m.text,
