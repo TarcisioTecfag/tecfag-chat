@@ -17,6 +17,7 @@ dist-ssr
 *.local
 uploads/
 media/
+public/knowledge-media/
 
 # Wrangler / Cloudflare
 .wrangler/

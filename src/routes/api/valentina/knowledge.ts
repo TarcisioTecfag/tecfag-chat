@@ -242,8 +242,38 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
           // Action 1: Criar/Editar/Mover Pasta
           if (action === "create_folder" || action === "update_folder" || action === "move_folder") {
             const { id, name, parentId } = body;
-            const folderId = id || `f-${Date.now()}`;
+            const cleanName = (name || "Nova Pasta").trim();
             const targetParentId = parentId !== undefined && parentId !== "" ? parentId : null;
+
+            if (action === "create_folder") {
+              const allTenantFolders = await db
+                .select()
+                .from(knowledgeFolders)
+                .where(eq(knowledgeFolders.tenantId, tenantId));
+
+              const duplicateByName = allTenantFolders.find(
+                (f) =>
+                  f.name.trim().toLowerCase() === cleanName.toLowerCase() &&
+                  (f.parentId || null) === targetParentId
+              );
+
+              if (duplicateByName) {
+                return new Response(
+                  JSON.stringify({
+                    success: true,
+                    reused: true,
+                    folder: {
+                      id: duplicateByName.id,
+                      name: duplicateByName.name,
+                      parentId: duplicateByName.parentId,
+                    },
+                  }),
+                  { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+              }
+            }
+
+            const folderId = id || `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
             const existing = await db
               .select()
@@ -253,23 +283,23 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
             if (existing.length > 0) {
               await db
                 .update(knowledgeFolders)
-                .set({ 
-                  name: name || existing[0].name, 
-                  parentId: targetParentId 
+                .set({
+                  name: cleanName || existing[0].name,
+                  parentId: targetParentId,
                 })
                 .where(and(eq(knowledgeFolders.id, folderId), eq(knowledgeFolders.tenantId, tenantId)));
             } else {
               await db.insert(knowledgeFolders).values({
                 id: folderId,
                 tenantId,
-                name: name || "Nova Pasta",
+                name: cleanName,
                 parentId: targetParentId,
                 createdAt: new Date(),
               });
             }
 
             return new Response(
-              JSON.stringify({ success: true, folder: { id: folderId, name, parentId: targetParentId } }),
+              JSON.stringify({ success: true, folder: { id: folderId, name: cleanName, parentId: targetParentId } }),
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
@@ -290,80 +320,174 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
             );
           }
 
-          // Action 3: Subir Arquivo com Extração Real de Texto
-          if (action === "upload_file") {
-            const { name, size, type, format, folderId, content, base64 } = body;
-            const fileId = `kf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          // Helper interno para salvar ou atualizar um arquivo (suporta upload único e em lote)
+          const processSingleFileUpload = async (
+            item: {
+              name: string;
+              size?: string;
+              type?: string;
+              format?: string;
+              folderId?: string | null;
+              content?: string | null;
+              base64?: string | null;
+            },
+            validFolderIdsSet: Set<string>
+          ) => {
+            const rawName = (item.name || "arquivo").trim();
+            const ext = rawName.split(".").pop()?.toLowerCase() || "";
+            const isImageFile =
+              item.type === "image" || ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
 
-            // Verificar se a pasta folderId existe dentro do tenant
-            let validFolderId: string | null = folderId || null;
-            if (validFolderId) {
-              const [folderCheck] = await db
-                .select()
-                .from(knowledgeFolders)
-                .where(and(eq(knowledgeFolders.id, validFolderId), eq(knowledgeFolders.tenantId, tenantId)));
+            // Imagens com base64 são SEMPRE salvas em Formato Real para garantir funcionamento no Catálogo e IA
+            const effectiveType = isImageFile ? "image" : item.type || "txt";
+            const effectiveFormat =
+              isImageFile && item.base64 ? "real" : item.format || "embeddings";
 
-              if (!folderCheck) {
-                validFolderId = null;
-              }
-            }
+            const validFolderId =
+              item.folderId && validFolderIdsSet.has(item.folderId) ? item.folderId : null;
+
+            // Verifica se já existe arquivo com o mesmo nome no mesmo tenant (evita duplicatas em re-uploads)
+            const existingCandidates = await db
+              .select({
+                id: knowledgeFiles.id,
+                folderId: knowledgeFiles.folderId,
+                name: knowledgeFiles.name,
+              })
+              .from(knowledgeFiles)
+              .where(and(eq(knowledgeFiles.tenantId, tenantId), eq(knowledgeFiles.name, rawName)));
+
+            const existingFile =
+              existingCandidates.find((c) => c.folderId === validFolderId) ||
+              (isImageFile ? existingCandidates[0] : undefined);
+
+            const fileId =
+              existingFile?.id ||
+              `kf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
             let mediaUrl: string | null = null;
             let realBase64: string | null = null;
 
-            if (format === "real" && base64 && (type === "image" || ["png","jpg","jpeg","gif","webp","pdf","docx","doc"].some(e => name.toLowerCase().endsWith(`.${e}`)))) {
-              realBase64 = base64;
+            if (
+              effectiveFormat === "real" &&
+              item.base64 &&
+              (effectiveType === "image" ||
+                ["png", "jpg", "jpeg", "gif", "webp", "pdf", "docx", "doc"].includes(ext))
+            ) {
+              realBase64 = item.base64;
+              const safeExt = ext || "jpg";
+              const safeFileName = `${fileId}.${safeExt}`;
+              mediaUrl = `/knowledge-media/${safeFileName}`;
               try {
-                const ext = name.split(".").pop()?.toLowerCase() || "bin";
-                const safeFileName = `${fileId}.${ext}`;
                 const filePath = path.join(MEDIA_DIR, safeFileName);
-                const buf = Buffer.from(base64, "base64");
+                const buf = Buffer.from(item.base64, "base64");
                 fs.writeFileSync(filePath, buf);
-                mediaUrl = `/knowledge-media/${safeFileName}`;
               } catch (saveErr: any) {
-                const ext = name.split(".").pop()?.toLowerCase() || "jpg";
-                mediaUrl = `/knowledge-media/${fileId}.${ext}`;
+                console.warn(`[knowledge.ts] Aviso ao gravar arquivo em disco (${safeFileName}):`, saveErr?.message);
               }
             }
 
             let extractedContent: string;
-            if (format === "real" && mediaUrl) {
-              if (type === "image" && realBase64) {
+            if (effectiveFormat === "real" && mediaUrl) {
+              if (effectiveType === "image" && realBase64) {
                 extractedContent = `[FORMATO_REAL:${mediaUrl}][BASE64:${realBase64}]`;
               } else {
-                const textContent = await extractKnowledgeText(name, type, base64, content);
+                const textContent = await extractKnowledgeText(
+                  rawName,
+                  effectiveType,
+                  item.base64,
+                  item.content
+                );
                 extractedContent = `[FORMATO_REAL:${mediaUrl}] ${textContent}`;
               }
             } else {
-              extractedContent = await extractKnowledgeText(name, type, base64, content);
+              extractedContent = await extractKnowledgeText(
+                rawName,
+                effectiveType,
+                item.base64,
+                item.content
+              );
             }
 
-            await db.insert(knowledgeFiles).values({
+            const now = new Date();
+            if (existingFile) {
+              await db
+                .update(knowledgeFiles)
+                .set({
+                  folderId: validFolderId,
+                  name: rawName,
+                  size: item.size || "10 KB",
+                  type: effectiveType,
+                  format: effectiveFormat,
+                  content: extractedContent,
+                  uploadedAt: now,
+                })
+                .where(and(eq(knowledgeFiles.id, fileId), eq(knowledgeFiles.tenantId, tenantId)));
+            } else {
+              await db.insert(knowledgeFiles).values({
+                id: fileId,
+                tenantId,
+                folderId: validFolderId,
+                name: rawName,
+                size: item.size || "10 KB",
+                type: effectiveType,
+                format: effectiveFormat,
+                content: extractedContent,
+                uploadedAt: now,
+              });
+            }
+
+            return {
               id: fileId,
-              tenantId,
+              name: rawName,
+              size: item.size || "10 KB",
+              type: effectiveType,
+              format: effectiveFormat,
+              mediaUrl,
+              uploadedAt: now.toLocaleDateString("pt-BR"),
               folderId: validFolderId,
-              name,
-              size: size || "10 KB",
-              type: type || "txt",
-              format: format || "embeddings",
-              content: extractedContent,
-              uploadedAt: new Date(),
-            });
+              updated: !!existingFile,
+            };
+          };
+
+          // Action 3: Subir Arquivo Único (com auto-detecção de imagem em Formato Real e upsert)
+          if (action === "upload_file") {
+            const tenantFolders = await db
+              .select({ id: knowledgeFolders.id })
+              .from(knowledgeFolders)
+              .where(eq(knowledgeFolders.tenantId, tenantId));
+            const validFolderIdsSet = new Set(tenantFolders.map((f) => f.id));
+
+            const savedFile = await processSingleFileUpload(body, validFolderIdsSet);
 
             return new Response(
               JSON.stringify({
                 success: true,
-                file: {
-                  id: fileId,
-                  name,
-                  size,
-                  type,
-                  format,
-                  content: extractedContent,
-                  mediaUrl,
-                  uploadedAt: new Date().toLocaleDateString("pt-BR"),
-                  folderId: validFolderId,
-                },
+                file: savedFile,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          // Action 4: Subir Lote de Arquivos em Massa (upload_batch)
+          if (action === "upload_batch" && Array.isArray(body.items)) {
+            const tenantFolders = await db
+              .select({ id: knowledgeFolders.id })
+              .from(knowledgeFolders)
+              .where(eq(knowledgeFolders.tenantId, tenantId));
+            const validFolderIdsSet = new Set(tenantFolders.map((f) => f.id));
+
+            const savedFiles = [];
+            for (const item of body.items) {
+              if (!item || !item.name) continue;
+              const saved = await processSingleFileUpload(item, validFolderIdsSet);
+              savedFiles.push(saved);
+            }
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                files: savedFiles,
+                count: savedFiles.length,
               }),
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );

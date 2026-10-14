@@ -319,123 +319,245 @@ export function KnowledgeTab() {
     }
   };
 
-  // ── Upload de Pasta Completa (com hierarquia) ────────────────────────────────
+  // ── Upload de Pasta Completa (com hierarquia e deduplicação inteligente VTEX) ──
 
   const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
-    if (!selectedFolderId) {
-      alert("Por favor, selecione ou crie uma pasta destino primeiro.");
-      return;
-    }
 
-    const allFiles = Array.from(e.target.files);
+    const rawFiles = Array.from(e.target.files).filter((f) => {
+      const lower = f.name.toLowerCase();
+      if (lower === "thumbs.db" || lower === ".ds_store" || lower === "desktop.ini") return false;
+      const ext = lower.split(".").pop() || "";
+      return [
+        "pdf",
+        "doc",
+        "docx",
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "txt",
+        "md",
+        "json",
+        "csv",
+        "xlsx",
+        "xls",
+      ].includes(ext);
+    });
     e.target.value = ""; // reset input
 
-    // Mapeia cada caminho relativo de pasta → ID no backend
-    const folderPathToId = new Map<string, string>();
-    folderPathToId.set("", selectedFolderId); // raiz = pasta selecionada
+    if (rawFiles.length === 0) return;
 
-    // Coleta todos os caminhos de pasta únicos (ordenados por profundidade)
+    // Detecção inteligente da pasta "FOTOS MAQUINAS VTEX":
+    // Se o usuário selecionou a pasta raiz contendo as 3 subpastas ("1 - Por Categoria", "2 - Por Pasta...", "3 - Todas as..."),
+    // usamos automaticamente "1 - Por Categoria" para importar apenas as 447 fotos únicas divididas nas 33 categorias!
+    const hasPorCategoria = rawFiles.some((f) =>
+      (f.webkitRelativePath || "").replace(/\\/g, "/").includes("1 - Por Categoria/")
+    );
+    const hasMirrors = rawFiles.some((f) => {
+      const rel = (f.webkitRelativePath || "").replace(/\\/g, "/");
+      return rel.includes("2 - Por Pasta") || rel.includes("3 - Todas as");
+    });
+
+    const allFiles =
+      hasPorCategoria && hasMirrors
+        ? rawFiles.filter((f) =>
+            (f.webkitRelativePath || "").replace(/\\/g, "/").includes("1 - Por Categoria/")
+          )
+        : rawFiles;
+
+    // Se todas as imagens estão sendo importadas, ativa visualmente "Formato Real"
+    const allAreImages = allFiles.every((f) => {
+      const ext = f.name.split(".").pop()?.toLowerCase() || "";
+      return ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+    });
+    if (allAreImages && uploadMode !== "real") {
+      setUploadMode("real");
+    }
+
+    // Se a pasta selecionada for a pasta padrão "Geral" e estamos subindo múltiplas categorias,
+    // criamos as pastas de categoria na raiz (parentId = null) para organização limpa.
+    const currentSelectedObj = folders.find((f) => f.id === selectedFolderId);
+    const baseParentId =
+      !selectedFolderId || currentSelectedObj?.name.toLowerCase() === "geral"
+        ? null
+        : selectedFolderId;
+
+    // Normaliza os segmentos de pasta de cada arquivo
+    const extractNormalizedFolderParts = (file: File): string[] => {
+      const rel = (file.webkitRelativePath || "").replace(/\\/g, "/");
+      const parts = rel.split("/").filter(Boolean);
+      if (parts.length <= 1) return [];
+
+      const folderSegments = parts.slice(0, -1); // remove o nome do arquivo
+      // Se contiver "1 - Por Categoria", pega apenas as subpastas abaixo dela (ex: ["Seladoras"])
+      const porCatIdx = folderSegments.findIndex((p) => p.includes("1 - Por Categoria"));
+      if (porCatIdx !== -1) {
+        const afterCat = folderSegments.slice(porCatIdx + 1);
+        return afterCat.length > 0 ? afterCat : ["Catálogo de Máquinas"];
+      }
+
+      // Se a pasta selecionada tem subpastas (ex: ["Root", "Subpasta"]), usa as subpastas;
+      // se os arquivos estão direto na pasta selecionada (ex: ["Seladoras"]), cria a própria pasta ["Seladoras"]
+      if (folderSegments.length > 1) {
+        return folderSegments.slice(1);
+      }
+      return folderSegments;
+    };
+
+    const folderPathToId = new Map<string, string | null>();
+    folderPathToId.set("", baseParentId);
+
     const folderPaths = new Set<string>();
     for (const file of allFiles) {
-      const parts = file.webkitRelativePath.split("/");
-      // parts[0] = nome da pasta raiz que o usuário selecionou, partes[N-1] = arquivo
-      for (let depth = 1; depth < parts.length - 1; depth++) {
-        folderPaths.add(parts.slice(0, depth + 1).join("/"));
+      const normParts = extractNormalizedFolderParts(file);
+      for (let depth = 1; depth <= normParts.length; depth++) {
+        folderPaths.add(normParts.slice(0, depth).join("/"));
       }
     }
 
-    // Cria as pastas em ordem de profundidade (mais rasas primeiro)
     const sortedPaths = Array.from(folderPaths).sort(
       (a, b) => a.split("/").length - b.split("/").length
     );
+
+    let firstCreatedFolderId: string | null = null;
 
     for (const folderPath of sortedPaths) {
       const parts = folderPath.split("/");
       const folderName = parts[parts.length - 1];
       const parentPath = parts.slice(0, -1).join("/");
-      const parentId = folderPathToId.get(parentPath) || selectedFolderId;
+      const parentId = folderPathToId.has(parentPath)
+        ? folderPathToId.get(parentPath) ?? null
+        : baseParentId;
 
-      const newId = `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      folderPathToId.set(folderPath, newId);
-
-      const newFolder: FolderType = { id: newId, name: folderName, parentId };
-      setFolders(prev => [...prev, newFolder]);
-      setExpandedFolderIds(prev => new Set(prev).add(parentId));
+      const requestedId = `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       try {
-        await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+        const res = await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             tenantId: tenant || "valem",
             action: "create_folder",
-            id: newId,
+            id: requestedId,
             name: folderName,
             parentId,
           }),
         });
+        const data = await res.json().catch(() => ({}));
+        const effectiveId: string = data?.folder?.id || requestedId;
+        folderPathToId.set(folderPath, effectiveId);
+        if (!firstCreatedFolderId) firstCreatedFolderId = effectiveId;
+
+        setFolders((prev) => {
+          if (prev.some((f) => f.id === effectiveId)) return prev;
+          return [...prev, { id: effectiveId, name: folderName, parentId }];
+        });
+        if (parentId) {
+          setExpandedFolderIds((prev) => new Set(prev).add(parentId));
+        }
       } catch (err) {
         console.error("[KnowledgeTab] Erro ao criar subpasta:", err);
+        folderPathToId.set(folderPath, requestedId);
       }
     }
 
-    // Agora enfileira os arquivos para upload, cada um para sua pasta correta
-    const newItems: UploadQueueItem[] = [];
-    const originalSelectedFolderId = selectedFolderId;
-
-    for (const file of allFiles) {
-      const parts = file.webkitRelativePath.split("/");
-      // A pasta destino é o penúltimo segmento do caminho
-      const fileFolderPath = parts.slice(0, -1).join("/");
-      const targetFolderId = folderPathToId.get(fileFolderPath) || originalSelectedFolderId;
-
-      newItems.push({ file, status: "pending", progress: 0, _targetFolderId: targetFolderId } as any);
+    if (firstCreatedFolderId) {
+      setSelectedFolderId(firstCreatedFolderId);
     }
 
-    setUploadQueue(prev => {
+    // Enfileira os arquivos para upload, cada um para sua pasta correta
+    const newItems: (UploadQueueItem & { _targetFolderId?: string | null })[] = [];
+
+    for (const file of allFiles) {
+      const normParts = extractNormalizedFolderParts(file);
+      const fileFolderPath = normParts.join("/");
+      const targetFolderId =
+        folderPathToId.get(fileFolderPath) || firstCreatedFolderId || selectedFolderId;
+
+      newItems.push({
+        file,
+        status: "pending",
+        progress: 0,
+        _targetFolderId: targetFolderId,
+      });
+    }
+
+    setUploadQueue((prev) => {
       const combined = [...prev, ...newItems];
       setTimeout(() => runUploadQueueWithFolderIds(combined), 0);
       return combined;
     });
   };
 
-  // Versão do runUploadQueue que respeita _targetFolderId por item
-  const runUploadQueueWithFolderIds = useCallback(async (queue: (UploadQueueItem & { _targetFolderId?: string })[]) => {
-    if (queueRunningRef.current) return;
-    queueRunningRef.current = true;
-    setIsQueueRunning(true);
+  // Versão paralela de alta velocidade do runUploadQueue que respeita _targetFolderId por item
+  const runUploadQueueWithFolderIds = useCallback(
+    async (queue: (UploadQueueItem & { _targetFolderId?: string | null })[]) => {
+      if (queueRunningRef.current) return;
+      queueRunningRef.current = true;
+      setIsQueueRunning(true);
 
-    for (let i = 0; i < queue.length; i++) {
-      if (queue[i].status !== "pending") continue;
+      const CONCURRENCY = 6;
+      let cursor = 0;
 
-      setUploadQueue(prev => prev.map((item, idx) =>
-        idx === i ? { ...item, status: "uploading", progress: 30 } : item
-      ));
+      const worker = async () => {
+        while (cursor < queue.length) {
+          const i = cursor++;
+          if (queue[i].status !== "pending") continue;
 
-      const targetFolderId = (queue[i] as any)._targetFolderId || selectedFolderId;
+          setUploadQueue((prev) =>
+            prev.map((item, idx) =>
+              idx === i ? { ...item, status: "uploading", progress: 40 } : item
+            )
+          );
 
-      try {
-        const savedFile = await uploadSingleFileToFolder(queue[i].file, targetFolderId);
-        if (savedFile) setFiles(prev => [...prev, savedFile]);
-        setUploadQueue(prev => prev.map((item, idx) =>
-          idx === i ? { ...item, status: "done", progress: 100 } : item
-        ));
-      } catch (err: any) {
-        setUploadQueue(prev => prev.map((item, idx) =>
-          idx === i ? { ...item, status: "error", progress: 0, error: err.message } : item
-        ));
-      }
+          const targetFolderId = (queue[i] as any)._targetFolderId || selectedFolderId;
 
-      await new Promise(r => setTimeout(r, 150));
-    }
+          try {
+            const savedFile = await uploadSingleFileToFolder(queue[i].file, targetFolderId);
+            if (savedFile) {
+              setFiles((prev) => {
+                const exists = prev.some((f) => f.id === savedFile.id);
+                if (exists) {
+                  return prev.map((f) => (f.id === savedFile.id ? savedFile : f));
+                }
+                return [...prev, savedFile];
+              });
+            }
+            setUploadQueue((prev) =>
+              prev.map((item, idx) =>
+                idx === i ? { ...item, status: "done", progress: 100 } : item
+              )
+            );
+          } catch (err: any) {
+            setUploadQueue((prev) =>
+              prev.map((item, idx) =>
+                idx === i
+                  ? { ...item, status: "error", progress: 0, error: err.message }
+                  : item
+              )
+            );
+          }
+        }
+      };
 
-    queueRunningRef.current = false;
-    setIsQueueRunning(false);
-  }, [selectedFolderId, uploadMode, BACKEND_URL]);
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker())
+      );
 
-  // Versão de uploadSingleFile que aceita folderId explícito
-  const uploadSingleFileToFolder = async (fileObj: File, folderId: string | null): Promise<FileType | null> => {
+      queueRunningRef.current = false;
+      setIsQueueRunning(false);
+    },
+    [selectedFolderId, uploadMode, BACKEND_URL, tenant]
+  );
+
+  // Versão de uploadSingleFile que aceita folderId explícito (imagens SEMPRE em Formato Real)
+  const uploadSingleFileToFolder = async (
+    fileObj: File,
+    folderId: string | null
+  ): Promise<FileType | null> => {
     const fileName = fileObj.name;
     const fileSize = fileObj.size;
     const extension = fileName.split(".").pop()?.toLowerCase() || "";
@@ -445,9 +567,13 @@ export function KnowledgeTab() {
     else if (["doc", "docx"].includes(extension)) type = "word";
     else if (["png", "jpg", "jpeg", "webp", "gif"].includes(extension)) type = "image";
 
-    const formattedSize = fileSize > 1024 * 1024
-      ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
-      : `${(fileSize / 1024).toFixed(0)} KB`;
+    // Imagens são sempre salvas em Formato Real para exibição no Catálogo e envio no Chat
+    const effectiveFormat = type === "image" ? "real" : uploadMode;
+
+    const formattedSize =
+      fileSize > 1024 * 1024
+        ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(1, Math.round(fileSize / 1024))} KB`;
 
     let fileContent = "";
     let base64Data: string | null = null;
@@ -475,13 +601,14 @@ export function KnowledgeTab() {
     const res = await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({
         tenantId: tenant || "valem",
         action: "upload_file",
         name: fileName,
         size: formattedSize,
         type,
-        format: uploadMode,
+        format: effectiveFormat,
         folderId,
         content: fileContent || null,
         base64: base64Data,
@@ -504,6 +631,7 @@ export function KnowledgeTab() {
     try {
       await fetch(`${BACKEND_URL}/api/valentina/knowledge?type=file&id=${id}`, {
         method: "DELETE",
+        credentials: "include",
       });
     } catch (err) {
       console.error("[KnowledgeTab] Erro ao deletar arquivo na API:", err);
@@ -512,121 +640,101 @@ export function KnowledgeTab() {
 
   // ── Upload em Fila de Múltiplos Arquivos ────────────────────────────────────
 
-  const uploadSingleFile = async (fileObj: File, queueIdx: number): Promise<FileType | null> => {
-    const fileName = fileObj.name;
-    const fileSize = fileObj.size;
-    const extension = fileName.split(".").pop()?.toLowerCase() || "";
-
-    let type: FileType["type"] = "txt";
-    if (extension === "pdf") type = "pdf";
-    else if (["doc", "docx"].includes(extension)) type = "word";
-    else if (["png", "jpg", "jpeg", "webp", "gif"].includes(extension)) type = "image";
-
-    const formattedSize = fileSize > 1024 * 1024
-      ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
-      : `${(fileSize / 1024).toFixed(0)} KB`;
-
-    let fileContent = "";
-    let base64Data: string | null = null;
-
-    if (type === "txt" || ["md", "json", "csv", "tsv"].includes(extension)) {
-      fileContent = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve((e.target?.result as string) || "");
-        reader.onerror = () => resolve("");
-        reader.readAsText(fileObj);
-      });
-    } else {
-      base64Data = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const res = (e.target?.result as string) || "";
-          const commaIdx = res.indexOf(",");
-          resolve(commaIdx !== -1 ? res.slice(commaIdx + 1) : res);
-        };
-        reader.onerror = () => resolve("");
-        reader.readAsDataURL(fileObj);
-      });
-    }
-
-    const res = await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tenantId: tenant || "valem",
-        action: "upload_file",
-        name: fileName,
-        size: formattedSize,
-        type,
-        format: uploadMode,
-        folderId: selectedFolderId,
-        content: fileContent || null,
-        base64: base64Data,
-      }),
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error || `HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data.file || null;
+  const uploadSingleFile = async (fileObj: File, _queueIdx: number): Promise<FileType | null> => {
+    return uploadSingleFileToFolder(fileObj, selectedFolderId);
   };
 
-  const runUploadQueue = useCallback(async (queue: UploadQueueItem[]) => {
-    if (queueRunningRef.current) return;
-    queueRunningRef.current = true;
-    setIsQueueRunning(true);
+  const runUploadQueue = useCallback(
+    async (queue: UploadQueueItem[]) => {
+      if (queueRunningRef.current) return;
+      queueRunningRef.current = true;
+      setIsQueueRunning(true);
 
-    for (let i = 0; i < queue.length; i++) {
-      if (queue[i].status !== "pending") continue;
+      const CONCURRENCY = 5;
+      let cursor = 0;
 
-      setUploadQueue(prev => prev.map((item, idx) =>
-        idx === i ? { ...item, status: "uploading", progress: 30 } : item
-      ));
+      const worker = async () => {
+        while (cursor < queue.length) {
+          const i = cursor++;
+          if (queue[i].status !== "pending") continue;
 
-      try {
-        const savedFile = await uploadSingleFile(queue[i].file, i);
-        if (savedFile) {
-          setFiles(prev => [...prev, savedFile]);
+          setUploadQueue((prev) =>
+            prev.map((item, idx) =>
+              idx === i ? { ...item, status: "uploading", progress: 40 } : item
+            )
+          );
+
+          try {
+            const savedFile = await uploadSingleFile(queue[i].file, i);
+            if (savedFile) {
+              setFiles((prev) => {
+                const exists = prev.some((f) => f.id === savedFile.id);
+                if (exists) {
+                  return prev.map((f) => (f.id === savedFile.id ? savedFile : f));
+                }
+                return [...prev, savedFile];
+              });
+            }
+            setUploadQueue((prev) =>
+              prev.map((item, idx) =>
+                idx === i ? { ...item, status: "done", progress: 100 } : item
+              )
+            );
+          } catch (err: any) {
+            setUploadQueue((prev) =>
+              prev.map((item, idx) =>
+                idx === i
+                  ? { ...item, status: "error", progress: 0, error: err.message }
+                  : item
+              )
+            );
+          }
         }
-        setUploadQueue(prev => prev.map((item, idx) =>
-          idx === i ? { ...item, status: "done", progress: 100 } : item
-        ));
-      } catch (err: any) {
-        setUploadQueue(prev => prev.map((item, idx) =>
-          idx === i ? { ...item, status: "error", progress: 0, error: err.message } : item
-        ));
+      };
+
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker())
+      );
+
+      queueRunningRef.current = false;
+      setIsQueueRunning(false);
+    },
+    [selectedFolderId, uploadMode, BACKEND_URL, tenant]
+  );
+
+  const enqueueFiles = useCallback(
+    (fileList: FileList | File[]) => {
+      if (!selectedFolderId) {
+        alert("Por favor, selecione ou crie uma pasta primeiro.");
+        return;
       }
 
-      // Pequeno delay entre uploads para não sobrecarregar o servidor
-      await new Promise(r => setTimeout(r, 150));
-    }
+      const arr = Array.from(fileList);
+      const allAreImages =
+        arr.length > 0 &&
+        arr.every((f) => {
+          const ext = f.name.split(".").pop()?.toLowerCase() || "";
+          return ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+        });
+      if (allAreImages && uploadMode !== "real") {
+        setUploadMode("real");
+      }
 
-    queueRunningRef.current = false;
-    setIsQueueRunning(false);
-  }, [selectedFolderId, uploadMode, BACKEND_URL]);
+      const newItems: UploadQueueItem[] = arr.map((file) => ({
+        file,
+        status: "pending",
+        progress: 0,
+      }));
 
-  const enqueueFiles = useCallback((fileList: FileList | File[]) => {
-    if (!selectedFolderId) {
-      alert("Por favor, selecione ou crie uma pasta primeiro.");
-      return;
-    }
-
-    const newItems: UploadQueueItem[] = Array.from(fileList).map(file => ({
-      file,
-      status: "pending",
-      progress: 0,
-    }));
-
-    setUploadQueue(prev => {
-      const combined = [...prev, ...newItems];
-      // Dispara a fila com o array combinado atual
-      setTimeout(() => runUploadQueue(combined), 0);
-      return combined;
-    });
-  }, [selectedFolderId, runUploadQueue]);
+      setUploadQueue((prev) => {
+        const combined = [...prev, ...newItems];
+        // Dispara a fila com o array combinado atual
+        setTimeout(() => runUploadQueue(combined), 0);
+        return combined;
+      });
+    },
+    [selectedFolderId, runUploadQueue, uploadMode]
+  );
 
   const clearQueue = () => {
     if (!isQueueRunning) {
